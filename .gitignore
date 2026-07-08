@@ -1,0 +1,45 @@
+.DS_Store
+
+# Editors and local workspace metadata
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment and secrets
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# Logs
+*.log
+logs/
+
+# Python/local virtual environments
+venv/
+.venv/
+
+# Old Node/TypeScript artifacts
+node_modules/
+.pnpm-store/
+dist/
+coverage/
+
+# Future Kotlin/Gradle artifacts
+.gradle/
+build/
+*/build/
+out/
+*.class
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+.cache/

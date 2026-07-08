@@ -1,0 +1,5 @@
+name: simple-ontology
+ontologySources:
+  - id: simple
+    path: ontology/simple.ttl
+    format: turtle
