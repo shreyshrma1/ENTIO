@@ -90,12 +90,17 @@ The completion record must not introduce new product scope, future-phase plans, 
 
 ## Completion Response
 
-After implementation, the agent should summarize:
+After implementation, the agent should provide a concise summary in the chat and confirm that the slice completion record was created.
+
+The response should summarize:
 
 1. What changed.
 2. Which ExecPlan slice was implemented.
 3. Which files were modified.
 4. Which tests were added or updated.
-5. Which commands were run.
+5. Which verification commands were run and whether they passed.
 6. Whether a Git commit was created.
-7. Any assumptions, limitations, or follow-up work.
+7. The path to the slice completion record in `docs/decisions/`.
+8. Any assumptions, limitations, or follow-up work.
+
+The chat response should not replace the Markdown completion record. The Markdown file in `docs/decisions/` is the durable project record; the chat response is only a human-readable summary.
