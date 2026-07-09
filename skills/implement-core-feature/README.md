@@ -18,34 +18,54 @@ Before writing code, the agent must read:
 * the approved feature spec
 * the approved ExecPlan
 
-`AGENTS.md` is the source of truth for the current active phase, phase boundaries, and current non-goals.
+`AGENTS.md` is the source of truth for general agent guidelines, current active phase, phase boundaries, current non-goals, and Git/version control behavior.
 
 ## Implementation Rules
 
 The agent should:
 
-* Implement only the files and behavior described in the approved ExecPlan.
-* Keep changes small and focused.
-* Keep product logic out of `shared` unless it is truly generic and reusable.
-* Use existing RDF, OWL, and SHACL libraries where appropriate instead of inventing standards machinery.
-* Add or update focused tests for the implemented behavior.
-* Update relevant documentation if the implementation changes expected behavior.
-* Run the relevant verification commands before reporting completion.
+* Implement one approved ExecPlan slice at a time.
+* Before editing code, identify the exact ExecPlan slice being implemented.
+* Restate the slice’s goal, allowed files, forbidden files, expected output, tests, and verification commands.
+* Implement only the concrete behavior described in that ExecPlan slice.
+* Do not infer or implement future slices.
+* Do not expand the slice because a nearby change seems useful.
+* If the slice is too vague to implement safely, stop and ask for clarification.
+* If the implementation requires changing files outside the slice’s allowed scope, stop and ask before editing them.
+* If the implementation requires changing shared contracts, module boundaries, dependencies, build files, or phase scope, stop and ask before continuing.
+* If no concrete implementation is required for the slice, report that clearly instead of adding placeholder logic or speculative utilities.
 
 ## Boundary Check
 
-Before implementing, the agent must confirm that the work fits within the active phase described in `AGENTS.md` and the relevant architecture documents.
+Before implementing, the agent must confirm that the selected ExecPlan slice is compatible with:
 
-If the implementation appears to require later-phase infrastructure, the agent should stop and explain the conflict instead of adding that infrastructure.
+* `AGENTS.md`
+* the approved feature spec
+* the approved ExecPlan
+* relevant architecture documents
 
-Examples of later-phase infrastructure may include product surfaces, integrations, ingestion pipelines, autonomous agents, or other capabilities that are not part of the current active phase.
+If the slice conflicts with project guidance, phase scope, module boundaries, or allowed files, the agent should stop and explain the conflict instead of implementing.
+
+If the slice is underspecified, the agent should stop and ask for clarification instead of guessing.
+
+## Version Control
+
+Each completed implementation slice should be treated as a separate version-controlled change.
+
+After completing and verifying a slice, the agent should prepare a focused Git commit for that slice, or create the commit if the task prompt explicitly authorizes it, following the Git and version control rules in `AGENTS.md`.
+
+Do not combine multiple unrelated slices into one commit.
+
+Do not commit or push if the slice is incomplete, tests or verification failed, required review is pending, or the task prompt explicitly says not to commit or push.
 
 ## Completion Response
 
 After implementation, the agent should summarize:
 
 1. What changed.
-2. Which files were modified.
-3. Which tests were added or updated.
-4. Which commands were run.
-5. Any assumptions, limitations, or follow-up work.
+2. Which ExecPlan slice was implemented.
+3. Which files were modified.
+4. Which tests were added or updated.
+5. Which commands were run.
+6. Whether a Git commit was created.
+7. Any assumptions, limitations, or follow-up work.

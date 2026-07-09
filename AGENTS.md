@@ -10,7 +10,7 @@ The system should be ontology-first, meaning AI should work within approved conc
 
 ## Current Rule For Agents
 
-Do not create new modules, dependencies, or implementation code unless explicitly asked. During Phase 0B, do not add Kotlin/JVM Gradle scaffold files, module directories, source files, test files, build dependencies, or CI infrastructure unless an explicit scaffold task requests them.
+Do not create new modules, dependencies, or implementation code unless explicitly asked.
 
 When asked to implement code later, keep changes limited to the module or files named in the task.
 
@@ -131,7 +131,7 @@ Prefer plain classes, simple functions, and clear module boundaries until comple
 
 ## Kotlin Engineering Rules
 
-Follow these Kotlin rules unless the user explicitly updates the project direction.
+Follow these Kotlin rules unless the user explicitly updates the project direction. For more detailed explanations, examples, and further guidelines, refer to docs/architecture/003-kotlin-engine-guidelines.md
 
 ### 1. Follow Kotlin coding conventions
 
@@ -196,12 +196,50 @@ Do not bypass formatting or lint failures unless explicitly approved.
 
 Do not add server frameworks, dependency injection frameworks, coroutine infrastructure, database layers, or plugin systems unless a spec and ExecPlan explicitly justify them.
 
+### 11. Comment and document code intentionally
+
+Prefer clear names and simple structure over excessive comments.
+
+Use comments to explain why code exists, not to restate what the code does.
+
+Good comments explain:
+
+- Non-obvious design decisions.
+- Important constraints.
+- Deterministic ordering requirements.
+- Safety checks.
+- Library boundary decisions.
+- Temporary workarounds with a clear reason.
+
+Avoid comments that merely repeat the code.
+
+Use KDoc for public classes, public functions, and public data objects when their purpose, contract, or usage is not obvious from the name.
+
+Do not leave commented-out code in the repository.
+
+If a TODO is necessary, include the reason and expected follow-up.
+
+Good Example:
+
+```kotlin
+// Sort issues to keep validation output stable across repeated runs.
+val sortedIssues = issues.sortedWith(issueComparator)
+```
+
+Bad Example:
+
+```kotlin
+// Sort the issues.
+val sortedIssues = issues.sortedWith(issueComparator)
+```
+
 ## Documentation Style
 
 - Be explicit about scope and non-goals.
 - Use clear language for enterprise and semantic-web concepts.
 - Distinguish trusted ontology rules from AI-generated draft changes.
 - Favor concise architecture notes over broad speculative design.
+- Prefer comments and KDoc that explain intent, constraints, and tradeoffs rather than restating the code.
 
 ## Git And Version Control Rules
 
