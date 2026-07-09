@@ -58,6 +58,36 @@ Do not combine multiple unrelated slices into one commit.
 
 Do not commit or push if the slice is incomplete, tests or verification failed, required review is pending, or the task prompt explicitly says not to commit or push.
 
+## Completion Artifact
+
+After completing and verifying a slice, the agent must create a Markdown completion record in `docs/decisions/`.
+
+The file name should clearly identify the phase and slice.
+
+Recommended format:
+
+`docs/decisions/phase-<phase-number>-slice-<slice-number>-<slice-name>.md`
+
+Example:
+
+`docs/decisions/phase-1-slice-2-core-types.md`
+
+This completion record is considered part of the implementation slice, even if `docs/decisions/` is not listed in the slice’s allowed files, unless the ExecPlan or `AGENTS.md` explicitly forbids documentation updates.
+
+The completion record should include:
+
+1. ExecPlan slice implemented.
+2. Goal of the slice.
+3. Files modified.
+4. Tests added or updated.
+5. Verification commands run.
+6. Result of each verification command.
+7. Whether a Git commit was created.
+8. Any assumptions, limitations, or follow-up work.
+9. Any notable implementation decisions made while staying within the approved scope.
+
+The completion record must not introduce new product scope, future-phase plans, or speculative architecture.
+
 ## Completion Response
 
 After implementation, the agent should summarize:
