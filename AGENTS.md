@@ -261,7 +261,29 @@ If the repository has uncommitted changes that were not made during the current 
 
 Do not overwrite, discard, rebase, reset, or force-push user work unless explicitly instructed.
 
-### 2. Use branches for meaningful changes
+### 2. Confirm local base is current before starting implementation
+
+Before creating a branch for a meaningful change, check whether the local base branch is up to date with the remote.
+
+Run:
+
+```bash
+git fetch --prune origin
+git status -sb
+```
+
+If the current task should start from `main`, switch to `main` and update it with a fast-forward pull:
+
+```bash
+git switch main
+git pull --ff-only origin main
+```
+
+If the local branch has diverged from the remote, or if updating would require a merge, rebase, reset, or force operation, stop and ask the user before continuing.
+
+Do not start a new implementation branch from an outdated local base unless the user explicitly instructs otherwise.
+
+### 3. Use branches for meaningful changes
 
 Do not commit directly to `main` after the initial repository setup unless explicitly instructed.
 
@@ -279,7 +301,7 @@ fix/validation-report-ordering
 
 Branch names should be lowercase and use hyphens.
 
-### 3. Keep commits focused
+### 4. Keep commits focused
 
 Each commit should represent one logical change.
 
@@ -302,7 +324,7 @@ changes
 work
 ```
 
-### 4. Review staged changes before committing
+### 5. Review staged changes before committing
 
 Before committing, run:
 
@@ -315,7 +337,7 @@ Summarize what is staged.
 
 Do not commit files that appear unrelated to the current task.
 
-### 5. Keep `.gitignore` current
+### 6. Keep `.gitignore` current
 
 Before committing, check for generated files, dependency folders, local environment files, build outputs, secrets, editor files, operating system files, and logs.
 
@@ -346,13 +368,13 @@ gradle/wrapper/gradle-wrapper.jar
 gradle/wrapper/gradle-wrapper.properties
 ```
 
-### 6. Do not commit secrets
+### 7. Do not commit secrets
 
 Never commit credentials, API keys, tokens, private keys, passwords, or local environment files.
 
 If a file appears to contain secrets, stop and ask the user before staging it.
 
-### 7. Run verification before committing when applicable
+### 8. Run verification before committing when applicable
 
 For documentation-only changes, verification may be limited to reviewing diffs.
 
@@ -366,7 +388,7 @@ For Kotlin/Gradle changes, run the relevant commands when available:
 
 For future formatting or static analysis, run the configured checks when available.
 
-### 8. Ask before pushing unless already authorized
+### 9. Ask before pushing unless already authorized
 
 Unless the user explicitly asked to push, prepare the commit and summarize:
 
@@ -378,7 +400,7 @@ Unless the user explicitly asked to push, prepare the commit and summarize:
 
 If the user explicitly asked to push, push the current branch after committing.
 
-### 9. Avoid force pushes
+### 10. Avoid force pushes
 
 Do not use:
 
@@ -389,7 +411,7 @@ git push --force-with-lease
 
 unless explicitly instructed and the reason is clearly explained.
 
-### 10. Summarize Git actions
+### 11. Summarize Git actions
 
 After a commit or push, summarize:
 
