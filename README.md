@@ -18,15 +18,15 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository is currently in Phase 0B: documentation and planning context for Phase 1.
+This repository now contains the Phase 1 Kotlin/JVM Core Semantic Engine foundation.
 
-Phase 1 will be the Core Semantic Engine, the first backend foundation for Entio. The Phase 1 core engine will be built in Kotlin/JVM because the core work is ontology loading, RDF/Turtle parsing, deterministic validation, semantic diffing, and CLI behavior.
+Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because the core work is ontology loading, RDF/Turtle parsing, deterministic validation, semantic diffing, and CLI behavior.
 
-This repository does not contain product implementation logic yet. The actual Kotlin/JVM Gradle multi-module scaffold will be created later by an explicit scaffold task.
+The current implementation supports small local Entio projects, Turtle/RDF parsing through Apache Jena, deterministic validation reports, semantic graph diffs, and a thin CLI.
 
-## Future Workspace Direction
+## Workspace Structure
 
-The future Phase 1 scaffold should use Kotlin/JVM with Gradle modules:
+The Phase 1 Gradle workspace contains:
 
 - `core-types`
 - `semantic-engine`
@@ -37,16 +37,56 @@ The future Phase 1 scaffold should use Kotlin/JVM with Gradle modules:
 
 TypeScript may still be used later for VS Code or web interfaces, but those interfaces are not part of Phase 1. Future TypeScript layers should consume the Kotlin/JVM core engine rather than duplicate semantic logic.
 
-## Phase 1 Focus
+## Phase 1 Capabilities
 
-Phase 1 should support:
+Phase 1 currently supports:
 
-- Loading an Entio project.
+- Loading an Entio project configuration.
+- Resolving local ontology source files.
 - Parsing small Turtle/RDF ontology files using existing libraries.
 - Representing Entio-specific project objects, symbols, validation results, and graph diffs.
 - Running basic validation checks.
 - Generating semantic diffs.
 - Exposing these capabilities through a simple CLI.
+
+Implemented CLI commands:
+
+```bash
+./gradlew :cli:run --args="validate ../examples/simple-ontology"
+./gradlew :cli:run --args="symbols ../examples/simple-ontology"
+./gradlew :cli:run --args="diff ../examples/simple-ontology ../examples/simple-ontology"
+```
+
+Note: Gradle runs `:cli:run` from the `cli` module working directory, so the example path uses `../examples/simple-ontology`.
+
+## Developer Commands
+
+Run tests:
+
+```bash
+./gradlew test
+```
+
+Build all modules:
+
+```bash
+./gradlew build
+```
+
+Run checks:
+
+```bash
+./gradlew check
+```
+
+## Current Limitations
+
+- `semantic-engine` currently exposes the project-loading workflow as smaller services, not as a single public `ProjectLoader`.
+- `EntioProject` exists as a core data object, but it is not yet constructed by a public engine API.
+- Only Turtle is supported.
+- Semantic diffs are graph-triple based, with a small special case for `rdfs:label` changes.
+- CLI output is text-only.
+- Entio does not store project versions itself; `diff` compares two project directories supplied by the caller.
 
 ## Explicit Non-Goals For Phase 1
 
@@ -74,3 +114,4 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 1 Scope](docs/architecture/001-phase-1-scope.md)
 - [Technical Approach](docs/architecture/002-technical-approach.md)
 - [Kotlin Engine Guidelines](docs/architecture/003-kotlin-engine-guidelines.md)
+- [Phase 1 Implementation Summary](docs/phase-summaries/phase-1-summary.md)

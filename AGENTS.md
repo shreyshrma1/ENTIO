@@ -1,6 +1,8 @@
 # Agent Guidance For Entio
 
-This repository is currently in Phase 0B. Phase 0B exists to establish documentation and shared context for a future Kotlin/JVM Phase 1 Core Semantic Engine. It does not implement product behavior yet, and the actual Kotlin/JVM Gradle multi-module scaffold should be created later only by an explicit scaffold task. When implementation begins, this file should continue to guide agent behavior unless it is explicitly updated.
+This repository now contains the Phase 1 Kotlin/JVM Core Semantic Engine foundation. Earlier Phase 0B planning documents are still present, but the repository is no longer documentation-only.
+
+Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
 ## Product Context
 
@@ -12,15 +14,13 @@ The system should be ontology-first, meaning AI should work within approved conc
 
 Do not create new modules, dependencies, or implementation code unless explicitly asked.
 
-When asked to implement code later, keep changes limited to the module or files named in the task.
+When asked to implement code, keep changes limited to the module or files named in the task.
 
 If a task seems to require later-phase infrastructure, stop and explain why before implementing it.
 
 ## Current Scope
 
-Only create and maintain initial documentation and architecture context unless explicitly asked otherwise.
-
-Phase 1 is the Core Semantic Engine. It is intended to support:
+Phase 1 is the Core Semantic Engine. It currently supports:
 
 - Loading an Entio project.
 - Parsing small Turtle/RDF ontology files with existing libraries.
@@ -28,6 +28,14 @@ Phase 1 is the Core Semantic Engine. It is intended to support:
 - Running basic validation checks.
 - Generating semantic diffs.
 - Exposing these capabilities through a simple CLI (Command Line Interface).
+
+Current implementation notes:
+
+- The Gradle modules are `core-types`, `semantic-engine`, `validation-engine`, `graph-diff`, `cli`, and `shared`.
+- The CLI exposes `validate`, `symbols`, and `diff`.
+- `semantic-engine` currently provides the project-loading workflow as smaller services, not as a single public `ProjectLoader`.
+- `EntioProject` exists as a core data object, but it is not yet constructed by a public engine API.
+- `shared` intentionally remains minimal and should not collect speculative utilities.
 
 ## Phase 1 Non-Goals
 

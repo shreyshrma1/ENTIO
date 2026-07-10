@@ -213,9 +213,9 @@ Run focused module tests:
 Run the CLI through Gradle:
 
 ```bash
-./gradlew :cli:run --args="validate examples/simple-ontology"
-./gradlew :cli:run --args="symbols examples/simple-ontology"
-./gradlew :cli:run --args="diff examples/simple-ontology examples/simple-ontology"
+./gradlew :cli:run --args="validate ../examples/simple-ontology"
+./gradlew :cli:run --args="symbols ../examples/simple-ontology"
+./gradlew :cli:run --args="diff ../examples/simple-ontology ../examples/simple-ontology"
 ```
 
 ## Examples And Fixtures
