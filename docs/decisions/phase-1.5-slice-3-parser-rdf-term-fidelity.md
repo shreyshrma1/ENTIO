@@ -38,7 +38,7 @@ Update Turtle parsing to preserve RDF term distinctions while keeping Jena conta
 
 ## Git Commit
 
-No Git commit was created.
+A Git commit was created after verification.
 
 ## Assumptions, Limitations, And Follow-Up Work
 
