@@ -6,6 +6,8 @@ Phase 1 has implemented a small Kotlin/JVM Core Semantic Engine for local Entio 
 
 The implementation now includes Gradle modules for core data contracts, semantic project behavior, validation, semantic diffing, a thin CLI, and a minimal shared module. This document summarizes the actual repository state after the Phase 1 implementation slices, not only the original plan.
 
+Phase 1 is complete. The active planning phase is now Phase 1.5: Core Semantic Engine Stabilization.
+
 ## What Phase 1 Implemented
 
 Phase 1 implemented the backend foundation for working with small local ontology projects:

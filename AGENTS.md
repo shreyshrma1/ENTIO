@@ -1,8 +1,10 @@
 # Agent Guidance For Entio
 
-This repository now contains the Phase 1 Kotlin/JVM Core Semantic Engine foundation. Earlier Phase 0B planning documents are still present, but the repository is no longer documentation-only.
+This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation. Earlier Phase 0B planning documents are still present, but the repository is no longer documentation-only.
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
+
+The active planning phase is Phase 1.5: Core Semantic Engine Stabilization. Phase 1.5 should consolidate the Phase 1 loading flow behind a reusable `ProjectLoader` API, construct `EntioProject`, and correct RDF term fidelity without introducing later product surfaces.
 
 ## Product Context
 
@@ -20,7 +22,7 @@ If a task seems to require later-phase infrastructure, stop and explain why befo
 
 ## Current Scope
 
-Phase 1 is the Core Semantic Engine. It currently supports:
+Phase 1 is complete. It currently supports:
 
 - Loading an Entio project.
 - Parsing small Turtle/RDF ontology files with existing libraries.
@@ -37,9 +39,18 @@ Current implementation notes:
 - `EntioProject` exists as a core data object, but it is not yet constructed by a public engine API.
 - `shared` intentionally remains minimal and should not collect speculative utilities.
 
-## Phase 1 Non-Goals
+Phase 1.5 is the active phase. It should focus on:
 
-Do not add the following in Phase 1 unless the project direction changes explicitly:
+- Adding a reusable `ProjectLoader` API in `semantic-engine`.
+- Constructing and returning `EntioProject`.
+- Moving project-loading orchestration out of CLI-specific code.
+- Preserving RDF IRI resources, blank nodes, plain literals, datatyped literals, and language-tagged literals.
+- Updating validation, symbol extraction, graph diffing, formatting, and CLI behavior to use the corrected RDF term model.
+- Preserving deterministic Phase 1 behavior.
+
+## Phase 1 And Phase 1.5 Non-Goals
+
+Do not add the following in Phase 1.5 unless the project direction changes explicitly:
 
 - VS Code extension.
 - Web app.
@@ -47,9 +58,11 @@ Do not add the following in Phase 1 unless the project direction changes explici
 - Autonomous AI agents.
 - Schema RAG.
 - Entity resolution.
-- Stardog integration.
-- Full FIBO indexing.
+- Full domain ontology indexing.
 - A custom RDF, OWL, or SHACL framework.
+- Ontology mutation or persistence of edited graphs.
+- Change approval, undo, redo, rollback, or version history.
+- OWL reasoning or full SHACL validation.
 
 ## Software Architecture Rules
 
