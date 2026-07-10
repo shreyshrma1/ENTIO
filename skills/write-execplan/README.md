@@ -29,6 +29,14 @@ The ExecPlan should include:
 * Target state
 * Affected modules and files
 * Step-by-step implementation plan
+* For each implementation slice:
+  * Goal
+  * Allowed files/modules
+  * Forbidden actions/modules
+  * Expected changes or output
+  * Tests
+  * Verification commands
+  * Stop conditions
 * Test plan
 * Verification commands
 * Rollback notes

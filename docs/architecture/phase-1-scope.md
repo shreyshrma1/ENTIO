@@ -2,7 +2,7 @@
 
 Phase 1 is the Core Semantic Engine. It is the first backend foundation of Entio.
 
-The current repository work is Phase 0B: documentation and planning context needed before the Kotlin/JVM Phase 1 scaffold and implementation begin.
+Phase 1 has been implemented. The current active planning phase is Phase 1.5, which stabilizes the Phase 1 engine before later product phases.
 
 ## Phase 1 Goals
 

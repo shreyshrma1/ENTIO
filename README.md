@@ -18,11 +18,13 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository now contains the Phase 1 Kotlin/JVM Core Semantic Engine foundation.
+This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation.
 
 Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because the core work is ontology loading, RDF/Turtle parsing, deterministic validation, semantic diffing, and CLI behavior.
 
 The current implementation supports small local Entio projects, Turtle/RDF parsing through Apache Jena, deterministic validation reports, semantic graph diffs, and a thin CLI.
+
+The active planning phase is Phase 1.5: Core Semantic Engine Stabilization. Phase 1.5 will consolidate project loading behind a reusable `ProjectLoader`, construct `EntioProject`, and correct RDF term fidelity while staying backend/core-engine only.
 
 ## Workspace Structure
 
@@ -83,14 +85,26 @@ Run checks:
 
 - `semantic-engine` currently exposes the project-loading workflow as smaller services, not as a single public `ProjectLoader`.
 - `EntioProject` exists as a core data object, but it is not yet constructed by a public engine API.
+- The graph model currently collapses RDF object terms into simplified values and does not preserve all RDF term distinctions.
 - Only Turtle is supported.
 - Semantic diffs are graph-triple based, with a small special case for `rdfs:label` changes.
 - CLI output is text-only.
 - Entio does not store project versions itself; `diff` compares two project directories supplied by the caller.
 
-## Explicit Non-Goals For Phase 1
+## Active Phase 1.5 Focus
 
-Phase 1 should not include:
+Phase 1.5 should:
+
+- Add a reusable `ProjectLoader` API in `semantic-engine`.
+- Return a populated `EntioProject` aggregate.
+- Move project-loading orchestration out of CLI-specific code.
+- Preserve RDF IRI resources, blank nodes, plain literals, datatyped literals, and language-tagged literals.
+- Keep Jena contained inside `semantic-engine`.
+- Preserve deterministic validation, symbol, diff, and CLI behavior.
+
+## Explicit Non-Goals For Phase 1 And Phase 1.5
+
+Phase 1.5 should not include:
 
 - VS Code extension.
 - Web app.
@@ -101,6 +115,9 @@ Phase 1 should not include:
 - Stardog integration.
 - Full FIBO indexing.
 - A custom RDF, OWL, or SHACL framework.
+- Ontology mutation or persistence of edited graphs.
+- Change approval, undo, redo, rollback, or version history.
+- OWL reasoning or full SHACL validation.
 
 ## Technical Principle
 
@@ -111,7 +128,9 @@ The project should use existing libraries for RDF parsing, graph representation,
 ## Architecture Notes
 
 - [Product Principles](docs/architecture/000-product-principles.md)
-- [Phase 1 Scope](docs/architecture/001-phase-1-scope.md)
+- [Phase 1 Scope](docs/architecture/phase-1-scope.md)
+- [Phase 1.5 Scope](docs/architecture/phase-1.5-scope.md)
 - [Technical Approach](docs/architecture/002-technical-approach.md)
 - [Kotlin Engine Guidelines](docs/architecture/003-kotlin-engine-guidelines.md)
+- [Phase 1.5 Spec](docs/specs/0002-phase-1.5-core-semantic-engine-stabilization.md)
 - [Phase 1 Implementation Summary](docs/phase-summaries/phase-1-summary.md)
