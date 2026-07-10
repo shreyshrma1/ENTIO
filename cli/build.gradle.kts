@@ -9,6 +9,7 @@ dependencies {
     implementation(project(":validation-engine"))
     implementation(project(":graph-diff"))
     implementation(project(":shared"))
+    implementation("info.picocli:picocli:4.7.6")
 }
 
 application {
