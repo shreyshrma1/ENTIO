@@ -121,6 +121,36 @@ class CliModuleTest {
     }
 
     @Test
+    fun symbolsCommandReportsStructuredLoadFailures(): Unit {
+        val missingProjectRoot = Files.createTempDirectory("entio-missing-symbols-project").resolve("missing")
+
+        val result = runCli("symbols", missingProjectRoot.toString())
+
+        assertEquals(1, result.exitCode)
+        assertEquals("", result.out)
+        assertTrue(result.err.contains("ERROR missing-entio-yaml entio.yaml Missing entio.yaml."))
+    }
+
+    @Test
+    fun diffCommandReportsStructuredLoadFailures(): Unit {
+        val before = createProject(
+            turtle = """
+                @prefix ex: <https://example.com/> .
+                @prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+                ex:Customer a owl:Class .
+            """.trimIndent(),
+        )
+        val missingAfter = Files.createTempDirectory("entio-missing-diff-project").resolve("missing")
+
+        val result = runCli("diff", before.toString(), missingAfter.toString())
+
+        assertEquals(2, result.exitCode)
+        assertEquals("", result.out)
+        assertTrue(result.err.contains("ERROR missing-entio-yaml entio.yaml Missing entio.yaml."))
+    }
+
+    @Test
     fun commandParsingReturnsTwoForMissingArguments(): Unit {
         val result = runCli("validate")
 
