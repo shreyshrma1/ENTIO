@@ -1,17 +1,22 @@
 package com.entio.semantic
 
+import com.entio.core.BlankNodeResource
 import com.entio.core.EntioResult
 import com.entio.core.GraphState
 import com.entio.core.GraphTriple
 import com.entio.core.Iri
 import com.entio.core.LoadedOntology
 import com.entio.core.OntologyFormat
+import com.entio.core.RdfLiteral
+import com.entio.core.RdfResource
+import com.entio.core.RdfTerm
 import com.entio.core.ResolvedOntologySource
 import com.entio.core.ValidationIssue
 import com.entio.core.ValidationSeverity
 import org.apache.jena.rdf.model.Model
 import org.apache.jena.rdf.model.ModelFactory
 import org.apache.jena.rdf.model.RDFNode
+import org.apache.jena.rdf.model.Resource
 import org.apache.jena.riot.Lang
 import org.apache.jena.riot.RDFDataMgr
 import org.apache.jena.riot.RiotException
@@ -50,11 +55,22 @@ public class OntologyParser {
             )
         }
 
+        val triples = try {
+            model.toGraphTriples()
+        } catch (exception: UnsupportedRdfNodeException) {
+            return failure(
+                source = source,
+                code = "unsupported-rdf-node",
+                message = "Ontology source '${source.id}' contains an RDF node Entio cannot represent.",
+                cause = exception,
+            )
+        }
+
         return EntioResult.Success(
             LoadedOntology(
                 source = source,
                 graph = GraphState(
-                    triples = model.toGraphTriples(),
+                    triples = triples,
                 ),
             ),
         )
@@ -65,19 +81,32 @@ public class OntologyParser {
             .asSequence()
             .map { statement ->
                 GraphTriple(
-                    subject = Iri(statement.subject.uri),
+                    subject = statement.subject.toRdfResource(),
                     predicate = Iri(statement.predicate.uri),
-                    objectValue = statement.`object`.stableValue(),
+                    objectTerm = statement.`object`.toRdfTerm(),
                 )
             }
             .toSet()
 
-    private fun RDFNode.stableValue(): String =
+    private fun Resource.toRdfResource(): RdfResource =
         when {
-            isURIResource -> asResource().uri
-            isLiteral -> asLiteral().lexicalForm
-            isAnon -> asResource().id.labelString
-            else -> toString()
+            isURIResource -> Iri(uri)
+            isAnon -> BlankNodeResource(id = id.labelString)
+            else -> throw UnsupportedRdfNodeException("Unsupported RDF resource: $this")
+        }
+
+    private fun RDFNode.toRdfTerm(): RdfTerm =
+        when {
+            isURIResource || isAnon -> asResource().toRdfResource()
+            isLiteral -> {
+                val literal = asLiteral()
+                RdfLiteral(
+                    lexicalForm = literal.lexicalForm,
+                    datatypeIri = literal.datatypeURI?.let(::Iri),
+                    languageTag = literal.language.takeIf { it.isNotBlank() },
+                )
+            }
+            else -> throw UnsupportedRdfNodeException("Unsupported RDF node: $this")
         }
 
     private fun failure(
@@ -98,4 +127,8 @@ public class OntologyParser {
             ),
             cause = cause,
         )
+
+    private class UnsupportedRdfNodeException(
+        message: String,
+    ) : RuntimeException(message)
 }
