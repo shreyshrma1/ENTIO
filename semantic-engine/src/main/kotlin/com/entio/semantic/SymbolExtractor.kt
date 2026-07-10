@@ -4,14 +4,16 @@ import com.entio.core.GraphTriple
 import com.entio.core.Iri
 import com.entio.core.LoadedOntology
 import com.entio.core.LoadedSymbol
+import com.entio.core.RdfLiteral
+import com.entio.core.RdfResource
 import com.entio.core.SymbolKind
 
 public class SymbolExtractor {
     public fun extractSymbols(ontology: LoadedOntology): List<LoadedSymbol> {
         val labelsByIri = ontology.graph.triples
-            .filter { it.predicate.value == RDFS_LABEL }
-            .groupBy { it.subject.value }
-            .mapValues { (_, triples) -> triples.map { it.objectValue }.minOrNull() }
+            .mapNotNull { it.toLabelCandidate() }
+            .groupBy { it.iri.value }
+            .mapValues { (_, labels) -> labels.map { it.label }.minOrNull() }
 
         return ontology.graph.triples
             .mapNotNull { it.toSymbolCandidate() }
@@ -32,7 +34,10 @@ public class SymbolExtractor {
             return null
         }
 
-        val kind = when (objectValue) {
+        val subjectIri = subjectResource as? Iri ?: return null
+        val typeResource = objectTerm as? RdfResource ?: return null
+
+        val kind = when (typeResource.value) {
             OWL_CLASS,
             RDFS_CLASS,
             -> SymbolKind.Class
@@ -51,14 +56,33 @@ public class SymbolExtractor {
         }
 
         return SymbolCandidate(
-            iri = subject,
+            iri = subjectIri,
             kind = kind,
+        )
+    }
+
+    private fun GraphTriple.toLabelCandidate(): LabelCandidate? {
+        if (predicate.value != RDFS_LABEL) {
+            return null
+        }
+
+        val subjectIri = subjectResource as? Iri ?: return null
+        val literal = objectTerm as? RdfLiteral ?: return null
+
+        return LabelCandidate(
+            iri = subjectIri,
+            label = literal.lexicalForm,
         )
     }
 
     private data class SymbolCandidate(
         val iri: Iri,
         val kind: SymbolKind,
+    )
+
+    private data class LabelCandidate(
+        val iri: Iri,
+        val label: String,
     )
 
     private companion object {
