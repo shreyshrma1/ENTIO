@@ -12,6 +12,7 @@ public data class EntioProject(
     public val resolvedSources: List<ResolvedOntologySource>,
     public val ontologies: List<LoadedOntology>,
     public val symbols: List<LoadedSymbol>,
+    public val graph: GraphState,
 )
 
 public data class OntologySourceReference(

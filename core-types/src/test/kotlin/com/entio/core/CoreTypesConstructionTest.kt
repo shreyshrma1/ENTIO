@@ -42,11 +42,13 @@ class CoreTypesConstructionTest {
             resolvedSources = listOf(resolvedSource),
             ontologies = listOf(ontology),
             symbols = listOf(symbol),
+            graph = ontology.graph,
         )
 
         assertEquals("simple-ontology", project.config.name)
         assertEquals(setOf(triple), project.ontologies.single().graph.triples)
         assertEquals(SymbolKind.Class, project.symbols.single().kind)
+        assertEquals(setOf(triple), project.graph.triples)
     }
 
     @Test
