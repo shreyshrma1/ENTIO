@@ -26,6 +26,46 @@ class ProjectValidatorTest {
     }
 
     @Test
+    fun returnsValidReportForProjectWithRdfTermRichOntology(): Unit {
+        val projectRoot = projectWithConfig(
+            """
+            name: rdf-terms
+            ontologySources:
+              - id: rdf-terms
+                path: ontology/rdf-terms.ttl
+                format: turtle
+            """.trimIndent(),
+        )
+        projectRoot.resolve("ontology").createDirectories()
+        projectRoot.resolve("ontology/rdf-terms.ttl").writeText(
+            """
+            @prefix ex: <https://example.com/> .
+            @prefix owl: <http://www.w3.org/2002/07/owl#> .
+            @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+            @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+            ex:Customer a owl:Class ;
+              rdfs:label "Customer"@en ;
+              rdfs:seeAlso ex:Account ;
+              ex:status [ ex:code "active" ] ;
+              ex:score "42"^^xsd:integer .
+
+            ex:Account a owl:Class ;
+              rdfs:label ex:AccountLabel .
+
+            [] a owl:Class ;
+              rdfs:label "Anonymous class" .
+            """.trimIndent(),
+        )
+
+        val report = validator.validateProject(projectRoot)
+
+        assertEquals(ValidationStatus.Valid, report.status)
+        assertTrue(report.ok)
+        assertEquals(emptyList(), report.issues)
+    }
+
+    @Test
     fun returnsErrorWhenProjectRootIsMissing(): Unit {
         val projectRoot = Files.createTempDirectory("entio-missing-root").resolve("missing")
 
