@@ -38,7 +38,7 @@ Remove CLI-owned project-loading orchestration and delegate to `ProjectLoader`.
 
 ## Git Commit
 
-No Git commit was created because the task prompt did not authorize committing.
+A Git commit was created after verification.
 
 ## Assumptions, Limitations, And Follow-Up Work
 
