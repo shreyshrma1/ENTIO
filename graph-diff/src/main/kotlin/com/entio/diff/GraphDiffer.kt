@@ -1,7 +1,12 @@
 package com.entio.diff
 
+import com.entio.core.BlankNodeResource
 import com.entio.core.GraphState
 import com.entio.core.GraphTriple
+import com.entio.core.Iri
+import com.entio.core.RdfLiteral
+import com.entio.core.RdfResource
+import com.entio.core.RdfTerm
 import com.entio.core.SemanticDiff
 import com.entio.core.SemanticDiffEntry
 import com.entio.core.SemanticDiffKind
@@ -17,8 +22,8 @@ public class GraphDiffer {
             removedTriples = removedTriples,
             addedTriples = addedTriples,
         )
-        val changedBeforeTriples = labelChanges.map { it.before }.toSet()
-        val changedAfterTriples = labelChanges.map { it.after }.toSet()
+        val changedBeforeTriples = labelChanges.map { it.before.triple }.toSet()
+        val changedAfterTriples = labelChanges.map { it.after.triple }.toSet()
 
         val entries = buildList {
             addAll(labelChanges.map { it.toDiffEntry() })
@@ -34,10 +39,10 @@ public class GraphDiffer {
         addedTriples: Set<GraphTriple>,
     ): List<LabelChange> {
         val removedLabels = removedTriples
-            .filter { it.predicate.value == RDFS_LABEL }
+            .mapNotNull { it.toLabelTriple() }
             .associateBy { it.subject.value }
         val addedLabels = addedTriples
-            .filter { it.predicate.value == RDFS_LABEL }
+            .mapNotNull { it.toLabelTriple() }
             .associateBy { it.subject.value }
 
         return removedLabels.keys
@@ -48,6 +53,20 @@ public class GraphDiffer {
                     after = addedLabels.getValue(subject),
                 )
             }
+    }
+
+    private fun GraphTriple.toLabelTriple(): LabelTriple? {
+        if (predicate.value != RDFS_LABEL) {
+            return null
+        }
+
+        val label = objectTerm as? RdfLiteral ?: return null
+
+        return LabelTriple(
+            subject = subjectResource,
+            triple = this,
+            label = label,
+        )
     }
 
     private fun GraphTriple.toDiffEntry(kind: SemanticDiffKind): SemanticDiffEntry =
@@ -66,18 +85,48 @@ public class GraphDiffer {
     private fun LabelChange.toDiffEntry(): SemanticDiffEntry =
         SemanticDiffEntry(
             kind = SemanticDiffKind.Changed,
-            subject = after.subject,
-            predicate = after.predicate,
-            objectValue = "${before.objectValue} -> ${after.objectValue}",
-            description = "Changed label for ${after.subject.value} from '${before.objectValue}' to '${after.objectValue}'.",
+            subject = after.triple.subject,
+            predicate = after.triple.predicate,
+            objectValue = "${before.label.lexicalForm} -> ${after.label.lexicalForm}",
+            description = "Changed label for ${after.subject.formatResource()} from ${before.label.formatTerm()} to ${after.label.formatTerm()}.",
         )
 
     private fun GraphTriple.formatTriple(): String =
-        "(${subject.value}, ${predicate.value}, $objectValue)"
+        "(${subjectResource.formatResource()}, ${predicate.value}, ${objectTerm.formatTerm()})"
+
+    private fun RdfResource.formatResource(): String =
+        when (this) {
+            is Iri -> value
+            is BlankNodeResource -> "blank node ($value)"
+        }
+
+    private fun RdfTerm.formatTerm(): String =
+        when (this) {
+            is RdfLiteral -> formatLiteral()
+            is RdfResource -> formatResource()
+        }
+
+    private fun RdfLiteral.formatLiteral(): String {
+        val quotedLexicalForm = "\"$lexicalForm\""
+        val datatype = datatypeIri
+        val language = languageTag
+
+        return when {
+            language != null -> "$quotedLexicalForm@$language"
+            datatype != null -> "$quotedLexicalForm^^${datatype.value}"
+            else -> quotedLexicalForm
+        }
+    }
+
+    private data class LabelTriple(
+        val subject: RdfResource,
+        val triple: GraphTriple,
+        val label: RdfLiteral,
+    )
 
     private data class LabelChange(
-        val before: GraphTriple,
-        val after: GraphTriple,
+        val before: LabelTriple,
+        val after: LabelTriple,
     )
 
     private companion object {
@@ -87,6 +136,7 @@ public class GraphDiffer {
             compareBy<SemanticDiffEntry> { it.subject.value }
                 .thenBy { it.predicate?.value.orEmpty() }
                 .thenBy { it.objectValue.orEmpty() }
+                .thenBy { it.description }
                 .thenBy { it.kind.sortOrder }
 
         private val SemanticDiffKind.sortOrder: Int
