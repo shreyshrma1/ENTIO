@@ -34,6 +34,45 @@ class SymbolExtractorTest {
     }
 
     @Test
+    fun ignoresNonLiteralLabels(): Unit {
+        val ontology = parseOntology(
+            """
+            @prefix ex: <https://example.com/> .
+            @prefix owl: <http://www.w3.org/2002/07/owl#> .
+            @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+            ex:Customer a owl:Class ;
+              rdfs:label ex:CustomerLabel .
+            """.trimIndent(),
+        )
+
+        val symbols = extractor.extractSymbols(ontology)
+
+        assertEquals(1, symbols.size)
+        assertEquals("https://example.com/Customer", symbols.single().iri.value)
+        assertEquals(null, symbols.single().label)
+    }
+
+    @Test
+    fun handlesBlankNodeTypedResourcesWithoutCrashing(): Unit {
+        val ontology = parseOntology(
+            """
+            @prefix ex: <https://example.com/> .
+            @prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+            [] a owl:Class .
+            ex:Customer a owl:Class .
+            """.trimIndent(),
+        )
+
+        val symbols = extractor.extractSymbols(ontology)
+
+        assertEquals(1, symbols.size)
+        assertEquals("https://example.com/Customer", symbols.single().iri.value)
+        assertEquals(SymbolKind.Class, symbols.single().kind)
+    }
+
+    @Test
     fun extractsProperties(): Unit {
         val ontology = parseOntology(
             """
