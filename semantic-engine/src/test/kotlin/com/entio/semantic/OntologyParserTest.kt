@@ -3,11 +3,7 @@ package com.entio.semantic
 import com.entio.core.EntioResult
 import com.entio.core.Iri
 import com.entio.core.LoadedOntology
-import com.entio.core.OntologyFormat
 import com.entio.core.ResolvedOntologySource
-import java.nio.file.Files
-import java.nio.file.Path
-import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -85,12 +81,6 @@ class OntologyParserTest {
     }
 
     private fun resolvedSource(content: String): ResolvedOntologySource {
-        val path = Files.createTempFile("entio-parser", ".ttl")
-        path.writeText(content)
-        return ResolvedOntologySource(
-            id = "simple",
-            path = path,
-            format = OntologyFormat.Turtle,
-        )
+        return SemanticEngineTestFixtures.resolvedSource(content)
     }
 }
