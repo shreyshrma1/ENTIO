@@ -5,6 +5,7 @@ import java.nio.file.Path
 import java.util.concurrent.Callable
 import picocli.CommandLine.Command
 import picocli.CommandLine.Model.CommandSpec
+import picocli.CommandLine.Option
 import picocli.CommandLine.Parameters
 import picocli.CommandLine.Spec
 
@@ -22,15 +23,35 @@ public class SymbolsCommand(
     @Parameters(index = "0", paramLabel = "PROJECT_ROOT", description = ["Path to an Entio project root."])
     private lateinit var projectRoot: String
 
+    @Option(names = ["--json"], description = ["Print a machine-readable JSON response."])
+    private var json: Boolean = false
+
     override fun call(): Int =
         when (val result = projectReader.loadSymbols(Path.of(projectRoot))) {
             is EntioResult.Failure -> {
-                spec.commandLine().err.printValidationIssues(result.issues)
+                if (json) {
+                    spec.commandLine().out.println(
+                        jsonObject(
+                            "command" to "symbols",
+                            "ok" to false,
+                            "error" to jsonObject(
+                                "message" to result.message,
+                                "issues" to jsonArray(result.issues.map(::validationIssueJson)),
+                            ),
+                        ).encoded,
+                    )
+                } else {
+                    spec.commandLine().err.printValidationIssues(result.issues)
+                }
                 EXIT_LOAD_FAILED
             }
 
             is EntioResult.Success -> {
-                spec.commandLine().out.printSymbols(result.value)
+                if (json) {
+                    spec.commandLine().out.printSymbolsJson("symbols", result.value)
+                } else {
+                    spec.commandLine().out.printSymbols(result.value)
+                }
                 EXIT_OK
             }
         }

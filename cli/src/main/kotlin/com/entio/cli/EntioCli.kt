@@ -1,8 +1,15 @@
 package com.entio.cli
 
 import com.entio.diff.GraphDiffer
+import com.entio.diff.ProposalDiffGenerator
 import com.entio.diff.SemanticDiffFormatter
+import com.entio.semantic.PreviewTurtleRoundTripVerifier
+import com.entio.semantic.ProposalApplier
+import com.entio.semantic.ProposalCreator
+import com.entio.semantic.ProjectLoader
+import com.entio.semantic.TypedOntologyEditTranslator
 import com.entio.validation.ProjectValidator
+import com.entio.validation.ProposalValidator
 import java.io.PrintWriter
 import kotlin.system.exitProcess
 import picocli.CommandLine
@@ -19,6 +26,16 @@ public class EntioCli(
     private val projectReader: CliProjectReader = CliProjectReader(),
     private val graphDiffer: GraphDiffer = GraphDiffer(),
     private val diffFormatter: SemanticDiffFormatter = SemanticDiffFormatter(),
+    private val proposalCommandSupport: ProposalCommandSupport = ProposalCommandSupport(
+        projectLoader = ProjectLoader(),
+        proposalCreator = ProposalCreator(),
+        proposalDiffGenerator = ProposalDiffGenerator(),
+        proposalValidator = ProposalValidator(),
+        projectValidator = ProjectValidator(),
+        equivalenceVerifier = PreviewTurtleRoundTripVerifier(),
+        proposalApplier = ProposalApplier(),
+        editTranslator = TypedOntologyEditTranslator(),
+    ),
 ) {
     public fun execute(
         args: Array<String>,
@@ -29,6 +46,13 @@ public class EntioCli(
             .addSubcommand("validate", ValidateCommand(projectValidator))
             .addSubcommand("symbols", SymbolsCommand(projectReader))
             .addSubcommand("diff", DiffCommand(projectReader, graphDiffer, diffFormatter))
+            .addSubcommand("project-summary", ProjectSummaryCommand())
+            .addSubcommand("summary", ProjectSummaryCommand())
+            .addSubcommand("proposal-preview", ProposalPreviewCommand(proposalCommandSupport))
+            .addSubcommand("proposal-validate", ProposalValidateCommand(proposalCommandSupport))
+            .addSubcommand("proposal-diff", ProposalDiffCommand(proposalCommandSupport))
+            .addSubcommand("proposal-apply", ProposalApplyCommand(proposalCommandSupport))
+            .addSubcommand("proposal-reject", ProposalRejectCommand(proposalCommandSupport))
 
         return commandLine
             .setOut(out)
