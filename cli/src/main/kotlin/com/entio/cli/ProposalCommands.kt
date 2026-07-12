@@ -68,6 +68,9 @@ internal abstract class ProposalCommand(
     @Option(names = ["--entity-iri"], description = ["IRI for an entity label edit."])
     protected var entityIri: String = ""
 
+    @Option(names = ["--replace-existing"], description = ["Replace existing domain or range statements instead of only adding a statement."])
+    protected var replaceExisting: Boolean = false
+
     @Option(names = ["--proposal-id"], defaultValue = "cli-proposal", description = ["Proposal identifier."])
     protected var proposalId: String = "cli-proposal"
 
@@ -95,6 +98,7 @@ internal abstract class ProposalCommand(
                     language = language,
                     superclassIri = superclassIri,
                     entityIri = entityIri,
+                    replaceExisting = replaceExisting,
                 ),
                 proposalId = proposalId,
                 title = title,

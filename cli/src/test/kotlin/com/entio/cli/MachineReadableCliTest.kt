@@ -86,6 +86,69 @@ class MachineReadableCliTest {
     }
 
     @Test
+    fun propertyCreationComposesOptionalDomainAndRangeChanges(): Unit {
+        val projectRoot = createPropertyProject()
+
+        val result = runCli(
+            "proposal-preview",
+            projectRoot.toString(),
+            "simple",
+            "--edit",
+            "create-object-property",
+            "--property-iri",
+            "https://example.com/hasAccount",
+            "--label",
+            "owns account",
+            "--domain-iri",
+            "https://example.com/Customer",
+            "--range-iri",
+            "https://example.com/Account",
+        )
+
+        assertEquals(0, result.exitCode, result.out)
+        assertTrue(result.out.contains("\"changeCount\":4"), result.out)
+        assertTrue(result.out.contains("https://example.com/Customer"), result.out)
+        assertTrue(result.out.contains("https://example.com/Account"), result.out)
+        assertTrue(result.out.contains("\"status\":\"valid\""), result.out)
+    }
+
+    @Test
+    fun datatypePropertyAcceptsDatatypeRangeAndRangeReplacementRemovesOldStatement(): Unit {
+        val projectRoot = createPropertyProject()
+
+        val datatypeResult = runCli(
+            "proposal-preview",
+            projectRoot.toString(),
+            "simple",
+            "--edit",
+            "create-datatype-property",
+            "--property-iri",
+            "https://example.com/accountNumber",
+            "--datatype",
+            "http://www.w3.org/2001/XMLSchema#integer",
+        )
+        assertEquals(0, datatypeResult.exitCode, datatypeResult.out)
+        assertTrue(datatypeResult.out.contains("http://www.w3.org/2001/XMLSchema#integer"), datatypeResult.out)
+
+        val replacementResult = runCli(
+            "proposal-preview",
+            projectRoot.toString(),
+            "simple",
+            "--edit",
+            "set-property-range",
+            "--property-iri",
+            "https://example.com/ownsAccount",
+            "--range-iri",
+            "https://example.com/Account",
+            "--replace-existing",
+        )
+        assertEquals(0, replacementResult.exitCode, replacementResult.out)
+        assertTrue(replacementResult.out.contains("\"changeCount\":2"), replacementResult.out)
+        assertTrue(replacementResult.out.contains("https://example.com/Customer"), replacementResult.out)
+        assertTrue(replacementResult.out.contains("https://example.com/Account"), replacementResult.out)
+    }
+
+    @Test
     fun proposalRejectReturnsWithoutChangingSource(): Unit {
         val projectRoot = createProject()
         val source = projectRoot.resolve("ontology/simple.ttl")
@@ -158,6 +221,37 @@ class MachineReadableCliTest {
                 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 
                 ex:Customer a owl:Class .
+            """.trimIndent() + "\n",
+        )
+        return projectRoot
+    }
+
+    private fun createPropertyProject(): Path {
+        val projectRoot = Files.createTempDirectory("entio-property-cli")
+        val ontologyDirectory = projectRoot.resolve("ontology")
+        Files.createDirectories(ontologyDirectory)
+        Files.writeString(
+            projectRoot.resolve("entio.yaml"),
+            """
+                name: simple-ontology
+                ontologySources:
+                  - id: simple
+                    path: ontology/simple.ttl
+                    format: turtle
+            """.trimIndent(),
+        )
+        Files.writeString(
+            ontologyDirectory.resolve("simple.ttl"),
+            """
+                @prefix ex: <https://example.com/> .
+                @prefix owl: <http://www.w3.org/2002/07/owl#> .
+                @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+                ex:Customer a owl:Class .
+                ex:Account a owl:Class .
+                ex:ownsAccount a owl:ObjectProperty ;
+                    rdfs:domain ex:Customer ;
+                    rdfs:range ex:Customer .
             """.trimIndent() + "\n",
         )
         return projectRoot
