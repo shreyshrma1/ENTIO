@@ -1,12 +1,25 @@
 package com.entio.cli
 
+import com.entio.core.AddDatatypePropertyAssertionEdit
+import com.entio.core.AddObjectPropertyAssertionEdit
+import com.entio.core.AddSuperclassEdit
+import com.entio.core.AssignTypeEdit
 import com.entio.core.ChangeProposal
 import com.entio.core.ChangeProposalStatus
+import com.entio.core.CreateClassEdit
+import com.entio.core.CreateDatatypePropertyEdit
+import com.entio.core.CreateIndividualEdit
+import com.entio.core.CreateObjectPropertyEdit
 import com.entio.core.EntioProject
 import com.entio.core.EntioResult
 import com.entio.core.Iri
+import com.entio.core.RemoveSuperclassEdit
 import com.entio.core.RdfLiteral
 import com.entio.core.SemanticEquivalenceResult
+import com.entio.core.SetEntityLabelEdit
+import com.entio.core.SetPropertyDomainEdit
+import com.entio.core.SetPropertyRangeEdit
+import com.entio.core.TypedOntologyEdit
 import com.entio.core.ValidationIssue
 import com.entio.core.ValidationReport
 import com.entio.core.ValidationSeverity
@@ -33,30 +46,21 @@ public class ProposalCommandSupport(
     internal fun prepare(
         projectRoot: Path,
         targetSourceId: String,
-        editKind: String,
-        classIri: String,
-        label: String?,
+        edit: CliEditRequest,
         proposalId: String,
         title: String,
     ): EntioResult<PreparedProposal> {
-        if (editKind != CREATE_CLASS_EDIT) {
-            return failure(
-                message = "Unsupported CLI edit '$editKind'.",
-                code = "unsupported-cli-edit",
-                source = editKind,
-            )
-        }
-
         val project = when (val result = projectLoader.loadProject(projectRoot)) {
+            is EntioResult.Failure -> return result
+            is EntioResult.Success -> result.value
+        }
+        val typedEdit = when (val result = edit.toTypedEdit()) {
             is EntioResult.Failure -> return result
             is EntioResult.Success -> result.value
         }
         val changeSet = when (
             val result = editTranslator.translate(
-                com.entio.core.CreateClassEdit(
-                    classIri = Iri(classIri),
-                    label = label?.let(::RdfLiteral),
-                ),
+                typedEdit,
             )
         ) {
             is EntioResult.Failure -> return result
@@ -110,6 +114,17 @@ public class ProposalCommandSupport(
 
     internal companion object {
         internal const val CREATE_CLASS_EDIT: String = "create-class"
+        internal const val CREATE_OBJECT_PROPERTY_EDIT: String = "create-object-property"
+        internal const val CREATE_DATATYPE_PROPERTY_EDIT: String = "create-datatype-property"
+        internal const val SET_PROPERTY_DOMAIN_EDIT: String = "set-property-domain"
+        internal const val SET_PROPERTY_RANGE_EDIT: String = "set-property-range"
+        internal const val CREATE_INDIVIDUAL_EDIT: String = "create-individual"
+        internal const val ASSIGN_INDIVIDUAL_TYPE_EDIT: String = "assign-individual-type"
+        internal const val ADD_OBJECT_PROPERTY_ASSERTION_EDIT: String = "add-object-property-assertion"
+        internal const val ADD_DATATYPE_PROPERTY_ASSERTION_EDIT: String = "add-datatype-property-assertion"
+        internal const val ADD_SUPERCLASS_EDIT: String = "add-superclass"
+        internal const val REMOVE_SUPERCLASS_EDIT: String = "remove-superclass"
+        internal const val SET_ENTITY_LABEL_EDIT: String = "set-entity-label"
 
         internal fun failure(
             message: String,
@@ -129,6 +144,114 @@ public class ProposalCommandSupport(
             )
     }
 }
+
+internal data class CliEditRequest(
+    val editKind: String,
+    val classIri: String = "",
+    val label: String? = null,
+    val propertyIri: String = "",
+    val domainIri: String = "",
+    val rangeIri: String = "",
+    val datatype: String? = null,
+    val individualIri: String = "",
+    val typeIri: String = "",
+    val subjectIri: String = "",
+    val objectIri: String = "",
+    val value: String = "",
+    val language: String? = null,
+    val superclassIri: String = "",
+    val entityIri: String = "",
+)
+
+private fun CliEditRequest.toTypedEdit(): EntioResult<TypedOntologyEdit> =
+    when (editKind) {
+        ProposalCommandSupport.CREATE_CLASS_EDIT -> EntioResult.Success(
+            CreateClassEdit(
+                classIri = Iri(classIri),
+                label = label?.let { RdfLiteral(it, languageTag = language) },
+            ),
+        )
+        ProposalCommandSupport.CREATE_OBJECT_PROPERTY_EDIT -> EntioResult.Success(
+            CreateObjectPropertyEdit(
+                propertyIri = Iri(propertyIri),
+                label = label?.let { RdfLiteral(it, languageTag = language) },
+            ),
+        )
+        ProposalCommandSupport.CREATE_DATATYPE_PROPERTY_EDIT -> EntioResult.Success(
+            CreateDatatypePropertyEdit(
+                propertyIri = Iri(propertyIri),
+                label = label?.let { RdfLiteral(it, languageTag = language) },
+            ),
+        )
+        ProposalCommandSupport.SET_PROPERTY_DOMAIN_EDIT -> EntioResult.Success(
+            SetPropertyDomainEdit(
+                propertyIri = Iri(propertyIri),
+                domainClassIri = Iri(domainIri),
+            ),
+        )
+        ProposalCommandSupport.SET_PROPERTY_RANGE_EDIT -> EntioResult.Success(
+            SetPropertyRangeEdit(
+                propertyIri = Iri(propertyIri),
+                rangeIri = Iri(rangeIri.ifBlank { datatype.orEmpty() }),
+            ),
+        )
+        ProposalCommandSupport.CREATE_INDIVIDUAL_EDIT -> EntioResult.Success(
+            CreateIndividualEdit(
+                individualIri = Iri(individualIri),
+                classIri = if (typeIri.isBlank()) null else Iri(typeIri),
+            ),
+        )
+        ProposalCommandSupport.ASSIGN_INDIVIDUAL_TYPE_EDIT -> EntioResult.Success(
+            AssignTypeEdit(
+                resource = Iri(individualIri),
+                typeIri = Iri(typeIri),
+            ),
+        )
+        ProposalCommandSupport.ADD_OBJECT_PROPERTY_ASSERTION_EDIT -> EntioResult.Success(
+            AddObjectPropertyAssertionEdit(
+                subject = Iri(subjectIri),
+                propertyIri = Iri(propertyIri),
+                objectResource = Iri(objectIri),
+            ),
+        )
+        ProposalCommandSupport.ADD_DATATYPE_PROPERTY_ASSERTION_EDIT -> EntioResult.Success(
+            AddDatatypePropertyAssertionEdit(
+                subject = Iri(subjectIri),
+                propertyIri = Iri(propertyIri),
+                value = RdfLiteral(
+                    lexicalForm = value,
+                    datatypeIri = datatype?.let(::Iri),
+                    languageTag = language,
+                ),
+            ),
+        )
+        ProposalCommandSupport.ADD_SUPERCLASS_EDIT -> EntioResult.Success(
+            AddSuperclassEdit(
+                classIri = Iri(classIri),
+                superclassIri = Iri(superclassIri),
+            ),
+        )
+        ProposalCommandSupport.REMOVE_SUPERCLASS_EDIT -> EntioResult.Success(
+            RemoveSuperclassEdit(
+                classIri = Iri(classIri),
+                superclassIri = Iri(superclassIri),
+            ),
+        )
+        ProposalCommandSupport.SET_ENTITY_LABEL_EDIT -> EntioResult.Success(
+            SetEntityLabelEdit(
+                entity = Iri(entityIri),
+                label = RdfLiteral(label.orEmpty(), languageTag = language),
+            ),
+        )
+        else -> ProposalCommandSupport.failure(
+            message = "Unsupported CLI edit '$editKind'.",
+            code = "unsupported-cli-edit",
+            source = editKind,
+        )
+    }
+
+private fun String.ifBlank(defaultValue: () -> String): String =
+    if (isBlank()) defaultValue() else this
 
 internal data class PreparedProposal(
     val project: EntioProject,

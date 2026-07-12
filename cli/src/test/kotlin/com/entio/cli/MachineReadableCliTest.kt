@@ -59,6 +59,33 @@ class MachineReadableCliTest {
     }
 
     @Test
+    fun proposalBoundaryDispatchesEveryPhase25EditKind(): Unit {
+        val projectRoot = createProject()
+        val common = arrayOf(projectRoot.toString(), "simple")
+        val requests = listOf(
+            arrayOf("--edit", "create-class", "--class-iri", "https://example.com/Invoice"),
+            arrayOf("--edit", "create-object-property", "--property-iri", "https://example.com/owns"),
+            arrayOf("--edit", "create-datatype-property", "--property-iri", "https://example.com/name"),
+            arrayOf("--edit", "set-property-domain", "--property-iri", "https://example.com/owns", "--domain-iri", "https://example.com/Customer"),
+            arrayOf("--edit", "set-property-range", "--property-iri", "https://example.com/owns", "--range-iri", "https://example.com/Account"),
+            arrayOf("--edit", "create-individual", "--individual-iri", "https://example.com/alice", "--type-iri", "https://example.com/Customer"),
+            arrayOf("--edit", "assign-individual-type", "--individual-iri", "https://example.com/alice", "--type-iri", "https://example.com/Customer"),
+            arrayOf("--edit", "add-object-property-assertion", "--subject-iri", "https://example.com/alice", "--property-iri", "https://example.com/owns", "--object-iri", "https://example.com/account"),
+            arrayOf("--edit", "add-datatype-property-assertion", "--subject-iri", "https://example.com/alice", "--property-iri", "https://example.com/name", "--value", "Alice"),
+            arrayOf("--edit", "add-superclass", "--class-iri", "https://example.com/Invoice", "--superclass-iri", "https://example.com/Document"),
+            arrayOf("--edit", "remove-superclass", "--class-iri", "https://example.com/Invoice", "--superclass-iri", "https://example.com/Document"),
+            arrayOf("--edit", "set-entity-label", "--entity-iri", "https://example.com/Customer", "--label", "Client"),
+        )
+
+        requests.forEach { request ->
+            val result = runCli("proposal-preview", *(common + request))
+
+            assertTrue(!result.out.contains("unsupported-cli-edit"), result.out)
+            assertTrue(!result.out.contains("Unsupported CLI edit"), result.out)
+        }
+    }
+
+    @Test
     fun proposalRejectReturnsWithoutChangingSource(): Unit {
         val projectRoot = createProject()
         val source = projectRoot.resolve("ontology/simple.ttl")
