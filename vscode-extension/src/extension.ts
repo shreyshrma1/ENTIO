@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { EntioEngineClient } from "./engineCli";
 import { detectEntioProject } from "./projectDetector";
 import { renderWorkbench } from "./webview";
+import { createWorkbenchModel } from "./workbenchModel";
 
 export function activate(context: vscode.ExtensionContext): void {
   const command = vscode.commands.registerCommand(
@@ -31,24 +32,45 @@ export function activate(context: vscode.ExtensionContext): void {
         .getConfiguration("entio")
         .get<string>("cliCommand", "entio");
       const engine = new EntioEngineClient(cliCommand);
-      panel.webview.onDidReceiveMessage(async (message: { type?: string }) => {
-        if (message.type !== "refresh") {
-          return;
-        }
-
+      const refresh = async (): Promise<void> => {
         try {
           const response = await engine.run(
             ["project-summary", project.rootPath],
             project.rootPath,
           );
-          await panel.webview.postMessage({ type: "project-summary", payload: response });
+          const model = createWorkbenchModel(response);
+          if (!model) {
+            throw new Error("Entio CLI returned an invalid project summary.");
+          }
+          await panel.webview.postMessage({ type: "project-summary", payload: model });
         } catch (error) {
           await panel.webview.postMessage({
             type: "error",
             message: error instanceof Error ? error.message : "Entio CLI invocation failed.",
           });
         }
+      };
+      const messageSubscription = panel.webview.onDidReceiveMessage(async (message: { type?: string }) => {
+        if (message.type !== "refresh") {
+          return;
+        }
+
+        await refresh();
       });
+      const watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(project.rootPath, "**/*.ttl"),
+      );
+      const watcherSubscriptions = [
+        watcher.onDidChange(refresh),
+        watcher.onDidCreate(refresh),
+        watcher.onDidDelete(refresh),
+      ];
+      panel.onDidDispose(() => {
+        messageSubscription.dispose();
+        watcherSubscriptions.forEach((subscription) => subscription.dispose());
+        watcher.dispose();
+      });
+      await refresh();
     },
   );
 
