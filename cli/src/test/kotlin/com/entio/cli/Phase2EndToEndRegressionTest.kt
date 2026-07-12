@@ -83,7 +83,7 @@ class Phase2EndToEndRegressionTest {
         )
         assertTrue(
             reloaded.graph.triples.any { triple ->
-                triple.subjectResource == Iri("https://example.com/entio/simple#Invoice")
+                triple.subjectResource == Iri("https://example.com/entio/simple#PurchaseOrder")
             },
         )
     }
@@ -98,9 +98,9 @@ class Phase2EndToEndRegressionTest {
             fixture.projectRoot.toString(),
             "simple",
             "--class-iri",
-            "https://example.com/entio/simple#Invoice",
+            "https://example.com/entio/simple#PurchaseOrder",
             "--label",
-            "Invoice",
+            "Purchase order",
         )
 
         assertEquals(0, result.exitCode)
@@ -148,8 +148,8 @@ class Phase2EndToEndRegressionTest {
         val changeSet = assertIs<EntioResult.Success<com.entio.core.ChangeSet>>(
             editTranslator.translate(
                 CreateClassEdit(
-                    classIri = Iri("https://example.com/entio/simple#Invoice"),
-                    label = RdfLiteral("Invoice"),
+                    classIri = Iri("https://example.com/entio/simple#PurchaseOrder"),
+                    label = RdfLiteral("Purchase order"),
                 ),
             ),
         ).value
@@ -160,7 +160,7 @@ class Phase2EndToEndRegressionTest {
                 targetSourceId = "simple",
                 changeSet = changeSet,
                 id = "phase-2-e2e-proposal",
-                title = "Create Invoice class",
+                title = "Create purchase order class",
             ),
         ).value
     }

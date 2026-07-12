@@ -32,6 +32,42 @@ internal abstract class ProposalCommand(
     @Option(names = ["--label"], description = ["Optional label for the created class."])
     protected var label: String? = null
 
+    @Option(names = ["--property-iri"], description = ["IRI for a property edit."])
+    protected var propertyIri: String = ""
+
+    @Option(names = ["--domain-iri"], description = ["IRI for a property domain."])
+    protected var domainIri: String = ""
+
+    @Option(names = ["--range-iri"], description = ["IRI for a property range."])
+    protected var rangeIri: String = ""
+
+    @Option(names = ["--datatype"], description = ["Datatype IRI for a literal or datatype property range."])
+    protected var datatype: String? = null
+
+    @Option(names = ["--individual-iri"], description = ["IRI for an individual edit."])
+    protected var individualIri: String = ""
+
+    @Option(names = ["--type-iri"], description = ["IRI for an entity type."])
+    protected var typeIri: String = ""
+
+    @Option(names = ["--subject-iri"], description = ["IRI for an assertion subject."])
+    protected var subjectIri: String = ""
+
+    @Option(names = ["--object-iri"], description = ["IRI for an object-property assertion object."])
+    protected var objectIri: String = ""
+
+    @Option(names = ["--value"], description = ["Lexical value for a datatype-property assertion."])
+    protected var value: String = ""
+
+    @Option(names = ["--language"], description = ["Optional language tag for a literal value or label."])
+    protected var language: String? = null
+
+    @Option(names = ["--superclass-iri"], description = ["IRI for a superclass relationship."])
+    protected var superclassIri: String = ""
+
+    @Option(names = ["--entity-iri"], description = ["IRI for an entity label edit."])
+    protected var entityIri: String = ""
+
     @Option(names = ["--proposal-id"], defaultValue = "cli-proposal", description = ["Proposal identifier."])
     protected var proposalId: String = "cli-proposal"
 
@@ -43,9 +79,23 @@ internal abstract class ProposalCommand(
             support.prepare(
                 projectRoot = Path.of(projectRoot),
                 targetSourceId = targetSourceId,
-                editKind = editKind,
-                classIri = classIri,
-                label = label,
+                edit = CliEditRequest(
+                    editKind = editKind,
+                    classIri = classIri,
+                    label = label,
+                    propertyIri = propertyIri,
+                    domainIri = domainIri,
+                    rangeIri = rangeIri,
+                    datatype = datatype,
+                    individualIri = individualIri,
+                    typeIri = typeIri,
+                    subjectIri = subjectIri,
+                    objectIri = objectIri,
+                    value = value,
+                    language = language,
+                    superclassIri = superclassIri,
+                    entityIri = entityIri,
+                ),
                 proposalId = proposalId,
                 title = title,
             )

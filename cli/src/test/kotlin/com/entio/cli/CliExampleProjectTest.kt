@@ -25,6 +25,7 @@ class CliExampleProjectTest {
             """
                 Class https://example.com/entio/simple#Account "Account" [simple]
                 Class https://example.com/entio/simple#Customer "Customer" [simple]
+                Class https://example.com/entio/simple#Invoice "Invoice" [simple]
                 Property https://example.com/entio/simple#ownsAccount "owns account" [simple]
             """.trimIndent() + "\n",
             symbols.out,
@@ -36,15 +37,15 @@ class CliExampleProjectTest {
             afterProject.resolve("ontology/simple.ttl"),
             Files.readString(afterProject.resolve("ontology/simple.ttl")) + """
 
-                entio:Invoice a rdfs:Class ;
-                  rdfs:label "Invoice" .
+                <https://example.com/entio/simple#Order> a <http://www.w3.org/2000/01/rdf-schema#Class> ;
+                  <http://www.w3.org/2000/01/rdf-schema#label> "Order" .
             """.trimIndent() + "\n",
         )
 
         val diff = runCli("diff", exampleProject.toString(), afterProject.toString())
         assertEquals(1, diff.exitCode)
         assertTrue(diff.out.contains("Added triple"))
-        assertTrue(diff.out.contains("https://example.com/entio/simple#Invoice"))
+        assertTrue(diff.out.contains("https://example.com/entio/simple#Order"))
         assertEquals("", diff.err)
     }
 
