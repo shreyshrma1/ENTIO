@@ -12,6 +12,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     body { color: var(--vscode-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family); padding: 16px; }
     button { color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 0; padding: 6px 12px; }
     button:hover { background: var(--vscode-button-hoverBackground); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
     main { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(240px, 2fr); gap: 20px; margin-top: 16px; }
     section { border-top: 1px solid var(--vscode-panel-border); padding-top: 12px; }
     ul { list-style: none; padding: 0; }
