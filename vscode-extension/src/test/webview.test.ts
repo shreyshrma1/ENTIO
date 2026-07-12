@@ -11,6 +11,11 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /id="edit-kind"/);
   assert.match(html, /create-object-property/);
   assert.match(html, /id="edit-form-placeholder"/);
+  assert.match(html, /id="property-fields"/);
+  assert.match(html, /id="property-domain-iri"/);
+  assert.match(html, /id="property-range-iri"/);
+  assert.match(html, /id="property-datatype"/);
+  assert.match(html, /id="property-replace"/);
   assert.match(html, /type: "proposal-preview"/);
   assert.match(html, /id="preview-validation"/);
   assert.match(html, /id="approve"/);

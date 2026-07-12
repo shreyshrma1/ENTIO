@@ -131,6 +131,40 @@ test("serializes shared request fields into stable CLI options", () => {
   ]);
 });
 
+test("normalizes each property form with its focused fields", () => {
+  const forms = [
+    {
+      editKind: "create-object-property",
+      propertyIri: "https://example.com/owns",
+      label: "owns",
+      domainIri: "https://example.com/Customer",
+      rangeIri: "https://example.com/Account",
+    },
+    {
+      editKind: "create-datatype-property",
+      propertyIri: "https://example.com/name",
+      datatype: "http://www.w3.org/2001/XMLSchema#string",
+    },
+    {
+      editKind: "set-property-domain",
+      propertyIri: "https://example.com/owns",
+      domainIri: "https://example.com/Customer",
+      replaceExisting: true,
+    },
+    {
+      editKind: "set-property-range",
+      propertyIri: "https://example.com/owns",
+      datatype: "http://www.w3.org/2001/XMLSchema#string",
+    },
+  ];
+
+  forms.forEach((form) => {
+    const request = readProposalPreviewRequest({ targetSourceId: "simple", ...form });
+    assert.ok(request, form.editKind);
+    assert.equal(request?.editKind, form.editKind);
+  });
+});
+
 test("normalizes a valid preview and enables only semantic approval readiness", () => {
   const preview = createProposalPreviewModel({
     ok: true,

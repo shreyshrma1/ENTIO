@@ -60,6 +60,24 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         <label>Class IRI <input id="class-iri" type="url" required></label>
         <label>Label <input id="class-label" type="text"></label>
       </div>
+      <div id="property-fields" hidden>
+        <label>Property IRI <input id="property-iri" type="url"></label>
+        <label id="property-label-field">Label <input id="property-label" type="text"></label>
+        <label id="property-domain-field">Domain IRI <input id="property-domain-iri" type="url"></label>
+        <label id="property-range-field">Range IRI <input id="property-range-iri" type="url"></label>
+        <label id="property-datatype-field">Datatype
+          <select id="property-datatype">
+            <option value="">Select a datatype</option>
+            <option value="http://www.w3.org/2001/XMLSchema#string">xsd:string</option>
+            <option value="http://www.w3.org/2001/XMLSchema#boolean">xsd:boolean</option>
+            <option value="http://www.w3.org/2001/XMLSchema#integer">xsd:integer</option>
+            <option value="http://www.w3.org/2001/XMLSchema#decimal">xsd:decimal</option>
+            <option value="http://www.w3.org/2001/XMLSchema#date">xsd:date</option>
+            <option value="http://www.w3.org/2001/XMLSchema#dateTime">xsd:dateTime</option>
+          </select>
+        </label>
+        <label><input id="property-replace" type="checkbox"> Replace existing domain or range</label>
+      </div>
       <p id="edit-form-placeholder" hidden>Additional edit forms are provided by the workbench edit modes.</p>
       <button id="preview-submit" type="submit">Preview change</button>
     </form>
@@ -89,6 +107,17 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const previewSubmit = document.getElementById("preview-submit");
     const classIri = document.getElementById("class-iri");
     const classLabel = document.getElementById("class-label");
+    const propertyFields = document.getElementById("property-fields");
+    const propertyIri = document.getElementById("property-iri");
+    const propertyLabelField = document.getElementById("property-label-field");
+    const propertyLabel = document.getElementById("property-label");
+    const propertyDomainField = document.getElementById("property-domain-field");
+    const propertyDomainIri = document.getElementById("property-domain-iri");
+    const propertyRangeField = document.getElementById("property-range-field");
+    const propertyRangeIri = document.getElementById("property-range-iri");
+    const propertyDatatypeField = document.getElementById("property-datatype-field");
+    const propertyDatatype = document.getElementById("property-datatype");
+    const propertyReplace = document.getElementById("property-replace");
     const previewStatus = document.getElementById("preview-status");
     const previewImpact = document.getElementById("preview-impact");
     const previewDiff = document.getElementById("preview-diff");
@@ -104,32 +133,64 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
 
     function updateEditFormMode() {
       const createClass = editKind.value === "create-class";
+      const propertyMode = [
+        "create-object-property",
+        "create-datatype-property",
+        "set-property-domain",
+        "set-property-range",
+      ].includes(editKind.value);
+      const createProperty = editKind.value === "create-object-property" || editKind.value === "create-datatype-property";
+      const datatypeMode = editKind.value === "create-datatype-property" || editKind.value === "set-property-range";
+      const domainMode = createProperty || editKind.value === "set-property-domain";
+      const rangeMode = createProperty || editKind.value === "set-property-range";
       classFields.hidden = !createClass;
-      editFormPlaceholder.hidden = createClass;
-      previewSubmit.disabled = !createClass;
+      propertyFields.hidden = !propertyMode;
+      editFormPlaceholder.hidden = createClass || propertyMode;
+      previewSubmit.disabled = !createClass && !propertyMode;
       classIri.required = createClass;
+      propertyIri.required = propertyMode;
+      propertyLabelField.hidden = !createProperty;
+      propertyDomainField.hidden = !domainMode;
+      propertyRangeField.hidden = !rangeMode;
+      propertyDatatypeField.hidden = !datatypeMode;
+      propertyReplace.parentElement.hidden = editKind.value !== "set-property-domain" && editKind.value !== "set-property-range";
+      propertyDomainIri.required = editKind.value === "set-property-domain";
+      propertyRangeIri.required = editKind.value === "set-property-range" && propertyDatatype.value === "";
     }
     editKind.addEventListener("change", updateEditFormMode);
+    propertyDatatype.addEventListener("change", updateEditFormMode);
     updateEditFormMode();
 
     proposalForm.addEventListener("submit", (event) => {
       event.preventDefault();
-      if (editKind.value !== "create-class") return;
+      const propertyMode = !propertyFields.hidden;
+      if (editKind.value === "set-property-range" && propertyRangeIri.value === "" && propertyDatatype.value === "") {
+        previewStatus.textContent = "A range IRI or datatype is required.";
+        return;
+      }
+      if (editKind.value !== "create-class" && !propertyMode) return;
+      const payload = editKind.value === "create-class"
+        ? {
+            targetSourceId: targetSource.value,
+            editKind: editKind.value,
+            classIri: classIri.value,
+            label: classLabel.value,
+          }
+        : {
+            targetSourceId: targetSource.value,
+            editKind: editKind.value,
+            propertyIri: propertyIri.value,
+            label: propertyLabel.value,
+            domainIri: propertyDomainIri.value,
+            rangeIri: propertyRangeIri.value,
+            datatype: propertyDatatype.value,
+            replaceExisting: propertyReplace.checked,
+          };
       vscode.postMessage({
         type: "proposal-preview",
-        payload: {
-          targetSourceId: targetSource.value,
-          editKind: editKind.value,
-          classIri: classIri.value,
-          label: classLabel.value,
-        },
+        payload,
       });
-      currentRequest = {
-        targetSourceId: targetSource.value,
-        editKind: "create-class",
-        classIri: classIri.value,
-        label: classLabel.value,
-      };
+      currentRequest = payload;
       previewStatus.textContent = "Requesting proposal preview...";
     });
 
