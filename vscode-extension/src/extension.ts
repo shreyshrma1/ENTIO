@@ -4,6 +4,12 @@ import { EntioEngineClient } from "./engineCli";
 import { detectEntioProject } from "./projectDetector";
 import { renderWorkbench } from "./webview";
 import { createWorkbenchModel } from "./workbenchModel";
+import {
+  createProposalPreviewModel,
+  proposalPreviewInvocationArgs,
+  proposalPreviewError,
+  readProposalPreviewRequest,
+} from "./proposalPreview";
 
 export function activate(context: vscode.ExtensionContext): void {
   const command = vscode.commands.registerCommand(
@@ -51,11 +57,42 @@ export function activate(context: vscode.ExtensionContext): void {
         }
       };
       const messageSubscription = panel.webview.onDidReceiveMessage(async (message: { type?: string }) => {
-        if (message.type !== "refresh") {
+        if (message.type === "refresh") {
+          await refresh();
           return;
         }
 
-        await refresh();
+        if (message.type === "proposal-preview") {
+          const request = readProposalPreviewRequest((message as { payload?: unknown }).payload);
+          if (!request) {
+            await panel.webview.postMessage({
+              type: "proposal-preview-error",
+              message: "The proposal preview request is invalid.",
+            });
+            return;
+          }
+
+          try {
+            const response = await engine.run(
+              proposalPreviewInvocationArgs(project.rootPath, request),
+              project.rootPath,
+            );
+            const preview = response.ok ? createProposalPreviewModel(response) : undefined;
+            if (response.ok && !preview) {
+              throw new Error("Entio CLI returned an invalid proposal preview.");
+            }
+            await panel.webview.postMessage({
+              type: response.ok ? "proposal-preview" : "proposal-preview-error",
+              payload: preview,
+              message: response.ok ? undefined : proposalPreviewError(response),
+            });
+          } catch (error) {
+            await panel.webview.postMessage({
+              type: "proposal-preview-error",
+              message: error instanceof Error ? error.message : "Entio preview invocation failed.",
+            });
+          }
+        }
       });
       const watcher = vscode.workspace.createFileSystemWatcher(
         new vscode.RelativePattern(project.rootPath, "**/*.ttl"),
