@@ -212,6 +212,17 @@ private fun CliEditRequest.composeChangeSet(
         }
     }
 
+    if (editKind == ProposalCommandSupport.CREATE_INDIVIDUAL_EDIT && !label.isNullOrBlank()) {
+        val labelEdit = SetEntityLabelEdit(
+            entity = Iri(individualIri),
+            label = RdfLiteral(label.orEmpty(), languageTag = language),
+        )
+        when (val result = editTranslator.translate(labelEdit)) {
+            is EntioResult.Failure -> return result
+            is EntioResult.Success -> changes += result.value.changes
+        }
+    }
+
     return EntioResult.Success(ChangeSet(changes))
 }
 

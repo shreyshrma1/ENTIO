@@ -149,6 +149,71 @@ class MachineReadableCliTest {
     }
 
     @Test
+    fun individualCreationComposesOptionalLabelAndType(): Unit {
+        val projectRoot = createIndividualProject()
+
+        val result = runCli(
+            "proposal-preview",
+            projectRoot.toString(),
+            "simple",
+            "--edit",
+            "create-individual",
+            "--individual-iri",
+            "https://example.com/bob",
+            "--type-iri",
+            "https://example.com/Customer",
+            "--label",
+            "Bob",
+        )
+
+        assertEquals(0, result.exitCode, result.out)
+        assertTrue(result.out.contains("\"changeCount\":3"), result.out)
+        assertTrue(result.out.contains("https://example.com/bob"), result.out)
+        assertTrue(result.out.contains("\"status\":\"valid\""), result.out)
+    }
+
+    @Test
+    fun objectAndDatatypeAssertionsUseExistingResourcesAndPropertyKinds(): Unit {
+        val projectRoot = createIndividualProject()
+
+        val objectResult = runCli(
+            "proposal-preview",
+            projectRoot.toString(),
+            "simple",
+            "--edit",
+            "add-object-property-assertion",
+            "--subject-iri",
+            "https://example.com/alice",
+            "--property-iri",
+            "https://example.com/ownsAccount",
+            "--object-iri",
+            "https://example.com/account",
+        )
+        assertEquals(0, objectResult.exitCode, objectResult.out)
+        assertTrue(objectResult.out.contains("\"changeCount\":1"), objectResult.out)
+        assertTrue(objectResult.out.contains("\"status\":\"valid\""), objectResult.out)
+
+        val datatypeResult = runCli(
+            "proposal-preview",
+            projectRoot.toString(),
+            "simple",
+            "--edit",
+            "add-datatype-property-assertion",
+            "--subject-iri",
+            "https://example.com/alice",
+            "--property-iri",
+            "https://example.com/accountNumber",
+            "--value",
+            "42",
+            "--datatype",
+            "http://www.w3.org/2001/XMLSchema#integer",
+        )
+        assertEquals(0, datatypeResult.exitCode, datatypeResult.out)
+        assertTrue(datatypeResult.out.contains("\"changeCount\":1"), datatypeResult.out)
+        assertTrue(datatypeResult.out.contains("\"status\":\"valid\""), datatypeResult.out)
+    }
+
+    @Test
     fun proposalRejectReturnsWithoutChangingSource(): Unit {
         val projectRoot = createProject()
         val source = projectRoot.resolve("ontology/simple.ttl")
@@ -252,6 +317,43 @@ class MachineReadableCliTest {
                 ex:ownsAccount a owl:ObjectProperty ;
                     rdfs:domain ex:Customer ;
                     rdfs:range ex:Customer .
+            """.trimIndent() + "\n",
+        )
+        return projectRoot
+    }
+
+    private fun createIndividualProject(): Path {
+        val projectRoot = Files.createTempDirectory("entio-individual-cli")
+        val ontologyDirectory = projectRoot.resolve("ontology")
+        Files.createDirectories(ontologyDirectory)
+        Files.writeString(
+            projectRoot.resolve("entio.yaml"),
+            """
+                name: simple-ontology
+                ontologySources:
+                  - id: simple
+                    path: ontology/simple.ttl
+                    format: turtle
+            """.trimIndent(),
+        )
+        Files.writeString(
+            ontologyDirectory.resolve("simple.ttl"),
+            """
+                @prefix ex: <https://example.com/> .
+                @prefix owl: <http://www.w3.org/2002/07/owl#> .
+                @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+                @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+                ex:Customer a owl:Class .
+                ex:Account a owl:Class .
+                ex:alice a owl:NamedIndividual, ex:Customer .
+                ex:account a owl:NamedIndividual, ex:Account .
+                ex:ownsAccount a owl:ObjectProperty ;
+                    rdfs:domain ex:Customer ;
+                    rdfs:range ex:Account .
+                ex:accountNumber a owl:DatatypeProperty ;
+                    rdfs:domain ex:Customer ;
+                    rdfs:range xsd:integer .
             """.trimIndent() + "\n",
         )
         return projectRoot
