@@ -7,6 +7,7 @@ import java.nio.file.Path
 import java.util.concurrent.Callable
 import picocli.CommandLine.Command
 import picocli.CommandLine.Model.CommandSpec
+import picocli.CommandLine.Option
 import picocli.CommandLine.Parameters
 import picocli.CommandLine.Spec
 
@@ -29,10 +30,26 @@ public class DiffCommand(
     @Parameters(index = "1", paramLabel = "AFTER_PROJECT_ROOT", description = ["Path to the after project root."])
     private lateinit var afterProjectRoot: String
 
+    @Option(names = ["--json"], description = ["Print a machine-readable JSON response."])
+    private var json: Boolean = false
+
     override fun call(): Int {
         val beforeGraph = when (val result = projectReader.loadGraph(Path.of(beforeProjectRoot))) {
             is EntioResult.Failure -> {
-                spec.commandLine().err.printValidationIssues(result.issues)
+                if (json) {
+                    spec.commandLine().out.println(
+                        jsonObject(
+                            "command" to "diff",
+                            "ok" to false,
+                            "error" to jsonObject(
+                                "message" to result.message,
+                                "issues" to jsonArray(result.issues.map(::validationIssueJson)),
+                            ),
+                        ).encoded,
+                    )
+                } else {
+                    spec.commandLine().err.printValidationIssues(result.issues)
+                }
                 return EXIT_LOAD_FAILED
             }
 
@@ -41,7 +58,20 @@ public class DiffCommand(
 
         val afterGraph = when (val result = projectReader.loadGraph(Path.of(afterProjectRoot))) {
             is EntioResult.Failure -> {
-                spec.commandLine().err.printValidationIssues(result.issues)
+                if (json) {
+                    spec.commandLine().out.println(
+                        jsonObject(
+                            "command" to "diff",
+                            "ok" to false,
+                            "error" to jsonObject(
+                                "message" to result.message,
+                                "issues" to jsonArray(result.issues.map(::validationIssueJson)),
+                            ),
+                        ).encoded,
+                    )
+                } else {
+                    spec.commandLine().err.printValidationIssues(result.issues)
+                }
                 return EXIT_LOAD_FAILED
             }
 
@@ -49,7 +79,11 @@ public class DiffCommand(
         }
 
         val diff = graphDiffer.diff(beforeGraph, afterGraph)
-        spec.commandLine().out.println(diffFormatter.format(diff))
+        if (json) {
+            spec.commandLine().out.printSemanticDiffJson("diff", diff)
+        } else {
+            spec.commandLine().out.println(diffFormatter.format(diff))
+        }
         return if (diff.entries.isEmpty()) EXIT_OK else EXIT_DIFF_FOUND
     }
 
