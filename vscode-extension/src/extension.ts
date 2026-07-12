@@ -5,7 +5,9 @@ import { detectEntioProject } from "./projectDetector";
 import { renderWorkbench } from "./webview";
 import { createWorkbenchModel } from "./workbenchModel";
 import {
+  createProposalActionResult,
   createProposalPreviewModel,
+  proposalActionInvocationArgs,
   proposalPreviewInvocationArgs,
   proposalPreviewError,
   readProposalPreviewRequest,
@@ -91,6 +93,57 @@ export function activate(context: vscode.ExtensionContext): void {
               type: "proposal-preview-error",
               message: error instanceof Error ? error.message : "Entio preview invocation failed.",
             });
+          }
+        }
+
+        if (message.type === "proposal-action") {
+          const actionMessage = message as { action?: unknown; payload?: unknown };
+          const action = actionMessage.action === "apply" || actionMessage.action === "reject"
+            ? actionMessage.action
+            : undefined;
+          const request = readProposalPreviewRequest(actionMessage.payload);
+          if (!action || !request) {
+            await panel.webview.postMessage({
+              type: "proposal-action-error",
+              message: "The proposal action request is invalid.",
+            });
+            return;
+          }
+
+          try {
+            const response = await engine.run(
+              proposalActionInvocationArgs(action, project.rootPath, request),
+              project.rootPath,
+            );
+            const result = createProposalActionResult(action, response);
+            if (!result) {
+              throw new Error("Entio CLI returned an invalid proposal action result.");
+            }
+            await panel.webview.postMessage({ type: "proposal-action-result", payload: result });
+            if (action === "apply" && result.ok && result.status === "applied") {
+              await refresh();
+            }
+          } catch (error) {
+            await panel.webview.postMessage({
+              type: "proposal-action-error",
+              message: error instanceof Error ? error.message : "Entio proposal action failed.",
+            });
+          }
+        }
+
+        if (message.type === "open-source") {
+          const sourceMessage = message as { path?: unknown };
+          if (typeof sourceMessage.path !== "string") {
+            return;
+          }
+
+          try {
+            const document = await vscode.workspace.openTextDocument(sourceMessage.path);
+            await vscode.window.showTextDocument(document);
+          } catch (error) {
+            await vscode.window.showErrorMessage(
+              error instanceof Error ? error.message : "The changed ontology source could not be opened.",
+            );
           }
         }
       });

@@ -11,4 +11,9 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /type: "proposal-preview"/);
   assert.match(html, /id="preview-validation"/);
   assert.match(html, /id="approve"/);
+  assert.match(html, /Approve and apply/);
+  assert.match(html, /id="reject"/);
+  assert.match(html, /id="open-source"/);
+  assert.match(html, /type: "proposal-action"/);
+  assert.match(html, /type: "open-source"/);
 });
