@@ -6,6 +6,9 @@ import com.entio.core.AddSuperclassEdit
 import com.entio.core.AssignTypeEdit
 import com.entio.core.ChangeProposal
 import com.entio.core.ChangeProposalStatus
+import com.entio.core.ChangeSet
+import com.entio.core.GraphChange
+import com.entio.core.GraphChangeKind
 import com.entio.core.CreateClassEdit
 import com.entio.core.CreateDatatypePropertyEdit
 import com.entio.core.CreateIndividualEdit
@@ -64,7 +67,16 @@ public class ProposalCommandSupport(
             )
         ) {
             is EntioResult.Failure -> return result
-            is EntioResult.Success -> result.value
+            is EntioResult.Success -> when (
+                val composition = edit.composeChangeSet(
+                    project = project,
+                    translatedChangeSet = result.value,
+                    editTranslator = editTranslator,
+                )
+            ) {
+                is EntioResult.Failure -> return composition
+                is EntioResult.Success -> composition.value
+            }
         }
         val proposal = when (
             val result = proposalCreator.createProposal(
@@ -161,7 +173,55 @@ internal data class CliEditRequest(
     val language: String? = null,
     val superclassIri: String = "",
     val entityIri: String = "",
+    val replaceExisting: Boolean = false,
 )
+
+private fun CliEditRequest.composeChangeSet(
+    project: EntioProject,
+    translatedChangeSet: ChangeSet,
+    editTranslator: TypedOntologyEditTranslator,
+): EntioResult<ChangeSet> {
+    val changes = mutableListOf<GraphChange>()
+    if (replaceExisting && editKind in PROPERTY_RELATIONSHIP_EDITS) {
+        val predicate = if (editKind == ProposalCommandSupport.SET_PROPERTY_DOMAIN_EDIT) {
+            RDFS_DOMAIN
+        } else {
+            RDFS_RANGE
+        }
+        changes += project.graph.triples
+            .filter { triple -> triple.subjectResource.value == propertyIri && triple.predicate.value == predicate }
+            .map { triple -> GraphChange(GraphChangeKind.Removal, triple) }
+    }
+    changes += translatedChangeSet.changes
+
+    if (editKind == ProposalCommandSupport.CREATE_OBJECT_PROPERTY_EDIT || editKind == ProposalCommandSupport.CREATE_DATATYPE_PROPERTY_EDIT) {
+        if (domainIri.isNotBlank()) {
+            val domainEdit = SetPropertyDomainEdit(Iri(propertyIri), Iri(domainIri))
+            when (val result = editTranslator.translate(domainEdit)) {
+                is EntioResult.Failure -> return result
+                is EntioResult.Success -> changes += result.value.changes
+            }
+        }
+        val requestedRange = rangeIri.ifBlank { datatype.orEmpty() }
+        if (requestedRange.isNotBlank()) {
+            val rangeEdit = SetPropertyRangeEdit(Iri(propertyIri), Iri(requestedRange))
+            when (val result = editTranslator.translate(rangeEdit)) {
+                is EntioResult.Failure -> return result
+                is EntioResult.Success -> changes += result.value.changes
+            }
+        }
+    }
+
+    return EntioResult.Success(ChangeSet(changes))
+}
+
+private val PROPERTY_RELATIONSHIP_EDITS: Set<String> = setOf(
+    ProposalCommandSupport.SET_PROPERTY_DOMAIN_EDIT,
+    ProposalCommandSupport.SET_PROPERTY_RANGE_EDIT,
+)
+
+private const val RDFS_DOMAIN: String = "http://www.w3.org/2000/01/rdf-schema#domain"
+private const val RDFS_RANGE: String = "http://www.w3.org/2000/01/rdf-schema#range"
 
 private fun CliEditRequest.toTypedEdit(): EntioResult<TypedOntologyEdit> =
     when (editKind) {
