@@ -20,6 +20,13 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     .symbol-button:hover, .symbol-button:focus { background: var(--vscode-list-hoverBackground); }
     #status { margin: 12px 0; white-space: pre-wrap; }
     #details { min-height: 100px; }
+    form { display: grid; gap: 8px; max-width: 520px; }
+    label { display: grid; gap: 4px; }
+    input, select { color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); padding: 6px; }
+    #edit-form, #preview { margin-top: 20px; }
+    #preview-status { white-space: pre-wrap; }
+    #preview-diff, #preview-validation, #preview-impact { margin: 8px 0; }
+    #approval-state { margin-left: 8px; }
     @media (max-width: 640px) { main { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -38,13 +45,100 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       <div id="details" aria-live="polite">Select a symbol to inspect its details.</div>
     </section>
   </main>
+  <section id="edit-form" aria-labelledby="edit-heading">
+    <h2 id="edit-heading">Preview Ontology Edit</h2>
+    <form id="proposal-form">
+      <label>Target source <select id="target-source" required></select></label>
+      <label>Class IRI <input id="class-iri" type="url" required></label>
+      <label>Label <input id="class-label" type="text"></label>
+      <button type="submit">Preview change</button>
+    </form>
+  </section>
+  <section id="preview" aria-labelledby="preview-heading">
+    <h2 id="preview-heading">Proposal Preview</h2>
+    <div id="preview-status">No proposal preview requested.</div>
+    <div id="preview-impact"></div>
+    <div id="preview-diff"></div>
+    <div id="preview-validation"></div>
+    <button id="approve" type="button" disabled>Approve</button>
+    <span id="approval-state">Approval is unavailable until a later apply slice.</span>
+  </section>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const status = document.getElementById("status");
     const sources = document.getElementById("sources");
     const symbolGroups = document.getElementById("symbol-groups");
     const details = document.getElementById("details");
+    const proposalForm = document.getElementById("proposal-form");
+    const targetSource = document.getElementById("target-source");
+    const classIri = document.getElementById("class-iri");
+    const classLabel = document.getElementById("class-label");
+    const previewStatus = document.getElementById("preview-status");
+    const previewImpact = document.getElementById("preview-impact");
+    const previewDiff = document.getElementById("preview-diff");
+    const previewValidation = document.getElementById("preview-validation");
+    const approve = document.getElementById("approve");
+    const approvalState = document.getElementById("approval-state");
     document.getElementById("refresh").addEventListener("click", () => vscode.postMessage({ type: "refresh" }));
+
+    proposalForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      vscode.postMessage({
+        type: "proposal-preview",
+        payload: {
+          targetSourceId: targetSource.value,
+          editKind: "create-class",
+          classIri: classIri.value,
+          label: classLabel.value,
+        },
+      });
+      previewStatus.textContent = "Requesting proposal preview...";
+    });
+
+    function renderList(container, items, emptyText) {
+      container.replaceChildren();
+      if (items.length === 0) {
+        container.textContent = emptyText;
+        return;
+      }
+      const list = document.createElement("ul");
+      items.forEach((item) => {
+        const entry = document.createElement("li");
+        entry.textContent = item;
+        list.append(entry);
+      });
+      container.append(list);
+    }
+
+    function renderPreview(preview) {
+      previewStatus.textContent = preview.status + " · " + preview.targetSourceId + " · " + preview.previewTripleCount + " graph triple(s)";
+      previewImpact.textContent = "Affected files: " + (preview.affectedPaths.join(", ") || "none");
+      renderList(previewDiff, preview.diffEntries.map((entry) => entry.description), "No semantic changes.");
+      renderList(previewValidation, preview.validationIssues, preview.validationStatus);
+      approve.disabled = true;
+      approvalState.textContent = preview.canApprove
+        ? "Preview is valid and equivalent; approval will be connected in a later apply slice."
+        : preview.approvalDisabledReason;
+    }
+
+    function renderPreviewError(message) {
+      previewStatus.textContent = message;
+      previewImpact.replaceChildren();
+      previewDiff.replaceChildren();
+      previewValidation.replaceChildren();
+      approve.disabled = true;
+      approvalState.textContent = "Approval is disabled because preview failed.";
+    }
+
+    function populateSources(model) {
+      targetSource.replaceChildren();
+      model.ontologySources.forEach((source) => {
+        const option = document.createElement("option");
+        option.value = source.id;
+        option.textContent = source.id + " · " + source.path;
+        targetSource.append(option);
+      });
+    }
 
     function renderDetails(symbol) {
       details.replaceChildren();
@@ -59,6 +153,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
 
     function renderModel(model) {
       status.textContent = model.projectName + " · " + model.graphTripleCount + " graph triple(s)";
+      populateSources(model);
       sources.replaceChildren();
       model.ontologySources.forEach((source) => {
         const item = document.createElement("li");
@@ -95,6 +190,12 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       }
       if (message.type === "project-summary") {
         renderModel(message.payload);
+      }
+      if (message.type === "proposal-preview") {
+        renderPreview(message.payload);
+      }
+      if (message.type === "proposal-preview-error") {
+        renderPreviewError(message.message);
       }
     });
     vscode.postMessage({ type: "refresh" });
