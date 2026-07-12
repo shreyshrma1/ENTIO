@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn } from "node:child_process";
 
 export interface EngineResponse {
   readonly ok: boolean;
@@ -25,7 +25,7 @@ export class EntioEngineClient {
           cwd: workingDirectory,
           stdio: ["ignore", "pipe", "pipe"],
         },
-      ) as ChildProcessWithoutNullStreams;
+      );
       const stdout: string[] = [];
       const stderr: string[] = [];
 
