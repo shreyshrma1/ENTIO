@@ -165,6 +165,41 @@ test("normalizes each property form with its focused fields", () => {
   });
 });
 
+test("normalizes individual and assertion form fields", () => {
+  const forms = [
+    {
+      editKind: "create-individual",
+      individualIri: "https://example.com/alice",
+      typeIri: "https://example.com/Customer",
+      label: "Alice",
+    },
+    {
+      editKind: "assign-individual-type",
+      individualIri: "https://example.com/alice",
+      typeIri: "https://example.com/Customer",
+    },
+    {
+      editKind: "add-object-property-assertion",
+      subjectIri: "https://example.com/alice",
+      propertyIri: "https://example.com/owns",
+      objectIri: "https://example.com/account",
+    },
+    {
+      editKind: "add-datatype-property-assertion",
+      subjectIri: "https://example.com/alice",
+      propertyIri: "https://example.com/name",
+      value: "Alice",
+      language: "en",
+    },
+  ];
+
+  forms.forEach((form) => {
+    const request = readProposalPreviewRequest({ targetSourceId: "simple", ...form });
+    assert.ok(request, form.editKind);
+    assert.equal(request?.editKind, form.editKind);
+  });
+});
+
 test("normalizes a valid preview and enables only semantic approval readiness", () => {
   const preview = createProposalPreviewModel({
     ok: true,

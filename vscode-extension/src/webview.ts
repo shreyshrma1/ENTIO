@@ -78,6 +78,29 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         </label>
         <label><input id="property-replace" type="checkbox"> Replace existing domain or range</label>
       </div>
+      <div id="individual-fields" hidden>
+        <label>Individual IRI <input id="individual-iri" type="url"></label>
+        <label>Type IRI <input id="individual-type-iri" type="url"></label>
+        <label>Label <input id="individual-label" type="text"></label>
+      </div>
+      <div id="assertion-fields" hidden>
+        <label>Subject IRI <input id="assertion-subject-iri" type="url"></label>
+        <label>Property IRI <input id="assertion-property-iri" type="url"></label>
+        <label id="assertion-object-field">Object IRI <input id="assertion-object-iri" type="url"></label>
+        <label id="assertion-value-field">Value <input id="assertion-value" type="text"></label>
+        <label id="assertion-datatype-field">Datatype
+          <select id="assertion-datatype">
+            <option value="">Select a datatype</option>
+            <option value="http://www.w3.org/2001/XMLSchema#string">xsd:string</option>
+            <option value="http://www.w3.org/2001/XMLSchema#boolean">xsd:boolean</option>
+            <option value="http://www.w3.org/2001/XMLSchema#integer">xsd:integer</option>
+            <option value="http://www.w3.org/2001/XMLSchema#decimal">xsd:decimal</option>
+            <option value="http://www.w3.org/2001/XMLSchema#date">xsd:date</option>
+            <option value="http://www.w3.org/2001/XMLSchema#dateTime">xsd:dateTime</option>
+          </select>
+        </label>
+        <label id="assertion-language-field">Language tag <input id="assertion-language" type="text"></label>
+      </div>
       <p id="edit-form-placeholder" hidden>Additional edit forms are provided by the workbench edit modes.</p>
       <button id="preview-submit" type="submit">Preview change</button>
     </form>
@@ -118,6 +141,21 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const propertyDatatypeField = document.getElementById("property-datatype-field");
     const propertyDatatype = document.getElementById("property-datatype");
     const propertyReplace = document.getElementById("property-replace");
+    const individualFields = document.getElementById("individual-fields");
+    const individualIri = document.getElementById("individual-iri");
+    const individualTypeIri = document.getElementById("individual-type-iri");
+    const individualLabel = document.getElementById("individual-label");
+    const assertionFields = document.getElementById("assertion-fields");
+    const assertionSubjectIri = document.getElementById("assertion-subject-iri");
+    const assertionPropertyIri = document.getElementById("assertion-property-iri");
+    const assertionObjectField = document.getElementById("assertion-object-field");
+    const assertionObjectIri = document.getElementById("assertion-object-iri");
+    const assertionValueField = document.getElementById("assertion-value-field");
+    const assertionValue = document.getElementById("assertion-value");
+    const assertionDatatypeField = document.getElementById("assertion-datatype-field");
+    const assertionDatatype = document.getElementById("assertion-datatype");
+    const assertionLanguageField = document.getElementById("assertion-language-field");
+    const assertionLanguage = document.getElementById("assertion-language");
     const previewStatus = document.getElementById("preview-status");
     const previewImpact = document.getElementById("preview-impact");
     const previewDiff = document.getElementById("preview-diff");
@@ -143,10 +181,16 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       const datatypeMode = editKind.value === "create-datatype-property" || editKind.value === "set-property-range";
       const domainMode = createProperty || editKind.value === "set-property-domain";
       const rangeMode = createProperty || editKind.value === "set-property-range";
+      const individualMode = editKind.value === "create-individual" || editKind.value === "assign-individual-type";
+      const assertionMode = editKind.value === "add-object-property-assertion" || editKind.value === "add-datatype-property-assertion";
+      const datatypeAssertion = editKind.value === "add-datatype-property-assertion";
+      const formMode = createClass || propertyMode || individualMode || assertionMode;
       classFields.hidden = !createClass;
       propertyFields.hidden = !propertyMode;
-      editFormPlaceholder.hidden = createClass || propertyMode;
-      previewSubmit.disabled = !createClass && !propertyMode;
+      individualFields.hidden = !individualMode;
+      assertionFields.hidden = !assertionMode;
+      editFormPlaceholder.hidden = formMode;
+      previewSubmit.disabled = !formMode;
       classIri.required = createClass;
       propertyIri.required = propertyMode;
       propertyLabelField.hidden = !createProperty;
@@ -156,9 +200,20 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       propertyReplace.parentElement.hidden = editKind.value !== "set-property-domain" && editKind.value !== "set-property-range";
       propertyDomainIri.required = editKind.value === "set-property-domain";
       propertyRangeIri.required = editKind.value === "set-property-range" && propertyDatatype.value === "";
+      individualIri.required = individualMode;
+      individualTypeIri.required = editKind.value === "assign-individual-type";
+      assertionSubjectIri.required = assertionMode;
+      assertionPropertyIri.required = assertionMode;
+      assertionObjectField.hidden = !assertionMode || datatypeAssertion;
+      assertionValueField.hidden = !datatypeAssertion;
+      assertionDatatypeField.hidden = !datatypeAssertion;
+      assertionLanguageField.hidden = !datatypeAssertion;
+      assertionObjectIri.required = editKind.value === "add-object-property-assertion";
+      assertionValue.required = datatypeAssertion;
     }
     editKind.addEventListener("change", updateEditFormMode);
     propertyDatatype.addEventListener("change", updateEditFormMode);
+    assertionDatatype.addEventListener("change", updateEditFormMode);
     updateEditFormMode();
 
     proposalForm.addEventListener("submit", (event) => {
@@ -168,7 +223,13 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         previewStatus.textContent = "A range IRI or datatype is required.";
         return;
       }
-      if (editKind.value !== "create-class" && !propertyMode) return;
+      const individualMode = !individualFields.hidden;
+      const assertionMode = !assertionFields.hidden;
+      if (editKind.value === "add-datatype-property-assertion" && assertionValue.value === "") {
+        previewStatus.textContent = "A literal value is required.";
+        return;
+      }
+      if (editKind.value !== "create-class" && !propertyMode && !individualMode && !assertionMode) return;
       const payload = editKind.value === "create-class"
         ? {
             targetSourceId: targetSource.value,
@@ -176,7 +237,8 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
             classIri: classIri.value,
             label: classLabel.value,
           }
-        : {
+        : propertyMode
+        ? {
             targetSourceId: targetSource.value,
             editKind: editKind.value,
             propertyIri: propertyIri.value,
@@ -185,6 +247,24 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
             rangeIri: propertyRangeIri.value,
             datatype: propertyDatatype.value,
             replaceExisting: propertyReplace.checked,
+          }
+        : individualMode
+        ? {
+            targetSourceId: targetSource.value,
+            editKind: editKind.value,
+            individualIri: individualIri.value,
+            typeIri: individualTypeIri.value,
+            label: individualLabel.value,
+          }
+        : {
+            targetSourceId: targetSource.value,
+            editKind: editKind.value,
+            subjectIri: assertionSubjectIri.value,
+            propertyIri: assertionPropertyIri.value,
+            objectIri: assertionObjectIri.value,
+            value: assertionValue.value,
+            datatype: assertionDatatype.value,
+            language: assertionLanguage.value,
           };
       vscode.postMessage({
         type: "proposal-preview",
