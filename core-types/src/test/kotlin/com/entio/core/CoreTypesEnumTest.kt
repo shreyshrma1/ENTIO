@@ -25,8 +25,21 @@ class CoreTypesEnumTest {
             listOf(SemanticDiffKind.Added, SemanticDiffKind.Removed, SemanticDiffKind.Changed),
             SemanticDiffKind.entries,
         )
+        assertEquals(listOf(GraphChangeKind.Addition, GraphChangeKind.Removal), GraphChangeKind.entries)
         assertEquals(
-            listOf(ChangeProposalStatus.Draft, ChangeProposalStatus.Approved, ChangeProposalStatus.Rejected),
+            listOf(
+                ChangeProposalStatus.Draft,
+                ChangeProposalStatus.Previewed,
+                ChangeProposalStatus.Verified,
+                ChangeProposalStatus.ReadyForReview,
+                ChangeProposalStatus.Rejected,
+                ChangeProposalStatus.Approved,
+                ChangeProposalStatus.Applied,
+                ChangeProposalStatus.VerificationFailed,
+                ChangeProposalStatus.Stale,
+                ChangeProposalStatus.ApplyFailed,
+                ChangeProposalStatus.RolledBack,
+            ),
             ChangeProposalStatus.entries,
         )
     }
