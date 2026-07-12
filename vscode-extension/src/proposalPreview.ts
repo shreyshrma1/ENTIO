@@ -28,6 +28,19 @@ export interface ProposalPreviewModel {
   readonly approvalDisabledReason?: string;
 }
 
+export type ProposalAction = "apply" | "reject";
+
+export interface ProposalActionResult {
+  readonly action: ProposalAction;
+  readonly ok: boolean;
+  readonly status: string;
+  readonly proposalId?: string;
+  readonly changedFiles: readonly string[];
+  readonly reason?: string;
+  readonly rollbackStatus?: string;
+  readonly rollbackReason?: string;
+}
+
 export function readProposalPreviewRequest(value: unknown): ProposalPreviewRequest | undefined {
   const request = asRecord(value);
   if (
@@ -72,6 +85,15 @@ export function proposalPreviewInvocationArgs(
 ): readonly string[] {
   const [command, targetSourceId, ...options] = proposalPreviewCliArgs(request);
   return [command, projectRoot, targetSourceId, ...options];
+}
+
+export function proposalActionInvocationArgs(
+  action: ProposalAction,
+  projectRoot: string,
+  request: ProposalPreviewRequest,
+): readonly string[] {
+  const [, targetSourceId, ...options] = proposalPreviewCliArgs(request);
+  return [`proposal-${action}`, projectRoot, targetSourceId, ...options];
 }
 
 export function createProposalPreviewModel(
@@ -156,6 +178,65 @@ export function proposalPreviewError(response: EngineResponse): string {
   return error && typeof error.message === "string"
     ? error.message
     : "Entio could not generate a proposal preview.";
+}
+
+export function createProposalActionResult(
+  action: ProposalAction,
+  response: EngineResponse,
+): ProposalActionResult | undefined {
+  const proposal = asRecord(response.proposal);
+  const validation = proposal ? asRecord(proposal.validation) : undefined;
+  const rollback = asRecord(response.rollback);
+  const proposalId = typeof response.proposalId === "string"
+    ? response.proposalId
+    : proposal && typeof proposal.id === "string"
+      ? proposal.id
+      : undefined;
+  const changedFiles = Array.isArray(response.changedFiles)
+    ? response.changedFiles.filter((path): path is string => typeof path === "string")
+    : [];
+  const rawStatus = typeof response.status === "string"
+    ? response.status
+    : proposal && typeof proposal.status === "string"
+      ? proposal.status
+      : action === "reject"
+        ? "rejected"
+        : "failed";
+  const reason = typeof response.reason === "string"
+    ? response.reason
+    : validation && validation.ok === false
+      ? "Proposal validation failed."
+      : undefined;
+  const status = rawStatus === "apply-failed" && reason?.toLowerCase().includes("stale")
+    ? "stale"
+    : validation?.ok === false
+      ? "validation-failed"
+      : rawStatus;
+
+  if (response.ok) {
+    return {
+      action,
+      ok: true,
+      status,
+      proposalId,
+      changedFiles,
+      rollbackStatus: rollback && typeof rollback.status === "string" ? rollback.status : undefined,
+    };
+  }
+
+  const error = asRecord(response.error);
+  return {
+    action,
+    ok: false,
+    status,
+    proposalId,
+    changedFiles,
+    reason: error && typeof error.message === "string"
+      ? error.message
+      : (reason ?? "Entio could not complete the proposal action."),
+    rollbackStatus: rollback && typeof rollback.status === "string" ? rollback.status : undefined,
+    rollbackReason: rollback && typeof rollback.reason === "string" ? rollback.reason : undefined,
+  };
 }
 
 function readDiffEntry(value: unknown): ProposalDiffEntry | undefined {

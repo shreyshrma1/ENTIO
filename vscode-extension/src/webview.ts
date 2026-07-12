@@ -27,6 +27,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     #preview-status { white-space: pre-wrap; }
     #preview-diff, #preview-validation, #preview-impact { margin: 8px 0; }
     #approval-state { margin-left: 8px; }
+    #open-source { margin-left: 8px; }
     @media (max-width: 640px) { main { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -60,8 +61,10 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     <div id="preview-impact"></div>
     <div id="preview-diff"></div>
     <div id="preview-validation"></div>
-    <button id="approve" type="button" disabled>Approve</button>
-    <span id="approval-state">Approval is unavailable until a later apply slice.</span>
+    <button id="approve" type="button" disabled>Approve and apply</button>
+    <button id="reject" type="button" disabled>Reject</button>
+    <button id="open-source" type="button" disabled>Open changed source</button>
+    <span id="approval-state">Preview a proposal to review approval.</span>
   </section>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
@@ -78,7 +81,12 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const previewDiff = document.getElementById("preview-diff");
     const previewValidation = document.getElementById("preview-validation");
     const approve = document.getElementById("approve");
+    const reject = document.getElementById("reject");
+    const openSource = document.getElementById("open-source");
     const approvalState = document.getElementById("approval-state");
+    let currentRequest;
+    let currentPreview;
+    let changedSource;
     document.getElementById("refresh").addEventListener("click", () => vscode.postMessage({ type: "refresh" }));
 
     proposalForm.addEventListener("submit", (event) => {
@@ -92,7 +100,31 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
           label: classLabel.value,
         },
       });
+      currentRequest = {
+        targetSourceId: targetSource.value,
+        editKind: "create-class",
+        classIri: classIri.value,
+        label: classLabel.value,
+      };
       previewStatus.textContent = "Requesting proposal preview...";
+    });
+
+    approve.addEventListener("click", () => {
+      if (currentPreview && currentPreview.canApprove && currentRequest) {
+        vscode.postMessage({ type: "proposal-action", action: "apply", payload: currentRequest });
+      }
+    });
+
+    reject.addEventListener("click", () => {
+      if (currentRequest) {
+        vscode.postMessage({ type: "proposal-action", action: "reject", payload: currentRequest });
+      }
+    });
+
+    openSource.addEventListener("click", () => {
+      if (changedSource) {
+        vscode.postMessage({ type: "open-source", path: changedSource });
+      }
     });
 
     function renderList(container, items, emptyText) {
@@ -111,13 +143,17 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     }
 
     function renderPreview(preview) {
+      currentPreview = preview;
       previewStatus.textContent = preview.status + " · " + preview.targetSourceId + " · " + preview.previewTripleCount + " graph triple(s)";
       previewImpact.textContent = "Affected files: " + (preview.affectedPaths.join(", ") || "none");
       renderList(previewDiff, preview.diffEntries.map((entry) => entry.description), "No semantic changes.");
       renderList(previewValidation, preview.validationIssues, preview.validationStatus);
-      approve.disabled = true;
+      approve.disabled = !preview.canApprove;
+      reject.disabled = false;
+      openSource.disabled = true;
+      changedSource = undefined;
       approvalState.textContent = preview.canApprove
-        ? "Preview is valid and equivalent; approval will be connected in a later apply slice."
+        ? "Preview is valid and ready to apply."
         : preview.approvalDisabledReason;
     }
 
@@ -127,7 +163,32 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       previewDiff.replaceChildren();
       previewValidation.replaceChildren();
       approve.disabled = true;
+      reject.disabled = true;
+      openSource.disabled = true;
+      currentPreview = undefined;
       approvalState.textContent = "Approval is disabled because preview failed.";
+    }
+
+    function renderActionResult(result) {
+      approve.disabled = true;
+      reject.disabled = true;
+      currentPreview = undefined;
+      currentRequest = undefined;
+      changedSource = result.changedFiles && result.changedFiles[0];
+      openSource.disabled = !changedSource;
+      if (result.ok) {
+        previewStatus.textContent = result.action === "reject"
+          ? "Proposal rejected; source files were not changed."
+          : "Proposal applied successfully.";
+        approvalState.textContent = result.action === "reject"
+          ? "No files changed."
+          : "The project was refreshed after application.";
+        return;
+      }
+      previewStatus.textContent = result.reason;
+      approvalState.textContent = result.rollbackStatus
+        ? "Apply failed; rollback status: " + result.rollbackStatus
+        : "Proposal action failed.";
     }
 
     function populateSources(model) {
@@ -195,6 +256,12 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         renderPreview(message.payload);
       }
       if (message.type === "proposal-preview-error") {
+        renderPreviewError(message.message);
+      }
+      if (message.type === "proposal-action-result") {
+        renderActionResult(message.payload);
+      }
+      if (message.type === "proposal-action-error") {
         renderPreviewError(message.message);
       }
     });

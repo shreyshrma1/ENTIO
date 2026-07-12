@@ -1,7 +1,9 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import {
+  createProposalActionResult,
   createProposalPreviewModel,
+  proposalActionInvocationArgs,
   proposalPreviewCliArgs,
   proposalPreviewInvocationArgs,
   readProposalPreviewRequest,
@@ -33,6 +35,17 @@ test("creates a typed preview request and safe CLI arguments", () => {
   ]);
   assert.deepEqual(proposalPreviewInvocationArgs("/workspace", request!), [
     "proposal-preview",
+    "/workspace",
+    "simple",
+    "--edit",
+    "create-class",
+    "--class-iri",
+    "https://example.com/Invoice",
+    "--label",
+    "Invoice",
+  ]);
+  assert.deepEqual(proposalActionInvocationArgs("apply", "/workspace", request!), [
+    "proposal-apply",
     "/workspace",
     "simple",
     "--edit",
@@ -88,4 +101,47 @@ test("disables approval when validation fails", () => {
   assert.ok(preview);
   assert.equal(preview.canApprove, false);
   assert.match(preview.approvalDisabledReason!, /validation failed/);
+});
+
+test("normalizes applied, rejected, stale, and rollback action results", () => {
+  const applied = createProposalActionResult("apply", {
+    ok: true,
+    proposalId: "proposal-1",
+    status: "applied",
+    changedFiles: ["/workspace/ontology/simple.ttl"],
+    rollback: { status: "not-required" },
+  });
+  assert.ok(applied);
+  assert.equal(applied.status, "applied");
+  assert.deepEqual(applied.changedFiles, ["/workspace/ontology/simple.ttl"]);
+
+  const rejected = createProposalActionResult("reject", {
+    ok: true,
+    proposal: { id: "proposal-2", status: "rejected" },
+  });
+  assert.ok(rejected);
+  assert.equal(rejected.status, "rejected");
+
+  const failed = createProposalActionResult("apply", {
+    ok: false,
+    proposalId: "proposal-3",
+    status: "stale",
+    error: { message: "Proposal is stale." },
+    rollback: { status: "restored" },
+  });
+  assert.ok(failed);
+  assert.equal(failed.ok, false);
+  assert.equal(failed.status, "stale");
+  assert.equal(failed.rollbackStatus, "restored");
+
+  const validationFailure = createProposalActionResult("apply", {
+    ok: false,
+    proposal: {
+      id: "proposal-4",
+      status: "previewed",
+      validation: { ok: false },
+    },
+  });
+  assert.ok(validationFailure);
+  assert.equal(validationFailure.status, "validation-failed");
 });
