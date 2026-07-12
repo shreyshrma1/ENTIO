@@ -2,7 +2,7 @@
 
 Phase 1 is the Core Semantic Engine. It is the first backend foundation of Entio.
 
-Phase 1 has been implemented. The current active planning phase is Phase 1.5, which stabilizes the Phase 1 engine before later product phases.
+Phase 1 has been implemented. Phase 1.5 has also been implemented to stabilize the Phase 1 engine. The current active planning phase is Phase 2, which introduces controlled ontology editing on top of the completed semantic-engine foundation.
 
 ## Phase 1 Goals
 
