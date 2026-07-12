@@ -27,6 +27,7 @@ import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -38,6 +39,117 @@ class Phase2EndToEndRegressionTest {
     private val equivalenceVerifier = PreviewTurtleRoundTripVerifier()
     private val projectValidator = ProjectValidator()
     private val proposalValidator = ProposalValidator()
+
+    @Test
+    fun copiedFixtureSupportsAllPhase25CliEditsThroughApplyAndReload(): Unit {
+        val fixture = copyPhase25Fixture()
+        val originalSource = fixture.ontologyPath.readText()
+
+        val propertyPreview = runCli(
+            "proposal-preview",
+            fixture.projectRoot.toString(),
+            "simple",
+            "--edit",
+            "create-object-property",
+            "--property-iri",
+            "https://example.com/entio/simple#hasAccount",
+            "--label",
+            "has account",
+            "--domain-iri",
+            "https://example.com/entio/simple#Customer",
+            "--range-iri",
+            "https://example.com/entio/simple#Account",
+        )
+        assertEquals(0, propertyPreview.exitCode, propertyPreview.out)
+        assertTrue(propertyPreview.out.contains("\"status\":\"valid\""), propertyPreview.out)
+        assertTrue(propertyPreview.out.contains("\"entryCount\":"), propertyPreview.out)
+        assertTrue(propertyPreview.out.contains(fixture.ontologyPath.toString()), propertyPreview.out)
+        assertEquals(originalSource, fixture.ontologyPath.readText())
+
+        assertApplied(
+            fixture,
+            "--edit", "create-object-property",
+            "--property-iri", "https://example.com/entio/simple#hasAccount",
+            "--label", "has account",
+            "--domain-iri", "https://example.com/entio/simple#Customer",
+            "--range-iri", "https://example.com/entio/simple#Account",
+            "--proposal-id", "phase25-object-property",
+        )
+        assertApplied(
+            fixture,
+            "--edit", "create-datatype-property",
+            "--property-iri", "https://example.com/entio/simple#accountCode",
+            "--datatype", "http://www.w3.org/2001/XMLSchema#integer",
+            "--proposal-id", "phase25-datatype-property",
+        )
+        assertApplied(
+            fixture,
+            "--edit", "create-individual",
+            "--individual-iri", "https://example.com/entio/simple#bob",
+            "--type-iri", "https://example.com/entio/simple#Customer",
+            "--label", "Bob",
+            "--proposal-id", "phase25-individual",
+        )
+        assertApplied(
+            fixture,
+            "--edit", "assign-individual-type",
+            "--individual-iri", "https://example.com/entio/simple#alice",
+            "--type-iri", "https://example.com/entio/simple#Account",
+            "--proposal-id", "phase25-type-assignment",
+        )
+        assertApplied(
+            fixture,
+            "--edit", "add-object-property-assertion",
+            "--subject-iri", "https://example.com/entio/simple#alice",
+            "--property-iri", "https://example.com/entio/simple#hasAccount",
+            "--object-iri", "https://example.com/entio/simple#account",
+            "--proposal-id", "phase25-object-assertion",
+        )
+        assertApplied(
+            fixture,
+            "--edit", "add-datatype-property-assertion",
+            "--subject-iri", "https://example.com/entio/simple#alice",
+            "--property-iri", "https://example.com/entio/simple#accountCode",
+            "--value", "42",
+            "--datatype", "http://www.w3.org/2001/XMLSchema#integer",
+            "--proposal-id", "phase25-datatype-assertion",
+        )
+        assertApplied(
+            fixture,
+            "--edit", "add-superclass",
+            "--class-iri", "https://example.com/entio/simple#Customer",
+            "--superclass-iri", "https://example.com/entio/simple#Entity",
+            "--proposal-id", "phase25-superclass-add",
+        )
+        assertApplied(
+            fixture,
+            "--edit", "set-entity-label",
+            "--entity-iri", "https://example.com/entio/simple#Customer",
+            "--label", "Client",
+            "--replace-existing",
+            "--proposal-id", "phase25-label-replacement",
+        )
+        assertApplied(
+            fixture,
+            "--edit", "remove-superclass",
+            "--class-iri", "https://example.com/entio/simple#Customer",
+            "--superclass-iri", "https://example.com/entio/simple#Entity",
+            "--proposal-id", "phase25-superclass-remove",
+        )
+
+        val reloaded = loadProject(fixture.projectRoot)
+        assertTrue(reloaded.graph.triples.any { triple -> triple.subjectResource == Iri("https://example.com/entio/simple#hasAccount") })
+        assertTrue(reloaded.graph.triples.any { triple -> triple.subjectResource == Iri("https://example.com/entio/simple#bob") })
+        assertTrue(reloaded.graph.triples.any { triple -> triple.subjectResource == Iri("https://example.com/entio/simple#alice") && triple.predicate.value.endsWith("accountCode") })
+        assertTrue(
+            reloaded.graph.triples.any { triple ->
+                val literal = triple.objectTerm as? RdfLiteral
+                triple.subjectResource == Iri("https://example.com/entio/simple#Customer") &&
+                    literal?.lexicalForm == "Client"
+            },
+        )
+        assertFalse(reloaded.graph.triples.any { triple -> triple.subjectResource == Iri("https://example.com/entio/simple#Customer") && triple.predicate.value.endsWith("subClassOf") })
+    }
 
     @Test
     fun copiedFixtureCoversTypedEditPreviewValidationApprovalApplyReloadAndEquivalence(): Unit {
@@ -199,6 +311,45 @@ class Phase2EndToEndRegressionTest {
             projectRoot = targetRoot,
             ontologyPath = targetRoot.resolve("ontology/simple.ttl"),
         )
+    }
+
+    private fun copyPhase25Fixture(): ProjectFixture {
+        val fixture = copyExampleProject()
+        fixture.ontologyPath.writeText(
+            """
+                @prefix ex: <https://example.com/entio/simple#> .
+                @prefix owl: <http://www.w3.org/2002/07/owl#> .
+                @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+                @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+                ex:Customer a owl:Class ; rdfs:label "Customer" .
+                ex:Account a owl:Class .
+                ex:Entity a owl:Class .
+                ex:alice a owl:NamedIndividual, ex:Customer .
+                ex:account a owl:NamedIndividual, ex:Account .
+                ex:ownsAccount a owl:ObjectProperty ;
+                    rdfs:domain ex:Customer ;
+                    rdfs:range ex:Account .
+                ex:accountNumber a owl:DatatypeProperty ;
+                    rdfs:domain ex:Customer ;
+                    rdfs:range xsd:integer .
+            """.trimIndent() + "\n",
+        )
+        return fixture
+    }
+
+    private fun assertApplied(
+        fixture: ProjectFixture,
+        vararg options: String,
+    ): Unit {
+        val result = runCli(
+            "proposal-apply",
+            fixture.projectRoot.toString(),
+            "simple",
+            *options,
+        )
+        assertEquals(0, result.exitCode, result.out)
+        assertTrue(result.out.contains("\"status\":\"applied\""), result.out)
     }
 
     private fun repositoryRoot(): Path {
