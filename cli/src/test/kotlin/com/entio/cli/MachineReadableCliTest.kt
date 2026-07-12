@@ -214,6 +214,56 @@ class MachineReadableCliTest {
     }
 
     @Test
+    fun superclassAndLabelFlowsSupportAddRemoveAndReplacement(): Unit {
+        val projectRoot = createIndividualProject()
+
+        val addResult = runCli(
+            "proposal-preview",
+            projectRoot.toString(),
+            "simple",
+            "--edit",
+            "add-superclass",
+            "--class-iri",
+            "https://example.com/Customer",
+            "--superclass-iri",
+            "https://example.com/Document",
+        )
+        assertEquals(0, addResult.exitCode, addResult.out)
+        assertTrue(addResult.out.contains("\"changeCount\":1"), addResult.out)
+
+        val removeResult = runCli(
+            "proposal-preview",
+            projectRoot.toString(),
+            "simple",
+            "--edit",
+            "remove-superclass",
+            "--class-iri",
+            "https://example.com/Account",
+            "--superclass-iri",
+            "https://example.com/Document",
+        )
+        assertEquals(0, removeResult.exitCode, removeResult.out)
+        assertTrue(removeResult.out.contains("\"changeCount\":1"), removeResult.out)
+
+        val replacementResult = runCli(
+            "proposal-preview",
+            projectRoot.toString(),
+            "simple",
+            "--edit",
+            "set-entity-label",
+            "--entity-iri",
+            "https://example.com/Customer",
+            "--label",
+            "Client",
+            "--replace-existing",
+        )
+        assertEquals(0, replacementResult.exitCode, replacementResult.out)
+        assertTrue(replacementResult.out.contains("\"changeCount\":2"), replacementResult.out)
+        assertTrue(replacementResult.out.contains("Customer"), replacementResult.out)
+        assertTrue(replacementResult.out.contains("Client"), replacementResult.out)
+    }
+
+    @Test
     fun proposalRejectReturnsWithoutChangingSource(): Unit {
         val projectRoot = createProject()
         val source = projectRoot.resolve("ontology/simple.ttl")
@@ -345,7 +395,10 @@ class MachineReadableCliTest {
                 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
                 ex:Customer a owl:Class .
-                ex:Account a owl:Class .
+                ex:Account a owl:Class ;
+                    rdfs:subClassOf ex:Document .
+                ex:Document a owl:Class .
+                ex:Customer rdfs:label "Customer" .
                 ex:alice a owl:NamedIndividual, ex:Customer .
                 ex:account a owl:NamedIndividual, ex:Account .
                 ex:ownsAccount a owl:ObjectProperty ;

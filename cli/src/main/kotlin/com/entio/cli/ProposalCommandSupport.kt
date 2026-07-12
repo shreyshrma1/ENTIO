@@ -192,6 +192,11 @@ private fun CliEditRequest.composeChangeSet(
             .filter { triple -> triple.subjectResource.value == propertyIri && triple.predicate.value == predicate }
             .map { triple -> GraphChange(GraphChangeKind.Removal, triple) }
     }
+    if (replaceExisting && editKind == ProposalCommandSupport.SET_ENTITY_LABEL_EDIT) {
+        changes += project.graph.triples
+            .filter { triple -> triple.subjectResource.value == entityIri && triple.predicate.value == RDFS_LABEL }
+            .map { triple -> GraphChange(GraphChangeKind.Removal, triple) }
+    }
     changes += translatedChangeSet.changes
 
     if (editKind == ProposalCommandSupport.CREATE_OBJECT_PROPERTY_EDIT || editKind == ProposalCommandSupport.CREATE_DATATYPE_PROPERTY_EDIT) {
@@ -233,6 +238,7 @@ private val PROPERTY_RELATIONSHIP_EDITS: Set<String> = setOf(
 
 private const val RDFS_DOMAIN: String = "http://www.w3.org/2000/01/rdf-schema#domain"
 private const val RDFS_RANGE: String = "http://www.w3.org/2000/01/rdf-schema#range"
+private const val RDFS_LABEL: String = "http://www.w3.org/2000/01/rdf-schema#label"
 
 private fun CliEditRequest.toTypedEdit(): EntioResult<TypedOntologyEdit> =
     when (editKind) {
