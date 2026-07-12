@@ -101,6 +101,16 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         </label>
         <label id="assertion-language-field">Language tag <input id="assertion-language" type="text"></label>
       </div>
+      <div id="hierarchy-fields" hidden>
+        <label>Class IRI <input id="hierarchy-class-iri" type="url"></label>
+        <label>Superclass IRI <input id="hierarchy-superclass-iri" type="url"></label>
+      </div>
+      <div id="label-fields" hidden>
+        <label>Entity IRI <input id="label-entity-iri" type="url"></label>
+        <label>Label <input id="label-value" type="text"></label>
+        <label>Language tag <input id="label-language" type="text"></label>
+        <label><input id="label-replace" type="checkbox"> Replace existing labels</label>
+      </div>
       <p id="edit-form-placeholder" hidden>Additional edit forms are provided by the workbench edit modes.</p>
       <button id="preview-submit" type="submit">Preview change</button>
     </form>
@@ -156,6 +166,14 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const assertionDatatype = document.getElementById("assertion-datatype");
     const assertionLanguageField = document.getElementById("assertion-language-field");
     const assertionLanguage = document.getElementById("assertion-language");
+    const hierarchyFields = document.getElementById("hierarchy-fields");
+    const hierarchyClassIri = document.getElementById("hierarchy-class-iri");
+    const hierarchySuperclassIri = document.getElementById("hierarchy-superclass-iri");
+    const labelFields = document.getElementById("label-fields");
+    const labelEntityIri = document.getElementById("label-entity-iri");
+    const labelValue = document.getElementById("label-value");
+    const labelLanguage = document.getElementById("label-language");
+    const labelReplace = document.getElementById("label-replace");
     const previewStatus = document.getElementById("preview-status");
     const previewImpact = document.getElementById("preview-impact");
     const previewDiff = document.getElementById("preview-diff");
@@ -184,11 +202,15 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       const individualMode = editKind.value === "create-individual" || editKind.value === "assign-individual-type";
       const assertionMode = editKind.value === "add-object-property-assertion" || editKind.value === "add-datatype-property-assertion";
       const datatypeAssertion = editKind.value === "add-datatype-property-assertion";
-      const formMode = createClass || propertyMode || individualMode || assertionMode;
+      const hierarchyMode = editKind.value === "add-superclass" || editKind.value === "remove-superclass";
+      const labelMode = editKind.value === "set-entity-label";
+      const formMode = createClass || propertyMode || individualMode || assertionMode || hierarchyMode || labelMode;
       classFields.hidden = !createClass;
       propertyFields.hidden = !propertyMode;
       individualFields.hidden = !individualMode;
       assertionFields.hidden = !assertionMode;
+      hierarchyFields.hidden = !hierarchyMode;
+      labelFields.hidden = !labelMode;
       editFormPlaceholder.hidden = formMode;
       previewSubmit.disabled = !formMode;
       classIri.required = createClass;
@@ -210,6 +232,10 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       assertionLanguageField.hidden = !datatypeAssertion;
       assertionObjectIri.required = editKind.value === "add-object-property-assertion";
       assertionValue.required = datatypeAssertion;
+      hierarchyClassIri.required = hierarchyMode;
+      hierarchySuperclassIri.required = hierarchyMode;
+      labelEntityIri.required = labelMode;
+      labelValue.required = labelMode;
     }
     editKind.addEventListener("change", updateEditFormMode);
     propertyDatatype.addEventListener("change", updateEditFormMode);
@@ -225,11 +251,13 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       }
       const individualMode = !individualFields.hidden;
       const assertionMode = !assertionFields.hidden;
+      const hierarchyMode = !hierarchyFields.hidden;
+      const labelMode = !labelFields.hidden;
       if (editKind.value === "add-datatype-property-assertion" && assertionValue.value === "") {
         previewStatus.textContent = "A literal value is required.";
         return;
       }
-      if (editKind.value !== "create-class" && !propertyMode && !individualMode && !assertionMode) return;
+      if (editKind.value !== "create-class" && !propertyMode && !individualMode && !assertionMode && !hierarchyMode && !labelMode) return;
       const payload = editKind.value === "create-class"
         ? {
             targetSourceId: targetSource.value,
@@ -255,6 +283,22 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
             individualIri: individualIri.value,
             typeIri: individualTypeIri.value,
             label: individualLabel.value,
+          }
+        : hierarchyMode
+        ? {
+            targetSourceId: targetSource.value,
+            editKind: editKind.value,
+            classIri: hierarchyClassIri.value,
+            superclassIri: hierarchySuperclassIri.value,
+          }
+        : labelMode
+        ? {
+            targetSourceId: targetSource.value,
+            editKind: editKind.value,
+            entityIri: labelEntityIri.value,
+            label: labelValue.value,
+            language: labelLanguage.value,
+            replaceExisting: labelReplace.checked,
           }
         : {
             targetSourceId: targetSource.value,

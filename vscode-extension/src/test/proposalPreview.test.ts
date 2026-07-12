@@ -200,6 +200,34 @@ test("normalizes individual and assertion form fields", () => {
   });
 });
 
+test("normalizes hierarchy and label form fields", () => {
+  const forms = [
+    {
+      editKind: "add-superclass",
+      classIri: "https://example.com/Customer",
+      superclassIri: "https://example.com/Entity",
+    },
+    {
+      editKind: "remove-superclass",
+      classIri: "https://example.com/Customer",
+      superclassIri: "https://example.com/Entity",
+    },
+    {
+      editKind: "set-entity-label",
+      entityIri: "https://example.com/Customer",
+      label: "Client",
+      language: "en",
+      replaceExisting: true,
+    },
+  ];
+
+  forms.forEach((form) => {
+    const request = readProposalPreviewRequest({ targetSourceId: "simple", ...form });
+    assert.ok(request, form.editKind);
+    assert.equal(request?.editKind, form.editKind);
+  });
+});
+
 test("normalizes a valid preview and enables only semantic approval readiness", () => {
   const preview = createProposalPreviewModel({
     ok: true,
