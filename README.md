@@ -18,13 +18,13 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation.
+This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation and the completed Phase 1.5 Core Semantic Engine Stabilization work.
 
 Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because the core work is ontology loading, RDF/Turtle parsing, deterministic validation, semantic diffing, and CLI behavior.
 
-The current implementation supports small local Entio projects, Turtle/RDF parsing through Apache Jena, deterministic validation reports, semantic graph diffs, and a thin CLI.
+The current implementation supports small local Entio projects, Turtle/RDF parsing through Apache Jena, RDF-term-aware graph triples, deterministic validation reports, semantic graph diffs, reusable project loading, and a thin CLI.
 
-The active planning phase is Phase 1.5: Core Semantic Engine Stabilization. Phase 1.5 will consolidate project loading behind a reusable `ProjectLoader`, construct `EntioProject`, and correct RDF term fidelity while staying backend/core-engine only.
+The active planning phase is Phase 2: Controlled Ontology Editing Workbench. Phase 2 will introduce safe ontology mutation, preview and approval workflows, source-file persistence, and a minimal VS Code workbench while keeping the Kotlin semantic engine responsible for RDF and ontology behavior.
 
 ## Workspace Structure
 
@@ -39,14 +39,16 @@ The Phase 1 Gradle workspace contains:
 
 TypeScript may still be used later for VS Code or web interfaces, but those interfaces are not part of Phase 1. Future TypeScript layers should consume the Kotlin/JVM core engine rather than duplicate semantic logic.
 
-## Phase 1 Capabilities
+## Current Capabilities
 
-Phase 1 currently supports:
+The Phase 1 and Phase 1.5 implementation currently supports:
 
 - Loading an Entio project configuration.
+- Loading a project through a reusable `ProjectLoader`.
+- Returning a populated `EntioProject` aggregate.
 - Resolving local ontology source files.
 - Parsing small Turtle/RDF ontology files using existing libraries.
-- Representing Entio-specific project objects, symbols, validation results, and graph diffs.
+- Representing Entio-specific project objects, RDF terms, symbols, validation results, and graph diffs.
 - Running basic validation checks.
 - Generating semantic diffs.
 - Exposing these capabilities through a simple CLI.
@@ -83,40 +85,44 @@ Run checks:
 
 ## Current Limitations
 
-- `semantic-engine` currently exposes the project-loading workflow as smaller services, not as a single public `ProjectLoader`.
-- `EntioProject` exists as a core data object, but it is not yet constructed by a public engine API.
-- The graph model currently collapses RDF object terms into simplified values and does not preserve all RDF term distinctions.
 - Only Turtle is supported.
 - Semantic diffs are graph-triple based, with a small special case for `rdfs:label` changes.
 - CLI output is text-only.
 - Entio does not store project versions itself; `diff` compares two project directories supplied by the caller.
+- Entio does not yet mutate ontology files through controlled proposals.
+- Entio does not yet include a VS Code workbench.
 
-## Active Phase 1.5 Focus
+## Active Phase 2 Focus
 
-Phase 1.5 should:
+Phase 2 should:
 
-- Add a reusable `ProjectLoader` API in `semantic-engine`.
-- Return a populated `EntioProject` aggregate.
-- Move project-loading orchestration out of CLI-specific code.
-- Preserve RDF IRI resources, blank nodes, plain literals, datatyped literals, and language-tagged literals.
-- Keep Jena contained inside `semantic-engine`.
-- Preserve deterministic validation, symbol, diff, and CLI behavior.
+- Add controlled graph changes and atomic change sets.
+- Translate supported typed ontology edits into graph changes in the Kotlin engine.
+- Generate preview graphs without changing source files.
+- Generate semantic diffs and validation reports before approval.
+- Apply only approved and current proposals to the correct Turtle source.
+- Restore the previous source and graph state when save or verification fails.
+- Add a minimal VS Code ontology workbench.
+- Keep the workflow git-like only by analogy: draft, preview, diff, review, approve, and apply.
 
-## Explicit Non-Goals For Phase 1 And Phase 1.5
+## Explicit Non-Goals For Phase 2
 
-Phase 1.5 should not include:
+Phase 2 should not include:
 
-- VS Code extension.
 - Web app.
 - Document ingestion.
 - Autonomous AI agents.
+- LLM-generated ontology edits.
 - Schema RAG.
 - Entity resolution.
-- Stardog integration.
-- Full FIBO indexing.
+- Full domain ontology indexing.
+- Production graph storage.
+- Full Protégé feature parity.
+- Full OWL class-expression editing.
+- Full SHACL authoring or validation environment.
 - A custom RDF, OWL, or SHACL framework.
-- Ontology mutation or persistence of edited graphs.
-- Change approval, undo, redo, rollback, or version history.
+- Long-term project version history.
+- Git staging, commits, pushes, branch management, or pull-request creation inside Entio.
 - OWL reasoning or full SHACL validation.
 
 ## Technical Principle
@@ -130,7 +136,10 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Product Principles](docs/architecture/000-product-principles.md)
 - [Phase 1 Scope](docs/architecture/phase-1-scope.md)
 - [Phase 1.5 Scope](docs/architecture/phase-1.5-scope.md)
+- [Phase 2 Scope](docs/architecture/phase-2-scope.md)
 - [Technical Approach](docs/architecture/002-technical-approach.md)
 - [Kotlin Engine Guidelines](docs/architecture/003-kotlin-engine-guidelines.md)
 - [Phase 1.5 Spec](docs/specs/0002-phase-1.5-core-semantic-engine-stabilization.md)
+- [Phase 2 Spec](docs/specs/0003-phase-2-controlled-ontology-editing-workbench.md)
 - [Phase 1 Implementation Summary](docs/phase-summaries/phase-1-summary.md)
+- [Phase 1.5 Implementation Summary](docs/phase-summaries/phase-1.5-summary.md)

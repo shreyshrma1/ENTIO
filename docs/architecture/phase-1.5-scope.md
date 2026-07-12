@@ -1,6 +1,6 @@
 # Phase 1.5 Scope
 
-Phase 1.5 is the Core Semantic Engine Stabilization phase. It builds directly on the completed Phase 1 implementation and prepares the semantic engine for later ontology mutation, ontology-aware modeling, Schema RAG, document ingestion, and agent workflows.
+Phase 1.5 is complete. It was the Core Semantic Engine Stabilization phase. It built directly on the completed Phase 1 implementation and prepared the semantic engine for later ontology mutation, ontology-aware modeling, Schema RAG, document ingestion, and agent workflows.
 
 Phase 1.5 is not a new product-feature phase. Its purpose is to consolidate the Phase 1 loading flow behind a reusable API and correct the RDF data model so that later phases do not depend on lossy or CLI-specific behavior.
 

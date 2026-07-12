@@ -368,8 +368,7 @@ Phase 1.5 intentionally does not include:
 
 ## Known Limitations And Follow-Up Work
 
-- `README.md` and `AGENTS.md` still describe Phase 1.5 as the active planning phase even though the Phase 1.5 implementation slices are now present.
-- The Phase 1.5 spec and ExecPlan are still marked `Draft`.
+- `README.md` and `AGENTS.md` have been updated to describe Phase 1.5 as complete and Phase 2 as the active planning phase.
 - `ProjectValidator` still composes lower-level services directly rather than using `ProjectLoader`. This is intentional for now because Slice 8 said `validate` should keep using validation behavior unless Slice 5 routed validation through `ProjectLoader`.
 - `GraphTriple` still includes compatibility fields `subject: Iri` and `objectValue: String`. RDF-term-aware code should prefer `subjectResource` and `objectTerm`.
 - Blank-node identifiers are parser-local and should not be treated as durable semantic identities.
@@ -396,4 +395,4 @@ Differences or clarifications:
 - Validation was not refactored to use `ProjectLoader`; it remains validation-specific orchestration.
 - Temporary `GraphTriple` compatibility fields remain in place.
 - No committed example fixture update was needed for blank-node and literal metadata coverage; the Phase 1.5 regression test creates that fixture at test time.
-- Documentation status metadata has not yet been updated everywhere to say Phase 1.5 is complete.
+- Documentation status metadata has been updated in the main repository status docs to say Phase 1.5 is complete.
