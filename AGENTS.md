@@ -1,10 +1,10 @@
 # Agent Guidance For Entio
 
-This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation and the completed Phase 1.5 Core Semantic Engine Stabilization work. Earlier Phase 0B planning documents are still present, but the repository is no longer documentation-only.
+This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation, the completed Phase 1.5 Core Semantic Engine Stabilization work, and the completed Phase 2 Controlled Ontology Editing Workbench foundation. Earlier Phase 0B planning documents are still present, but the repository is no longer documentation-only.
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
-The active planning phase is Phase 2: Controlled Ontology Editing Workbench. Phase 2 should introduce safe ontology mutation, preview and approval workflows, source-file persistence, and a minimal VS Code workbench while preserving the Kotlin semantic engine as the source of truth for RDF and ontology behavior.
+Phase 2, the Controlled Ontology Editing Workbench, is complete. No later planning phase is active in the repository yet. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the VS Code layer delegates semantic work to it.
 
 ## Product Context
 
@@ -22,7 +22,7 @@ If a task seems to require later-phase infrastructure, stop and explain why befo
 
 ## Current Scope
 
-Phase 1 and Phase 1.5 are complete. The current semantic-engine foundation supports:
+Phase 1, Phase 1.5, and Phase 2 are complete. The current Entio foundation supports:
 
 - Loading an Entio project.
 - Parsing small Turtle/RDF ontology files with existing libraries.
@@ -30,17 +30,25 @@ Phase 1 and Phase 1.5 are complete. The current semantic-engine foundation suppo
 - Running basic validation checks.
 - Generating semantic diffs.
 - Exposing these capabilities through a simple CLI (Command Line Interface).
+- Representing controlled graph changes, atomic change sets, previews, proposals, baselines, apply results, and rollback results.
+- Translating supported typed ontology edits into graph changes.
+- Validating proposal previews, checking semantic equivalence, and applying current approved proposals atomically.
+- Exposing machine-readable proposal preview, validation, diff, apply, and reject commands.
+- Providing a minimal VS Code ontology workbench for project browsing, focused `create-class` editing, preview, approval, rejection, refresh, and opening changed sources.
 
 Current implementation notes:
 
 - The Gradle modules are `core-types`, `semantic-engine`, `validation-engine`, `graph-diff`, `cli`, and `shared`.
 - The CLI exposes `validate`, `symbols`, and `diff`.
+- The CLI also exposes `project-summary`, `proposal-preview`, `proposal-validate`, `proposal-diff`, `proposal-apply`, and `proposal-reject`.
 - `semantic-engine` exposes reusable project loading through `ProjectLoader`.
 - `EntioProject` is constructed as a loaded-project aggregate.
 - RDF graph terms preserve IRI resources, blank nodes, plain literals, datatyped literals, and language-tagged literals.
+- `ProposalApplier` writes only the target ontology source and restores it when post-save verification fails.
+- The VS Code extension delegates ontology operations to the Kotlin CLI and does not write RDF directly.
 - `shared` intentionally remains minimal and should not collect speculative utilities.
 
-Phase 2 is the active phase. It should focus on:
+Phase 2 implemented:
 
 - Adding controlled graph changes and atomic change sets.
 - Translating supported typed ontology edits into graph changes in the Kotlin engine.
