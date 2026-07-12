@@ -208,6 +208,155 @@ class ProposalValidatorTest {
         )
     }
 
+    @Test
+    fun missingReferencedResourceIsRejectedForObjectAssertion(): Unit {
+        val source = tempSource()
+        val customer = iri("Customer")
+        val ownsAccount = iri("ownsAccount")
+        val graph = GraphState(
+            setOf(
+                typeTriple("Customer"),
+                propertyTypeTriple(ownsAccount, OWL_OBJECT_PROPERTY),
+            ),
+        )
+        val project = project(source = source, graph = graph)
+        val proposal = proposal(
+            project = project,
+            changeSet = ChangeSet(
+                listOf(
+                    GraphChange(
+                        GraphChangeKind.Addition,
+                        GraphTriple(customer, ownsAccount, iri("missing-account")),
+                    ),
+                ),
+            ),
+        )
+
+        val report = validator.validateProposal(proposal, project)
+
+        assertEquals(ValidationStatus.Invalid, report.status)
+        assertEquals("missing-referenced-resource", report.issues.single().code)
+    }
+
+    @Test
+    fun objectPropertyCannotReceiveDatatypeAssertion(): Unit {
+        val source = tempSource()
+        val property = iri("ownsAccount")
+        val graph = GraphState(
+            setOf(
+                typeTriple("Customer"),
+                propertyTypeTriple(property, OWL_OBJECT_PROPERTY),
+            ),
+        )
+        val project = project(source = source, graph = graph)
+        val proposal = proposal(
+            project = project,
+            changeSet = ChangeSet(
+                listOf(
+                    GraphChange(
+                        GraphChangeKind.Addition,
+                        GraphTriple(iri("Customer"), property, RdfLiteral("not-a-resource")),
+                    ),
+                ),
+            ),
+        )
+
+        val report = validator.validateProposal(proposal, project)
+
+        assertEquals(ValidationStatus.Invalid, report.status)
+        assertTrue(report.issues.any { issue -> issue.code == "incompatible-property-kind" })
+    }
+
+    @Test
+    fun invalidTypedLiteralIsRejectedAgainstKnownDatatypeRange(): Unit {
+        val source = tempSource()
+        val property = iri("accountNumber")
+        val graph = GraphState(
+            setOf(
+                typeTriple("Customer"),
+                propertyTypeTriple(property, OWL_DATATYPE_PROPERTY),
+                GraphTriple(property, RDFS_RANGE, XSD_INTEGER),
+            ),
+        )
+        val project = project(source = source, graph = graph)
+        val proposal = proposal(
+            project = project,
+            changeSet = ChangeSet(
+                listOf(
+                    GraphChange(
+                        GraphChangeKind.Addition,
+                        GraphTriple(
+                            iri("Customer"),
+                            property,
+                            RdfLiteral("not-an-integer", datatypeIri = XSD_INTEGER),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val report = validator.validateProposal(proposal, project)
+
+        assertEquals(ValidationStatus.Invalid, report.status)
+        assertTrue(report.issues.any { issue -> issue.code == "invalid-literal" })
+    }
+
+    @Test
+    fun knownDomainAndRangeMustMatchExplicitResourceTypes(): Unit {
+        val source = tempSource()
+        val property = iri("ownsAccount")
+        val graph = GraphState(
+            setOf(
+                typeTriple("Customer"),
+                typeTriple("Account"),
+                propertyTypeTriple(property, OWL_OBJECT_PROPERTY),
+                GraphTriple(property, RDFS_DOMAIN, iri("Account")),
+                GraphTriple(property, RDFS_RANGE, iri("Account")),
+            ),
+        )
+        val project = project(source = source, graph = graph)
+        val proposal = proposal(
+            project = project,
+            changeSet = ChangeSet(
+                listOf(
+                    GraphChange(
+                        GraphChangeKind.Addition,
+                        GraphTriple(iri("Customer"), property, iri("Customer")),
+                    ),
+                ),
+            ),
+        )
+
+        val report = validator.validateProposal(proposal, project)
+
+        assertEquals(ValidationStatus.Invalid, report.status)
+        assertTrue(report.issues.any { issue -> issue.code == "incompatible-property-domain" })
+        assertTrue(report.issues.any { issue -> issue.code == "incompatible-property-range" })
+    }
+
+    @Test
+    fun selfSubclassIsRejected(): Unit {
+        val source = tempSource()
+        val project = project(source = source)
+        val customer = iri("Customer")
+        val proposal = proposal(
+            project = project,
+            changeSet = ChangeSet(
+                listOf(
+                    GraphChange(
+                        GraphChangeKind.Addition,
+                        GraphTriple(customer, RDFS_SUBCLASS_OF, customer),
+                    ),
+                ),
+            ),
+        )
+
+        val report = validator.validateProposal(proposal, project)
+
+        assertEquals(ValidationStatus.Invalid, report.status)
+        assertEquals("self-subclass", report.issues.single().code)
+    }
+
     private fun proposal(
         project: EntioProject,
         changeSet: ChangeSet = ChangeSet(
@@ -275,10 +424,29 @@ class ProposalValidatorTest {
             objectTerm = Iri("http://www.w3.org/2000/01/rdf-schema#Class"),
         )
 
+    private fun propertyTypeTriple(property: Iri, type: Iri): GraphTriple =
+        GraphTriple(
+            subject = property,
+            predicate = Iri(RDF_TYPE),
+            objectTerm = type,
+        )
+
+    private fun iri(localName: String): Iri = Iri("https://example.com/$localName")
+
     private fun labelTriple(localName: String, label: String): GraphTriple =
         GraphTriple(
             subject = Iri("https://example.com/$localName"),
             predicate = Iri("http://www.w3.org/2000/01/rdf-schema#label"),
             objectTerm = RdfLiteral(label),
         )
+
+    private companion object {
+        private const val RDF_TYPE: String = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+        private val RDFS_SUBCLASS_OF: Iri = Iri("http://www.w3.org/2000/01/rdf-schema#subClassOf")
+        private val RDFS_DOMAIN: Iri = Iri("http://www.w3.org/2000/01/rdf-schema#domain")
+        private val RDFS_RANGE: Iri = Iri("http://www.w3.org/2000/01/rdf-schema#range")
+        private val OWL_OBJECT_PROPERTY: Iri = Iri("http://www.w3.org/2002/07/owl#ObjectProperty")
+        private val OWL_DATATYPE_PROPERTY: Iri = Iri("http://www.w3.org/2002/07/owl#DatatypeProperty")
+        private val XSD_INTEGER: Iri = Iri("http://www.w3.org/2001/XMLSchema#integer")
+    }
 }
