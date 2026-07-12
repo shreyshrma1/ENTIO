@@ -2,9 +2,93 @@ import type { EngineResponse } from "./engineCli";
 
 export interface ProposalPreviewRequest {
   readonly targetSourceId: string;
-  readonly editKind: "create-class";
-  readonly classIri: string;
+  readonly editKind: EditKind;
+  readonly classIri?: string;
   readonly label?: string;
+  readonly propertyIri?: string;
+  readonly domainIri?: string;
+  readonly rangeIri?: string;
+  readonly datatype?: string;
+  readonly individualIri?: string;
+  readonly typeIri?: string;
+  readonly subjectIri?: string;
+  readonly objectIri?: string;
+  readonly value?: string;
+  readonly language?: string;
+  readonly superclassIri?: string;
+  readonly entityIri?: string;
+  readonly replaceExisting?: boolean;
+}
+
+export type EditKind =
+  | "create-class"
+  | "create-object-property"
+  | "create-datatype-property"
+  | "set-property-domain"
+  | "set-property-range"
+  | "create-individual"
+  | "assign-individual-type"
+  | "add-object-property-assertion"
+  | "add-datatype-property-assertion"
+  | "add-superclass"
+  | "remove-superclass"
+  | "set-entity-label";
+
+export const EDIT_KINDS: readonly EditKind[] = [
+  "create-class",
+  "create-object-property",
+  "create-datatype-property",
+  "set-property-domain",
+  "set-property-range",
+  "create-individual",
+  "assign-individual-type",
+  "add-object-property-assertion",
+  "add-datatype-property-assertion",
+  "add-superclass",
+  "remove-superclass",
+  "set-entity-label",
+];
+
+export type EditFormField =
+  | "classIri"
+  | "label"
+  | "propertyIri"
+  | "domainIri"
+  | "rangeIri"
+  | "datatype"
+  | "individualIri"
+  | "typeIri"
+  | "subjectIri"
+  | "objectIri"
+  | "value"
+  | "language"
+  | "superclassIri"
+  | "entityIri";
+
+export interface EditFormState {
+  readonly targetSourceId: string;
+  readonly editKind: EditKind;
+  readonly values: Readonly<Partial<Record<EditFormField, string>>>;
+}
+
+export function createEditFormState(targetSourceId = ""): EditFormState {
+  return {
+    targetSourceId,
+    editKind: "create-class",
+    values: {},
+  };
+}
+
+export function selectEditKind(state: EditFormState, editKind: EditKind): EditFormState {
+  return { ...state, editKind, values: {} };
+}
+
+export function updateEditFormField(
+  state: EditFormState,
+  field: EditFormField,
+  value: string,
+): EditFormState {
+  return { ...state, values: { ...state.values, [field]: value } };
 }
 
 export interface ProposalDiffEntry {
@@ -45,23 +129,30 @@ export function readProposalPreviewRequest(value: unknown): ProposalPreviewReque
   const request = asRecord(value);
   if (
     !request ||
-    request.editKind !== "create-class" ||
     typeof request.targetSourceId !== "string" ||
     request.targetSourceId.trim() === "" ||
-    typeof request.classIri !== "string" ||
-    request.classIri.trim() === ""
+    !isEditKind(request.editKind)
   ) {
     return undefined;
   }
 
-  return {
+  const normalized: ProposalPreviewRequest = {
     targetSourceId: request.targetSourceId,
-    editKind: "create-class",
-    classIri: request.classIri,
-    label: typeof request.label === "string" && request.label.trim() !== ""
-      ? request.label
-      : undefined,
+    editKind: request.editKind,
   };
+  const fields = editFields(request);
+  if (!hasRequiredEditFields(request.editKind, fields)) {
+    return undefined;
+  }
+  return { ...normalized, ...fields };
+}
+
+export function editFormStateRequest(state: EditFormState): ProposalPreviewRequest | undefined {
+  return readProposalPreviewRequest({
+    targetSourceId: state.targetSourceId,
+    editKind: state.editKind,
+    ...state.values,
+  });
 }
 
 export function proposalPreviewCliArgs(request: ProposalPreviewRequest): readonly string[] {
@@ -70,12 +161,8 @@ export function proposalPreviewCliArgs(request: ProposalPreviewRequest): readonl
     request.targetSourceId,
     "--edit",
     request.editKind,
-    "--class-iri",
-    request.classIri,
   ];
-  if (request.label) {
-    args.push("--label", request.label);
-  }
+  appendEditArgs(args, request);
   return args;
 }
 
@@ -244,6 +331,112 @@ function readDiffEntry(value: unknown): ProposalDiffEntry | undefined {
   return entry && typeof entry.kind === "string" && typeof entry.description === "string"
     ? { kind: entry.kind, description: entry.description }
     : undefined;
+}
+
+function editFields(request: Record<string, unknown>): Partial<ProposalPreviewRequest> {
+  const fields: Record<string, string | boolean> = {};
+  const names: readonly EditFormField[] = [
+    "classIri", "label", "propertyIri", "domainIri", "rangeIri", "datatype", "individualIri",
+    "typeIri", "subjectIri", "objectIri", "value", "language", "superclassIri", "entityIri",
+  ];
+  names.forEach((name) => {
+    const value = request[name];
+    if (typeof value === "string" && value.trim() !== "") {
+      fields[name] = value;
+    }
+  });
+  if (request.replaceExisting === true) {
+    fields.replaceExisting = true;
+  }
+  return fields as Partial<ProposalPreviewRequest>;
+}
+
+function hasRequiredEditFields(editKind: EditKind, fields: Partial<ProposalPreviewRequest>): boolean {
+  const present = (field: keyof ProposalPreviewRequest): boolean => {
+    const value = fields[field];
+    return typeof value === "string" && value.trim() !== "";
+  };
+  switch (editKind) {
+    case "create-class": return present("classIri");
+    case "create-object-property":
+    case "create-datatype-property":
+      return present("propertyIri");
+    case "set-property-domain": return present("propertyIri") && present("domainIri");
+    case "set-property-range": return present("propertyIri") && (present("rangeIri") || present("datatype"));
+    case "create-individual": return present("individualIri");
+    case "assign-individual-type": return present("individualIri") && present("typeIri");
+    case "add-object-property-assertion":
+      return present("subjectIri") && present("propertyIri") && present("objectIri");
+    case "add-datatype-property-assertion": return present("subjectIri") && present("propertyIri") && present("value");
+    case "add-superclass":
+    case "remove-superclass": return present("classIri") && present("superclassIri");
+    case "set-entity-label": return present("entityIri") && present("label");
+  }
+}
+
+function appendEditArgs(args: string[], request: ProposalPreviewRequest): void {
+  const append = (option: string, value: string | undefined): void => {
+    if (value) args.push(option, value);
+  };
+  switch (request.editKind) {
+    case "create-class":
+      append("--class-iri", request.classIri);
+      append("--label", request.label);
+      break;
+    case "create-object-property":
+    case "create-datatype-property":
+      append("--property-iri", request.propertyIri);
+      append("--label", request.label);
+      append("--domain-iri", request.domainIri);
+      append("--range-iri", request.rangeIri);
+      append("--datatype", request.datatype);
+      break;
+    case "set-property-domain":
+      append("--property-iri", request.propertyIri);
+      append("--domain-iri", request.domainIri);
+      break;
+    case "set-property-range":
+      append("--property-iri", request.propertyIri);
+      append("--range-iri", request.rangeIri);
+      append("--datatype", request.datatype);
+      break;
+    case "create-individual":
+      append("--individual-iri", request.individualIri);
+      append("--type-iri", request.typeIri);
+      append("--label", request.label);
+      break;
+    case "assign-individual-type":
+      append("--individual-iri", request.individualIri);
+      append("--type-iri", request.typeIri);
+      break;
+    case "add-object-property-assertion":
+      append("--subject-iri", request.subjectIri);
+      append("--property-iri", request.propertyIri);
+      append("--object-iri", request.objectIri);
+      break;
+    case "add-datatype-property-assertion":
+      append("--subject-iri", request.subjectIri);
+      append("--property-iri", request.propertyIri);
+      append("--value", request.value);
+      append("--datatype", request.datatype);
+      append("--language", request.language);
+      break;
+    case "add-superclass":
+    case "remove-superclass":
+      append("--class-iri", request.classIri);
+      append("--superclass-iri", request.superclassIri);
+      break;
+    case "set-entity-label":
+      append("--entity-iri", request.entityIri);
+      append("--label", request.label);
+      append("--language", request.language);
+      break;
+  }
+  if (request.replaceExisting) args.push("--replace-existing");
+}
+
+function isEditKind(value: unknown): value is EditKind {
+  return typeof value === "string" && EDIT_KINDS.includes(value as EditKind);
 }
 
 function readValidationIssue(value: unknown): string | undefined {

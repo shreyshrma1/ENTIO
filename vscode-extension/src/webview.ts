@@ -1,6 +1,10 @@
 import type { Webview } from "vscode";
+import { EDIT_KINDS } from "./proposalPreview";
 
 export function renderWorkbench(webview: Webview, nonce: string): string {
+  const editKindOptions = EDIT_KINDS
+    .map((editKind) => `<option value="${editKind}">${editKind}</option>`)
+    .join("");
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -51,9 +55,13 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     <h2 id="edit-heading">Preview Ontology Edit</h2>
     <form id="proposal-form">
       <label>Target source <select id="target-source" required></select></label>
-      <label>Class IRI <input id="class-iri" type="url" required></label>
-      <label>Label <input id="class-label" type="text"></label>
-      <button type="submit">Preview change</button>
+      <label>Edit type <select id="edit-kind">${editKindOptions}</select></label>
+      <div id="class-fields">
+        <label>Class IRI <input id="class-iri" type="url" required></label>
+        <label>Label <input id="class-label" type="text"></label>
+      </div>
+      <p id="edit-form-placeholder" hidden>Additional edit forms are provided by the workbench edit modes.</p>
+      <button id="preview-submit" type="submit">Preview change</button>
     </form>
   </section>
   <section id="preview" aria-labelledby="preview-heading">
@@ -75,6 +83,10 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const details = document.getElementById("details");
     const proposalForm = document.getElementById("proposal-form");
     const targetSource = document.getElementById("target-source");
+    const editKind = document.getElementById("edit-kind");
+    const classFields = document.getElementById("class-fields");
+    const editFormPlaceholder = document.getElementById("edit-form-placeholder");
+    const previewSubmit = document.getElementById("preview-submit");
     const classIri = document.getElementById("class-iri");
     const classLabel = document.getElementById("class-label");
     const previewStatus = document.getElementById("preview-status");
@@ -90,13 +102,24 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     let changedSource;
     document.getElementById("refresh").addEventListener("click", () => vscode.postMessage({ type: "refresh" }));
 
+    function updateEditFormMode() {
+      const createClass = editKind.value === "create-class";
+      classFields.hidden = !createClass;
+      editFormPlaceholder.hidden = createClass;
+      previewSubmit.disabled = !createClass;
+      classIri.required = createClass;
+    }
+    editKind.addEventListener("change", updateEditFormMode);
+    updateEditFormMode();
+
     proposalForm.addEventListener("submit", (event) => {
       event.preventDefault();
+      if (editKind.value !== "create-class") return;
       vscode.postMessage({
         type: "proposal-preview",
         payload: {
           targetSourceId: targetSource.value,
-          editKind: "create-class",
+          editKind: editKind.value,
           classIri: classIri.value,
           label: classLabel.value,
         },

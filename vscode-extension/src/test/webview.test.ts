@@ -8,6 +8,9 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /id="ontology-sources|id="sources/);
   assert.match(html, /id="symbol-groups"/);
   assert.match(html, /id="proposal-form"/);
+  assert.match(html, /id="edit-kind"/);
+  assert.match(html, /create-object-property/);
+  assert.match(html, /id="edit-form-placeholder"/);
   assert.match(html, /type: "proposal-preview"/);
   assert.match(html, /id="preview-validation"/);
   assert.match(html, /id="approve"/);

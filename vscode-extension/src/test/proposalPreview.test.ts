@@ -3,6 +3,10 @@ import { test } from "node:test";
 import {
   createProposalActionResult,
   createProposalPreviewModel,
+  createEditFormState,
+  editFormStateRequest,
+  selectEditKind,
+  updateEditFormField,
   proposalActionInvocationArgs,
   proposalPreviewCliArgs,
   proposalPreviewInvocationArgs,
@@ -60,6 +64,71 @@ test("creates a typed preview request and safe CLI arguments", () => {
 test("rejects unsupported or incomplete preview requests", () => {
   assert.equal(readProposalPreviewRequest({ editKind: "create-class", classIri: "" }), undefined);
   assert.equal(readProposalPreviewRequest({ targetSourceId: "simple", editKind: "add-triple", classIri: "x" }), undefined);
+});
+
+test("normalizes every approved edit kind through one request boundary", () => {
+  const requests = [
+    { editKind: "create-class", classIri: "https://example.com/Invoice" },
+    { editKind: "create-object-property", propertyIri: "https://example.com/owns" },
+    { editKind: "create-datatype-property", propertyIri: "https://example.com/name", datatype: "xsd:string" },
+    { editKind: "set-property-domain", propertyIri: "https://example.com/owns", domainIri: "https://example.com/Customer" },
+    { editKind: "set-property-range", propertyIri: "https://example.com/owns", rangeIri: "https://example.com/Account" },
+    { editKind: "create-individual", individualIri: "https://example.com/alice" },
+    { editKind: "assign-individual-type", individualIri: "https://example.com/alice", typeIri: "https://example.com/Customer" },
+    { editKind: "add-object-property-assertion", subjectIri: "https://example.com/alice", propertyIri: "https://example.com/owns", objectIri: "https://example.com/account" },
+    { editKind: "add-datatype-property-assertion", subjectIri: "https://example.com/alice", propertyIri: "https://example.com/name", value: "Alice" },
+    { editKind: "add-superclass", classIri: "https://example.com/Customer", superclassIri: "https://example.com/Entity" },
+    { editKind: "remove-superclass", classIri: "https://example.com/Customer", superclassIri: "https://example.com/Entity" },
+    { editKind: "set-entity-label", entityIri: "https://example.com/Customer", label: "Client" },
+  ];
+
+  requests.forEach((request) => {
+    const normalized = readProposalPreviewRequest({ targetSourceId: "simple", ...request });
+    assert.ok(normalized, request.editKind);
+    assert.equal(normalized?.editKind, request.editKind);
+  });
+});
+
+test("form state changes preserve one shared request shape", () => {
+  let state = createEditFormState("simple");
+  state = selectEditKind(state, "create-object-property");
+  state = updateEditFormField(state, "propertyIri", "https://example.com/owns");
+  state = updateEditFormField(state, "domainIri", "https://example.com/Customer");
+  state = updateEditFormField(state, "rangeIri", "https://example.com/Account");
+
+  assert.deepEqual(editFormStateRequest(state), {
+    targetSourceId: "simple",
+    editKind: "create-object-property",
+    propertyIri: "https://example.com/owns",
+    domainIri: "https://example.com/Customer",
+    rangeIri: "https://example.com/Account",
+  });
+});
+
+test("serializes shared request fields into stable CLI options", () => {
+  const request = readProposalPreviewRequest({
+    targetSourceId: "simple",
+    editKind: "add-datatype-property-assertion",
+    subjectIri: "https://example.com/alice",
+    propertyIri: "https://example.com/name",
+    value: "Alice",
+    language: "en",
+  });
+
+  assert.deepEqual(proposalPreviewCliArgs(request!), [
+    "proposal-preview",
+    "simple",
+    "--edit",
+    "add-datatype-property-assertion",
+    "--subject-iri",
+    "https://example.com/alice",
+    "--property-iri",
+    "https://example.com/name",
+    "--value",
+    "Alice",
+    "--language",
+    "en",
+  ]);
 });
 
 test("normalizes a valid preview and enables only semantic approval readiness", () => {
