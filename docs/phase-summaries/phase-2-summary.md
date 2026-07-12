@@ -2,7 +2,7 @@
 
 ## Overview
 
-Phase 2 implemented the Controlled Ontology Editing Workbench for small local Entio projects. It adds a controlled, reviewable mutation pathway on top of the Phase 1 and Phase 1.5 Kotlin/JVM semantic engine.
+Phase 2 implemented the first controlled ontology-editing foundation for small local Entio projects. It adds a controlled, reviewable mutation pathway on top of the Phase 1 and Phase 1.5 Kotlin/JVM semantic engine, plus a minimal VS Code workbench. The current user-facing editing path supports creating a class; the Kotlin engine contains broader typed-edit contracts that are not yet exposed as CLI or workbench forms.
 
 The implemented workflow is proposal-oriented rather than source-text-oriented:
 
@@ -73,7 +73,7 @@ Remains intentionally minimal and contains only generic shared utilities. It doe
 
 ### `vscode-extension`
 
-Provides the minimal VS Code workbench. It detects an Entio project, invokes the CLI, renders project sources and symbols, submits the supported edit form, displays preview/diff/validation results, sends approve or reject actions, refreshes after application or Turtle file changes, and opens a changed source file in VS Code.
+Provides the minimal VS Code workbench. It detects an Entio project, invokes the CLI, renders project sources and symbols, submits the current `create-class` edit form, displays preview/diff/validation results, sends approve or reject actions, refreshes after application or Turtle file changes, and opens a changed source file in VS Code.
 
 The extension does not parse Turtle, construct RDF independently, write ontology files, or perform Git operations.
 
@@ -93,7 +93,7 @@ The extension does not parse Turtle, construct RDF independently, write ontology
 - `GraphChange` represents one addition or removal of a triple.
 - `ChangeSet` groups changes and rejects an empty set.
 - `ChangePreview` contains the proposed graph and its change set.
-- `TypedOntologyEdit` is a sealed contract for supported operations such as creating classes, adding superclass relationships, creating properties or individuals, assigning types, and adding assertions.
+- `TypedOntologyEdit` is a sealed contract for operations such as creating classes, adding superclass relationships, creating properties or individuals, assigning types, and adding assertions. These contracts are broader than the current CLI and workbench forms.
 - `ChangeProposal` carries the change set, target source, baseline, preview, diff, validation report, status, and source-file impact.
 - `ProposalBaseline` records project, target-source, and graph fingerprints for stale-proposal detection.
 - `ApplyProposalResult` and `RollbackResult` report application, restoration, and failure outcomes.
@@ -108,7 +108,7 @@ The extension does not parse Turtle, construct RDF independently, write ontology
 
 `ProjectLoader` reads the project configuration, resolves the configured Turtle source, parses it through Apache Jena, extracts symbols, and assembles the project graph.
 
-`TypedOntologyEditTranslator` converts a typed edit into a `ChangeSet`. `GraphChangePreviewer` applies that set to an in-memory copy of the graph and rejects duplicate additions or missing removals. `ProposalCreator` captures the baseline and creates a `ChangeProposal` without changing the source.
+`TypedOntologyEditTranslator` converts a typed edit into a `ChangeSet`; the current CLI and workbench invoke it through the `create-class` path. `GraphChangePreviewer` applies that set to an in-memory copy of the graph and rejects duplicate additions or missing removals. `ProposalCreator` captures the baseline and creates a `ChangeProposal` without changing the source.
 
 `ProposalDiffGenerator` compares the current and preview graphs. `ProposalValidator` combines project checks, preview checks, baseline checks, and semantic-equivalence checks. `PreviewTurtleRoundTripVerifier` serializes the preview graph with Jena, reparses it, and compares the graphs semantically.
 
@@ -197,7 +197,7 @@ Phase 2 does not include:
 
 The product workflow is Git-like only by analogy: draft, preview, diff, review, approve, and apply.
 
-## Known Limitations And Follow-Up Work
+## Known Limitations
 
 - Turtle is the only ontology source format currently implemented.
 - The core typed-edit contract and translator cover multiple edit kinds, but the current machine-readable CLI and VS Code form expose only `create-class`.
@@ -205,4 +205,17 @@ The product workflow is Git-like only by analogy: draft, preview, diff, review, 
 - Applying a proposal serializes the target graph through Jena; source formatting and comments are not preserved.
 - Semantic diffs are graph-based, with a focused special case for `rdfs:label` changes rather than a complete ontology-aware change taxonomy.
 - The workbench is intentionally minimal. It shows project data and selected symbol details and supports a focused edit/preview/apply flow, not a full ontology editor.
-- No later planning phase is active in the repository yet; future work should be specified before implementation begins.
+
+## Next Steps
+
+The following Phase 2 editing capabilities are not currently available in the user-facing CLI or VS Code workbench and should be implemented as focused follow-up slices:
+
+- Add a form and CLI boundary for creating object properties and datatype properties.
+- Add a form and CLI boundary for creating individuals.
+- Add forms and CLI boundaries for object-property assertions and datatype-property values.
+- Add a form and CLI boundary for adding or removing a parent/superclass relationship.
+- Add forms and CLI boundaries for setting a property domain and range.
+- Add workbench preview, validation, reject, apply, refresh, and source-opening coverage for each new edit form.
+- Keep the existing Kotlin typed-edit contracts as the semantic source of truth while expanding the machine-readable boundary incrementally.
+
+No later planning phase is active in the repository yet; these are completion items for the current Phase 2 workbench foundation, not permission to implement them without an approved spec and ExecPlan.
