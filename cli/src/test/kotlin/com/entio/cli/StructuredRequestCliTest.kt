@@ -98,6 +98,58 @@ class StructuredRequestCliTest {
         assertTrue(run.second.contains("IncomingReference"), run.second)
     }
 
+    @Test
+    fun combinedPreviewAndRejectReturnOneStructuredResultWithoutWriting(): Unit {
+        val project = createProject()
+        val request = Files.createTempFile("entio-combined", ".json")
+        request.writeText(singleClassRequest())
+        val source = project.resolve("ontology/simple.ttl")
+        val before = Files.readAllBytes(source)
+
+        val preview = runCli("proposal-combined", project.toString(), "--request-file", request.toString(), "--action", "preview")
+        val reject = runCli("proposal-combined", project.toString(), "--request-file", request.toString(), "--action", "reject")
+
+        assertEquals(0, preview.first, preview.second)
+        assertTrue(preview.second.contains("\"command\":\"proposal-combined\""))
+        assertTrue(preview.second.contains("\"semanticEquivalence\":{\"status\":\"equivalent\"}"))
+        assertEquals(0, reject.first, reject.second)
+        assertTrue(reject.second.contains("\"status\":\"rejected\""))
+        assertEquals(before.toList(), Files.readAllBytes(source).toList())
+    }
+
+    @Test
+    fun combinedApplyWritesAndReloadsOnlyAfterPreviewIsReady(): Unit {
+        val project = createProject()
+        val request = Files.createTempFile("entio-combined-apply", ".json")
+        request.writeText(singleClassRequest(classIri = "https://example.com/Invoice"))
+
+        val run = runCli("proposal-combined", project.toString(), "--request-file", request.toString(), "--action", "apply")
+
+        assertEquals(0, run.first, run.second)
+        assertTrue(run.second.contains("\"status\":\"applied\""), run.second)
+        assertTrue(project.resolve("ontology/simple.ttl").toFile().readText().contains("Invoice"))
+    }
+
+    @Test
+    fun combinedActionBlocksStaleBaselineBeforeWriting(): Unit {
+        val project = createProject()
+        val request = Files.createTempFile("entio-combined-stale", ".json")
+        request.writeText(
+            singleClassRequest().replace(
+                "\"edits\":",
+                "\"baseline\":{\"projectFingerprint\":\"stale\",\"targetSourceFingerprint\":\"stale\",\"graphFingerprint\":\"stale\"},\n  \"edits\":",
+            ),
+        )
+        val source = project.resolve("ontology/simple.ttl")
+        val before = Files.readAllBytes(source)
+
+        val run = runCli("proposal-combined", project.toString(), "--request-file", request.toString(), "--action", "apply")
+
+        assertEquals(1, run.first)
+        assertTrue(run.second.contains("stale-proposal-baseline"), run.second)
+        assertEquals(before.toList(), Files.readAllBytes(source).toList())
+    }
+
     private fun runCli(vararg args: String): Pair<Int, String> {
         val output = ByteArrayOutputStream()
         val error = ByteArrayOutputStream()
@@ -133,4 +185,15 @@ class StructuredRequestCliTest {
         )
         return root
     }
+
+    private fun singleClassRequest(classIri: String = "https://example.com/Invoice"): String =
+        """
+        {
+          "schemaVersion": 1,
+          "proposalId": "combined-1",
+          "title": "Combined proposal",
+          "targetSourceId": "simple",
+          "edits": [{"kind": "create-class", "classIri": "$classIri"}]
+        }
+        """.trimIndent()
 }
