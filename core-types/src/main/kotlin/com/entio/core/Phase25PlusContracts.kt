@@ -179,3 +179,20 @@ public data class CombinedProposalMetadata(
     public val validationAttribution: List<StagedValidationAttribution> = emptyList(),
     public val baseline: ProposalBaseline? = null,
 )
+
+/** Result container for one combined in-memory preview and its review metadata. */
+public data class CombinedProposalPreview(
+    public val metadata: CombinedProposalMetadata,
+    public val changeSet: ChangeSet? = null,
+    public val preview: ChangePreview? = null,
+    public val diff: SemanticDiff? = null,
+    public val validationReport: ValidationReport,
+    public val equivalence: SemanticEquivalenceResult? = null,
+)
+
+/** Deterministically ordered staged entries and their translated graph changes. */
+public data class NormalizedStagedChangeSet(
+    public val entries: List<StagedChange>,
+    public val changeSet: ChangeSet? = null,
+    public val conflicts: List<StagedConflict> = emptyList(),
+)
