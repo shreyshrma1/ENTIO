@@ -20,6 +20,7 @@ public class ProjectValidator(
     private val sourceResolver: OntologySourceResolver = OntologySourceResolver(),
     private val ontologyParser: OntologyParser = OntologyParser(),
     private val symbolExtractor: SymbolExtractor = SymbolExtractor(),
+    private val iriNamespaceValidator: IriNamespaceValidator = IriNamespaceValidator(),
     private val issueSorter: ValidationIssueSorter = ValidationIssueSorter(),
 ) {
     public fun validateProject(projectRoot: Path): ValidationReport {
@@ -48,6 +49,11 @@ public class ProjectValidator(
         val config = when (val result = configLoader.loadConfig(projectRoot)) {
             is EntioResult.Failure -> return report(result.issues)
             is EntioResult.Success -> result.value
+        }
+
+        val namespaceReport = iriNamespaceValidator.validate(config)
+        if (!namespaceReport.ok) {
+            return report(namespaceReport.issues)
         }
 
         val resolvedSources = when (val result = sourceResolver.resolveSources(projectRoot, config)) {
