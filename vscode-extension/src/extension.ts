@@ -1,4 +1,7 @@
 import { randomBytes } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as vscode from "vscode";
 import { EntioEngineClient } from "./engineCli";
 import { detectEntioProject } from "./projectDetector";
@@ -8,15 +11,19 @@ import {
   createProposalActionResult,
   createProposalPreviewModel,
   createDeletionDependencyModel,
+  createCombinedProposalModel,
   createEntityResolutionModel,
   createGeneratedIriModel,
   deletionDependenciesInvocationArgs,
+  combinedProposalInvocationArgs,
+  createCombinedProposalRequest,
   entityResolutionInvocationArgs,
   generatedIriInvocationArgs,
   proposalActionInvocationArgs,
   proposalPreviewInvocationArgs,
   proposalPreviewError,
   readEntitySelectorRequest,
+  readCombinedProposalRequests,
   readProposalPreviewRequest,
 } from "./proposalPreview";
 
@@ -47,6 +54,24 @@ export function activate(context: vscode.ExtensionContext): void {
         .getConfiguration("entio")
         .get<string>("cliCommand", "entio");
       const engine = new EntioEngineClient(cliCommand);
+      let combinedRequestFile: string | undefined;
+      const writeCombinedRequest = async (value: unknown): Promise<string> => {
+        const requests = readCombinedProposalRequests(value);
+        const request = requests ? createCombinedProposalRequest(requests) : undefined;
+        if (!request) throw new Error("The staged changes cannot form one combined proposal request.");
+        const directory = await mkdtemp(join(tmpdir(), "entio-vscode-"));
+        const file = join(directory, "proposal.json");
+        await writeFile(file, JSON.stringify(request), "utf8");
+        combinedRequestFile = file;
+        return file;
+      };
+      const removeCombinedRequest = async (): Promise<void> => {
+        if (!combinedRequestFile) return;
+        const file = combinedRequestFile;
+        combinedRequestFile = undefined;
+        await rm(file, { force: true });
+        await rm(join(file, ".."), { recursive: true, force: true });
+      };
       const refresh = async (): Promise<void> => {
         try {
           const response = await engine.run(
@@ -134,6 +159,57 @@ export function activate(context: vscode.ExtensionContext): void {
             await panel.webview.postMessage({
               type: "proposal-action-error",
               message: error instanceof Error ? error.message : "Entio proposal action failed.",
+            });
+          }
+        }
+
+        if (message.type === "combined-preview") {
+          try {
+            const file = await writeCombinedRequest((message as { payload?: unknown }).payload);
+            const response = await engine.run(
+              combinedProposalInvocationArgs(project.rootPath, file, "preview"),
+              project.rootPath,
+            );
+            const combined = createCombinedProposalModel(response);
+            if (!combined) throw new Error("Entio CLI returned an invalid combined proposal preview.");
+            await panel.webview.postMessage({ type: "combined-preview", payload: combined });
+          } catch (error) {
+            await panel.webview.postMessage({
+              type: "combined-preview-error",
+              message: error instanceof Error ? error.message : "Entio combined preview invocation failed.",
+            });
+          }
+        }
+
+        if (message.type === "combined-action") {
+          const action = (message as { action?: unknown }).action;
+          if ((action !== "apply" && action !== "reject") || !combinedRequestFile) {
+            await panel.webview.postMessage({
+              type: "combined-action-error",
+              action: typeof action === "string" ? action : "apply",
+              message: "No combined proposal is ready for this action.",
+            });
+            return;
+          }
+          try {
+            const response = await engine.run(
+              combinedProposalInvocationArgs(project.rootPath, combinedRequestFile, action),
+              project.rootPath,
+            );
+            const combined = createCombinedProposalModel(response);
+            if (!combined) throw new Error("Entio CLI returned an invalid combined proposal action result.");
+            await panel.webview.postMessage({ type: "combined-action-result", payload: combined });
+            if (action === "apply" && combined.ok && combined.status === "applied") {
+              await removeCombinedRequest();
+              await refresh();
+            } else if (action === "reject" && combined.ok) {
+              await removeCombinedRequest();
+            }
+          } catch (error) {
+            await panel.webview.postMessage({
+              type: "combined-action-error",
+              action,
+              message: error instanceof Error ? error.message : "Entio combined proposal action failed.",
             });
           }
         }
@@ -248,6 +324,7 @@ export function activate(context: vscode.ExtensionContext): void {
         messageSubscription.dispose();
         watcherSubscriptions.forEach((subscription) => subscription.dispose());
         watcher.dispose();
+        void removeCombinedRequest();
       });
       await refresh();
     },

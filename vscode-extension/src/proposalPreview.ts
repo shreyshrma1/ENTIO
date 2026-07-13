@@ -139,6 +139,32 @@ export interface StagedChangeSession {
   readonly nextSequence: number;
 }
 
+export interface CombinedProposalRequest {
+  readonly schemaVersion: 1;
+  readonly proposalId: string;
+  readonly title: string;
+  readonly targetSourceId: string;
+  readonly edits: readonly Record<string, string | boolean | undefined>[];
+}
+
+export interface CombinedProposalModel {
+  readonly ok: boolean;
+  readonly action: string;
+  readonly status: string;
+  readonly proposalId?: string;
+  readonly previewTripleCount?: number;
+  readonly diffEntries: readonly ProposalDiffEntry[];
+  readonly validationStatus?: string;
+  readonly validationOk: boolean;
+  readonly validationIssues: readonly string[];
+  readonly semanticEquivalenceStatus: string;
+  readonly semanticEquivalenceReason?: string;
+  readonly affectedPaths: readonly string[];
+  readonly canApprove: boolean;
+  readonly changedFiles: readonly string[];
+  readonly rollbackStatus?: string;
+}
+
 export interface EditStagedChangeResult {
   readonly session: StagedChangeSession;
   readonly request: ProposalPreviewRequest;
@@ -209,6 +235,76 @@ export function removeStagedChange(session: StagedChangeSession, id: string): St
 export function stagedChangeSummary(request: ProposalPreviewRequest): string {
   const identity = request.label || request.classIri || request.propertyIri || request.individualIri || request.entityIri || request.subjectIri || "edit";
   return `${request.editKind} · ${identity}`;
+}
+
+export function readCombinedProposalRequests(value: unknown): readonly ProposalPreviewRequest[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const requests = value.map(readProposalPreviewRequest);
+  return requests.every(isDefined) ? requests : undefined;
+}
+
+export function createCombinedProposalRequest(
+  requests: readonly ProposalPreviewRequest[],
+  proposalId = "vscode-combined-proposal",
+  title = "VS Code combined ontology proposal",
+): CombinedProposalRequest | undefined {
+  if (requests.length === 0 || requests.some((request) => request.targetSourceId !== requests[0].targetSourceId)) {
+    return undefined;
+  }
+  return {
+    schemaVersion: 1,
+    proposalId,
+    title,
+    targetSourceId: requests[0].targetSourceId,
+    edits: requests.map((request) => {
+      const { targetSourceId: _targetSourceId, editKind, ...fields } = request;
+      return { kind: editKind, ...fields };
+    }),
+  };
+}
+
+export function combinedProposalInvocationArgs(
+  projectRoot: string,
+  requestFile: string,
+  action: "preview" | "validate" | "diff" | "apply" | "reject" = "preview",
+): readonly string[] {
+  return ["proposal-combined", projectRoot, "--request-file", requestFile, "--action", action];
+}
+
+export function createCombinedProposalModel(response: EngineResponse): CombinedProposalModel | undefined {
+  if (typeof response.action !== "string" || typeof response.status !== "string") return undefined;
+  const proposal = asRecord(response.proposal);
+  const preview = asRecord(response.preview);
+  const diff = asRecord(response.diff);
+  const validation = asRecord(response.validation);
+  const equivalence = asRecord(response.semanticEquivalence);
+  if (!preview || !diff || !validation || !equivalence) return undefined;
+  const diffEntries = Array.isArray(diff.entries) ? diff.entries.map(readDiffEntry).filter(isDefined) : undefined;
+  const validationIssues = Array.isArray(validation.issues)
+    ? validation.issues.map(readValidationIssue).filter(isDefined)
+    : undefined;
+  const previewTripleCount = numberValue(preview.tripleCount);
+  const equivalenceStatus = typeof equivalence.status === "string" ? equivalence.status : undefined;
+  if (!diffEntries || !validationIssues || equivalenceStatus === undefined) return undefined;
+  const validationOk = validation.ok === true;
+  const canApprove = response.action === "preview" && validationOk && equivalenceStatus === "equivalent" && diffEntries.length > 0;
+  return {
+    ok: response.ok,
+    action: response.action,
+    status: response.status,
+    proposalId: proposal && typeof proposal.id === "string" ? proposal.id : undefined,
+    previewTripleCount,
+    diffEntries,
+    validationStatus: typeof validation.status === "string" ? validation.status : undefined,
+    validationOk,
+    validationIssues,
+    semanticEquivalenceStatus: equivalenceStatus,
+    semanticEquivalenceReason: typeof equivalence.reason === "string" ? equivalence.reason : undefined,
+    affectedPaths: readStringArray(response.sourceFileImpact, "affectedPaths"),
+    canApprove,
+    changedFiles: readStringArray(response, "changedFiles"),
+    rollbackStatus: readString(response.rollback, "status"),
+  };
 }
 
 export interface EntitySelectorRequest {
@@ -685,6 +781,18 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null
     ? value as Record<string, unknown>
     : undefined;
+}
+
+function readString(value: unknown, key: string): string | undefined {
+  const record = asRecord(value);
+  return record && typeof record[key] === "string" ? record[key] as string : undefined;
+}
+
+function readStringArray(value: unknown, key: string): readonly string[] {
+  const record = asRecord(value);
+  return record && Array.isArray(record[key])
+    ? record[key].filter((entry): entry is string => typeof entry === "string")
+    : [];
 }
 
 function textValue(value: unknown): string | undefined {
