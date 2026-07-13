@@ -2,6 +2,8 @@ package com.entio.cli
 
 import com.entio.core.EntioProject
 import com.entio.core.EntioResult
+import com.entio.core.DeletionDependencyIdentity
+import com.entio.core.GraphTriple
 import com.entio.core.Iri
 import com.entio.core.RdfLiteral
 import com.entio.core.SemanticEquivalenceResult
@@ -194,6 +196,93 @@ class Phase25PlusEndToEndRegressionTest {
         assertEquals(originalRollbackSource, rollbackFixture.ontologyPath.readText())
     }
 
+    @Test
+    fun deletionRequiresExplicitSelectionAndAppliesAgainstCopiedFixture(): Unit {
+        val unreferencedFixture = copyExampleProject()
+        val accountIri = "https://example.com/entio/simple#Account"
+        val unreferencedDependencies = runCli(
+            "deletion-dependencies",
+            unreferencedFixture.projectRoot.toString(),
+            "simple",
+            "--iri",
+            accountIri,
+        )
+        assertEquals(0, unreferencedDependencies.exitCode, unreferencedDependencies.out)
+        assertTrue(unreferencedDependencies.out.contains("\"status\":\"Safe\""), unreferencedDependencies.out)
+
+        val unreferencedApply = runCli(
+            "proposal-combined",
+            unreferencedFixture.projectRoot.toString(),
+            "--request-file",
+            writeDeletionRequest(unreferencedFixture.projectRoot, accountIri).toString(),
+            "--action",
+            "apply",
+        )
+        assertEquals(0, unreferencedApply.exitCode, unreferencedApply.out)
+        assertTrue(unreferencedApply.out.contains("\"status\":\"applied\""), unreferencedApply.out)
+        val afterUnreferencedDeletion = loadProject(unreferencedFixture.projectRoot)
+        assertTrue(afterUnreferencedDeletion.graph.triples.none { triple ->
+            triple.subjectResource == Iri(accountIri)
+        })
+
+        val referencedFixture = copyExampleProject()
+        val propertyIri = Iri("https://example.com/entio/simple#recievedInvoice")
+        val subjectIri = Iri("https://example.com/entio/simple#Shrey")
+        val objectIri = Iri("https://example.com/entio/simple#20874")
+        val dependentTriple = GraphTriple(subjectIri, propertyIri, objectIri)
+        val dependencyKey = DeletionDependencyIdentity("simple", dependentTriple).key
+        val blocked = runCli(
+            "deletion-dependencies",
+            referencedFixture.projectRoot.toString(),
+            "simple",
+            "--iri",
+            propertyIri.value,
+        )
+        assertEquals(1, blocked.exitCode, blocked.out)
+        assertTrue(blocked.out.contains("RequiresExplicitDependencies"), blocked.out)
+        assertTrue(blocked.out.contains(dependencyKey), blocked.out)
+
+        val selected = runCli(
+            "deletion-dependencies",
+            referencedFixture.projectRoot.toString(),
+            "simple",
+            "--iri",
+            propertyIri.value,
+            "--selected-dependency-key",
+            dependencyKey,
+        )
+        assertEquals(0, selected.exitCode, selected.out)
+        assertTrue(selected.out.contains("\"status\":\"Safe\""), selected.out)
+
+        val originalSource = referencedFixture.ontologyPath.readText()
+        val preview = runCli(
+            "proposal-combined",
+            referencedFixture.projectRoot.toString(),
+            "--request-file",
+            writeDeletionRequest(referencedFixture.projectRoot, propertyIri.value, dependencyKey).toString(),
+            "--action",
+            "preview",
+        )
+        assertEquals(0, preview.exitCode, preview.out)
+        assertTrue(preview.out.contains("\"status\":\"readyforreview\""), preview.out)
+        assertEquals(originalSource, referencedFixture.ontologyPath.readText())
+
+        val applied = runCli(
+            "proposal-combined",
+            referencedFixture.projectRoot.toString(),
+            "--request-file",
+            writeDeletionRequest(referencedFixture.projectRoot, propertyIri.value, dependencyKey).toString(),
+            "--action",
+            "apply",
+        )
+        assertEquals(0, applied.exitCode, applied.out)
+        assertTrue(applied.out.contains("\"status\":\"applied\""), applied.out)
+        val afterReferencedDeletion = loadProject(referencedFixture.projectRoot)
+        assertTrue(afterReferencedDeletion.graph.triples.none { triple ->
+            triple.predicate == propertyIri || triple.subjectResource == propertyIri
+        })
+    }
+
     private fun writeCombinedRequest(projectRoot: Path, baseline: Boolean = false): Path {
         val baselineJson = if (baseline) {
             "\"baseline\":{\"projectFingerprint\":\"stale\",\"targetSourceFingerprint\":\"stale\",\"graphFingerprint\":\"stale\"},"
@@ -213,6 +302,23 @@ class Phase25PlusEndToEndRegressionTest {
                     {"kind":"create-class","classIri":"https://example.com/entio/simple#PurchaseOrder","label":"Purchase Order"},
                     {"kind":"create-individual","individualIri":"https://example.com/entio/simple#newInvoice","typeIri":"https://example.com/entio/simple#Invoice","label":"New Invoice"}
                   ]
+                }
+                """.trimIndent(),
+            )
+        }
+    }
+
+    private fun writeDeletionRequest(projectRoot: Path, entityIri: String, dependencyKey: String? = null): Path {
+        val selected = dependencyKey?.let { ",\"selectedDependencyKeys\":[\"$it\"]" }.orEmpty()
+        return projectRoot.resolve("deletion-request.json").also { path ->
+            path.writeText(
+                """
+                {
+                  "schemaVersion": 1,
+                  "proposalId": "phase25-plus-deletion",
+                  "title": "Phase 2.5+ deletion regression",
+                  "targetSourceId": "simple",
+                  "edits": [{"kind":"delete-entity","entityIri":"$entityIri"$selected}]
                 }
                 """.trimIndent(),
             )
