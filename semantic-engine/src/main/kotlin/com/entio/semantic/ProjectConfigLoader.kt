@@ -2,12 +2,15 @@ package com.entio.semantic
 
 import com.entio.core.EntioProjectConfig
 import com.entio.core.EntioResult
+import com.entio.core.Iri
+import com.entio.core.IriNamespaceConfig
 import com.entio.core.OntologyFormat
 import com.entio.core.OntologySourceReference
 import com.entio.core.ValidationIssue
 import com.entio.core.ValidationSeverity
 import java.nio.file.Files
 import java.nio.file.Path
+import java.net.URI
 import org.snakeyaml.engine.v2.api.Load
 import org.snakeyaml.engine.v2.api.LoadSettings
 
@@ -53,6 +56,12 @@ public class ProjectConfigLoader {
             )
         }
 
+        val iriNamespace = parseIriNamespace(root)
+        when (iriNamespace) {
+            is EntioResult.Failure -> return iriNamespace
+            is EntioResult.Success -> Unit
+        }
+
         val sourceEntries = root["ontologySources"] as? List<*>
             ?: return failure(
                 code = "missing-ontology-sources",
@@ -79,7 +88,51 @@ public class ProjectConfigLoader {
             EntioProjectConfig(
                 name = name,
                 ontologySources = sources,
+                iriNamespace = iriNamespace.valueOrNull(),
             ),
+        )
+    }
+
+    private fun parseIriNamespace(root: Map<*, *>): EntioResult<IriNamespaceConfig?> {
+        if (!root.containsKey("iriNamespace")) {
+            return EntioResult.Success(null)
+        }
+
+        val value = root["iriNamespace"] as? String
+            ?: return failure(
+                code = "invalid-iri-namespace",
+                message = "iriNamespace must be a string.",
+                source = "iriNamespace",
+            )
+
+        if (value.isBlank() || value.any(Char::isWhitespace)) {
+            return failure(
+                code = "invalid-iri-namespace",
+                message = "iriNamespace must be a non-empty absolute IRI.",
+                source = "iriNamespace",
+            )
+        }
+
+        val uri = try {
+            URI(value)
+        } catch (_: IllegalArgumentException) {
+            return failure(
+                code = "invalid-iri-namespace",
+                message = "iriNamespace must be a valid absolute IRI.",
+                source = "iriNamespace",
+            )
+        }
+
+        if (!uri.isAbsolute || !value.endsWith('#') && !value.endsWith('/')) {
+            return failure(
+                code = "invalid-iri-namespace",
+                message = "iriNamespace must be absolute and end with '#' or '/'.",
+                source = "iriNamespace",
+            )
+        }
+
+        return EntioResult.Success(
+            IriNamespaceConfig(namespace = Iri(value)),
         )
     }
 
@@ -160,6 +213,12 @@ public class ProjectConfigLoader {
                 ),
             ),
         )
+
+    private fun <T> EntioResult<T>.valueOrNull(): T? =
+        when (this) {
+            is EntioResult.Failure -> null
+            is EntioResult.Success -> value
+        }
 
     private companion object {
         private const val CONFIG_FILE_NAME: String = "entio.yaml"

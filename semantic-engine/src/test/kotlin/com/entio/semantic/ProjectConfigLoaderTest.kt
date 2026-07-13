@@ -2,6 +2,7 @@ package com.entio.semantic
 
 import com.entio.core.EntioResult
 import com.entio.core.EntioProjectConfig
+import com.entio.core.IriNamespaceConfig
 import com.entio.core.OntologyFormat
 import java.nio.file.Files
 import java.nio.file.Path
@@ -34,6 +35,63 @@ class ProjectConfigLoaderTest {
         assertEquals("simple", config.ontologySources.single().id)
         assertEquals("ontology/simple.ttl", config.ontologySources.single().path)
         assertEquals(OntologyFormat.Turtle, config.ontologySources.single().format)
+    }
+
+    @Test
+    fun loadsOptionalIriNamespace(): Unit {
+        val projectRoot = projectRootWithConfig(
+            """
+            name: simple-ontology
+            iriNamespace: https://example.com/entio/simple#
+            ontologySources:
+              - id: simple
+                path: ontology/simple.ttl
+                format: turtle
+            """.trimIndent(),
+        )
+
+        val result = loader.loadConfig(projectRoot)
+
+        val config = assertIs<EntioResult.Success<EntioProjectConfig>>(result).value
+        assertEquals(
+            IriNamespaceConfig(com.entio.core.Iri("https://example.com/entio/simple#")),
+            config.iriNamespace,
+        )
+    }
+
+    @Test
+    fun preservesReadOnlyLoadingWhenIriNamespaceIsAbsent(): Unit {
+        val projectRoot = projectRootWithConfig(
+            """
+            name: simple-ontology
+            ontologySources:
+              - id: simple
+                path: ontology/simple.ttl
+                format: turtle
+            """.trimIndent(),
+        )
+
+        val config = assertIs<EntioResult.Success<EntioProjectConfig>>(loader.loadConfig(projectRoot)).value
+
+        assertEquals(null, config.iriNamespace)
+    }
+
+    @Test
+    fun rejectsInvalidIriNamespace(): Unit {
+        val projectRoot = projectRootWithConfig(
+            """
+            name: simple-ontology
+            iriNamespace: relative/namespace
+            ontologySources:
+              - id: simple
+                path: ontology/simple.ttl
+                format: turtle
+            """.trimIndent(),
+        )
+
+        val failure = assertIs<EntioResult.Failure>(loader.loadConfig(projectRoot))
+
+        assertEquals("invalid-iri-namespace", failure.issues.single().code)
     }
 
     @Test
