@@ -60,19 +60,51 @@ public enum class DeletionDependencyKind {
     OutgoingReference,
 }
 
+/** Stable identity for one explicit RDF statement considered during deletion review. */
+public data class DeletionDependencyIdentity(
+    public val sourceId: String,
+    public val statement: GraphTriple,
+) {
+    /** Length-prefixed encoding avoids ambiguity when RDF values contain separators. */
+    public val key: String
+        get() = listOf(
+            sourceId,
+            statement.subjectResource.identityPart(),
+            statement.predicate.value,
+            statement.objectTerm.identityPart(),
+        ).joinToString(separator = "") { component -> "${component.length}:$component" }
+
+    private fun RdfResource.identityPart(): String = when (this) {
+        is Iri -> "iri:$value"
+        is BlankNodeResource -> "blank:$id"
+    }
+
+    private fun RdfTerm.identityPart(): String = when (this) {
+        is RdfResource -> "resource:${identityPart()}"
+        is RdfLiteral -> "literal:${lexicalForm}|${datatypeIri?.value.orEmpty()}|${languageTag.orEmpty()}"
+    }
+}
+
 /** An explicit graph statement considered by a deletion analysis. */
 public data class DeletionDependency(
     public val statement: GraphTriple,
     public val kind: DeletionDependencyKind,
     public val sourceId: String,
     public val selectedForRemoval: Boolean = false,
-)
+) {
+    public val identity: DeletionDependencyIdentity
+        get() = DeletionDependencyIdentity(sourceId, statement)
+
+    public val identityKey: String
+        get() = identity.key
+}
 
 public enum class DeletionPlanStatus {
     Safe,
     RequiresExplicitDependencies,
     Blocked,
     Invalid,
+    InvalidDependencySelection,
 }
 
 /** Reviewable deletion metadata; graph traversal and plan construction belong to semantic-engine. */
@@ -81,6 +113,7 @@ public data class DeletionPlan(
     public val directStatements: List<DeletionDependency> = emptyList(),
     public val dependentStatements: List<DeletionDependency> = emptyList(),
     public val status: DeletionPlanStatus,
+    public val invalidSelectedDependencyKeys: List<String> = emptyList(),
 )
 
 /** The operation represented by one staged entry. */

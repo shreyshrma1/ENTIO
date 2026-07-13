@@ -21,7 +21,12 @@ public class DeletionValidator {
         if (plan == null) {
             issues += issue("missing-deletion-target", "The deletion target does not exist.")
         } else {
-            if (plan.target.sourceId != requestedSourceId || requestedSourceId != currentSourceId ||
+            if (plan.status == DeletionPlanStatus.InvalidDependencySelection) {
+                issues += issue(
+                    code = "invalid-deletion-dependency-selection",
+                    message = "One or more selected dependent statements do not belong to the deletion plan.",
+                )
+            } else if (plan.target.sourceId != requestedSourceId || requestedSourceId != currentSourceId ||
                 plan.status == DeletionPlanStatus.Invalid
             ) {
                 issues += issue(

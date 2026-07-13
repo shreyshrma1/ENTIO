@@ -20,6 +20,7 @@ internal data class StructuredProposalRequest(
 internal data class StructuredEditRequest(
     val kind: String,
     val fields: Map<String, String?>,
+    val selectedDependencyKeys: List<String> = emptyList(),
 )
 
 internal data class StructuredBaselineRequest(
@@ -56,11 +57,20 @@ internal class StructuredRequestParser {
             }
             val kind = node.requiredText("kind")
                 ?: return failure("missing-request-edit-kind", "edits[$index] must define kind.")
+            val selectedDependencyKeys = node["selectedDependencyKeys"]?.let { selected ->
+                if (!selected.isArray || selected.any { !it.isTextual || it.textValue().isBlank() }) {
+                    return failure(
+                        "invalid-deletion-dependency-selection",
+                        "edits[$index].selectedDependencyKeys must be an array of non-empty strings.",
+                    )
+                }
+                selected.map(JsonNode::textValue)
+            }.orEmpty()
             val fields = linkedMapOf<String, String?>()
             node.fields().forEachRemaining { (name, value) ->
-                if (name != "kind") fields[name] = value.asNullableText()
+                if (name != "kind" && name != "selectedDependencyKeys") fields[name] = value.asNullableText()
             }
-            edits += StructuredEditRequest(kind, fields)
+            edits += StructuredEditRequest(kind, fields, selectedDependencyKeys)
         }
 
         val baseline = root["baseline"]?.takeUnless(JsonNode::isNull)?.let { node ->

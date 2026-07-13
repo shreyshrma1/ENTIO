@@ -101,6 +101,12 @@ internal class StructuredProposalCommand(
                     "targetSourceId" to request.targetSourceId,
                     "editCount" to request.edits.size,
                     "orderedEditKinds" to jsonArray(request.edits.map { it.kind }),
+                    "editSelections" to jsonArray(request.edits.map { edit ->
+                        jsonObject(
+                            "kind" to edit.kind,
+                            "selectedDependencyKeys" to jsonArray(edit.selectedDependencyKeys),
+                        )
+                    }),
                     "baseline" to request.baseline?.let { baseline ->
                         jsonObject(
                             "projectFingerprint" to baseline.projectFingerprint,
@@ -269,6 +275,9 @@ internal class DeletionDependenciesCommand(
     @Option(names = ["--kind"])
     private var kind: String? = null
 
+    @Option(names = ["--selected-dependency-key"], description = ["Explicit dependent-statement identity selected for removal."])
+    private var selectedDependencyKeys: List<String> = emptyList()
+
     override fun call(): Int {
         val project = when (val result = projectLoader.loadProject(Path.of(projectRoot))) {
             is EntioResult.Failure -> return printFailure(result)
@@ -282,13 +291,14 @@ internal class DeletionDependenciesCommand(
         }
         val ontology = project.ontologies.firstOrNull { it.source.id == sourceId }
             ?: return printFailure(failure("missing-ontology-source", "Ontology source '$sourceId' was not found."))
-        val plan = analyzer.analyze(ontology, candidate)
+        val plan = analyzer.analyze(ontology, candidate, selectedDependencyKeys = selectedDependencyKeys.toSet())
         spec.commandLine().out.println(
             jsonObject(
                 "command" to "deletion-dependencies",
                 "ok" to (plan.status == com.entio.core.DeletionPlanStatus.Safe),
                 "target" to candidateJson(candidate),
                 "status" to plan.status.name,
+                "invalidSelectedDependencyKeys" to jsonArray(plan.invalidSelectedDependencyKeys),
                 "directStatements" to jsonArray(plan.directStatements.map { dependencyJson(it, project) }),
                 "dependentStatements" to jsonArray(plan.dependentStatements.map { dependencyJson(it, project) }),
             ).encoded,
@@ -322,7 +332,11 @@ internal fun StructuredEditRequest.toOperation(
                 "Target ontology source '$targetSourceId' was not found.",
                 listOf(ValidationIssue(ValidationSeverity.Error, "missing-ontology-source", "Target ontology source '$targetSourceId' was not found.", kind)),
             )
-        val plan = DeletionDependencyAnalyzer().analyze(ontology, EntityCandidate(candidate.iri, candidate.label, candidate.kind, candidate.sourceId))
+        val plan = DeletionDependencyAnalyzer().analyze(
+            ontology,
+            EntityCandidate(candidate.iri, candidate.label, candidate.kind, candidate.sourceId),
+            selectedDependencyKeys = selectedDependencyKeys.toSet(),
+        )
         return EntioResult.Success(StagedChangeOperation.Delete(plan))
     }
     val typed = when (kind) {
@@ -365,6 +379,7 @@ private fun dependencyJson(dependency: DeletionDependency, project: EntioProject
     return jsonObject(
         "kind" to dependency.kind.name,
         "sourceId" to dependency.sourceId,
+        "dependencyKey" to dependency.identityKey,
         "selectedForRemoval" to dependency.selectedForRemoval,
         "subject" to subject,
         "subjectLabel" to displayIri(subject, labels),

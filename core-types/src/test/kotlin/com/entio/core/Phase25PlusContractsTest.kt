@@ -58,6 +58,21 @@ class Phase25PlusContractsTest {
 
         assertEquals(RdfLiteral("Customer"), plan.directStatements.single().statement.objectTerm)
         assertEquals(DeletionPlanStatus.Safe, plan.status)
+        assertEquals(
+            DeletionDependencyIdentity("simple", labelTriple).key,
+            dependency.identityKey,
+        )
+    }
+
+    @Test
+    fun givesDifferentRdfStatementsDifferentStableDependencyKeys(): Unit {
+        val resourceObject = labelTriple.copy(objectTerm = Iri("https://example.com/Customer"))
+
+        assertEquals(
+            false,
+            DeletionDependencyIdentity("simple", labelTriple).key ==
+                DeletionDependencyIdentity("simple", resourceObject).key,
+        )
     }
 
     @Test
