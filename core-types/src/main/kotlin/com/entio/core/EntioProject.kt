@@ -5,6 +5,7 @@ import java.nio.file.Path
 public data class EntioProjectConfig(
     public val name: String,
     public val ontologySources: List<OntologySourceReference>,
+    public val iriNamespace: IriNamespaceConfig? = null,
 )
 
 public data class EntioProject(
