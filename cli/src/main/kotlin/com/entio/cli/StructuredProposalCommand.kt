@@ -301,7 +301,7 @@ internal class DeletionDependenciesCommand(
     }
 }
 
-private fun StructuredEditRequest.toOperation(
+internal fun StructuredEditRequest.toOperation(
     project: EntioProject,
     targetSourceId: String,
 ): EntioResult<StagedChangeOperation> {
