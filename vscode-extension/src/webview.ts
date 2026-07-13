@@ -702,12 +702,14 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     function renderDeletionReview(result) {
       deletionDependencies.replaceChildren();
       const status = document.createElement("strong");
-      status.textContent = result.status + (result.safe ? " · safe to review" : " · explicit dependencies required");
+      status.textContent = formatDeletionStatus(result.status, result.safe);
       deletionDependencies.append(status);
       const list = document.createElement("ul");
       result.directStatements.concat(result.dependentStatements).forEach((statement) => {
         const item = document.createElement("li");
-        item.textContent = statement.kind + " · " + statement.subject + " · " + statement.predicate + " · " + statement.object;
+        item.textContent = statement.kind + " · " + displayStatementValue(statement.subjectLabel, statement.subject) + " · " +
+          displayStatementValue(statement.predicateLabel, statement.predicate) + " · " +
+          displayStatementValue(statement.objectLabel, statement.object);
         list.append(item);
       });
       if (list.childElementCount > 0) deletionDependencies.append(list);
@@ -716,6 +718,24 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         blocker.textContent = "Deletion remains blocked until dependent statements are explicitly selected.";
         deletionDependencies.append(blocker);
       }
+    }
+
+    function formatDeletionStatus(status, safe) {
+      const labels = {
+        Safe: "Safe",
+        RequiresExplicitDependencies: "Requires explicit dependencies",
+        Invalid: "Invalid deletion target",
+      };
+      return (labels[status] || status) + (safe ? " · safe to review" : " · explicit dependencies required");
+    }
+
+    function displayStatementValue(label, rawValue) {
+      if (label) return label;
+      const value = rawValue.startsWith("Iri(value=") && rawValue.endsWith(")")
+        ? rawValue.slice("Iri(value=".length, -1)
+        : rawValue;
+      const separator = Math.max(value.lastIndexOf("#"), value.lastIndexOf("/"));
+      return separator >= 0 && separator < value.length - 1 ? value.slice(separator + 1) : value;
     }
 
     function renderActionResult(result) {
@@ -784,7 +804,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       } else {
         relationships.forEach((relationship) => {
           const item = document.createElement("li");
-          const predicate = relationship.predicateLabel || relationship.predicate;
+          const predicate = relationship.predicateLabel || displayIri(relationship.predicate);
           const value = formatRelationshipValue(relationship);
           item.textContent = relationship.direction === "incoming"
             ? value + " → " + predicate
@@ -800,12 +820,17 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       if (value.kind === "literal") {
         let formatted = '"' + value.value + '"';
         if (value.language) formatted += "@" + value.language;
-        if (value.datatype) formatted += "^^" + value.datatype;
+        if (value.datatype) formatted += "^^" + displayIri(value.datatype);
         return formatted;
       }
       return relationship.valueLabel
-        ? relationship.valueLabel + " (" + value.value + ")"
-        : value.value;
+        ? relationship.valueLabel
+        : displayIri(value.value);
+    }
+
+    function displayIri(value) {
+      const separator = Math.max(value.lastIndexOf("#"), value.lastIndexOf("/"));
+      return separator >= 0 && separator < value.length - 1 ? value.slice(separator + 1) : value;
     }
 
     function renderModel(model) {

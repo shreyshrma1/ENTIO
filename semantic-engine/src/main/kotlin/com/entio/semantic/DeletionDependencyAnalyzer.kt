@@ -10,7 +10,7 @@ import com.entio.core.Iri
 import com.entio.core.LoadedOntology
 import com.entio.core.RdfResource
 
-/** Finds explicit outgoing definitions and incoming references for a supported deletion target. */
+/** Finds explicit definitions and graph statements that depend on a supported deletion target. */
 public class DeletionDependencyAnalyzer {
     public fun analyze(
         ontology: LoadedOntology,
@@ -36,7 +36,10 @@ public class DeletionDependencyAnalyzer {
                 )
             }
         val dependent = ontology.graph.triples
-            .filter { it.subjectResource != targetIri && it.objectTerm == targetIri }
+            .filter {
+                it.subjectResource != targetIri &&
+                    (it.objectTerm == targetIri || it.predicate == targetIri)
+            }
             .sortedWith(TRIPLE_COMPARATOR)
             .map { triple ->
                 DeletionDependency(

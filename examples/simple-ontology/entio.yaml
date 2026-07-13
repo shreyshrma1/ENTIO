@@ -1,4 +1,5 @@
 name: simple-ontology
+iriNamespace: https://example.com/entio/simple#
 ontologySources:
   - id: simple
     path: ontology/simple.ttl

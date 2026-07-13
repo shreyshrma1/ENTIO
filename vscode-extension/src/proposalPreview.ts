@@ -348,8 +348,11 @@ export interface DeletionStatementModel {
   readonly sourceId: string;
   readonly selectedForRemoval: boolean;
   readonly subject: string;
+  readonly subjectLabel?: string;
   readonly predicate: string;
+  readonly predicateLabel?: string;
   readonly object: string;
+  readonly objectLabel?: string;
 }
 
 export function readEntitySelectorRequest(value: unknown): EntitySelectorRequest | undefined {
@@ -825,8 +828,11 @@ function readDeletionStatements(value: unknown): readonly DeletionStatementModel
               sourceId: record.sourceId,
               selectedForRemoval: record.selectedForRemoval,
               subject: record.subject,
+              subjectLabel: typeof record.subjectLabel === "string" ? record.subjectLabel : undefined,
               predicate: record.predicate,
+              predicateLabel: typeof record.predicateLabel === "string" ? record.predicateLabel : undefined,
               object: record.object,
+              objectLabel: typeof record.objectLabel === "string" ? record.objectLabel : undefined,
             }
           : undefined;
       }).filter(isDefined)
