@@ -12,6 +12,24 @@ export interface SymbolSummary {
   readonly label: string | null;
   readonly kind: string;
   readonly sourceId: string;
+  readonly relationships: readonly SymbolRelationshipSummary[];
+}
+
+export interface RdfTermSummary {
+  readonly kind: string;
+  readonly value: string;
+  readonly datatype: string | null;
+  readonly language: string | null;
+}
+
+export interface SymbolRelationshipSummary {
+  readonly direction: "outgoing" | "incoming";
+  readonly kind: "type" | "property";
+  readonly predicate: string;
+  readonly predicateLabel: string | null;
+  readonly value: RdfTermSummary;
+  readonly valueLabel: string | null;
+  readonly sourceId: string;
 }
 
 export interface SymbolGroup {
@@ -37,8 +55,15 @@ export function createWorkbenchModel(response: EngineResponse): WorkbenchModel |
   const ontologySources = Array.isArray(response.ontologySources)
     ? response.ontologySources.map(readSource).filter(isDefined)
     : [];
+  const detailsByIri = new Map<string, readonly SymbolRelationshipSummary[]>();
+  if (Array.isArray(response.symbolDetails)) {
+    response.symbolDetails.forEach((value) => {
+      const details = readSymbolDetails(value);
+      if (details) detailsByIri.set(details.iri, details.relationships);
+    });
+  }
   const symbols = Array.isArray(response.symbols)
-    ? response.symbols.map(readSymbol).filter(isDefined)
+    ? response.symbols.map((value) => readSymbol(value, detailsByIri)).filter(isDefined)
     : [];
 
   if (!project || typeof project.name !== "string" || typeof project.root !== "string") {
@@ -100,7 +125,10 @@ function readSource(value: unknown): OntologySourceSummary | undefined {
     : { id: source.id, path: source.path, format: source.format, tripleCount };
 }
 
-function readSymbol(value: unknown): SymbolSummary | undefined {
+function readSymbol(
+  value: unknown,
+  detailsByIri: Map<string, readonly SymbolRelationshipSummary[]> = new Map(),
+): SymbolSummary | undefined {
   const symbol = asRecord(value);
   if (
     !symbol ||
@@ -116,6 +144,60 @@ function readSymbol(value: unknown): SymbolSummary | undefined {
     label: typeof symbol.label === "string" ? symbol.label : null,
     kind: symbol.kind,
     sourceId: symbol.sourceId,
+    relationships: detailsByIri.get(symbol.iri) ?? [],
+  };
+}
+
+function readSymbolDetails(value: unknown): SymbolSummary | undefined {
+  const details = asRecord(value);
+  if (!details || !Array.isArray(details.relationships)) return undefined;
+
+  const relationships = details.relationships.map(readRelationship).filter(isDefined);
+  return readSymbol(details, new Map([[typeof details.iri === "string" ? details.iri : "", relationships]]));
+}
+
+function readRelationship(value: unknown): SymbolRelationshipSummary | undefined {
+  const relationship = asRecord(value);
+  const term = relationship ? readRdfTerm(relationship.value) : undefined;
+  if (
+    !relationship ||
+    (relationship.direction !== "outgoing" && relationship.direction !== "incoming") ||
+    (relationship.kind !== "type" && relationship.kind !== "property") ||
+    typeof relationship.predicate !== "string" ||
+    !term ||
+    typeof relationship.sourceId !== "string"
+  ) {
+    return undefined;
+  }
+
+  return {
+    direction: relationship.direction,
+    kind: relationship.kind,
+    predicate: relationship.predicate,
+    predicateLabel: typeof relationship.predicateLabel === "string" ? relationship.predicateLabel : null,
+    value: term,
+    valueLabel: typeof relationship.valueLabel === "string" ? relationship.valueLabel : null,
+    sourceId: relationship.sourceId,
+  };
+}
+
+function readRdfTerm(value: unknown): RdfTermSummary | undefined {
+  const term = asRecord(value);
+  if (
+    !term ||
+    typeof term.kind !== "string" ||
+    typeof term.value !== "string" ||
+    (term.datatype !== null && typeof term.datatype !== "string") ||
+    (term.language !== null && typeof term.language !== "string")
+  ) {
+    return undefined;
+  }
+
+  return {
+    kind: term.kind,
+    value: term.value,
+    datatype: typeof term.datatype === "string" ? term.datatype : null,
+    language: typeof term.language === "string" ? term.language : null,
   };
 }
 

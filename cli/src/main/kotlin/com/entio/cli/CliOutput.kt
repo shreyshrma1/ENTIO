@@ -1,7 +1,11 @@
 package com.entio.cli
 
 import com.entio.core.LoadedSymbol
+import com.entio.core.RdfLiteral
+import com.entio.core.RdfResource
 import com.entio.core.SemanticDiff
+import com.entio.core.SymbolDetails
+import com.entio.core.SymbolRelationship
 import com.entio.core.ValidationIssue
 import com.entio.core.ValidationReport
 import java.io.PrintWriter
@@ -82,6 +86,42 @@ internal fun symbolJson(symbol: LoadedSymbol): JsonFragment =
         "kind" to symbol.kind.name,
         "sourceId" to symbol.sourceId,
     )
+
+internal fun symbolDetailsJson(details: SymbolDetails): JsonFragment =
+    jsonObject(
+        "iri" to details.symbol.iri.value,
+        "label" to details.symbol.label,
+        "kind" to details.symbol.kind.name,
+        "sourceId" to details.symbol.sourceId,
+        "relationships" to jsonArray(details.relationships.map(::symbolRelationshipJson)),
+    )
+
+private fun symbolRelationshipJson(relationship: SymbolRelationship): JsonFragment =
+    jsonObject(
+        "direction" to relationship.direction.name.lowercase(),
+        "kind" to relationship.kind.name.lowercase(),
+        "predicate" to relationship.predicate.value,
+        "predicateLabel" to relationship.predicateLabel,
+        "value" to rdfTermJson(relationship.value),
+        "valueLabel" to relationship.valueLabel,
+        "sourceId" to relationship.sourceId,
+    )
+
+private fun rdfTermJson(term: com.entio.core.RdfTerm): JsonFragment =
+    when (term) {
+        is RdfResource -> jsonObject(
+            "kind" to if (term is com.entio.core.BlankNodeResource) "blank-node" else "iri",
+            "value" to term.value,
+            "datatype" to null,
+            "language" to null,
+        )
+        is RdfLiteral -> jsonObject(
+            "kind" to "literal",
+            "value" to term.lexicalForm,
+            "datatype" to term.datatypeIri?.value,
+            "language" to term.languageTag,
+        )
+    }
 
 internal fun semanticDiffJson(diff: SemanticDiff): JsonFragment =
     jsonObject(

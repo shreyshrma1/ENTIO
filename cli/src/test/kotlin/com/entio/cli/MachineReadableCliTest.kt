@@ -20,7 +20,22 @@ class MachineReadableCliTest {
         assertTrue(result.out.contains("\"name\":\"simple-ontology\""))
         assertTrue(result.out.contains("\"id\":\"simple\""))
         assertTrue(result.out.contains("\"graphTripleCount\":1"))
+        assertTrue(result.out.contains("\"symbolDetails\":["))
         assertEquals("", result.err)
+    }
+
+    @Test
+    fun projectSummaryIncludesSelectedSymbolRelationships(): Unit {
+        val projectRoot = createRelationshipProject()
+
+        val result = runCli("project-summary", projectRoot.toString())
+
+        assertEquals(0, result.exitCode, result.out)
+        assertTrue(result.out.contains("\"direction\":\"outgoing\""), result.out)
+        assertTrue(result.out.contains("https://example.com/receivedInvoice"), result.out)
+        assertTrue(result.out.contains("\"valueLabel\":\"Invoice 20874\""), result.out)
+        assertTrue(result.out.contains("\"direction\":\"incoming\""), result.out)
+        assertTrue(result.out.contains("\"kind\":\"literal\""), result.out)
     }
 
     @Test
@@ -367,6 +382,41 @@ class MachineReadableCliTest {
                 ex:ownsAccount a owl:ObjectProperty ;
                     rdfs:domain ex:Customer ;
                     rdfs:range ex:Customer .
+            """.trimIndent() + "\n",
+        )
+        return projectRoot
+    }
+
+    private fun createRelationshipProject(): Path {
+        val projectRoot = Files.createTempDirectory("entio-relationship-cli")
+        val ontologyDirectory = projectRoot.resolve("ontology")
+        Files.createDirectories(ontologyDirectory)
+        Files.writeString(
+            projectRoot.resolve("entio.yaml"),
+            """
+                name: simple-ontology
+                ontologySources:
+                  - id: simple
+                    path: ontology/simple.ttl
+                    format: turtle
+            """.trimIndent(),
+        )
+        Files.writeString(
+            ontologyDirectory.resolve("simple.ttl"),
+            """
+                @prefix ex: <https://example.com/> .
+                @prefix owl: <http://www.w3.org/2002/07/owl#> .
+                @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+                ex:Customer a owl:Class ; rdfs:label "Customer" .
+                ex:Invoice a owl:Class ; rdfs:label "Invoice" .
+                ex:receivedInvoice a owl:ObjectProperty ; rdfs:label "received invoice" .
+                ex:nickname a owl:DatatypeProperty ; rdfs:label "nickname" .
+                ex:Shrey a owl:NamedIndividual, ex:Customer ;
+                    ex:receivedInvoice ex:invoice20874 ;
+                    ex:nickname "Shrey"@en .
+                ex:invoice20874 a owl:NamedIndividual, ex:Invoice ;
+                    rdfs:label "Invoice 20874" .
             """.trimIndent() + "\n",
         )
         return projectRoot

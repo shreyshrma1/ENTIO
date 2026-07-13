@@ -23,10 +23,13 @@ class CliExampleProjectTest {
         assertEquals(0, symbols.exitCode)
         assertEquals(
             """
+                Individual https://example.com/entio/simple#20874 "Invoice 20874" [simple]
                 Class https://example.com/entio/simple#Account "Account" [simple]
                 Class https://example.com/entio/simple#Customer "Customer" [simple]
                 Class https://example.com/entio/simple#Invoice "Invoice" [simple]
+                Individual https://example.com/entio/simple#Shrey "Shrey" [simple]
                 Property https://example.com/entio/simple#ownsAccount "owns account" [simple]
+                Property https://example.com/entio/simple#recievedInvoice "recieved invoice" [simple]
             """.trimIndent() + "\n",
             symbols.out,
         )
