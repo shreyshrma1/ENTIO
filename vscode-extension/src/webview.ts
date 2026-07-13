@@ -156,6 +156,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     <div id="staged-status" aria-live="polite">No changes staged.</div>
     <ul id="staged-list"></ul>
     <button id="cancel-staged-edit" type="button" hidden>Cancel staged edit</button>
+    <button id="preview-all-changes" type="button" disabled>Preview all changes</button>
   </section>
   <section id="preview" aria-labelledby="preview-heading">
     <h2 id="preview-heading">Proposal Preview</h2>
@@ -238,12 +239,14 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const stagedStatus = document.getElementById("staged-status");
     const stagedList = document.getElementById("staged-list");
     const cancelStagedEdit = document.getElementById("cancel-staged-edit");
+    const previewAllChanges = document.getElementById("preview-all-changes");
     let currentRequest;
     let currentPreview;
     let changedSource;
     let stagedChanges = [];
     let stagedSequence = 1;
     let editingStagedEntry;
+    let currentCombinedPreview;
     document.getElementById("refresh").addEventListener("click", () => vscode.postMessage({ type: "refresh" }));
 
     entitySelectorForm.addEventListener("submit", (event) => {
@@ -300,6 +303,15 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         clearEditForm();
         renderStagedList();
       }
+    });
+
+    previewAllChanges.addEventListener("click", () => {
+      if (stagedChanges.length === 0) return;
+      vscode.postMessage({
+        type: "combined-preview",
+        payload: stagedChanges.map((entry) => entry.request),
+      });
+      previewStatus.textContent = "Requesting combined proposal preview...";
     });
 
     function entityKindForEdit() {
@@ -387,6 +399,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         ? "No changes staged."
         : stagedChanges.length + " change(s) staged for combined review.";
       cancelStagedEdit.hidden = !editingStagedEntry;
+      previewAllChanges.disabled = stagedChanges.length === 0 || Boolean(editingStagedEntry);
       stagedChanges.forEach((entry) => {
         const item = document.createElement("li");
         const summary = document.createElement("span");
@@ -546,12 +559,20 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     });
 
     approve.addEventListener("click", () => {
+      if (currentCombinedPreview && currentCombinedPreview.canApprove) {
+        vscode.postMessage({ type: "combined-action", action: "apply" });
+        return;
+      }
       if (currentPreview && currentPreview.canApprove && currentRequest) {
         vscode.postMessage({ type: "proposal-action", action: "apply", payload: currentRequest });
       }
     });
 
     reject.addEventListener("click", () => {
+      if (currentCombinedPreview) {
+        vscode.postMessage({ type: "combined-action", action: "reject" });
+        return;
+      }
       if (currentRequest) {
         vscode.postMessage({ type: "proposal-action", action: "reject", payload: currentRequest });
       }
@@ -592,6 +613,47 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         ? "Preview is valid; adding it to the staged list."
         : preview.approvalDisabledReason;
       stagePreview(preview);
+    }
+
+    function renderCombinedPreview(preview) {
+      currentCombinedPreview = preview;
+      currentPreview = undefined;
+      previewStatus.textContent = preview.status + " · combined proposal · " + (preview.previewTripleCount || 0) + " graph triple(s)";
+      previewImpact.textContent = "Affected files: " + (preview.affectedPaths.join(", ") || "none");
+      renderList(previewDiff, preview.diffEntries.map((entry) => entry.description), "No semantic changes.");
+      renderList(previewValidation, preview.validationIssues, preview.validationStatus || "not run");
+      approve.disabled = !preview.canApprove;
+      reject.disabled = false;
+      openSource.disabled = true;
+      approvalState.textContent = preview.canApprove
+        ? "Combined preview is valid and ready for approval."
+        : "Approval is disabled because the combined preview is not ready.";
+    }
+
+    function renderCombinedActionResult(result) {
+      currentCombinedPreview = undefined;
+      approve.disabled = true;
+      reject.disabled = true;
+      openSource.disabled = true;
+      changedSource = result.changedFiles && result.changedFiles[0];
+      if (result.ok && result.action === "apply") {
+        stagedChanges = [];
+        editingStagedEntry = undefined;
+        renderStagedList();
+        previewStatus.textContent = "Combined proposal applied successfully.";
+        approvalState.textContent = "The project was refreshed after atomic application.";
+        openSource.disabled = !changedSource;
+        return;
+      }
+      if (result.ok && result.action === "reject") {
+        previewStatus.textContent = "Combined proposal rejected; source files were not changed.";
+        approvalState.textContent = "The staged list remains available for correction.";
+        return;
+      }
+      previewStatus.textContent = result.reason || "Combined proposal action failed.";
+      approvalState.textContent = result.rollbackStatus
+        ? "Combined apply failed; rollback status: " + result.rollbackStatus
+        : "The staged list remains available for correction.";
     }
 
     function renderPreviewError(message) {
@@ -788,6 +850,21 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       }
       if (message.type === "proposal-preview") {
         renderPreview(message.payload);
+      }
+      if (message.type === "combined-preview") {
+        renderCombinedPreview(message.payload);
+      }
+      if (message.type === "combined-preview-error") {
+        currentCombinedPreview = undefined;
+        previewStatus.textContent = message.message;
+        approve.disabled = true;
+        reject.disabled = true;
+      }
+      if (message.type === "combined-action-result") {
+        renderCombinedActionResult(message.payload);
+      }
+      if (message.type === "combined-action-error") {
+        renderCombinedActionResult({ ok: false, action: message.action || "apply", reason: message.message, changedFiles: [] });
       }
       if (message.type === "entity-resolution") {
         renderEntityResolution(message.payload);

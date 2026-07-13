@@ -2,6 +2,8 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import {
   createProposalActionResult,
+  createCombinedProposalModel,
+  createCombinedProposalRequest,
   createProposalPreviewModel,
   createDeletionDependencyModel,
   createEntityResolutionModel,
@@ -12,6 +14,7 @@ import {
   deletionDependenciesInvocationArgs,
   entityResolutionInvocationArgs,
   generatedIriInvocationArgs,
+  combinedProposalInvocationArgs,
   editStagedChange,
   editFormStateRequest,
   selectEditKind,
@@ -21,6 +24,7 @@ import {
   proposalPreviewInvocationArgs,
   readProposalPreviewRequest,
   readEntitySelectorRequest,
+  readCombinedProposalRequests,
   removeStagedChange,
   stagePreview,
 } from "../proposalPreview";
@@ -449,4 +453,63 @@ test("does not stage invalid previews", () => {
   })!;
 
   assert.equal(stagePreview(createStagedChangeSession(), request, invalid), undefined);
+});
+
+test("builds one structured combined request and stable CLI invocation", () => {
+  const requests = readCombinedProposalRequests([
+    { targetSourceId: "simple", editKind: "create-class", classIri: "https://example.com/Customer" },
+    { targetSourceId: "simple", editKind: "create-individual", individualIri: "https://example.com/shrey" },
+  ]);
+  assert.ok(requests);
+  const combined = createCombinedProposalRequest(requests!, "combined-1");
+  assert.deepEqual(combined, {
+    schemaVersion: 1,
+    proposalId: "combined-1",
+    title: "VS Code combined ontology proposal",
+    targetSourceId: "simple",
+    edits: [
+      { kind: "create-class", classIri: "https://example.com/Customer" },
+      { kind: "create-individual", individualIri: "https://example.com/shrey" },
+    ],
+  });
+  assert.deepEqual(combinedProposalInvocationArgs("/workspace", "/tmp/request.json", "preview"), [
+    "proposal-combined", "/workspace", "--request-file", "/tmp/request.json", "--action", "preview",
+  ]);
+  assert.equal(createCombinedProposalRequest([
+    ...requests!,
+    { ...requests![0], targetSourceId: "other" },
+  ]), undefined);
+});
+
+test("normalizes combined preview and action responses without enabling partial approval", () => {
+  const preview = createCombinedProposalModel({
+    ok: true,
+    action: "preview",
+    status: "readyforreview",
+    proposal: { id: "combined-1" },
+    preview: { tripleCount: 5 },
+    diff: { entries: [{ kind: "addition", description: "Added class." }] },
+    validation: { status: "valid", ok: true, issues: [] },
+    semanticEquivalence: { status: "equivalent" },
+    sourceFileImpact: { affectedPaths: ["simple.ttl"] },
+    changedFiles: [],
+  });
+  assert.ok(preview);
+  assert.equal(preview.canApprove, true);
+  assert.deepEqual(preview.affectedPaths, ["simple.ttl"]);
+
+  const applied = createCombinedProposalModel({
+    ok: true,
+    action: "apply",
+    status: "applied",
+    proposal: { id: "combined-1" },
+    preview: { tripleCount: 5 },
+    diff: { entries: [{ kind: "addition", description: "Added class." }] },
+    validation: { status: "valid", ok: true, issues: [] },
+    semanticEquivalence: { status: "equivalent" },
+    sourceFileImpact: { affectedPaths: ["simple.ttl"] },
+    changedFiles: ["simple.ttl"],
+  });
+  assert.equal(applied?.canApprove, false);
+  assert.deepEqual(applied?.changedFiles, ["simple.ttl"]);
 });

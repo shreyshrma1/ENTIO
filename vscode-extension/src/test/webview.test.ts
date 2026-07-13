@@ -43,6 +43,11 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /id="cancel-staged-edit"/);
   assert.match(html, /Change staged successfully/);
   assert.match(html, /Re-preview to return it to the staged list/);
+  assert.match(html, /id="preview-all-changes"/);
+  assert.match(html, /type: "combined-preview"/);
+  assert.match(html, /type: "combined-action"/);
+  assert.match(html, /Combined preview is valid and ready for approval/);
+  assert.match(html, /The staged list remains available for correction/);
   assert.match(html, /type: "proposal-preview"/);
   assert.match(html, /id="preview-validation"/);
   assert.match(html, /id="approve"/);
