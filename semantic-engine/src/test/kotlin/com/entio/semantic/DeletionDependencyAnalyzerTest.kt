@@ -84,6 +84,36 @@ class DeletionDependencyAnalyzerTest {
     }
 
     @Test
+    fun selectsDependenciesByStableIdentityKey(): Unit {
+        val ontology = ontology(
+            """
+            @prefix ex: <https://example.com/> .
+            ex:receivedInvoice a ex:ObjectProperty .
+            ex:Shrey ex:receivedInvoice ex:20874 .
+            """.trimIndent(),
+        )
+        val target = EntityCandidate(Iri("https://example.com/receivedInvoice"), "received invoice", SymbolKind.Property, "simple")
+        val dependent = ontology.graph.triples.single { it.subjectResource == Iri("https://example.com/Shrey") }
+        val key = com.entio.core.DeletionDependencyIdentity("simple", dependent).key
+
+        val plan = analyzer.analyze(ontology, target, selectedDependencyKeys = setOf(key))
+
+        assertEquals(DeletionPlanStatus.Safe, plan.status)
+        assertEquals(true, plan.dependentStatements.single().selectedForRemoval)
+    }
+
+    @Test
+    fun rejectsUnknownDependencyIdentityKeys(): Unit {
+        val ontology = ontology("""@prefix ex: <https://example.com/> . ex:Customer a ex:Class .""")
+        val target = EntityCandidate(customer, "Customer", SymbolKind.Class, "simple")
+
+        val plan = analyzer.analyze(ontology, target, selectedDependencyKeys = setOf("unknown"))
+
+        assertEquals(DeletionPlanStatus.InvalidDependencySelection, plan.status)
+        assertEquals(listOf("unknown"), plan.invalidSelectedDependencyKeys)
+    }
+
+    @Test
     fun blocksWrongSourceTargets(): Unit {
         val ontology = ontology("""@prefix ex: <https://example.com/> . ex:Customer a ex:Class .""")
         val target = EntityCandidate(customer, "Customer", SymbolKind.Class, "other")

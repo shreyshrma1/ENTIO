@@ -52,4 +52,15 @@ class DeletionValidatorTest {
 
         assertEquals(true, report.ok)
     }
+
+    @Test
+    fun reportsInvalidDependencySelection(): Unit {
+        val report = validator.validate(
+            validPlan.copy(status = DeletionPlanStatus.InvalidDependencySelection),
+            "simple",
+            "simple",
+        )
+
+        assertEquals("invalid-deletion-dependency-selection", report.issues.single().code)
+    }
 }

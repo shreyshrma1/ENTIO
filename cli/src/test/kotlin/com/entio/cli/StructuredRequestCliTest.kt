@@ -1,6 +1,9 @@
 package com.entio.cli
 
 import com.entio.core.EntioResult
+import com.entio.core.DeletionDependencyIdentity
+import com.entio.core.GraphTriple
+import com.entio.core.Iri
 import java.io.ByteArrayOutputStream
 import java.io.PrintWriter
 import java.nio.file.Files
@@ -96,6 +99,31 @@ class StructuredRequestCliTest {
         assertEquals(1, run.first)
         assertTrue(run.second.contains("RequiresExplicitDependencies"), run.second)
         assertTrue(run.second.contains("IncomingReference"), run.second)
+        assertTrue(run.second.contains("dependencyKey"), run.second)
+    }
+
+    @Test
+    fun structuredDeletionRequestRequiresAndPreservesExplicitDependencySelections(): Unit {
+        val project = createDeletionProject()
+        val dependent = GraphTriple(
+            subject = Iri("https://example.com/entio/simple#Shrey"),
+            predicate = Iri("https://example.com/entio/simple#recievedInvoice"),
+            objectTerm = Iri("https://example.com/entio/simple#20874"),
+        )
+        val dependencyKey = DeletionDependencyIdentity("simple", dependent).key
+        val blockedRequest = Files.createTempFile("entio-delete-blocked", ".json")
+        blockedRequest.writeText(deleteRequest())
+        val selectedRequest = Files.createTempFile("entio-delete-selected", ".json")
+        selectedRequest.writeText(deleteRequest(dependencyKey))
+
+        val blocked = runCli("proposal-request", project.toString(), "--request-file", blockedRequest.toString())
+        val selected = runCli("proposal-request", project.toString(), "--request-file", selectedRequest.toString())
+
+        assertEquals(1, blocked.first)
+        assertTrue(blocked.second.contains("unresolved-deletion-dependencies"), blocked.second)
+        assertEquals(0, selected.first, selected.second)
+        assertTrue(selected.second.contains("\"selectedDependencyKeys\":[\"$dependencyKey\"]"), selected.second)
+        assertTrue(selected.second.contains("\"changeCount\":5"), selected.second)
     }
 
     @Test
@@ -184,6 +212,38 @@ class StructuredRequestCliTest {
             """.trimIndent(),
         )
         return root
+    }
+
+    private fun createDeletionProject(): Path {
+        val root = createProject()
+        root.resolve("ontology/simple.ttl").writeText(
+            """
+            @prefix ex: <https://example.com/entio/simple#> .
+            @prefix owl: <http://www.w3.org/2002/07/owl#> .
+            ex:Customer a owl:Class .
+            ex:Invoice a owl:Class .
+            ex:20874 a ex:Invoice .
+            ex:Shrey a ex:Customer ; ex:recievedInvoice ex:20874 .
+            ex:recievedInvoice a owl:ObjectProperty ;
+                <http://www.w3.org/2000/01/rdf-schema#domain> ex:Customer ;
+                <http://www.w3.org/2000/01/rdf-schema#range> ex:Invoice ;
+                <http://www.w3.org/2000/01/rdf-schema#label> "recieved invoice" .
+            """.trimIndent(),
+        )
+        return root
+    }
+
+    private fun deleteRequest(selectedDependencyKey: String? = null): String {
+        val selected = selectedDependencyKey?.let { "\n          ,\"selectedDependencyKeys\": [\"$it\"]" }.orEmpty()
+        return """
+        {
+          "schemaVersion": 1,
+          "proposalId": "delete-received-invoice",
+          "title": "Delete received invoice",
+          "targetSourceId": "simple",
+          "edits": [{"kind": "delete-entity", "entityIri": "https://example.com/entio/simple#recievedInvoice"$selected}]
+        }
+        """.trimIndent()
     }
 
     private fun singleClassRequest(classIri: String = "https://example.com/Invoice"): String =

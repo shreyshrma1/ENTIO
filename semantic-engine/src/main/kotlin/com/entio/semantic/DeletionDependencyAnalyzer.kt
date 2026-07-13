@@ -16,6 +16,7 @@ public class DeletionDependencyAnalyzer {
         ontology: LoadedOntology,
         target: EntityCandidate,
         selectedDependentStatements: Set<GraphTriple> = emptySet(),
+        selectedDependencyKeys: Set<String> = emptySet(),
     ): DeletionPlan {
         if (target.sourceId != ontology.source.id) {
             return DeletionPlan(
@@ -25,6 +26,7 @@ public class DeletionDependencyAnalyzer {
         }
 
         val targetIri = target.iri
+        val selectedTriples = selectedDependentStatements.mapTo(mutableSetOf()) { it }
         val direct = ontology.graph.triples
             .filter { it.subjectResource == targetIri }
             .sortedWith(TRIPLE_COMPARATOR)
@@ -46,21 +48,33 @@ public class DeletionDependencyAnalyzer {
                     statement = triple,
                     kind = DeletionDependencyKind.IncomingReference,
                     sourceId = ontology.source.id,
-                    selectedForRemoval = triple in selectedDependentStatements,
+                    selectedForRemoval = triple in selectedTriples,
                 )
             }
+        val knownDependencyKeys = dependent.map { it.identityKey }.toSet()
+        val invalidSelectedDependencyKeys = selectedDependencyKeys - knownDependencyKeys
+        val selectedKeys = selectedDependencyKeys intersect knownDependencyKeys
+        val selectedDependent = dependent.map { dependency ->
+            if (dependency.identityKey in selectedKeys) {
+                dependency.copy(selectedForRemoval = true)
+            } else {
+                dependency
+            }
+        }
         val status = when {
             direct.isEmpty() -> DeletionPlanStatus.Invalid
-            dependent.isEmpty() -> DeletionPlanStatus.Safe
-            dependent.all { it.selectedForRemoval } -> DeletionPlanStatus.Safe
+            invalidSelectedDependencyKeys.isNotEmpty() -> DeletionPlanStatus.InvalidDependencySelection
+            selectedDependent.isEmpty() -> DeletionPlanStatus.Safe
+            selectedDependent.all { it.selectedForRemoval } -> DeletionPlanStatus.Safe
             else -> DeletionPlanStatus.RequiresExplicitDependencies
         }
 
         return DeletionPlan(
             target = target,
             directStatements = direct,
-            dependentStatements = dependent,
+            dependentStatements = selectedDependent,
             status = status,
+            invalidSelectedDependencyKeys = invalidSelectedDependencyKeys.sorted(),
         )
     }
 
