@@ -53,6 +53,10 @@ public class EntioCli(
             .addSubcommand("proposal-diff", ProposalDiffCommand(proposalCommandSupport))
             .addSubcommand("proposal-apply", ProposalApplyCommand(proposalCommandSupport))
             .addSubcommand("proposal-reject", ProposalRejectCommand(proposalCommandSupport))
+            .addSubcommand("proposal-request", StructuredProposalCommand())
+            .addSubcommand("resolve-label", ResolveLabelCommand())
+            .addSubcommand("generate-iri", GenerateIriCommand())
+            .addSubcommand("deletion-dependencies", DeletionDependenciesCommand())
 
         return commandLine
             .setOut(out)
