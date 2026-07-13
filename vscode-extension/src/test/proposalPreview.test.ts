@@ -82,6 +82,36 @@ test("rejects unsupported or incomplete preview requests", () => {
   assert.equal(readProposalPreviewRequest({ targetSourceId: "simple", editKind: "add-triple", classIri: "x" }), undefined);
 });
 
+test("preserves deletion targets and stable dependency selections", () => {
+  const request = readProposalPreviewRequest({
+    targetSourceId: "simple",
+    editKind: "delete-entity",
+    entityIri: "https://example.com/Customer",
+    selectedDependencyKeys: ["dep-1", "dep-2"],
+  });
+
+  assert.deepEqual(request, {
+    targetSourceId: "simple",
+    editKind: "delete-entity",
+    entityIri: "https://example.com/Customer",
+    selectedDependencyKeys: ["dep-1", "dep-2"],
+  });
+  assert.deepEqual(proposalPreviewCliArgs(request!), [
+    "proposal-preview",
+    "simple",
+    "--edit",
+    "delete-entity",
+    "--entity-iri",
+    "https://example.com/Customer",
+  ]);
+  const combined = createCombinedProposalRequest([request!]);
+  assert.deepEqual(combined?.edits[0], {
+    kind: "delete-entity",
+    entityIri: "https://example.com/Customer",
+    selectedDependencyKeys: ["dep-1", "dep-2"],
+  });
+});
+
 test("normalizes every approved edit kind through one request boundary", () => {
   const requests = [
     { editKind: "create-class", classIri: "https://example.com/Invoice" },
@@ -340,6 +370,10 @@ test("routes label resolution and IRI generation through machine-readable CLI co
   assert.deepEqual(deletionDependenciesInvocationArgs("/workspace", "simple", selector!), [
     "deletion-dependencies", "/workspace", "simple", "--label", "Customer", "--kind", "Class",
   ]);
+  assert.deepEqual(deletionDependenciesInvocationArgs("/workspace", "simple", selector!, ["dep-1"]), [
+    "deletion-dependencies", "/workspace", "simple", "--label", "Customer", "--kind", "Class",
+    "--selected-dependency-key", "dep-1",
+  ]);
 });
 
 test("normalizes resolution, generated IRI, and deletion dependency responses", () => {
@@ -375,6 +409,7 @@ test("normalizes resolution, generated IRI, and deletion dependency responses", 
     dependentStatements: [{
       kind: "IncomingReference",
       sourceId: "simple",
+      dependencyKey: "dep-1",
       selectedForRemoval: false,
       subject: "https://example.com/Invoice",
       predicate: "https://example.com/receivedBy",
@@ -383,6 +418,7 @@ test("normalizes resolution, generated IRI, and deletion dependency responses", 
   });
   assert.equal(dependencies?.safe, false);
   assert.equal(dependencies?.dependentStatements.length, 1);
+  assert.equal(dependencies?.dependentStatements[0].dependencyKey, "dep-1");
 });
 
 test("stages valid previews in order and supports edit, cancel, replace, and remove", () => {

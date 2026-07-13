@@ -18,6 +18,7 @@ export interface ProposalPreviewRequest {
   readonly superclassIri?: string;
   readonly entityIri?: string;
   readonly replaceExisting?: boolean;
+  readonly selectedDependencyKeys?: readonly string[];
 }
 
 export type EditKind =
@@ -32,7 +33,8 @@ export type EditKind =
   | "add-datatype-property-assertion"
   | "add-superclass"
   | "remove-superclass"
-  | "set-entity-label";
+  | "set-entity-label"
+  | "delete-entity";
 
 export const EDIT_KINDS: readonly EditKind[] = [
   "create-class",
@@ -47,6 +49,7 @@ export const EDIT_KINDS: readonly EditKind[] = [
   "add-superclass",
   "remove-superclass",
   "set-entity-label",
+  "delete-entity",
 ];
 
 export type EditFormField =
@@ -144,7 +147,7 @@ export interface CombinedProposalRequest {
   readonly proposalId: string;
   readonly title: string;
   readonly targetSourceId: string;
-  readonly edits: readonly Record<string, string | boolean | undefined>[];
+  readonly edits: readonly Record<string, string | boolean | readonly string[] | undefined>[];
 }
 
 export interface CombinedProposalModel {
@@ -341,11 +344,13 @@ export interface DeletionDependencyModel {
   readonly directStatements: readonly DeletionStatementModel[];
   readonly dependentStatements: readonly DeletionStatementModel[];
   readonly safe: boolean;
+  readonly invalidSelectedDependencyKeys: readonly string[];
 }
 
 export interface DeletionStatementModel {
   readonly kind: string;
   readonly sourceId: string;
+  readonly dependencyKey?: string;
   readonly selectedForRemoval: boolean;
   readonly subject: string;
   readonly subjectLabel?: string;
@@ -402,6 +407,7 @@ export function deletionDependenciesInvocationArgs(
   projectRoot: string,
   sourceId: string,
   selector: EntitySelectorRequest,
+  selectedDependencyKeys: readonly string[] = [],
 ): readonly string[] {
   return [
     "deletion-dependencies",
@@ -410,6 +416,7 @@ export function deletionDependenciesInvocationArgs(
     ...(selector.label ? ["--label", selector.label] : []),
     ...(selector.iri ? ["--iri", selector.iri] : []),
     ...(selector.kind ? ["--kind", selector.kind] : []),
+    ...selectedDependencyKeys.flatMap((key) => ["--selected-dependency-key", key]),
   ];
 }
 
@@ -458,6 +465,7 @@ export function createDeletionDependencyModel(response: EngineResponse): Deletio
     directStatements,
     dependentStatements,
     safe: response.ok === true,
+    invalidSelectedDependencyKeys: readStringArray(response, "invalidSelectedDependencyKeys"),
   };
 }
 
@@ -477,10 +485,21 @@ export function readProposalPreviewRequest(value: unknown): ProposalPreviewReque
     editKind: request.editKind,
   };
   const fields = editFields(request);
+  const rawSelectedDependencyKeys = request.selectedDependencyKeys;
+  const selectedDependencyKeys = Array.isArray(rawSelectedDependencyKeys)
+    ? rawSelectedDependencyKeys.filter((key): key is string => typeof key === "string" && key.trim() !== "")
+    : undefined;
+  if (rawSelectedDependencyKeys !== undefined &&
+      (!Array.isArray(rawSelectedDependencyKeys) || selectedDependencyKeys === undefined ||
+        selectedDependencyKeys.length !== rawSelectedDependencyKeys.length)) {
+    return undefined;
+  }
   if (!hasRequiredEditFields(request.editKind, fields)) {
     return undefined;
   }
-  return { ...normalized, ...fields };
+  return selectedDependencyKeys === undefined
+    ? { ...normalized, ...fields }
+    : { ...normalized, ...fields, selectedDependencyKeys };
 }
 
 export function editFormStateRequest(state: EditFormState): ProposalPreviewRequest | undefined {
@@ -684,7 +703,9 @@ function editFields(request: Record<string, unknown>): Partial<ProposalPreviewRe
   if (request.replaceExisting === true) {
     fields.replaceExisting = true;
   }
-  return fields as Partial<ProposalPreviewRequest>;
+  return Array.isArray(request.selectedDependencyKeys)
+    ? { ...fields, selectedDependencyKeys: request.selectedDependencyKeys }
+    : fields as Partial<ProposalPreviewRequest>;
 }
 
 function hasRequiredEditFields(editKind: EditKind, fields: Partial<ProposalPreviewRequest>): boolean {
@@ -707,6 +728,7 @@ function hasRequiredEditFields(editKind: EditKind, fields: Partial<ProposalPrevi
     case "add-superclass":
     case "remove-superclass": return present("classIri") && present("superclassIri");
     case "set-entity-label": return present("entityIri") && present("label");
+    case "delete-entity": return present("entityIri");
   }
 }
 
@@ -767,6 +789,9 @@ function appendEditArgs(args: string[], request: ProposalPreviewRequest): void {
       append("--label", request.label);
       append("--language", request.language);
       break;
+    case "delete-entity":
+      append("--entity-iri", request.entityIri);
+      break;
   }
   if (request.replaceExisting) args.push("--replace-existing");
 }
@@ -826,6 +851,7 @@ function readDeletionStatements(value: unknown): readonly DeletionStatementModel
           ? {
               kind: record.kind,
               sourceId: record.sourceId,
+              dependencyKey: typeof record.dependencyKey === "string" ? record.dependencyKey : undefined,
               selectedForRemoval: record.selectedForRemoval,
               subject: record.subject,
               subjectLabel: typeof record.subjectLabel === "string" ? record.subjectLabel : undefined,

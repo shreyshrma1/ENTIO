@@ -37,6 +37,11 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /type: "generate-iri"/);
   assert.match(html, /id="deletion-form"/);
   assert.match(html, /type: "deletion-dependencies"/);
+  assert.match(html, /id="preview-deletion"/);
+  assert.match(html, /deleteAction\.id = "delete-symbol"/);
+  assert.match(html, /type: "deletion-preview"/);
+  assert.match(html, /selectedDependencyKeys/);
+  assert.match(html, /checkbox/);
   assert.match(html, /explicit dependencies required/);
   assert.match(html, /id="staged-changes"/);
   assert.match(html, /id="staged-list"/);
