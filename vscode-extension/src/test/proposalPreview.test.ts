@@ -6,10 +6,13 @@ import {
   createDeletionDependencyModel,
   createEntityResolutionModel,
   createGeneratedIriModel,
+  cancelStagedEdit,
   createEditFormState,
+  createStagedChangeSession,
   deletionDependenciesInvocationArgs,
   entityResolutionInvocationArgs,
   generatedIriInvocationArgs,
+  editStagedChange,
   editFormStateRequest,
   selectEditKind,
   updateEditFormField,
@@ -18,6 +21,8 @@ import {
   proposalPreviewInvocationArgs,
   readProposalPreviewRequest,
   readEntitySelectorRequest,
+  removeStagedChange,
+  stagePreview,
 } from "../proposalPreview";
 
 test("creates a typed preview request and safe CLI arguments", () => {
@@ -374,4 +379,74 @@ test("normalizes resolution, generated IRI, and deletion dependency responses", 
   });
   assert.equal(dependencies?.safe, false);
   assert.equal(dependencies?.dependentStatements.length, 1);
+});
+
+test("stages valid previews in order and supports edit, cancel, replace, and remove", () => {
+  const firstRequest = readProposalPreviewRequest({
+    targetSourceId: "simple",
+    editKind: "create-class",
+    classIri: "https://example.com/Customer",
+  })!;
+  const secondRequest = readProposalPreviewRequest({
+    targetSourceId: "simple",
+    editKind: "create-class",
+    classIri: "https://example.com/Invoice",
+  })!;
+  const preview = (id: string) => createProposalPreviewModel({
+    ok: true,
+    proposal: {
+      id,
+      status: "previewed",
+      targetSourceId: "simple",
+      sourceFileImpact: { affectedPaths: ["ontology/simple.ttl"] },
+      preview: { tripleCount: 2 },
+      diff: { entries: [{ kind: "added", description: id }] },
+      validation: { status: "valid", ok: true, issues: [] },
+      semanticEquivalence: { status: "equivalent" },
+    },
+  })!;
+
+  let session = createStagedChangeSession();
+  session = stagePreview(session, firstRequest, preview("first"))!;
+  session = stagePreview(session, secondRequest, preview("second"))!;
+  assert.deepEqual(session.entries.map((entry) => entry.request.classIri), [
+    "https://example.com/Customer",
+    "https://example.com/Invoice",
+  ]);
+
+  const edit = editStagedChange(session, session.entries[0].id)!;
+  assert.equal(edit.request.classIri, "https://example.com/Customer");
+  session = stagePreview(edit.session, secondRequest, preview("replacement"))!;
+  assert.equal(session.entries[0].request.classIri, "https://example.com/Invoice");
+
+  const editing = editStagedChange(session, session.entries[0].id)!;
+  session = cancelStagedEdit(editing.session);
+  assert.equal(session.entries[0].request.classIri, "https://example.com/Invoice");
+  session = removeStagedChange(session, session.entries[0].id);
+  assert.equal(session.entries.length, 1);
+  session = removeStagedChange(session, session.entries[0].id);
+  assert.equal(session.entries.length, 0);
+});
+
+test("does not stage invalid previews", () => {
+  const request = readProposalPreviewRequest({
+    targetSourceId: "simple",
+    editKind: "create-class",
+    classIri: "https://example.com/Invalid",
+  })!;
+  const invalid = createProposalPreviewModel({
+    ok: true,
+    proposal: {
+      id: "invalid",
+      status: "invalid",
+      targetSourceId: "simple",
+      sourceFileImpact: { affectedPaths: [] },
+      preview: { tripleCount: 1 },
+      diff: { entries: [] },
+      validation: { status: "invalid", ok: false, issues: [{ message: "invalid" }] },
+      semanticEquivalence: { status: "equivalent" },
+    },
+  })!;
+
+  assert.equal(stagePreview(createStagedChangeSession(), request, invalid), undefined);
 });
