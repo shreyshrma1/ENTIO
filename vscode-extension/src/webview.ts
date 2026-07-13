@@ -150,6 +150,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       <button id="inspect-deletion" type="submit">Inspect dependencies</button>
     </form>
     <div id="deletion-dependencies" aria-live="polite">No deletion review requested.</div>
+    <button id="preview-deletion" type="button" disabled>Preview deletion</button>
   </section>
   <section id="staged-changes" aria-labelledby="staged-heading">
     <h2 id="staged-heading">Staged changes</h2>
@@ -236,6 +237,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const deletionIri = document.getElementById("deletion-iri");
     const deletionKind = document.getElementById("deletion-kind");
     const deletionDependencies = document.getElementById("deletion-dependencies");
+    const previewDeletion = document.getElementById("preview-deletion");
     const stagedStatus = document.getElementById("staged-status");
     const stagedList = document.getElementById("staged-list");
     const cancelStagedEdit = document.getElementById("cancel-staged-edit");
@@ -247,6 +249,8 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     let stagedSequence = 1;
     let editingStagedEntry;
     let currentCombinedPreview;
+    let currentDeletionReview;
+    let selectedDeletionKeys = new Set();
     document.getElementById("refresh").addEventListener("click", () => vscode.postMessage({ type: "refresh" }));
 
     entitySelectorForm.addEventListener("submit", (event) => {
@@ -283,16 +287,27 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         deletionDependencies.textContent = "Enter an entity label or IRI to inspect deletion dependencies.";
         return;
       }
-      vscode.postMessage({
-        type: "deletion-dependencies",
-        payload: {
-          label: deletionLabel.value || undefined,
-          iri: deletionIri.value || undefined,
-          kind: deletionKind.value || undefined,
-          sourceId: targetSource.value || undefined,
-        },
+      requestDeletionReview({
+        label: deletionLabel.value || undefined,
+        iri: deletionIri.value || undefined,
+        kind: deletionKind.value || undefined,
+        sourceId: targetSource.value || undefined,
       });
-      deletionDependencies.textContent = "Inspecting deletion dependencies...";
+    });
+
+    previewDeletion.addEventListener("click", () => {
+      if (!currentDeletionReview || !canPreviewDeletion()) return;
+      const target = currentDeletionReview.target;
+      const request = {
+        targetSourceId: target?.sourceId || targetSource.value,
+        editKind: "delete-entity",
+        entityIri: target?.iri || deletionIri.value,
+        selectedDependencyKeys: Array.from(selectedDeletionKeys),
+      };
+      currentRequest = request;
+      vscode.postMessage({ type: "deletion-preview", payload: request });
+      previewStatus.textContent = "Requesting deletion proposal preview...";
+      previewDeletion.disabled = true;
     });
 
     cancelStagedEdit.addEventListener("click", () => {
@@ -334,6 +349,31 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       targetSource.value = source;
       updateEditFormMode();
       generatedIriStatus.textContent = "";
+    }
+
+    function requestDeletionReview(selector) {
+      if (selector.sourceId) targetSource.value = selector.sourceId;
+      deletionLabel.value = selector.label || "";
+      deletionIri.value = selector.iri || "";
+      deletionKind.value = selector.kind || "";
+      currentDeletionReview = undefined;
+      selectedDeletionKeys = new Set();
+      previewDeletion.disabled = true;
+      vscode.postMessage({
+        type: "deletion-dependencies",
+        payload: selector,
+      });
+      deletionDependencies.textContent = "Inspecting deletion dependencies...";
+    }
+
+    function canPreviewDeletion() {
+      if (!currentDeletionReview || currentDeletionReview.status !== "Safe") return false;
+      return currentDeletionReview.dependentStatements.every((statement) =>
+        typeof statement.dependencyKey === "string" && selectedDeletionKeys.has(statement.dependencyKey));
+    }
+
+    function updateDeletionPreviewState() {
+      previewDeletion.disabled = !canPreviewDeletion();
     }
 
     function restoreEditForm(request) {
@@ -615,6 +655,36 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       stagePreview(preview);
     }
 
+    function renderDeletionPreview(combined) {
+      const deletionRequest = currentRequest;
+      const preview = {
+        proposalId: combined.proposalId || "deletion-preview",
+        status: combined.status,
+        targetSourceId: deletionRequest?.targetSourceId || targetSource.value,
+        affectedPaths: combined.affectedPaths || [],
+        previewTripleCount: combined.previewTripleCount || 0,
+        diffEntries: combined.diffEntries || [],
+        validationStatus: combined.validationStatus || "not run",
+        validationOk: combined.validationOk,
+        validationIssues: combined.validationIssues || [],
+        semanticEquivalenceStatus: combined.semanticEquivalenceStatus,
+        semanticEquivalenceReason: combined.semanticEquivalenceReason,
+        canApprove: combined.canApprove,
+        approvalDisabledReason: combined.canApprove
+          ? undefined
+          : "Approval is disabled because the deletion proposal is not ready.",
+      };
+      renderPreview(preview);
+      if (combined.canApprove) {
+        currentDeletionReview = undefined;
+        selectedDeletionKeys = new Set();
+        previewDeletion.disabled = true;
+        deletionDependencies.textContent = "Deletion staged successfully. Review it in the staged changes list.";
+      } else {
+        updateDeletionPreviewState();
+      }
+    }
+
     function renderCombinedPreview(preview) {
       currentCombinedPreview = preview;
       currentPreview = undefined;
@@ -700,24 +770,56 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     }
 
     function renderDeletionReview(result) {
+      currentDeletionReview = result;
+      selectedDeletionKeys = new Set(
+        result.dependentStatements
+          .filter((statement) => statement.selectedForRemoval && statement.dependencyKey)
+          .map((statement) => statement.dependencyKey),
+      );
       deletionDependencies.replaceChildren();
       const status = document.createElement("strong");
       status.textContent = formatDeletionStatus(result.status, result.safe);
       deletionDependencies.append(status);
       const list = document.createElement("ul");
-      result.directStatements.concat(result.dependentStatements).forEach((statement) => {
+      result.directStatements.forEach((statement) => {
         const item = document.createElement("li");
         item.textContent = statement.kind + " · " + displayStatementValue(statement.subjectLabel, statement.subject) + " · " +
           displayStatementValue(statement.predicateLabel, statement.predicate) + " · " +
           displayStatementValue(statement.objectLabel, statement.object);
         list.append(item);
       });
+      result.dependentStatements.forEach((statement) => {
+        const item = document.createElement("li");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = statement.selectedForRemoval;
+        checkbox.disabled = !statement.dependencyKey;
+        checkbox.addEventListener("change", () => {
+          if (!statement.dependencyKey) return;
+          if (checkbox.checked) selectedDeletionKeys.add(statement.dependencyKey);
+          else selectedDeletionKeys.delete(statement.dependencyKey);
+          statement.selectedForRemoval = checkbox.checked;
+          updateDeletionPreviewState();
+        });
+        const label = document.createElement("label");
+        label.append(
+          checkbox,
+          document.createTextNode(" " + statement.kind + " · " + displayStatementValue(statement.subjectLabel, statement.subject) + " · " +
+            displayStatementValue(statement.predicateLabel, statement.predicate) + " · " +
+            displayStatementValue(statement.objectLabel, statement.object)),
+        );
+        item.append(label);
+        list.append(item);
+      });
       if (list.childElementCount > 0) deletionDependencies.append(list);
       if (!result.safe) {
         const blocker = document.createElement("p");
-        blocker.textContent = "Deletion remains blocked until dependent statements are explicitly selected.";
+        blocker.textContent = result.invalidSelectedDependencyKeys.length > 0
+          ? "Deletion remains blocked because one or more selected dependencies are invalid."
+          : "Deletion remains blocked until dependent statements are explicitly selected.";
         deletionDependencies.append(blocker);
       }
+      updateDeletionPreviewState();
     }
 
     function formatDeletionStatus(status, safe) {
@@ -725,6 +827,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         Safe: "Safe",
         RequiresExplicitDependencies: "Requires explicit dependencies",
         Invalid: "Invalid deletion target",
+        InvalidDependencySelection: "Invalid dependency selection",
       };
       return (labels[status] || status) + (safe ? " · safe to review" : " · explicit dependencies required");
     }
@@ -778,7 +881,18 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       metadata.textContent = symbol.kind + " · " + symbol.sourceId;
       const iri = document.createElement("div");
       iri.textContent = symbol.iri;
-      details.append(heading, metadata, iri);
+      const deleteAction = document.createElement("button");
+      deleteAction.id = "delete-symbol";
+      deleteAction.type = "button";
+      deleteAction.textContent = "Delete";
+      deleteAction.disabled = !["Class", "Property", "Individual"].includes(symbol.kind);
+      deleteAction.addEventListener("click", () => requestDeletionReview({
+        label: symbol.label || undefined,
+        iri: symbol.iri,
+        kind: symbol.kind,
+        sourceId: symbol.sourceId,
+      }));
+      details.append(heading, metadata, iri, deleteAction);
       renderRelationshipSection(
         "Types",
         symbol.relationships.filter((relationship) => relationship.kind === "type" && relationship.direction === "outgoing"),
@@ -878,6 +992,14 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       }
       if (message.type === "combined-preview") {
         renderCombinedPreview(message.payload);
+      }
+      if (message.type === "deletion-preview") {
+        renderDeletionPreview(message.payload);
+      }
+      if (message.type === "deletion-preview-error") {
+        previewDeletion.disabled = false;
+        previewStatus.textContent = message.message;
+        approvalState.textContent = "Deletion preview failed; correct the dependency selection and try again.";
       }
       if (message.type === "combined-preview-error") {
         currentCombinedPreview = undefined;

@@ -181,6 +181,34 @@ export function activate(context: vscode.ExtensionContext): void {
           }
         }
 
+        if (message.type === "deletion-preview") {
+          const request = readProposalPreviewRequest((message as { payload?: unknown }).payload);
+          if (!request || request.editKind !== "delete-entity") {
+            await panel.webview.postMessage({
+              type: "deletion-preview-error",
+              message: "The deletion preview request is invalid.",
+            });
+            return;
+          }
+          try {
+            const file = await writeCombinedRequest([request]);
+            const response = await engine.run(
+              combinedProposalInvocationArgs(project.rootPath, file, "preview"),
+              project.rootPath,
+            );
+            const combined = createCombinedProposalModel(response);
+            if (!combined) throw new Error("Entio CLI returned an invalid deletion proposal preview.");
+            await panel.webview.postMessage({ type: "deletion-preview", payload: combined });
+          } catch (error) {
+            await panel.webview.postMessage({
+              type: "deletion-preview-error",
+              message: error instanceof Error ? error.message : "Entio deletion preview invocation failed.",
+            });
+          } finally {
+            await removeCombinedRequest();
+          }
+        }
+
         if (message.type === "combined-action") {
           const action = (message as { action?: unknown }).action;
           if ((action !== "apply" && action !== "reject") || !combinedRequestFile) {
