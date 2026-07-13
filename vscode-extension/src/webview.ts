@@ -151,6 +151,12 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     </form>
     <div id="deletion-dependencies" aria-live="polite">No deletion review requested.</div>
   </section>
+  <section id="staged-changes" aria-labelledby="staged-heading">
+    <h2 id="staged-heading">Staged changes</h2>
+    <div id="staged-status" aria-live="polite">No changes staged.</div>
+    <ul id="staged-list"></ul>
+    <button id="cancel-staged-edit" type="button" hidden>Cancel staged edit</button>
+  </section>
   <section id="preview" aria-labelledby="preview-heading">
     <h2 id="preview-heading">Proposal Preview</h2>
     <div id="preview-status">No proposal preview requested.</div>
@@ -229,9 +235,15 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const deletionIri = document.getElementById("deletion-iri");
     const deletionKind = document.getElementById("deletion-kind");
     const deletionDependencies = document.getElementById("deletion-dependencies");
+    const stagedStatus = document.getElementById("staged-status");
+    const stagedList = document.getElementById("staged-list");
+    const cancelStagedEdit = document.getElementById("cancel-staged-edit");
     let currentRequest;
     let currentPreview;
     let changedSource;
+    let stagedChanges = [];
+    let stagedSequence = 1;
+    let editingStagedEntry;
     document.getElementById("refresh").addEventListener("click", () => vscode.postMessage({ type: "refresh" }));
 
     entitySelectorForm.addEventListener("submit", (event) => {
@@ -280,6 +292,16 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       deletionDependencies.textContent = "Inspecting deletion dependencies...";
     });
 
+    cancelStagedEdit.addEventListener("click", () => {
+      if (editingStagedEntry) {
+        stagedChanges = stagedChanges.concat(editingStagedEntry).sort((first, second) => first.order - second.order);
+        editingStagedEntry = undefined;
+        currentRequest = undefined;
+        clearEditForm();
+        renderStagedList();
+      }
+    });
+
     function entityKindForEdit() {
       if (editKind.value === "create-class") return "Class";
       if (["create-object-property", "create-datatype-property"].includes(editKind.value)) return "Property";
@@ -292,6 +314,104 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       if (["create-object-property", "create-datatype-property"].includes(editKind.value)) return propertyLabel.value;
       if (editKind.value === "create-individual") return individualLabel.value;
       return undefined;
+    }
+
+    function clearEditForm() {
+      const source = targetSource.value;
+      proposalForm.reset();
+      targetSource.value = source;
+      updateEditFormMode();
+      generatedIriStatus.textContent = "";
+    }
+
+    function restoreEditForm(request) {
+      editKind.value = request.editKind;
+      updateEditFormMode();
+      targetSource.value = request.targetSourceId;
+      classIri.value = request.classIri || "";
+      classLabel.value = request.label || "";
+      propertyIri.value = request.propertyIri || "";
+      propertyLabel.value = request.label || "";
+      propertyDomainIri.value = request.domainIri || "";
+      propertyRangeIri.value = request.rangeIri || "";
+      propertyDatatype.value = request.datatype || "";
+      propertyReplace.checked = request.replaceExisting === true;
+      individualIri.value = request.individualIri || "";
+      individualTypeIri.value = request.typeIri || "";
+      individualLabel.value = request.label || "";
+      assertionSubjectIri.value = request.subjectIri || "";
+      assertionPropertyIri.value = request.propertyIri || "";
+      assertionObjectIri.value = request.objectIri || "";
+      assertionValue.value = request.value || "";
+      assertionDatatype.value = request.datatype || "";
+      assertionLanguage.value = request.language || "";
+      hierarchyClassIri.value = request.classIri || "";
+      hierarchySuperclassIri.value = request.superclassIri || "";
+      labelEntityIri.value = request.entityIri || "";
+      labelValue.value = request.label || "";
+      labelLanguage.value = request.language || "";
+      labelReplace.checked = request.replaceExisting === true;
+    }
+
+    function stagePreview(preview) {
+      if (!currentRequest || !preview.canApprove) return;
+      const entry = {
+        id: editingStagedEntry ? editingStagedEntry.id : "staged-" + stagedSequence++,
+        order: editingStagedEntry ? editingStagedEntry.order : stagedChanges.length,
+        request: currentRequest,
+        preview,
+        summary: preview.targetSourceId + " · " + currentRequest.editKind + " · " + (currentRequest.label || currentRequest.classIri || currentRequest.propertyIri || currentRequest.individualIri || currentRequest.entityIri || "edit"),
+      };
+      stagedChanges = editingStagedEntry
+        ? stagedChanges.concat(entry).sort((first, second) => first.order - second.order)
+        : stagedChanges.concat(entry);
+      stagedChanges = stagedChanges.map((value, index) => ({ ...value, order: index }));
+      editingStagedEntry = undefined;
+      currentRequest = undefined;
+      currentPreview = undefined;
+      clearEditForm();
+      renderStagedList();
+      previewStatus.textContent = "Change staged successfully.";
+      previewImpact.textContent = "The source file has not changed.";
+      previewDiff.replaceChildren();
+      previewValidation.replaceChildren();
+      approve.disabled = true;
+      reject.disabled = true;
+      openSource.disabled = true;
+      approvalState.textContent = "Review the staged list before the combined preview.";
+    }
+
+    function renderStagedList() {
+      stagedList.replaceChildren();
+      stagedStatus.textContent = stagedChanges.length === 0
+        ? "No changes staged."
+        : stagedChanges.length + " change(s) staged for combined review.";
+      cancelStagedEdit.hidden = !editingStagedEntry;
+      stagedChanges.forEach((entry) => {
+        const item = document.createElement("li");
+        const summary = document.createElement("span");
+        summary.textContent = entry.summary + " · " + entry.preview.validationStatus;
+        const edit = document.createElement("button");
+        edit.type = "button";
+        edit.textContent = "Edit";
+        edit.addEventListener("click", () => {
+          editingStagedEntry = entry;
+          stagedChanges = stagedChanges.filter((value) => value.id !== entry.id);
+          restoreEditForm(entry.request);
+          currentRequest = entry.request;
+          stagedStatus.textContent = "Editing " + entry.summary + ". Re-preview to return it to the staged list.";
+          renderStagedList();
+        });
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "Remove";
+        remove.addEventListener("click", () => {
+          stagedChanges = stagedChanges.filter((value) => value.id !== entry.id).map((value, index) => ({ ...value, order: index }));
+          renderStagedList();
+        });
+        item.append(summary, edit, remove);
+        stagedList.append(item);
+      });
     }
 
     function updateEditFormMode() {
@@ -469,8 +589,9 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       openSource.disabled = true;
       changedSource = undefined;
       approvalState.textContent = preview.canApprove
-        ? "Preview is valid and ready to apply."
+        ? "Preview is valid; adding it to the staged list."
         : preview.approvalDisabledReason;
+      stagePreview(preview);
     }
 
     function renderPreviewError(message) {
@@ -696,6 +817,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         renderPreviewError(message.message);
       }
     });
+    renderStagedList();
     vscode.postMessage({ type: "refresh" });
   </script>
 </body>

@@ -125,6 +125,92 @@ export interface ProposalActionResult {
   readonly rollbackReason?: string;
 }
 
+export interface StagedChangeEntry {
+  readonly id: string;
+  readonly order: number;
+  readonly request: ProposalPreviewRequest;
+  readonly preview: ProposalPreviewModel;
+  readonly summary: string;
+}
+
+export interface StagedChangeSession {
+  readonly entries: readonly StagedChangeEntry[];
+  readonly editing?: StagedChangeEntry;
+  readonly nextSequence: number;
+}
+
+export interface EditStagedChangeResult {
+  readonly session: StagedChangeSession;
+  readonly request: ProposalPreviewRequest;
+}
+
+export function createStagedChangeSession(): StagedChangeSession {
+  return { entries: [], nextSequence: 1 };
+}
+
+export function stagePreview(
+  session: StagedChangeSession,
+  request: ProposalPreviewRequest,
+  preview: ProposalPreviewModel,
+): StagedChangeSession | undefined {
+  if (!preview.canApprove) return undefined;
+  const editing = session.editing;
+  const entry: StagedChangeEntry = {
+    id: editing?.id ?? `staged-${session.nextSequence}`,
+    order: editing?.order ?? session.entries.length,
+    request,
+    preview,
+    summary: stagedChangeSummary(request),
+  };
+  const entries = editing
+    ? [...session.entries, entry].sort((first, second) => first.order - second.order)
+    : [...session.entries, entry];
+  return {
+    entries: entries.map((value, index) => ({ ...value, order: index })),
+    nextSequence: editing ? session.nextSequence : session.nextSequence + 1,
+  };
+}
+
+export function editStagedChange(
+  session: StagedChangeSession,
+  id: string,
+): EditStagedChangeResult | undefined {
+  const entry = session.entries.find((value) => value.id === id);
+  if (!entry) return undefined;
+  return {
+    session: {
+      entries: session.entries.filter((value) => value.id !== id),
+      editing: entry,
+      nextSequence: session.nextSequence,
+    },
+    request: entry.request,
+  };
+}
+
+export function cancelStagedEdit(session: StagedChangeSession): StagedChangeSession {
+  const editing = session.editing;
+  if (!editing) return session;
+  const entries = [...session.entries, editing]
+    .sort((first, second) => first.order - second.order)
+    .map((value, index) => ({ ...value, order: index }));
+  return { entries, nextSequence: session.nextSequence };
+}
+
+export function removeStagedChange(session: StagedChangeSession, id: string): StagedChangeSession {
+  return {
+    entries: session.entries
+      .filter((entry) => entry.id !== id)
+      .map((entry, index) => ({ ...entry, order: index })),
+    editing: session.editing?.id === id ? undefined : session.editing,
+    nextSequence: session.nextSequence,
+  };
+}
+
+export function stagedChangeSummary(request: ProposalPreviewRequest): string {
+  const identity = request.label || request.classIri || request.propertyIri || request.individualIri || request.entityIri || request.subjectIri || "edit";
+  return `${request.editKind} · ${identity}`;
+}
+
 export interface EntitySelectorRequest {
   readonly label?: string;
   readonly iri?: string;

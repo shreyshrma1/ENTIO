@@ -38,6 +38,11 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /id="deletion-form"/);
   assert.match(html, /type: "deletion-dependencies"/);
   assert.match(html, /explicit dependencies required/);
+  assert.match(html, /id="staged-changes"/);
+  assert.match(html, /id="staged-list"/);
+  assert.match(html, /id="cancel-staged-edit"/);
+  assert.match(html, /Change staged successfully/);
+  assert.match(html, /Re-preview to return it to the staged list/);
   assert.match(html, /type: "proposal-preview"/);
   assert.match(html, /id="preview-validation"/);
   assert.match(html, /id="approve"/);
