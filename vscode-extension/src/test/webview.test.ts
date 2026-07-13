@@ -56,4 +56,10 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /id="open-source"/);
   assert.match(html, /type: "proposal-action"/);
   assert.match(html, /type: "open-source"/);
+  assert.match(html, /formatDeletionStatus/);
+  assert.match(html, /displayStatementValue/);
+  assert.match(html, /function displayIri/);
+  const script = html.match(/<script nonce="[^"]+">([\s\S]*)<\/script>/)?.[1];
+  assert.ok(script);
+  assert.doesNotThrow(() => new Function(script));
 });

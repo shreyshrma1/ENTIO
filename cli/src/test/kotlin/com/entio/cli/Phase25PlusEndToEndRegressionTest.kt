@@ -136,6 +136,23 @@ class Phase25PlusEndToEndRegressionTest {
         assertEquals(1, blockedDeletion.exitCode)
         assertTrue(blockedDeletion.out.contains("RequiresExplicitDependencies"), blockedDeletion.out)
         assertTrue(blockedDeletion.out.contains("IncomingReference"), blockedDeletion.out)
+        assertTrue(blockedDeletion.out.contains("\"subjectLabel\":\"Shrey\""), blockedDeletion.out)
+        assertTrue(blockedDeletion.out.contains("\"predicateLabel\":\"type\""), blockedDeletion.out)
+        assertTrue(blockedDeletion.out.contains("\"objectLabel\":\"Customer\""), blockedDeletion.out)
+
+        val propertyBlockedDeletion = runCli(
+            "deletion-dependencies",
+            fixture.projectRoot.toString(),
+            "simple",
+            "--iri",
+            "https://example.com/entio/simple#recievedInvoice",
+        )
+        assertEquals(1, propertyBlockedDeletion.exitCode)
+        assertTrue(propertyBlockedDeletion.out.contains("\"subjectLabel\":\"Shrey\""), propertyBlockedDeletion.out)
+        assertTrue(propertyBlockedDeletion.out.contains("\"predicateLabel\":\"recieved invoice\""), propertyBlockedDeletion.out)
+        assertTrue(propertyBlockedDeletion.out.contains("\"objectLabel\":\"Invoice 20874\""), propertyBlockedDeletion.out)
+        assertTrue(propertyBlockedDeletion.out.contains("\"predicateLabel\":\"type\""), propertyBlockedDeletion.out)
+        assertTrue(propertyBlockedDeletion.out.contains("\"objectLabel\":\"ObjectProperty\""), propertyBlockedDeletion.out)
     }
 
     @Test
@@ -215,12 +232,16 @@ class Phase25PlusEndToEndRegressionTest {
         } finally {
             paths.close()
         }
-        targetRoot.resolve("entio.yaml").writeText(
-            targetRoot.resolve("entio.yaml").readText().replace(
-                "name: simple-ontology",
-                "name: simple-ontology\niriNamespace: https://example.com/entio/simple#",
-            ),
-        )
+        val configPath = targetRoot.resolve("entio.yaml")
+        val config = configPath.readText()
+        if (!config.lineSequence().any { it.startsWith("iriNamespace:") }) {
+            configPath.writeText(
+                config.replace(
+                    "name: simple-ontology",
+                    "name: simple-ontology\niriNamespace: https://example.com/entio/simple#",
+                ),
+            )
+        }
         return ProjectFixture(targetRoot, targetRoot.resolve("ontology/simple.ttl"))
     }
 

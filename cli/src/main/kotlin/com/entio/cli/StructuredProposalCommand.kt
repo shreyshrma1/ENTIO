@@ -16,6 +16,7 @@ import com.entio.core.EntitySelector
 import com.entio.core.Iri
 import com.entio.core.RemoveSuperclassEdit
 import com.entio.core.RdfLiteral
+import com.entio.core.RdfResource
 import com.entio.core.SetEntityLabelEdit
 import com.entio.core.SetPropertyDomainEdit
 import com.entio.core.SetPropertyRangeEdit
@@ -288,8 +289,8 @@ internal class DeletionDependenciesCommand(
                 "ok" to (plan.status == com.entio.core.DeletionPlanStatus.Safe),
                 "target" to candidateJson(candidate),
                 "status" to plan.status.name,
-                "directStatements" to jsonArray(plan.directStatements.map(::dependencyJson)),
-                "dependentStatements" to jsonArray(plan.dependentStatements.map(::dependencyJson)),
+                "directStatements" to jsonArray(plan.directStatements.map { dependencyJson(it, project) }),
+                "dependentStatements" to jsonArray(plan.dependentStatements.map { dependencyJson(it, project) }),
             ).encoded,
         )
         return if (plan.status == com.entio.core.DeletionPlanStatus.Safe) 0 else 1
@@ -356,15 +357,40 @@ private fun parseKind(value: String?): SymbolKind? =
 private fun candidateJson(candidate: EntityCandidate): JsonFragment =
     jsonObject("iri" to candidate.iri.value, "label" to candidate.label, "kind" to candidate.kind.name, "sourceId" to candidate.sourceId)
 
-private fun dependencyJson(dependency: DeletionDependency): JsonFragment =
-    jsonObject(
+private fun dependencyJson(dependency: DeletionDependency, project: EntioProject): JsonFragment {
+    val labels = project.symbols.associate { symbol -> symbol.iri.value to symbol.label }
+    val subject = dependency.statement.subjectResource.value
+    val predicate = dependency.statement.predicate.value
+    val objectTerm = dependency.statement.objectTerm
+    return jsonObject(
         "kind" to dependency.kind.name,
         "sourceId" to dependency.sourceId,
         "selectedForRemoval" to dependency.selectedForRemoval,
-        "subject" to dependency.statement.subjectResource.value,
-        "predicate" to dependency.statement.predicate.value,
-        "object" to dependency.statement.objectTerm.toString(),
+        "subject" to subject,
+        "subjectLabel" to displayIri(subject, labels),
+        "predicate" to predicate,
+        "predicateLabel" to displayIri(predicate, labels),
+        "object" to objectTerm.toString(),
+        "objectLabel" to displayTerm(objectTerm, labels),
     )
+}
+
+private fun displayTerm(term: com.entio.core.RdfTerm, labels: Map<String, String?>): String =
+    when (term) {
+        is RdfResource -> displayIri(term.value, labels)
+        is RdfLiteral -> buildString {
+            append(term.lexicalForm)
+            term.languageTag?.let { append("@").append(it) }
+            term.datatypeIri?.let { append("^^").append(displayIri(it.value, labels)) }
+        }
+    }
+
+private fun displayIri(value: String, labels: Map<String, String?>): String {
+    val label = labels[value]
+    if (!label.isNullOrBlank()) return label
+    val separator = maxOf(value.lastIndexOf('#'), value.lastIndexOf('/'))
+    return if (separator >= 0 && separator < value.lastIndex) value.substring(separator + 1) else value
+}
 
 private fun failure(code: String, message: String): EntioResult.Failure =
     EntioResult.Failure(message, listOf(ValidationIssue(ValidationSeverity.Error, code, message)))

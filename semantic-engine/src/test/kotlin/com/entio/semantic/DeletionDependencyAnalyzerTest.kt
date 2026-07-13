@@ -62,6 +62,28 @@ class DeletionDependencyAnalyzerTest {
     }
 
     @Test
+    fun reportsStatementsThatUseAPropertyAsTheirPredicate(): Unit {
+        val receivedInvoice = Iri("https://example.com/receivedInvoice")
+        val invoice = Iri("https://example.com/20874")
+        val ontology = ontology(
+            """
+            @prefix ex: <https://example.com/> .
+            ex:receivedInvoice a ex:ObjectProperty .
+            ex:Shrey ex:receivedInvoice ex:20874 .
+            """.trimIndent(),
+        )
+        val target = EntityCandidate(receivedInvoice, "received invoice", SymbolKind.Property, "simple")
+
+        val plan = analyzer.analyze(ontology, target)
+
+        assertEquals(DeletionPlanStatus.RequiresExplicitDependencies, plan.status)
+        assertEquals(1, plan.dependentStatements.size)
+        assertEquals("https://example.com/Shrey", plan.dependentStatements.single().statement.subjectResource.value)
+        assertEquals(receivedInvoice, plan.dependentStatements.single().statement.predicate)
+        assertEquals(invoice, plan.dependentStatements.single().statement.objectTerm)
+    }
+
+    @Test
     fun blocksWrongSourceTargets(): Unit {
         val ontology = ontology("""@prefix ex: <https://example.com/> . ex:Customer a ex:Class .""")
         val target = EntityCandidate(customer, "Customer", SymbolKind.Class, "other")
