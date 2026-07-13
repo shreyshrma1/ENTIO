@@ -10,6 +10,7 @@ dependencies {
     implementation(project(":graph-diff"))
     implementation(project(":shared"))
     implementation("info.picocli:picocli:4.7.6")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.3")
 }
 
 application {
