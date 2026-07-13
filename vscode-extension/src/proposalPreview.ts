@@ -125,6 +125,157 @@ export interface ProposalActionResult {
   readonly rollbackReason?: string;
 }
 
+export interface EntitySelectorRequest {
+  readonly label?: string;
+  readonly iri?: string;
+  readonly kind?: string;
+  readonly sourceId?: string;
+}
+
+export interface EntityCandidateModel {
+  readonly iri: string;
+  readonly label: string | null;
+  readonly kind: string;
+  readonly sourceId: string;
+}
+
+export interface EntityResolutionModel {
+  readonly status: string;
+  readonly candidate?: EntityCandidateModel;
+  readonly candidates: readonly EntityCandidateModel[];
+  readonly message?: string;
+}
+
+export interface GeneratedIriModel {
+  readonly iri: string;
+  readonly localName: string;
+  readonly collision: string;
+  readonly normalizationVersion: string;
+}
+
+export interface DeletionDependencyModel {
+  readonly status: string;
+  readonly target?: EntityCandidateModel;
+  readonly directStatements: readonly DeletionStatementModel[];
+  readonly dependentStatements: readonly DeletionStatementModel[];
+  readonly safe: boolean;
+}
+
+export interface DeletionStatementModel {
+  readonly kind: string;
+  readonly sourceId: string;
+  readonly selectedForRemoval: boolean;
+  readonly subject: string;
+  readonly predicate: string;
+  readonly object: string;
+}
+
+export function readEntitySelectorRequest(value: unknown): EntitySelectorRequest | undefined {
+  const request = asRecord(value);
+  if (!request) return undefined;
+  const selector: EntitySelectorRequest = {
+    label: textValue(request.label),
+    iri: textValue(request.iri),
+    kind: textValue(request.kind),
+    sourceId: textValue(request.sourceId),
+  };
+  return selector.label || selector.iri ? selector : undefined;
+}
+
+export function entityResolutionInvocationArgs(
+  projectRoot: string,
+  selector: EntitySelectorRequest,
+): readonly string[] {
+  return [
+    "resolve-label",
+    projectRoot,
+    ...(selector.label ? ["--label", selector.label] : []),
+    ...(selector.iri ? ["--iri", selector.iri] : []),
+    ...(selector.kind ? ["--kind", selector.kind] : []),
+    ...(selector.sourceId ? ["--source-id", selector.sourceId] : []),
+  ];
+}
+
+export function generatedIriInvocationArgs(
+  projectRoot: string,
+  label: string,
+  kind: string,
+  distinct = false,
+): readonly string[] {
+  return [
+    "generate-iri",
+    projectRoot,
+    "--label",
+    label,
+    "--kind",
+    kind,
+    ...(distinct ? ["--distinct"] : []),
+  ];
+}
+
+export function deletionDependenciesInvocationArgs(
+  projectRoot: string,
+  sourceId: string,
+  selector: EntitySelectorRequest,
+): readonly string[] {
+  return [
+    "deletion-dependencies",
+    projectRoot,
+    sourceId,
+    ...(selector.label ? ["--label", selector.label] : []),
+    ...(selector.iri ? ["--iri", selector.iri] : []),
+    ...(selector.kind ? ["--kind", selector.kind] : []),
+  ];
+}
+
+export function createEntityResolutionModel(response: EngineResponse): EntityResolutionModel | undefined {
+  const resolution = asRecord(response.resolution);
+  if (!resolution || typeof resolution.status !== "string") return undefined;
+  const candidate = readEntityCandidate(resolution.candidate);
+  const candidates = Array.isArray(resolution.candidates)
+    ? resolution.candidates.map(readEntityCandidate).filter(isDefined)
+    : [];
+  return {
+    status: resolution.status,
+    candidate,
+    candidates,
+    message: textValue(resolution.message),
+  };
+}
+
+export function createGeneratedIriModel(response: EngineResponse): GeneratedIriModel | undefined {
+  const generated = asRecord(response.generated);
+  if (
+    !generated ||
+    typeof generated.iri !== "string" ||
+    typeof generated.localName !== "string" ||
+    typeof generated.collision !== "string" ||
+    typeof generated.normalizationVersion !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    iri: generated.iri,
+    localName: generated.localName,
+    collision: generated.collision,
+    normalizationVersion: generated.normalizationVersion,
+  };
+}
+
+export function createDeletionDependencyModel(response: EngineResponse): DeletionDependencyModel | undefined {
+  if (typeof response.status !== "string") return undefined;
+  const target = readEntityCandidate(response.target);
+  const directStatements = readDeletionStatements(response.directStatements);
+  const dependentStatements = readDeletionStatements(response.dependentStatements);
+  return {
+    status: response.status,
+    target,
+    directStatements,
+    dependentStatements,
+    safe: response.ok === true,
+  };
+}
+
 export function readProposalPreviewRequest(value: unknown): ProposalPreviewRequest | undefined {
   const request = asRecord(value);
   if (
@@ -448,6 +599,44 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null
     ? value as Record<string, unknown>
     : undefined;
+}
+
+function textValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+function readEntityCandidate(value: unknown): EntityCandidateModel | undefined {
+  const candidate = asRecord(value);
+  return candidate && typeof candidate.iri === "string" &&
+    (candidate.label === null || typeof candidate.label === "string") &&
+    typeof candidate.kind === "string" && typeof candidate.sourceId === "string"
+    ? {
+        iri: candidate.iri,
+        label: typeof candidate.label === "string" ? candidate.label : null,
+        kind: candidate.kind,
+        sourceId: candidate.sourceId,
+      }
+    : undefined;
+}
+
+function readDeletionStatements(value: unknown): readonly DeletionStatementModel[] {
+  return Array.isArray(value)
+    ? value.map((statement) => {
+        const record = asRecord(statement);
+        return record && typeof record.kind === "string" && typeof record.sourceId === "string" &&
+          typeof record.selectedForRemoval === "boolean" && typeof record.subject === "string" &&
+          typeof record.predicate === "string" && typeof record.object === "string"
+          ? {
+              kind: record.kind,
+              sourceId: record.sourceId,
+              selectedForRemoval: record.selectedForRemoval,
+              subject: record.subject,
+              predicate: record.predicate,
+              object: record.object,
+            }
+          : undefined;
+      }).filter(isDefined)
+    : [];
 }
 
 function numberValue(value: unknown): number | undefined {

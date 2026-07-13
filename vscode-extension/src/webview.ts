@@ -41,6 +41,22 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
   <h1>Entio Ontology Workbench</h1>
   <button id="refresh" type="button">Refresh</button>
   <div id="status" role="status">Loading project summary...</div>
+  <section id="entity-selector" aria-labelledby="entity-selector-heading">
+    <h2 id="entity-selector-heading">Find an existing entity</h2>
+    <form id="entity-selector-form">
+      <label>Label <input id="entity-selector-label" type="text"></label>
+      <label>Kind
+        <select id="entity-selector-kind">
+          <option value="">Any kind</option>
+          <option value="Class">Class</option>
+          <option value="Property">Property</option>
+          <option value="Individual">Individual</option>
+        </select>
+      </label>
+      <button id="resolve-entity" type="submit">Resolve entity</button>
+    </form>
+    <div id="entity-resolution" aria-live="polite">No entity selected.</div>
+  </section>
   <main>
     <section aria-labelledby="sources-heading">
       <h2 id="sources-heading">Ontology Sources</h2>
@@ -113,8 +129,27 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         <label><input id="label-replace" type="checkbox"> Replace existing labels</label>
       </div>
       <p id="edit-form-placeholder" hidden>Additional edit forms are provided by the workbench edit modes.</p>
+      <button id="generate-iri" type="button">Generate IRI from label</button>
+      <span id="generated-iri-status" aria-live="polite"></span>
       <button id="preview-submit" type="submit">Preview change</button>
     </form>
+  </section>
+  <section id="deletion-review" aria-labelledby="deletion-heading">
+    <h2 id="deletion-heading">Review deletion dependencies</h2>
+    <form id="deletion-form">
+      <label>Entity label <input id="deletion-label" type="text"></label>
+      <label>Entity IRI <input id="deletion-iri" type="url"></label>
+      <label>Kind
+        <select id="deletion-kind">
+          <option value="">Any kind</option>
+          <option value="Class">Class</option>
+          <option value="Property">Property</option>
+          <option value="Individual">Individual</option>
+        </select>
+      </label>
+      <button id="inspect-deletion" type="submit">Inspect dependencies</button>
+    </form>
+    <div id="deletion-dependencies" aria-live="polite">No deletion review requested.</div>
   </section>
   <section id="preview" aria-labelledby="preview-heading">
     <h2 id="preview-heading">Proposal Preview</h2>
@@ -133,12 +168,18 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const sources = document.getElementById("sources");
     const symbolGroups = document.getElementById("symbol-groups");
     const details = document.getElementById("details");
+    const entitySelectorForm = document.getElementById("entity-selector-form");
+    const entitySelectorLabel = document.getElementById("entity-selector-label");
+    const entitySelectorKind = document.getElementById("entity-selector-kind");
+    const entityResolution = document.getElementById("entity-resolution");
     const proposalForm = document.getElementById("proposal-form");
     const targetSource = document.getElementById("target-source");
     const editKind = document.getElementById("edit-kind");
     const classFields = document.getElementById("class-fields");
     const editFormPlaceholder = document.getElementById("edit-form-placeholder");
     const previewSubmit = document.getElementById("preview-submit");
+    const generateIri = document.getElementById("generate-iri");
+    const generatedIriStatus = document.getElementById("generated-iri-status");
     const classIri = document.getElementById("class-iri");
     const classLabel = document.getElementById("class-label");
     const propertyFields = document.getElementById("property-fields");
@@ -183,10 +224,75 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const reject = document.getElementById("reject");
     const openSource = document.getElementById("open-source");
     const approvalState = document.getElementById("approval-state");
+    const deletionForm = document.getElementById("deletion-form");
+    const deletionLabel = document.getElementById("deletion-label");
+    const deletionIri = document.getElementById("deletion-iri");
+    const deletionKind = document.getElementById("deletion-kind");
+    const deletionDependencies = document.getElementById("deletion-dependencies");
     let currentRequest;
     let currentPreview;
     let changedSource;
     document.getElementById("refresh").addEventListener("click", () => vscode.postMessage({ type: "refresh" }));
+
+    entitySelectorForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (entitySelectorLabel.value === "") {
+        entityResolution.textContent = "Enter a label to resolve an entity.";
+        return;
+      }
+      vscode.postMessage({
+        type: "resolve-entity",
+        payload: {
+          label: entitySelectorLabel.value,
+          kind: entitySelectorKind.value || undefined,
+          sourceId: targetSource.value || undefined,
+        },
+      });
+      entityResolution.textContent = "Resolving entity...";
+    });
+
+    generateIri.addEventListener("click", () => {
+      const kind = entityKindForEdit();
+      const label = labelForEdit();
+      if (!kind || !label) {
+        generatedIriStatus.textContent = "Choose a supported new-entity edit and provide a label first.";
+        return;
+      }
+      vscode.postMessage({ type: "generate-iri", payload: { label, kind } });
+      generatedIriStatus.textContent = "Generating deterministic IRI...";
+    });
+
+    deletionForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (deletionLabel.value === "" && deletionIri.value === "") {
+        deletionDependencies.textContent = "Enter an entity label or IRI to inspect deletion dependencies.";
+        return;
+      }
+      vscode.postMessage({
+        type: "deletion-dependencies",
+        payload: {
+          label: deletionLabel.value || undefined,
+          iri: deletionIri.value || undefined,
+          kind: deletionKind.value || undefined,
+          sourceId: targetSource.value || undefined,
+        },
+      });
+      deletionDependencies.textContent = "Inspecting deletion dependencies...";
+    });
+
+    function entityKindForEdit() {
+      if (editKind.value === "create-class") return "Class";
+      if (["create-object-property", "create-datatype-property"].includes(editKind.value)) return "Property";
+      if (editKind.value === "create-individual") return "Individual";
+      return undefined;
+    }
+
+    function labelForEdit() {
+      if (editKind.value === "create-class") return classLabel.value;
+      if (["create-object-property", "create-datatype-property"].includes(editKind.value)) return propertyLabel.value;
+      if (editKind.value === "create-individual") return individualLabel.value;
+      return undefined;
+    }
 
     function updateEditFormMode() {
       const createClass = editKind.value === "create-class";
@@ -379,6 +485,56 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       approvalState.textContent = "Approval is disabled because preview failed.";
     }
 
+    function renderEntityResolution(result) {
+      entityResolution.replaceChildren();
+      if (result.status === "resolved" && result.candidate) {
+        entityResolution.textContent = result.candidate.label || result.candidate.iri;
+        const details = document.createElement("div");
+        details.textContent = result.candidate.kind + " · " + result.candidate.sourceId + " · " + result.candidate.iri;
+        entityResolution.append(details);
+        return;
+      }
+      if (result.status === "ambiguous") {
+        const heading = document.createElement("strong");
+        heading.textContent = "Ambiguous entity; choose a kind or source filter.";
+        const list = document.createElement("ul");
+        result.candidates.forEach((candidate) => {
+          const item = document.createElement("li");
+          item.textContent = (candidate.label || candidate.iri) + " · " + candidate.kind + " · " + candidate.sourceId;
+          list.append(item);
+        });
+        entityResolution.append(heading, list);
+        return;
+      }
+      entityResolution.textContent = result.message || "Entity was not found.";
+    }
+
+    function renderGeneratedIri(result) {
+      generatedIriStatus.textContent = result.iri + " · " + result.collision;
+      if (editKind.value === "create-class") classIri.value = result.iri;
+      if (["create-object-property", "create-datatype-property"].includes(editKind.value)) propertyIri.value = result.iri;
+      if (editKind.value === "create-individual") individualIri.value = result.iri;
+    }
+
+    function renderDeletionReview(result) {
+      deletionDependencies.replaceChildren();
+      const status = document.createElement("strong");
+      status.textContent = result.status + (result.safe ? " · safe to review" : " · explicit dependencies required");
+      deletionDependencies.append(status);
+      const list = document.createElement("ul");
+      result.directStatements.concat(result.dependentStatements).forEach((statement) => {
+        const item = document.createElement("li");
+        item.textContent = statement.kind + " · " + statement.subject + " · " + statement.predicate + " · " + statement.object;
+        list.append(item);
+      });
+      if (list.childElementCount > 0) deletionDependencies.append(list);
+      if (!result.safe) {
+        const blocker = document.createElement("p");
+        blocker.textContent = "Deletion remains blocked until dependent statements are explicitly selected.";
+        deletionDependencies.append(blocker);
+      }
+    }
+
     function renderActionResult(result) {
       approve.disabled = true;
       reject.disabled = true;
@@ -511,6 +667,24 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       }
       if (message.type === "proposal-preview") {
         renderPreview(message.payload);
+      }
+      if (message.type === "entity-resolution") {
+        renderEntityResolution(message.payload);
+      }
+      if (message.type === "entity-resolution-error") {
+        entityResolution.textContent = message.message;
+      }
+      if (message.type === "generated-iri") {
+        renderGeneratedIri(message.payload);
+      }
+      if (message.type === "generated-iri-error") {
+        generatedIriStatus.textContent = message.message;
+      }
+      if (message.type === "deletion-dependencies") {
+        renderDeletionReview(message.payload);
+      }
+      if (message.type === "deletion-dependencies-error") {
+        deletionDependencies.textContent = message.message;
       }
       if (message.type === "proposal-preview-error") {
         renderPreviewError(message.message);

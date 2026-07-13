@@ -3,7 +3,13 @@ import { test } from "node:test";
 import {
   createProposalActionResult,
   createProposalPreviewModel,
+  createDeletionDependencyModel,
+  createEntityResolutionModel,
+  createGeneratedIriModel,
   createEditFormState,
+  deletionDependenciesInvocationArgs,
+  entityResolutionInvocationArgs,
+  generatedIriInvocationArgs,
   editFormStateRequest,
   selectEditKind,
   updateEditFormField,
@@ -11,6 +17,7 @@ import {
   proposalPreviewCliArgs,
   proposalPreviewInvocationArgs,
   readProposalPreviewRequest,
+  readEntitySelectorRequest,
 } from "../proposalPreview";
 
 test("creates a typed preview request and safe CLI arguments", () => {
@@ -310,4 +317,61 @@ test("normalizes applied, rejected, stale, and rollback action results", () => {
   });
   assert.ok(validationFailure);
   assert.equal(validationFailure.status, "validation-failed");
+});
+
+test("routes label resolution and IRI generation through machine-readable CLI commands", () => {
+  const selector = readEntitySelectorRequest({ label: "Customer", kind: "Class", sourceId: "simple" });
+  assert.deepEqual(selector, { label: "Customer", iri: undefined, kind: "Class", sourceId: "simple" });
+  assert.deepEqual(entityResolutionInvocationArgs("/workspace", selector!), [
+    "resolve-label", "/workspace", "--label", "Customer", "--kind", "Class", "--source-id", "simple",
+  ]);
+  assert.deepEqual(generatedIriInvocationArgs("/workspace", "Invoice", "Class"), [
+    "generate-iri", "/workspace", "--label", "Invoice", "--kind", "Class",
+  ]);
+  assert.deepEqual(deletionDependenciesInvocationArgs("/workspace", "simple", selector!), [
+    "deletion-dependencies", "/workspace", "simple", "--label", "Customer", "--kind", "Class",
+  ]);
+});
+
+test("normalizes resolution, generated IRI, and deletion dependency responses", () => {
+  const resolution = createEntityResolutionModel({
+    ok: true,
+    resolution: {
+      status: "ambiguous",
+      candidates: [
+        { iri: "https://example.com/Customer", label: "Customer", kind: "Class", sourceId: "simple" },
+        { iri: "https://example.com/customer", label: "Customer", kind: "Individual", sourceId: "simple" },
+      ],
+    },
+  });
+  assert.equal(resolution?.status, "ambiguous");
+  assert.equal(resolution?.candidates.length, 2);
+
+  const generated = createGeneratedIriModel({
+    ok: true,
+    generated: {
+      iri: "https://example.com/Invoice",
+      localName: "Invoice",
+      collision: "none",
+      normalizationVersion: "v1",
+    },
+  });
+  assert.equal(generated?.iri, "https://example.com/Invoice");
+
+  const dependencies = createDeletionDependencyModel({
+    ok: false,
+    status: "RequiresExplicitDependencies",
+    target: { iri: "https://example.com/Customer", label: "Customer", kind: "Class", sourceId: "simple" },
+    directStatements: [],
+    dependentStatements: [{
+      kind: "IncomingReference",
+      sourceId: "simple",
+      selectedForRemoval: false,
+      subject: "https://example.com/Invoice",
+      predicate: "https://example.com/receivedBy",
+      object: "https://example.com/Customer",
+    }],
+  });
+  assert.equal(dependencies?.safe, false);
+  assert.equal(dependencies?.dependentStatements.length, 1);
 });

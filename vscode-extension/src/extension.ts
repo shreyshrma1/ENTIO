@@ -7,9 +7,16 @@ import { createWorkbenchModel } from "./workbenchModel";
 import {
   createProposalActionResult,
   createProposalPreviewModel,
+  createDeletionDependencyModel,
+  createEntityResolutionModel,
+  createGeneratedIriModel,
+  deletionDependenciesInvocationArgs,
+  entityResolutionInvocationArgs,
+  generatedIriInvocationArgs,
   proposalActionInvocationArgs,
   proposalPreviewInvocationArgs,
   proposalPreviewError,
+  readEntitySelectorRequest,
   readProposalPreviewRequest,
 } from "./proposalPreview";
 
@@ -127,6 +134,88 @@ export function activate(context: vscode.ExtensionContext): void {
             await panel.webview.postMessage({
               type: "proposal-action-error",
               message: error instanceof Error ? error.message : "Entio proposal action failed.",
+            });
+          }
+        }
+
+        if (message.type === "resolve-entity") {
+          const selector = readEntitySelectorRequest((message as { payload?: unknown }).payload);
+          if (!selector) {
+            await panel.webview.postMessage({
+              type: "entity-resolution-error",
+              message: "An entity label or IRI is required.",
+            });
+            return;
+          }
+          try {
+            const response = await engine.run(
+              entityResolutionInvocationArgs(project.rootPath, selector),
+              project.rootPath,
+            );
+            const resolution = createEntityResolutionModel(response);
+            if (!resolution) throw new Error("Entio CLI returned an invalid entity resolution result.");
+            await panel.webview.postMessage({
+              type: "entity-resolution",
+              payload: resolution,
+            });
+          } catch (error) {
+            await panel.webview.postMessage({
+              type: "entity-resolution-error",
+              message: error instanceof Error ? error.message : "Entio entity resolution failed.",
+            });
+          }
+        }
+
+        if (message.type === "generate-iri") {
+          const payload = message as { payload?: { label?: unknown; kind?: unknown; distinct?: unknown } };
+          const label = typeof payload.payload?.label === "string" ? payload.payload.label : undefined;
+          const kind = typeof payload.payload?.kind === "string" ? payload.payload.kind : undefined;
+          if (!label || !kind) {
+            await panel.webview.postMessage({
+              type: "generated-iri-error",
+              message: "A label and entity kind are required to generate an IRI.",
+            });
+            return;
+          }
+          try {
+            const response = await engine.run(
+              generatedIriInvocationArgs(project.rootPath, label, kind, payload.payload?.distinct === true),
+              project.rootPath,
+            );
+            const generated = createGeneratedIriModel(response);
+            if (!generated) throw new Error("Entio CLI returned an invalid generated IRI result.");
+            await panel.webview.postMessage({ type: "generated-iri", payload: generated });
+          } catch (error) {
+            await panel.webview.postMessage({
+              type: "generated-iri-error",
+              message: error instanceof Error ? error.message : "Entio IRI generation failed.",
+            });
+          }
+        }
+
+        if (message.type === "deletion-dependencies") {
+          const payload = message as { payload?: { sourceId?: unknown } & Record<string, unknown> };
+          const selector = readEntitySelectorRequest(payload.payload);
+          const sourceId = typeof payload.payload?.sourceId === "string" ? payload.payload.sourceId : undefined;
+          if (!selector || !sourceId) {
+            await panel.webview.postMessage({
+              type: "deletion-dependencies-error",
+              message: "A deletion target and source are required.",
+            });
+            return;
+          }
+          try {
+            const response = await engine.run(
+              deletionDependenciesInvocationArgs(project.rootPath, sourceId, selector),
+              project.rootPath,
+            );
+            const dependencies = createDeletionDependencyModel(response);
+            if (!dependencies) throw new Error("Entio CLI returned an invalid deletion dependency result.");
+            await panel.webview.postMessage({ type: "deletion-dependencies", payload: dependencies });
+          } catch (error) {
+            await panel.webview.postMessage({
+              type: "deletion-dependencies-error",
+              message: error instanceof Error ? error.message : "Entio deletion analysis failed.",
             });
           }
         }

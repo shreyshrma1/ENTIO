@@ -94,6 +94,23 @@ export function selectSymbol(model: WorkbenchModel, iri: string): WorkbenchModel
     : { ...model, selectedSymbol: undefined };
 }
 
+/** Returns label-backed display options; final resolution remains owned by the Kotlin CLI. */
+export function entitySelectorOptions(
+  model: WorkbenchModel,
+  kind?: string,
+  sourceId?: string,
+): readonly SymbolSummary[] {
+  return model.symbolGroups
+    .flatMap((group) => group.symbols)
+    .filter((symbol) => !kind || symbol.kind === kind)
+    .filter((symbol) => !sourceId || symbol.sourceId === sourceId)
+    .sort(compareSymbols);
+}
+
+export function labelDisplay(symbol: SymbolSummary): string {
+  return symbol.label ? `${symbol.label} · ${symbol.kind} · ${symbol.sourceId}` : `${symbol.iri} · ${symbol.kind} · ${symbol.sourceId}`;
+}
+
 function groupSymbols(symbols: readonly SymbolSummary[]): readonly SymbolGroup[] {
   const groups = new Map<string, SymbolSummary[]>();
 

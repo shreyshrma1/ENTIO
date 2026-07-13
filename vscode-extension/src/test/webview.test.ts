@@ -7,6 +7,9 @@ test("renders project browser and preview form controls", () => {
 
   assert.match(html, /id="ontology-sources|id="sources/);
   assert.match(html, /id="symbol-groups"/);
+  assert.match(html, /id="entity-selector-form"/);
+  assert.match(html, /id="entity-selector-kind"/);
+  assert.match(html, /type: "resolve-entity"/);
   assert.match(html, /Outgoing properties/);
   assert.match(html, /Incoming relationships/);
   assert.match(html, /formatRelationshipValue/);
@@ -30,6 +33,11 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /id="hierarchy-superclass-iri"/);
   assert.match(html, /id="label-fields"/);
   assert.match(html, /id="label-replace"/);
+  assert.match(html, /id="generate-iri"/);
+  assert.match(html, /type: "generate-iri"/);
+  assert.match(html, /id="deletion-form"/);
+  assert.match(html, /type: "deletion-dependencies"/);
+  assert.match(html, /explicit dependencies required/);
   assert.match(html, /type: "proposal-preview"/);
   assert.match(html, /id="preview-validation"/);
   assert.match(html, /id="approve"/);

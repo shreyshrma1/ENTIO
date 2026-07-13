@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { createWorkbenchModel, selectSymbol } from "../workbenchModel";
+import { createWorkbenchModel, entitySelectorOptions, labelDisplay, selectSymbol } from "../workbenchModel";
 
 test("normalizes project summaries into deterministic source and symbol groups", () => {
   const model = createWorkbenchModel({
@@ -92,4 +92,23 @@ test("selects a symbol for deterministic detail rendering", () => {
 test("rejects unsuccessful or malformed project summaries", () => {
   assert.equal(createWorkbenchModel({ ok: false }), undefined);
   assert.equal(createWorkbenchModel({ ok: true, project: { name: "missing-root" } }), undefined);
+});
+
+test("provides source and kind filtered display options without resolving labels locally", () => {
+  const model = createWorkbenchModel({
+    ok: true,
+    project: { name: "simple", root: "/workspace", graphTripleCount: 2 },
+    ontologySources: [],
+    symbols: [
+      { iri: "https://example.com/Customer", label: "Customer", kind: "Class", sourceId: "simple" },
+      { iri: "https://example.com/customer", label: "Customer", kind: "Individual", sourceId: "simple" },
+      { iri: "https://other.example/Customer", label: "Customer", kind: "Class", sourceId: "other" },
+    ],
+    symbolDetails: [],
+  });
+
+  assert.ok(model);
+  const options = entitySelectorOptions(model, "Class", "simple");
+  assert.equal(options.length, 1);
+  assert.equal(labelDisplay(options[0]), "Customer · Class · simple");
 });
