@@ -2,7 +2,7 @@
 
 ## What Phase 2.5+ Implemented
 
-Phase 2.5+ extends the Phase 2 controlled ontology-editing workflow with more usable entity selection, safe deletion review, multi-edit staging, combined proposal review, and machine-readable CLI support.
+Phase 2.5+ extends the Phase 2 controlled ontology-editing workflow with more usable entity selection, deterministic identifier generation, safe deletion review, multi-edit staging, combined proposal review, and machine-readable CLI support. The final implementation also carries explicit deletion dependency identities through the Kotlin/CLI boundary and exposes deletion selection and preview controls in the VS Code workbench.
 
 The implemented workflow is:
 
@@ -16,6 +16,8 @@ The implemented workflow is:
 8. Produce one combined preview graph, semantic diff, validation report, Turtle round-trip result, baseline, and affected-source list.
 9. Reject without writing, or approve the complete current set for Kotlin-owned atomic application.
 10. Reload the workbench after successful application and expose changed-source opening and rollback results.
+
+For deletion, direct definition statements are always included, dependent statements receive stable keys, unresolved references block preview, and the user must explicitly select each dependent statement before deletion can enter the staged list.
 
 The Kotlin engine remains the source of truth for RDF terms, graph changes, validation, semantic diffing, Turtle serialization, stale checks, source persistence, and rollback. The VS Code extension owns form state, staged session state, CLI invocation, and presentation only.
 
@@ -63,7 +65,7 @@ Remains intentionally small and contains only generic utilities. Product semanti
 
 ### `vscode-extension`
 
-Provides the workbench UI boundary. It renders project and symbol details, label-first selectors, generated-IRI results, deletion dependency review, in-memory staged edits, combined preview, approval, rejection, refresh, and changed-source actions. It does not construct RDF, validate graphs, generate final semantic identifiers, or write Turtle directly.
+Provides the workbench UI boundary. It renders project and symbol details, label-first selectors, generated-IRI results, deletion dependency review, explicit dependent-statement checkboxes, a Delete action for supported symbols, in-memory staged edits, combined preview, approval, rejection, refresh, and changed-source actions. It does not construct RDF, validate graphs, generate final semantic identifiers, or write Turtle directly.
 
 ## Main Contracts
 
@@ -100,18 +102,26 @@ npm test
 The Kotlin CLI can be run through Gradle. Examples include:
 
 ```bash
-./gradlew :cli:run --args="validate examples/simple-ontology"
-./gradlew :cli:run --args="symbols examples/simple-ontology"
+./gradlew :cli:run --args="validate ../examples/simple-ontology"
+./gradlew :cli:run --args="symbols ../examples/simple-ontology"
 ./gradlew :cli:run --args="diff before-project after-project"
+```
+
+When invoking `:cli:run`, Gradle runs the CLI with the `cli` module as its working directory, so the example project is addressed as `../examples/simple-ontology`:
+
+```bash
+./gradlew :cli:run --args="validate ../examples/simple-ontology"
+./gradlew :cli:run --args="symbols ../examples/simple-ontology"
+./gradlew :cli:run --args="project-summary ../examples/simple-ontology"
 ```
 
 The structured proposal commands accept a temporary JSON request file. The combined command supports `preview`, `validate`, `diff`, `apply`, and `reject` actions.
 
 ## Examples And Fixtures
 
-`examples/simple-ontology/` is the committed example project with `entio.yaml` and `ontology/simple.ttl`. It includes classes, properties, individuals, labels, and an explicit object-property relationship that is useful for symbol and dependency checks.
+`examples/simple-ontology/` is the committed example project with `entio.yaml` and `ontology/simple.ttl`. Its configuration includes the project IRI namespace, and its ontology includes classes, object properties, individuals, labels, and the explicit `Shrey` to `Invoice 20874` object-property relationship used by deletion regressions.
 
-Regression tests copy this example into temporary directories before modifying it. Other tests create temporary Turtle projects for ambiguous labels, namespace configuration, collisions, staged conflicts, stale baselines, and rollback injection. The committed example is not modified by the regression suite.
+Regression tests copy this example into temporary directories before modifying it. Other tests create temporary Turtle projects for ambiguous labels, namespace configuration, collisions, staged conflicts, deletion references, stale baselines, and rollback injection. The committed example is not modified by the regression suite.
 
 ## Explicit Non-Goals
 
@@ -126,9 +136,8 @@ Phase 2.5+ does not include:
 
 ## Known Limitations And Follow-Up Work
 
-- The committed example does not define `iriNamespace`. Generated-IRI regression tests use copied temporary projects with an explicit namespace; generated identifiers remain intentionally blocked when a project has no namespace configuration.
 - The VS Code `EntioEngineClient` currently rejects nonzero CLI exit codes before parsing stdout. As a result, structured ambiguous, missing, collision, and deletion-blocker payloads are modeled and tested at the adapter boundary, but the running workbench may present those nonzero responses as invocation errors. The client boundary should be improved in a later focused change if the UI must render those payloads directly.
-- The VS Code deletion surface currently provides dependency inspection and explicit blocker display. The Kotlin CLI and core contracts support deletion operations, but the workbench does not yet expose a complete deletion staging form and apply flow.
+- The VS Code deletion surface now exposes supported-symbol Delete actions, explicit dependent-statement selection, and deletion preview through the existing staged/combined lifecycle. A full launched Extension Development Host test with a live Kotlin CLI remains outside the automated regression suite.
 - Combined VS Code requests use process-scoped temporary JSON files because the current CLI boundary accepts request files. These files are cleaned up and are not a durable proposal store.
 - Combined application currently requires one target ontology source. Multi-source atomic application remains outside the approved scope.
 - The extension regression suite verifies model, request, and rendered webview behavior. A manually launched Extension Development Host and a live installed CLI are not part of the automated test run.
