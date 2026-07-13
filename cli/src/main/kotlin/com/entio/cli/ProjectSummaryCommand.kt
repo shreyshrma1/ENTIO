@@ -2,6 +2,7 @@ package com.entio.cli
 
 import com.entio.core.EntioResult
 import com.entio.semantic.ProjectLoader
+import com.entio.semantic.SymbolRelationshipExtractor
 import java.nio.file.Path
 import java.util.concurrent.Callable
 import picocli.CommandLine.Command
@@ -16,6 +17,7 @@ import picocli.CommandLine.Spec
 )
 public class ProjectSummaryCommand(
     private val projectLoader: ProjectLoader = ProjectLoader(),
+    private val relationshipExtractor: SymbolRelationshipExtractor = SymbolRelationshipExtractor(),
 ) : Callable<Int> {
     @Spec
     private lateinit var spec: CommandSpec
@@ -41,6 +43,7 @@ public class ProjectSummaryCommand(
 
             is EntioResult.Success -> {
                 val project = result.value
+                val symbolDetails = relationshipExtractor.extractDetails(project)
                 spec.commandLine().out.println(
                     jsonObject(
                         "command" to "project-summary",
@@ -63,6 +66,7 @@ public class ProjectSummaryCommand(
                             },
                         ),
                         "symbols" to jsonArray(project.symbols.map(::symbolJson)),
+                        "symbolDetails" to jsonArray(symbolDetails.map(::symbolDetailsJson)),
                     ).encoded,
                 )
                 EXIT_OK

@@ -1,19 +1,40 @@
+<https://example.com/entio/simple#Account>
+        a       <http://www.w3.org/2000/01/rdf-schema#Class>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "Account" .
+
 <https://example.com/entio/simple#Invoice>
         a       <http://www.w3.org/2002/07/owl#Class>;
         <http://www.w3.org/2000/01/rdf-schema#label>
                 "Invoice" .
+
+<https://example.com/entio/simple#20874>
+        a       <https://example.com/entio/simple#Invoice> , <http://www.w3.org/2002/07/owl#NamedIndividual>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "Invoice 20874" .
 
 <https://example.com/entio/simple#ownsAccount>
         a       <http://www.w3.org/1999/02/22-rdf-syntax-ns#Property>;
         <http://www.w3.org/2000/01/rdf-schema#label>
                 "owns account" .
 
-<https://example.com/entio/simple#Account>
-        a       <http://www.w3.org/2000/01/rdf-schema#Class>;
-        <http://www.w3.org/2000/01/rdf-schema#label>
-                "Account" .
-
 <https://example.com/entio/simple#Customer>
         a       <http://www.w3.org/2000/01/rdf-schema#Class>;
         <http://www.w3.org/2000/01/rdf-schema#label>
                 "Customer" .
+
+<https://example.com/entio/simple#Shrey>
+        a       <https://example.com/entio/simple#Customer> , <http://www.w3.org/2002/07/owl#NamedIndividual>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "Shrey";
+        <https://example.com/entio/simple#recievedInvoice>
+                <https://example.com/entio/simple#20874> .
+
+<https://example.com/entio/simple#recievedInvoice>
+        a       <http://www.w3.org/2002/07/owl#ObjectProperty>;
+        <http://www.w3.org/2000/01/rdf-schema#domain>
+                <https://example.com/entio/simple#Customer>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "recieved invoice";
+        <http://www.w3.org/2000/01/rdf-schema#range>
+                <https://example.com/entio/simple#Invoice> .

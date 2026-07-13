@@ -19,6 +19,7 @@ test("normalizes project summaries into deterministic source and symbol groups",
       { iri: "https://example.com/Customer", label: "Customer", kind: "Class", sourceId: "a-source" },
       { iri: "https://example.com/Account", label: "Account", kind: "Class", sourceId: "a-source" },
     ],
+    symbolDetails: [],
   });
 
   assert.ok(model);
@@ -38,10 +39,53 @@ test("selects a symbol for deterministic detail rendering", () => {
     symbols: [
       { iri: "https://example.com/Customer", label: "Customer", kind: "Class", sourceId: "simple" },
     ],
+    symbolDetails: [
+      {
+        iri: "https://example.com/Customer",
+        label: "Customer",
+        kind: "Class",
+        sourceId: "simple",
+        relationships: [
+          {
+            direction: "outgoing",
+            kind: "property",
+            predicate: "https://example.com/owns",
+            predicateLabel: "owns",
+            value: { kind: "iri", value: "https://example.com/Account", datatype: null, language: null },
+            valueLabel: "Account",
+            sourceId: "simple",
+          },
+          {
+            direction: "outgoing",
+            kind: "property",
+            predicate: "https://example.com/name",
+            predicateLabel: "name",
+            value: { kind: "literal", value: "Shrey", datatype: null, language: null },
+            valueLabel: null,
+            sourceId: "simple",
+          },
+          {
+            direction: "incoming",
+            kind: "property",
+            predicate: "https://example.com/receivedBy",
+            predicateLabel: "received by",
+            value: { kind: "iri", value: "https://example.com/Invoice", datatype: null, language: null },
+            valueLabel: "Invoice",
+            sourceId: "simple",
+          },
+        ],
+      },
+    ],
   });
 
   assert.ok(model);
   assert.equal(selectSymbol(model, "https://example.com/Customer").selectedSymbol?.label, "Customer");
+  assert.equal(selectSymbol(model, "https://example.com/Customer").selectedSymbol?.relationships.length, 3);
+  assert.equal(
+    selectSymbol(model, "https://example.com/Customer").selectedSymbol?.relationships
+      .find((relationship) => relationship.direction === "incoming")?.valueLabel,
+    "Invoice",
+  );
   assert.equal(selectSymbol(model, "https://example.com/Missing").selectedSymbol, undefined);
 });
 

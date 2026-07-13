@@ -27,9 +27,13 @@ class ProjectLoaderTest {
         assertTrue(success.value.ontologies.single().graph.triples.isNotEmpty())
         assertEquals(
             listOf(
+                "https://example.com/entio/simple#20874",
                 "https://example.com/entio/simple#Account",
                 "https://example.com/entio/simple#Customer",
+                "https://example.com/entio/simple#Invoice",
+                "https://example.com/entio/simple#Shrey",
                 "https://example.com/entio/simple#ownsAccount",
+                "https://example.com/entio/simple#recievedInvoice",
             ),
             success.value.symbols.map { it.iri.value },
         )

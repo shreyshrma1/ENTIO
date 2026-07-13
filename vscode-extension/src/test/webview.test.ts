@@ -7,6 +7,9 @@ test("renders project browser and preview form controls", () => {
 
   assert.match(html, /id="ontology-sources|id="sources/);
   assert.match(html, /id="symbol-groups"/);
+  assert.match(html, /Outgoing properties/);
+  assert.match(html, /Incoming relationships/);
+  assert.match(html, /formatRelationshipValue/);
   assert.match(html, /id="proposal-form"/);
   assert.match(html, /id="edit-kind"/);
   assert.match(html, /create-object-property/);
@@ -15,6 +18,8 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /id="property-domain-iri"/);
   assert.match(html, /id="property-range-iri"/);
   assert.match(html, /id="property-datatype"/);
+  assert.match(html, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
+  assert.match(html, /propertyDatatypeField\.hidden = !datatypeMode/);
   assert.match(html, /id="property-replace"/);
   assert.match(html, /id="individual-fields"/);
   assert.match(html, /id="individual-type-iri"/);

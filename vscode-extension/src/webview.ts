@@ -27,6 +27,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     #details { min-height: 100px; }
     form { display: grid; gap: 8px; max-width: 520px; }
     label { display: grid; gap: 4px; }
+    [hidden] { display: none !important; }
     input, select { color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); padding: 6px; }
     #edit-form, #preview { margin-top: 20px; }
     #preview-status { white-space: pre-wrap; }
@@ -419,6 +420,53 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       const iri = document.createElement("div");
       iri.textContent = symbol.iri;
       details.append(heading, metadata, iri);
+      renderRelationshipSection(
+        "Types",
+        symbol.relationships.filter((relationship) => relationship.kind === "type" && relationship.direction === "outgoing"),
+      );
+      renderRelationshipSection(
+        "Outgoing properties",
+        symbol.relationships.filter((relationship) => relationship.kind === "property" && relationship.direction === "outgoing"),
+      );
+      renderRelationshipSection(
+        "Incoming relationships",
+        symbol.relationships.filter((relationship) => relationship.direction === "incoming"),
+      );
+    }
+
+    function renderRelationshipSection(title, relationships) {
+      const sectionHeading = document.createElement("h4");
+      sectionHeading.textContent = title;
+      const list = document.createElement("ul");
+      if (relationships.length === 0) {
+        const empty = document.createElement("li");
+        empty.textContent = "None";
+        list.append(empty);
+      } else {
+        relationships.forEach((relationship) => {
+          const item = document.createElement("li");
+          const predicate = relationship.predicateLabel || relationship.predicate;
+          const value = formatRelationshipValue(relationship);
+          item.textContent = relationship.direction === "incoming"
+            ? value + " → " + predicate
+            : predicate + " → " + value;
+          list.append(item);
+        });
+      }
+      details.append(sectionHeading, list);
+    }
+
+    function formatRelationshipValue(relationship) {
+      const value = relationship.value;
+      if (value.kind === "literal") {
+        let formatted = '"' + value.value + '"';
+        if (value.language) formatted += "@" + value.language;
+        if (value.datatype) formatted += "^^" + value.datatype;
+        return formatted;
+      }
+      return relationship.valueLabel
+        ? relationship.valueLabel + " (" + value.value + ")"
+        : value.value;
     }
 
     function renderModel(model) {
