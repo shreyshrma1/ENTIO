@@ -15,6 +15,11 @@ export interface ProposalPreviewRequest {
   readonly objectIri?: string;
   readonly value?: string;
   readonly language?: string;
+  readonly targetIri?: string;
+  readonly existing?: string;
+  readonly replacement?: string;
+  readonly definition?: string;
+  readonly valueIri?: string;
   readonly superclassIri?: string;
   readonly entityIri?: string;
   readonly replaceExisting?: boolean;
@@ -34,7 +39,16 @@ export type EditKind =
   | "add-superclass"
   | "remove-superclass"
   | "set-entity-label"
-  | "delete-entity";
+  | "delete-entity"
+  | "create-annotation-property"
+  | "add-definition"
+  | "replace-definition"
+  | "remove-definition"
+  | "add-alternate-label"
+  | "replace-alternate-label"
+  | "remove-alternate-label"
+  | "add-annotation"
+  | "remove-annotation";
 
 export const EDIT_KINDS: readonly EditKind[] = [
   "create-class",
@@ -50,6 +64,15 @@ export const EDIT_KINDS: readonly EditKind[] = [
   "remove-superclass",
   "set-entity-label",
   "delete-entity",
+  "create-annotation-property",
+  "add-definition",
+  "replace-definition",
+  "remove-definition",
+  "add-alternate-label",
+  "replace-alternate-label",
+  "remove-alternate-label",
+  "add-annotation",
+  "remove-annotation",
 ];
 
 export type EditFormField =
@@ -65,6 +88,11 @@ export type EditFormField =
   | "objectIri"
   | "value"
   | "language"
+  | "targetIri"
+  | "existing"
+  | "replacement"
+  | "definition"
+  | "valueIri"
   | "superclassIri"
   | "entityIri";
 
@@ -263,6 +291,29 @@ export function createCombinedProposalRequest(
       const { targetSourceId: _targetSourceId, editKind, ...fields } = request;
       return { kind: editKind, ...fields };
     }),
+  };
+}
+
+export function combinedPreviewAsProposalPreviewModel(
+  combined: CombinedProposalModel,
+  request: ProposalPreviewRequest,
+): ProposalPreviewModel {
+  return {
+    proposalId: combined.proposalId ?? "combined-proposal",
+    status: combined.status,
+    targetSourceId: request.targetSourceId,
+    affectedPaths: combined.affectedPaths,
+    previewTripleCount: combined.previewTripleCount ?? 0,
+    diffEntries: combined.diffEntries,
+    validationStatus: combined.validationStatus ?? "not run",
+    validationOk: combined.validationOk,
+    validationIssues: combined.validationIssues,
+    semanticEquivalenceStatus: combined.semanticEquivalenceStatus,
+    semanticEquivalenceReason: combined.semanticEquivalenceReason,
+    canApprove: combined.canApprove,
+    approvalDisabledReason: combined.canApprove
+      ? undefined
+      : "Approval is disabled because the semantic edit preview is not ready.",
   };
 }
 
@@ -692,7 +743,8 @@ function editFields(request: Record<string, unknown>): Partial<ProposalPreviewRe
   const fields: Record<string, string | boolean> = {};
   const names: readonly EditFormField[] = [
     "classIri", "label", "propertyIri", "domainIri", "rangeIri", "datatype", "individualIri",
-    "typeIri", "subjectIri", "objectIri", "value", "language", "superclassIri", "entityIri",
+    "typeIri", "subjectIri", "objectIri", "value", "language", "targetIri", "existing", "replacement",
+    "definition", "valueIri", "superclassIri", "entityIri",
   ];
   names.forEach((name) => {
     const value = request[name];
@@ -729,6 +781,18 @@ function hasRequiredEditFields(editKind: EditKind, fields: Partial<ProposalPrevi
     case "remove-superclass": return present("classIri") && present("superclassIri");
     case "set-entity-label": return present("entityIri") && present("label");
     case "delete-entity": return present("entityIri");
+    case "create-annotation-property": return present("propertyIri");
+    case "add-definition":
+    case "remove-definition":
+    case "add-alternate-label":
+    case "remove-alternate-label":
+      return present("targetIri") && present("value");
+    case "replace-definition":
+    case "replace-alternate-label":
+      return present("targetIri") && present("existing") && present("replacement");
+    case "add-annotation":
+    case "remove-annotation":
+      return present("targetIri") && present("propertyIri") && (present("value") || present("valueIri"));
   }
 }
 

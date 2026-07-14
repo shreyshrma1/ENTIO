@@ -4,6 +4,7 @@ import {
   createProposalActionResult,
   createCombinedProposalModel,
   createCombinedProposalRequest,
+  combinedPreviewAsProposalPreviewModel,
   createProposalPreviewModel,
   createDeletionDependencyModel,
   createEntityResolutionModel,
@@ -126,6 +127,11 @@ test("normalizes every approved edit kind through one request boundary", () => {
     { editKind: "add-superclass", classIri: "https://example.com/Customer", superclassIri: "https://example.com/Entity" },
     { editKind: "remove-superclass", classIri: "https://example.com/Customer", superclassIri: "https://example.com/Entity" },
     { editKind: "set-entity-label", entityIri: "https://example.com/Customer", label: "Client" },
+    { editKind: "create-annotation-property", propertyIri: "https://example.com/definition" },
+    { editKind: "add-definition", targetIri: "https://example.com/Customer", value: "A customer." },
+    { editKind: "replace-alternate-label", targetIri: "https://example.com/Customer", existing: "Client", replacement: "Buyer" },
+    { editKind: "add-annotation", targetIri: "https://example.com/Customer", propertyIri: "https://example.com/note", value: "Trusted" },
+    { editKind: "remove-annotation", targetIri: "https://example.com/Customer", propertyIri: "https://example.com/related", valueIri: "https://example.com/Account" },
   ];
 
   requests.forEach((request) => {
@@ -133,6 +139,35 @@ test("normalizes every approved edit kind through one request boundary", () => {
     assert.ok(normalized, request.editKind);
     assert.equal(normalized?.editKind, request.editKind);
   });
+});
+
+test("keeps semantic edit values RDF-term-safe in combined preview normalization", () => {
+  const request = readProposalPreviewRequest({
+    targetSourceId: "simple",
+    editKind: "add-annotation",
+    targetIri: "https://example.com/Customer",
+    propertyIri: "https://example.com/note",
+    value: "Trusted",
+    language: "en",
+  });
+  assert.ok(request);
+  const combined = createCombinedProposalModel({
+    command: "proposal-combined",
+    ok: true,
+    action: "preview",
+    status: "ReadyForReview",
+    proposal: { id: "semantic-1" },
+    preview: { tripleCount: 5 },
+    diff: { entries: [{ kind: "added", description: "Added annotation." }] },
+    validation: { status: "valid", ok: true, issues: [] },
+    semanticEquivalence: { status: "equivalent", reason: "round-trip" },
+    sourceFileImpact: { affectedPaths: ["ontology/simple.ttl"] },
+  });
+  assert.ok(combined);
+  const preview = combinedPreviewAsProposalPreviewModel(combined, request!);
+  assert.equal(preview.canApprove, true);
+  assert.equal(preview.targetSourceId, "simple");
+  assert.equal(request?.language, "en");
 });
 
 test("form state changes preserve one shared request shape", () => {
