@@ -24,7 +24,7 @@ Phase 1 core-engine implementation should use Kotlin/JVM.
 
 Kotlin/JVM is the selected direction because the Phase 1 core work is ontology loading, Turtle/RDF parsing, deterministic validation, semantic diffing, and CLI behavior. The JVM ecosystem gives Entio access to mature semantic-web libraries such as Apache Jena, RDF4J, and OWL API. Kotlin provides a modern developer experience while remaining compatible with those Java libraries.
 
-Gradle is the intended build system for the future Kotlin/JVM multi-module scaffold.
+Gradle is the build system for Entio's Kotlin/JVM multi-module workspace.
 
 No semantic-web dependencies are added during Phase 0B. When Phase 1 implementation begins, dependency choices should be justified by a spec or architecture decision. The selected stack should make it straightforward to parse small Turtle/RDF files, inspect triples, and build deterministic validation and diff workflows.
 

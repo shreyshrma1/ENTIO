@@ -27,7 +27,7 @@ The final Phase 2.5+ slices completed the deletion path end to end:
 
 - Slice 10 added RDF-term-aware, deterministic dependency identity keys, explicit `selectedDependencyKeys` request handling, invalid-selection reporting, and CLI output for deletion dependencies.
 - Slice 11 added Delete actions for supported symbols, direct-definition and dependent-statement review, explicit dependency checkboxes, label-first dependency text, and deletion preview through the existing staged and combined proposal lifecycle.
-- Slice 12 added copied-fixture regression coverage for unreferenced deletion and the referenced `Shrey` to `Invoice 20874` relationship, including blocking, explicit selection, preview without source mutation, apply, and reload.
+- Slice 12 added copied-fixture regression coverage for unreferenced deletion and a referenced `Shrey` to `Invoice 20874` relationship, including blocking, explicit selection, preview without source mutation, apply, and reload. That relationship is created in a temporary copied fixture and is not part of the committed example ontology.
 
 These slices did not create a second mutation path: Kotlin remains responsible for dependency analysis, graph changes, validation, diffing, serialization, application, and rollback.
 
@@ -131,14 +131,14 @@ The structured proposal commands accept a temporary JSON request file. The combi
 Deletion inspection and structured deletion proposals use the same machine-readable boundary:
 
 ```bash
-./gradlew :cli:run --args="deletion-dependencies ../examples/simple-ontology simple --iri https://example.com/entio/simple#recievedInvoice"
+./gradlew :cli:run --args="deletion-dependencies ../examples/simple-ontology simple --iri https://example.com/entio/simple#Customer"
 ```
 
 Dependent statements must be selected by their returned stable keys before a deletion proposal can be previewed or applied.
 
 ## Examples And Fixtures
 
-`examples/simple-ontology/` is the committed example project with `entio.yaml` and `ontology/simple.ttl`. Its configuration includes the project IRI namespace, and its ontology includes classes, object properties, individuals, labels, and the explicit `Shrey` to `Invoice 20874` object-property relationship used by deletion regressions.
+`examples/simple-ontology/` is the committed example project with `entio.yaml` and `ontology/simple.ttl`. Its configuration includes the project IRI namespace, and its ontology includes classes, a property, individuals, and labels. Deletion regression tests create additional referenced-property data in temporary copied fixtures rather than modifying this committed example.
 
 Regression tests copy this example into temporary directories before modifying it. Other tests create temporary Turtle projects for ambiguous labels, namespace configuration, collisions, staged conflicts, deletion references, stale baselines, and rollback injection. The committed example is not modified by the regression suite.
 

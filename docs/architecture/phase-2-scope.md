@@ -4,6 +4,8 @@ Phase 2 is the Controlled Ontology Editing Workbench. It builds on the completed
 
 Phase 2 introduces safe ontology mutation, preview and approval workflows, source-file persistence, and a minimal VS Code user interface for viewing and editing small local Entio ontology projects.
 
+Phase 2 is complete. Phase 2.5 and Phase 2.5+ extended this foundation with the remaining user-facing typed edits, label-first selection, deterministic IRI generation, deletion review, and multi-edit staging. The Kotlin semantic engine remains the source of truth.
+
 ## Phase 2 Goals
 
 Phase 2 should provide the minimal product foundation for viewing and editing small ontology projects safely.
