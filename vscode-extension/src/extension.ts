@@ -6,7 +6,11 @@ import * as vscode from "vscode";
 import { EntioEngineClient } from "./engineCli";
 import { detectEntioProject } from "./projectDetector";
 import { renderWorkbench } from "./webview";
-import { createWorkbenchModel } from "./workbenchModel";
+import {
+  createSemanticDescriptorModel,
+  createSemanticSearchModel,
+  createWorkbenchModel,
+} from "./workbenchModel";
 import {
   createProposalActionResult,
   createProposalPreviewModel,
@@ -93,6 +97,66 @@ export function activate(context: vscode.ExtensionContext): void {
       const messageSubscription = panel.webview.onDidReceiveMessage(async (message: { type?: string }) => {
         if (message.type === "refresh") {
           await refresh();
+          return;
+        }
+
+        if (message.type === "semantic-describe") {
+          const payload = message as { payload?: { iri?: unknown; language?: unknown } };
+          const iri = typeof payload.payload?.iri === "string" ? payload.payload.iri : undefined;
+          if (!iri) {
+            await panel.webview.postMessage({
+              type: "semantic-descriptor-error",
+              message: "A symbol IRI is required to load semantic details.",
+            });
+            return;
+          }
+          try {
+            const language = typeof payload.payload?.language === "string" ? payload.payload.language : undefined;
+            const args = ["descriptor", project.rootPath, iri, ...(language ? ["--language", language] : [])];
+            const response = await engine.run(args, project.rootPath);
+            const descriptor = createSemanticDescriptorModel(response);
+            if (!descriptor) throw new Error("Entio CLI returned an invalid semantic descriptor.");
+            await panel.webview.postMessage({ type: "semantic-descriptor", payload: descriptor });
+          } catch (error) {
+            await panel.webview.postMessage({
+              type: "semantic-descriptor-error",
+              message: error instanceof Error ? error.message : "Entio semantic descriptor lookup failed.",
+            });
+          }
+          return;
+        }
+
+        if (message.type === "semantic-search") {
+          const payload = message as { payload?: { query?: unknown; kind?: unknown; sourceId?: unknown; language?: unknown } };
+          const query = typeof payload.payload?.query === "string" ? payload.payload.query.trim() : "";
+          if (!query) {
+            await panel.webview.postMessage({
+              type: "semantic-search-error",
+              message: "Enter text to search semantic descriptions.",
+            });
+            return;
+          }
+          try {
+            const args = ["search", project.rootPath, query];
+            if (typeof payload.payload?.kind === "string" && payload.payload.kind) {
+              args.push("--kind", payload.payload.kind);
+            }
+            if (typeof payload.payload?.sourceId === "string" && payload.payload.sourceId) {
+              args.push("--source-id", payload.payload.sourceId);
+            }
+            if (typeof payload.payload?.language === "string" && payload.payload.language) {
+              args.push("--language", payload.payload.language);
+            }
+            const response = await engine.run(args, project.rootPath);
+            const search = createSemanticSearchModel(response);
+            if (!search) throw new Error("Entio CLI returned an invalid semantic search result.");
+            await panel.webview.postMessage({ type: "semantic-search", payload: search });
+          } catch (error) {
+            await panel.webview.postMessage({
+              type: "semantic-search-error",
+              message: error instanceof Error ? error.message : "Entio semantic search failed.",
+            });
+          }
           return;
         }
 

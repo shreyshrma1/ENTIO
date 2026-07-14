@@ -67,6 +67,25 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     <section aria-labelledby="symbols-heading">
       <h2 id="symbols-heading">Symbols</h2>
       <div id="symbol-groups"></div>
+      <section id="semantic-search" aria-labelledby="semantic-search-heading">
+        <h3 id="semantic-search-heading">Semantic search</h3>
+        <form id="semantic-search-form">
+          <label>Search text <input id="semantic-search-query" type="search"></label>
+          <label>Kind
+            <select id="semantic-search-kind">
+              <option value="">Any kind</option>
+              <option value="Class">Class</option>
+              <option value="ObjectProperty">Object property</option>
+              <option value="DatatypeProperty">Datatype property</option>
+              <option value="AnnotationProperty">Annotation property</option>
+              <option value="Individual">Individual</option>
+            </select>
+          </label>
+          <label>Source <select id="semantic-search-source"><option value="">All sources</option></select></label>
+          <button id="semantic-search-submit" type="submit">Search</button>
+        </form>
+        <div id="semantic-search-results" aria-live="polite">No semantic search requested.</div>
+      </section>
       <div id="details" aria-live="polite">Select a symbol to inspect its details.</div>
     </section>
   </main>
@@ -178,6 +197,11 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const sources = document.getElementById("sources");
     const symbolGroups = document.getElementById("symbol-groups");
     const details = document.getElementById("details");
+    const semanticSearchForm = document.getElementById("semantic-search-form");
+    const semanticSearchQuery = document.getElementById("semantic-search-query");
+    const semanticSearchKind = document.getElementById("semantic-search-kind");
+    const semanticSearchSource = document.getElementById("semantic-search-source");
+    const semanticSearchResults = document.getElementById("semantic-search-results");
     const entitySelectorForm = document.getElementById("entity-selector-form");
     const entitySelectorLabel = document.getElementById("entity-selector-label");
     const entitySelectorKind = document.getElementById("entity-selector-kind");
@@ -253,7 +277,27 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     let currentCombinedPreview;
     let currentDeletionReview;
     let selectedDeletionKeys = new Set();
+    let currentModel;
+    let selectedSemanticIri;
     document.getElementById("refresh").addEventListener("click", () => vscode.postMessage({ type: "refresh" }));
+
+    semanticSearchForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const query = semanticSearchQuery.value.trim();
+      if (query === "") {
+        semanticSearchResults.textContent = "Enter text to search semantic descriptions.";
+        return;
+      }
+      vscode.postMessage({
+        type: "semantic-search",
+        payload: {
+          query,
+          kind: semanticSearchKind.value || undefined,
+          sourceId: semanticSearchSource.value || undefined,
+        },
+      });
+      semanticSearchResults.textContent = "Searching semantic descriptions...";
+    });
 
     entitySelectorForm.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -887,9 +931,25 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         option.textContent = source.id + " · " + source.path;
         targetSource.append(option);
       });
+      const selectedSource = semanticSearchSource.value;
+      semanticSearchSource.replaceChildren();
+      const allSources = document.createElement("option");
+      allSources.value = "";
+      allSources.textContent = "All sources";
+      semanticSearchSource.append(allSources);
+      model.ontologySources.forEach((source) => {
+        const option = document.createElement("option");
+        option.value = source.id;
+        option.textContent = source.id + " · " + source.path;
+        semanticSearchSource.append(option);
+      });
+      semanticSearchSource.value = model.ontologySources.some((source) => source.id === selectedSource)
+        ? selectedSource
+        : "";
     }
 
     function renderDetails(symbol) {
+      selectedSemanticIri = symbol.iri;
       details.replaceChildren();
       const heading = document.createElement("strong");
       heading.textContent = symbol.label || symbol.iri;
@@ -921,6 +981,11 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         "Incoming relationships",
         symbol.relationships.filter((relationship) => relationship.direction === "incoming"),
       );
+      const loading = document.createElement("p");
+      loading.id = "semantic-details-status";
+      loading.textContent = "Loading semantic details...";
+      details.append(loading);
+      vscode.postMessage({ type: "semantic-describe", payload: { iri: symbol.iri } });
     }
 
     function renderRelationshipSection(title, relationships) {
@@ -958,12 +1023,162 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         : displayIri(value.value);
     }
 
+    function renderSemanticDescriptor(descriptor) {
+      if (selectedSemanticIri && descriptor.iri !== selectedSemanticIri) return;
+      const status = document.getElementById("semantic-details-status");
+      if (status) status.remove();
+      const existing = document.getElementById("semantic-details");
+      if (existing) existing.remove();
+      const section = document.createElement("section");
+      section.id = "semantic-details";
+      const heading = document.createElement("h4");
+      heading.textContent = "Semantic details";
+      section.append(heading);
+      appendSemanticField(section, "Preferred label", descriptor.preferredLabel?.value || "None");
+      appendSemanticField(section, "Label source", descriptor.preferredLabelSource);
+      appendSemanticCollection(section, "Alternate labels", descriptor.alternateLabels.map(formatLocalizedText));
+      appendSemanticCollection(section, "Definitions", descriptor.definitions.map(formatLocalizedText));
+      appendSemanticCollection(section, "Annotations", descriptor.annotations.map(formatAnnotation));
+      appendDescriptorStructure(section, descriptor);
+      const technical = document.createElement("details");
+      const technicalSummary = document.createElement("summary");
+      technicalSummary.textContent = "Technical details";
+      technical.append(technicalSummary);
+      appendSemanticField(technical, "IRI", descriptor.iri);
+      appendSemanticField(technical, "Kind", descriptor.kind);
+      appendSemanticField(technical, "Source", descriptor.sourceId + " · " + descriptor.sourceOntologyId);
+      appendSemanticField(technical, "Locality", descriptor.locality);
+      section.append(technical);
+      details.append(section);
+    }
+
+    function appendDescriptorStructure(container, descriptor) {
+      if (descriptor.kind === "Class") {
+        appendSemanticCollection(container, "Direct superclasses", descriptor.directSuperclasses.map(displayEntity));
+        appendSemanticCollection(container, "Direct subclasses", descriptor.directSubclasses.map(displayEntity));
+        appendSemanticCollection(container, "Directly typed individuals", descriptor.directlyTypedIndividuals.map(displayEntity));
+      }
+      if (["ObjectProperty", "DatatypeProperty"].includes(descriptor.kind)) {
+        appendSemanticCollection(container, "Domains", descriptor.domains.map(displayEntity));
+        appendSemanticCollection(
+          container,
+          descriptor.kind === "DatatypeProperty" ? "Datatype ranges" : "Ranges",
+          (descriptor.kind === "DatatypeProperty" ? descriptor.datatypeRanges : descriptor.ranges).map(displayEntity),
+        );
+        appendSemanticCollection(container, "Direct assertions", descriptor.directAssertions.map(formatAssertion));
+      }
+      if (descriptor.kind === "AnnotationProperty") {
+        appendSemanticCollection(container, "Statements using property", descriptor.statementsUsingProperty.map(formatAnnotation));
+      }
+      if (descriptor.kind === "Individual") {
+        appendSemanticCollection(container, "Asserted types", descriptor.assertedTypes.map(displayEntity));
+        appendSemanticCollection(container, "Object property assertions", descriptor.objectPropertyAssertions.map(formatAssertion));
+        appendSemanticCollection(container, "Datatype property assertions", descriptor.datatypePropertyAssertions.map(formatAssertion));
+      }
+    }
+
+    function appendSemanticField(container, label, value) {
+      const field = document.createElement("p");
+      const name = document.createElement("strong");
+      name.textContent = label + ": ";
+      field.append(name, document.createTextNode(value));
+      container.append(field);
+    }
+
+    function appendSemanticCollection(container, title, values) {
+      const heading = document.createElement("h5");
+      heading.textContent = title;
+      const list = document.createElement("ul");
+      if (values.length === 0) {
+        const empty = document.createElement("li");
+        empty.textContent = "None";
+        list.append(empty);
+      } else {
+        values.forEach((value) => {
+          const item = document.createElement("li");
+          item.textContent = value;
+          list.append(item);
+        });
+      }
+      container.append(heading, list);
+    }
+
+    function formatLocalizedText(text) {
+      let value = text.value;
+      if (text.language) value += " @" + text.language;
+      if (text.datatype) value += " ^^ " + displayIri(text.datatype);
+      return value;
+    }
+
+    function formatAnnotation(annotation) {
+      return displayEntity(annotation.subject) + " · " + displayEntity(annotation.property) + " · " + formatRdfTerm(annotation.value);
+    }
+
+    function formatAssertion(assertion) {
+      const value = typeof assertion.value === "string" ? displayEntity(assertion.value) : formatRdfTerm(assertion.value);
+      return displayEntity(assertion.subject) + " · " + displayEntity(assertion.property) + " · " + value;
+    }
+
+    function formatRdfTerm(term) {
+      if (term.kind !== "literal") return displayEntity(term.value);
+      let value = '"' + term.value + '"';
+      if (term.language) value += " @" + term.language;
+      if (term.datatype) value += " ^^ " + displayIri(term.datatype);
+      return value;
+    }
+
+    function displayEntity(iri) {
+      const symbol = currentModel?.symbolGroups.flatMap((group) => group.symbols).find((candidate) => candidate.iri === iri);
+      return symbol?.label || displayIri(iri);
+    }
+
+    function renderSemanticSearch(result) {
+      semanticSearchResults.replaceChildren();
+      if (result.results.length === 0) {
+        semanticSearchResults.textContent = "No semantic descriptions matched '" + result.query + "'.";
+        return;
+      }
+      const heading = document.createElement("p");
+      heading.textContent = result.ambiguous
+        ? "Multiple semantic descriptions matched; select one to inspect details."
+        : "Semantic search result:";
+      semanticSearchResults.append(heading);
+      const list = document.createElement("ul");
+      result.results.forEach((match) => {
+        const item = document.createElement("li");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "symbol-button";
+        button.textContent = (match.descriptor.preferredLabel?.value || displayIri(match.descriptor.iri)) +
+          " · " + match.descriptor.kind + " · " + formatSearchReason(match.reason);
+        button.addEventListener("click", () => {
+          selectedSemanticIri = match.descriptor.iri;
+          renderSemanticDescriptor(match.descriptor);
+          details.scrollIntoView({ block: "nearest" });
+        });
+        item.append(button);
+        list.append(item);
+      });
+      semanticSearchResults.append(list);
+    }
+
+    function formatSearchReason(reason) {
+      const labels = {
+        PreferredLabel: "preferred label",
+        AlternateLabel: "alternate label",
+        Iri: "IRI",
+        Annotation: "annotation",
+      };
+      return labels[reason] || reason;
+    }
+
     function displayIri(value) {
       const separator = Math.max(value.lastIndexOf("#"), value.lastIndexOf("/"));
       return separator >= 0 && separator < value.length - 1 ? value.slice(separator + 1) : value;
     }
 
     function renderModel(model) {
+      currentModel = model;
       status.textContent = model.projectName + " · " + model.graphTripleCount + " graph triple(s)";
       populateSources(model);
       sources.replaceChildren();
@@ -1002,6 +1217,19 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       }
       if (message.type === "project-summary") {
         renderModel(message.payload);
+      }
+      if (message.type === "semantic-descriptor") {
+        renderSemanticDescriptor(message.payload);
+      }
+      if (message.type === "semantic-descriptor-error") {
+        const semanticStatus = document.getElementById("semantic-details-status");
+        if (semanticStatus) semanticStatus.textContent = message.message;
+      }
+      if (message.type === "semantic-search") {
+        renderSemanticSearch(message.payload);
+      }
+      if (message.type === "semantic-search-error") {
+        semanticSearchResults.textContent = message.message;
       }
       if (message.type === "proposal-preview") {
         renderPreview(message.payload);

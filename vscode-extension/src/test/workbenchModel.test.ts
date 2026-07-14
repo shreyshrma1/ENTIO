@@ -1,6 +1,13 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { createWorkbenchModel, entitySelectorOptions, labelDisplay, selectSymbol } from "../workbenchModel";
+import {
+  createSemanticDescriptorModel,
+  createSemanticSearchModel,
+  createWorkbenchModel,
+  entitySelectorOptions,
+  labelDisplay,
+  selectSymbol,
+} from "../workbenchModel";
 
 test("normalizes project summaries into deterministic source and symbol groups", () => {
   const model = createWorkbenchModel({
@@ -111,4 +118,71 @@ test("provides source and kind filtered display options without resolving labels
   const options = entitySelectorOptions(model, "Class", "simple");
   assert.equal(options.length, 1);
   assert.equal(labelDisplay(options[0]), "Customer · Class · simple");
+});
+
+test("normalizes Kotlin semantic descriptors without interpreting RDF locally", () => {
+  const descriptor = createSemanticDescriptorModel({
+    command: "descriptor",
+    ok: true,
+    descriptor: {
+      iri: "https://example.com/Customer",
+      kind: "Class",
+      sourceId: "simple",
+      sourceOntologyId: "simple",
+      locality: "Local",
+      preferredLabelSource: "ExplicitLabel",
+      preferredLabel: { value: "Customer", language: "en", datatype: null },
+      ambiguousPreferredLabelLanguages: [],
+      alternateLabels: [{ value: "Client", language: "en", datatype: null }],
+      definitions: [{ value: "A customer.", language: null, datatype: null }],
+      annotations: [
+        {
+          subject: "https://example.com/Customer",
+          property: "https://example.com/note",
+          value: { kind: "literal", value: "Trusted", datatype: null, language: null },
+          sourceId: "simple",
+        },
+      ],
+      directSuperclasses: [],
+      directSubclasses: ["https://example.com/BusinessCustomer"],
+      directlyTypedIndividuals: ["https://example.com/Shrey"],
+    },
+  });
+
+  assert.ok(descriptor);
+  assert.equal(descriptor.preferredLabel?.value, "Customer");
+  assert.equal(descriptor.alternateLabels[0].value, "Client");
+  assert.equal(descriptor.annotations[0].value.value, "Trusted");
+  assert.deepEqual(descriptor.directSubclasses, ["https://example.com/BusinessCustomer"]);
+});
+
+test("normalizes semantic search results and preserves Kotlin match reasons", () => {
+  const search = createSemanticSearchModel({
+    command: "search",
+    ok: true,
+    query: "client",
+    ambiguous: false,
+    results: [
+      {
+        reason: "AlternateLabel",
+        rank: 1,
+        descriptor: {
+          iri: "https://example.com/Customer",
+          kind: "Class",
+          sourceId: "simple",
+          sourceOntologyId: "simple",
+          locality: "Local",
+          preferredLabelSource: "ExplicitLabel",
+          preferredLabel: { value: "Customer", language: null, datatype: null },
+          alternateLabels: [{ value: "Client", language: null, datatype: null }],
+          definitions: [],
+          annotations: [],
+        },
+      },
+    ],
+  });
+
+  assert.ok(search);
+  assert.equal(search.results[0].reason, "AlternateLabel");
+  assert.equal(search.results[0].descriptor.preferredLabel?.value, "Customer");
 });

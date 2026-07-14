@@ -7,6 +7,14 @@ test("renders project browser and preview form controls", () => {
 
   assert.match(html, /id="ontology-sources|id="sources/);
   assert.match(html, /id="symbol-groups"/);
+  assert.match(html, /id="semantic-search-form"/);
+  assert.match(html, /id="semantic-search-kind"/);
+  assert.match(html, /type: "semantic-search"/);
+  assert.match(html, /type: "semantic-describe"/);
+  assert.match(html, /id="semantic-search-results"/);
+  assert.match(html, /renderSemanticDescriptor/);
+  assert.match(html, /formatSearchReason/);
+  assert.match(html, /Technical details/);
   assert.match(html, /id="entity-selector-form"/);
   assert.match(html, /id="entity-selector-kind"/);
   assert.match(html, /type: "resolve-entity"/);

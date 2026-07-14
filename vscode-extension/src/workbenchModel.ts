@@ -22,6 +22,70 @@ export interface RdfTermSummary {
   readonly language: string | null;
 }
 
+export interface LocalizedTextSummary {
+  readonly value: string;
+  readonly language: string | null;
+  readonly datatype: string | null;
+}
+
+export interface SemanticAnnotationSummary {
+  readonly subject: string;
+  readonly property: string;
+  readonly value: RdfTermSummary;
+  readonly sourceId: string;
+}
+
+export interface SemanticObjectAssertionSummary {
+  readonly subject: string;
+  readonly property: string;
+  readonly value: string;
+  readonly sourceId: string;
+}
+
+export interface SemanticDatatypeAssertionSummary {
+  readonly subject: string;
+  readonly property: string;
+  readonly value: RdfTermSummary;
+  readonly sourceId: string;
+}
+
+export interface SemanticDescriptorSummary {
+  readonly iri: string;
+  readonly kind: string;
+  readonly sourceId: string;
+  readonly sourceOntologyId: string;
+  readonly locality: string;
+  readonly preferredLabelSource: string;
+  readonly preferredLabel: LocalizedTextSummary | null;
+  readonly ambiguousPreferredLabelLanguages: readonly string[];
+  readonly alternateLabels: readonly LocalizedTextSummary[];
+  readonly definitions: readonly LocalizedTextSummary[];
+  readonly annotations: readonly SemanticAnnotationSummary[];
+  readonly directSuperclasses: readonly string[];
+  readonly directSubclasses: readonly string[];
+  readonly directlyTypedIndividuals: readonly string[];
+  readonly domains: readonly string[];
+  readonly ranges: readonly string[];
+  readonly datatypeRanges: readonly string[];
+  readonly statementsUsingProperty: readonly SemanticAnnotationSummary[];
+  readonly assertedTypes: readonly string[];
+  readonly directAssertions: readonly (SemanticObjectAssertionSummary | SemanticDatatypeAssertionSummary)[];
+  readonly objectPropertyAssertions: readonly SemanticObjectAssertionSummary[];
+  readonly datatypePropertyAssertions: readonly SemanticDatatypeAssertionSummary[];
+}
+
+export interface SemanticSearchResultSummary {
+  readonly reason: string;
+  readonly rank: number;
+  readonly descriptor: SemanticDescriptorSummary;
+}
+
+export interface SemanticSearchSummary {
+  readonly query: string;
+  readonly ambiguous: boolean;
+  readonly results: readonly SemanticSearchResultSummary[];
+}
+
 export interface SymbolRelationshipSummary {
   readonly direction: "outgoing" | "incoming";
   readonly kind: "type" | "property";
@@ -111,6 +175,32 @@ export function labelDisplay(symbol: SymbolSummary): string {
   return symbol.label ? `${symbol.label} · ${symbol.kind} · ${symbol.sourceId}` : `${symbol.iri} · ${symbol.kind} · ${symbol.sourceId}`;
 }
 
+export function createSemanticDescriptorModel(response: unknown): SemanticDescriptorSummary | undefined {
+  const record = asRecord(response);
+  if (!record || record.ok !== true) return undefined;
+  return readSemanticDescriptor(record.descriptor);
+}
+
+export function createSemanticSearchModel(response: unknown): SemanticSearchSummary | undefined {
+  const record = asRecord(response);
+  if (
+    !record ||
+    record.ok !== true ||
+    typeof record.query !== "string" ||
+    typeof record.ambiguous !== "boolean" ||
+    !Array.isArray(record.results)
+  ) {
+    return undefined;
+  }
+
+  const results = record.results.map(readSemanticSearchResult).filter(isDefined);
+  return {
+    query: record.query,
+    ambiguous: record.ambiguous,
+    results,
+  };
+}
+
 function groupSymbols(symbols: readonly SymbolSummary[]): readonly SymbolGroup[] {
   const groups = new Map<string, SymbolSummary[]>();
 
@@ -196,6 +286,170 @@ function readRelationship(value: unknown): SymbolRelationshipSummary | undefined
     valueLabel: typeof relationship.valueLabel === "string" ? relationship.valueLabel : null,
     sourceId: relationship.sourceId,
   };
+}
+
+function readSemanticDescriptor(value: unknown): SemanticDescriptorSummary | undefined {
+  const descriptor = asRecord(value);
+  if (
+    !descriptor ||
+    typeof descriptor.iri !== "string" ||
+    typeof descriptor.kind !== "string" ||
+    typeof descriptor.sourceId !== "string" ||
+    typeof descriptor.sourceOntologyId !== "string" ||
+    typeof descriptor.locality !== "string" ||
+    typeof descriptor.preferredLabelSource !== "string"
+  ) {
+    return undefined;
+  }
+
+  const preferredLabel = readLocalizedText(descriptor.preferredLabel);
+  const alternateLabels = readLocalizedTexts(descriptor.alternateLabels);
+  const definitions = readLocalizedTexts(descriptor.definitions);
+  const annotations = readSemanticAnnotations(descriptor.annotations);
+  const statementsUsingProperty = readSemanticAnnotations(descriptor.statementsUsingProperty);
+  const directAssertions = readAssertions(descriptor.directAssertions);
+  const objectPropertyAssertions = readObjectAssertions(descriptor.objectPropertyAssertions);
+  const datatypePropertyAssertions = readDatatypeAssertions(descriptor.datatypePropertyAssertions);
+
+  if (
+    !preferredLabel.valid ||
+    alternateLabels === undefined ||
+    definitions === undefined ||
+    annotations === undefined ||
+    statementsUsingProperty === undefined ||
+    directAssertions === undefined ||
+    objectPropertyAssertions === undefined ||
+    datatypePropertyAssertions === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    iri: descriptor.iri,
+    kind: descriptor.kind,
+    sourceId: descriptor.sourceId,
+    sourceOntologyId: descriptor.sourceOntologyId,
+    locality: descriptor.locality,
+    preferredLabelSource: descriptor.preferredLabelSource,
+    preferredLabel: preferredLabel.value,
+    ambiguousPreferredLabelLanguages: stringArray(descriptor.ambiguousPreferredLabelLanguages) ?? [],
+    alternateLabels,
+    definitions,
+    annotations,
+    directSuperclasses: stringArray(descriptor.directSuperclasses) ?? [],
+    directSubclasses: stringArray(descriptor.directSubclasses) ?? [],
+    directlyTypedIndividuals: stringArray(descriptor.directlyTypedIndividuals) ?? [],
+    domains: stringArray(descriptor.domains) ?? [],
+    ranges: stringArray(descriptor.ranges) ?? [],
+    datatypeRanges: stringArray(descriptor.datatypeRanges) ?? [],
+    statementsUsingProperty,
+    assertedTypes: stringArray(descriptor.assertedTypes) ?? [],
+    directAssertions,
+    objectPropertyAssertions,
+    datatypePropertyAssertions,
+  };
+}
+
+function readSemanticSearchResult(value: unknown): SemanticSearchResultSummary | undefined {
+  const result = asRecord(value);
+  const descriptor = result ? readSemanticDescriptor(result.descriptor) : undefined;
+  const rank = result ? numberValue(result.rank) : undefined;
+  if (!result || typeof result.reason !== "string" || rank === undefined || !descriptor) return undefined;
+  return { reason: result.reason, rank, descriptor };
+}
+
+function readLocalizedText(value: unknown): { value: LocalizedTextSummary | null; valid: boolean } {
+  if (value === null || value === undefined) return { value: null, valid: true };
+  const text = asRecord(value);
+  if (!text || typeof text.value !== "string") return { value: null, valid: false };
+  return {
+    value: {
+      value: text.value,
+      language: typeof text.language === "string" ? text.language : null,
+      datatype: typeof text.datatype === "string" ? text.datatype : null,
+    },
+    valid: true,
+  };
+}
+
+function readLocalizedTexts(value: unknown): readonly LocalizedTextSummary[] | undefined {
+  if (!Array.isArray(value)) return [];
+  const texts = value.map(readLocalizedText);
+  return texts.every((text) => text.valid)
+    ? texts.map((text) => text.value).filter((text): text is LocalizedTextSummary => text !== null)
+    : undefined;
+}
+
+function readSemanticAnnotations(value: unknown): readonly SemanticAnnotationSummary[] | undefined {
+  if (!Array.isArray(value)) return [];
+  const annotations = value.map((entry) => {
+    const annotation = asRecord(entry);
+    const term = annotation ? readRdfTerm(annotation.value) : undefined;
+    if (
+      !annotation ||
+      typeof annotation.subject !== "string" ||
+      typeof annotation.property !== "string" ||
+      typeof annotation.sourceId !== "string" ||
+      !term
+    ) {
+      return undefined;
+    }
+    return { subject: annotation.subject, property: annotation.property, value: term, sourceId: annotation.sourceId };
+  });
+  return annotations.every(isDefined) ? annotations : undefined;
+}
+
+function readAssertions(value: unknown): readonly (SemanticObjectAssertionSummary | SemanticDatatypeAssertionSummary)[] | undefined {
+  if (!Array.isArray(value)) return [];
+  const assertions = value.map((entry) => readObjectAssertion(entry) ?? readDatatypeAssertion(entry));
+  return assertions.every(isDefined) ? assertions : undefined;
+}
+
+function readObjectAssertions(value: unknown): readonly SemanticObjectAssertionSummary[] | undefined {
+  if (!Array.isArray(value)) return [];
+  const assertions = value.map(readObjectAssertion);
+  return assertions.every(isDefined) ? assertions : undefined;
+}
+
+function readDatatypeAssertions(value: unknown): readonly SemanticDatatypeAssertionSummary[] | undefined {
+  if (!Array.isArray(value)) return [];
+  const assertions = value.map(readDatatypeAssertion);
+  return assertions.every(isDefined) ? assertions : undefined;
+}
+
+function readObjectAssertion(value: unknown): SemanticObjectAssertionSummary | undefined {
+  const assertion = asRecord(value);
+  if (
+    !assertion ||
+    typeof assertion.subject !== "string" ||
+    typeof assertion.property !== "string" ||
+    typeof assertion.value !== "string" ||
+    typeof assertion.sourceId !== "string"
+  ) {
+    return undefined;
+  }
+  return { subject: assertion.subject, property: assertion.property, value: assertion.value, sourceId: assertion.sourceId };
+}
+
+function readDatatypeAssertion(value: unknown): SemanticDatatypeAssertionSummary | undefined {
+  const assertion = asRecord(value);
+  const term = assertion ? readRdfTerm(assertion.value) : undefined;
+  if (
+    !assertion ||
+    typeof assertion.subject !== "string" ||
+    typeof assertion.property !== "string" ||
+    !term ||
+    typeof assertion.sourceId !== "string"
+  ) {
+    return undefined;
+  }
+  return { subject: assertion.subject, property: assertion.property, value: term, sourceId: assertion.sourceId };
+}
+
+function stringArray(value: unknown): readonly string[] | undefined {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string")
+    ? value
+    : undefined;
 }
 
 function readRdfTerm(value: unknown): RdfTermSummary | undefined {
