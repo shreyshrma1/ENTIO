@@ -149,6 +149,34 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         <label>Language tag <input id="label-language" type="text"></label>
         <label><input id="label-replace" type="checkbox"> Replace existing labels</label>
       </div>
+      <div id="semantic-fields" hidden>
+        <label id="semantic-property-field">Annotation property IRI <input id="semantic-property-iri" type="url"></label>
+        <label id="semantic-target-field">Target IRI <input id="semantic-target-iri" type="url"></label>
+        <label id="semantic-label-field">Label <input id="semantic-label" type="text"></label>
+        <label id="semantic-definition-field">Definition <input id="semantic-definition" type="text"></label>
+        <label id="semantic-value-field">Value <input id="semantic-value" type="text"></label>
+        <label id="semantic-existing-field">Existing value <input id="semantic-existing" type="text"></label>
+        <label id="semantic-replacement-field">Replacement value <input id="semantic-replacement" type="text"></label>
+        <label id="semantic-annotation-value-kind-field">Annotation value kind
+          <select id="semantic-annotation-value-kind">
+            <option value="literal">Literal</option>
+            <option value="resource">Resource IRI</option>
+          </select>
+        </label>
+        <label id="semantic-value-iri-field">Value IRI <input id="semantic-value-iri" type="url"></label>
+        <label id="semantic-language-field">Language tag <input id="semantic-language" type="text"></label>
+        <label id="semantic-datatype-field">Datatype
+          <select id="semantic-datatype">
+            <option value="">Select a datatype</option>
+            <option value="http://www.w3.org/2001/XMLSchema#string">xsd:string</option>
+            <option value="http://www.w3.org/2001/XMLSchema#boolean">xsd:boolean</option>
+            <option value="http://www.w3.org/2001/XMLSchema#integer">xsd:integer</option>
+            <option value="http://www.w3.org/2001/XMLSchema#decimal">xsd:decimal</option>
+            <option value="http://www.w3.org/2001/XMLSchema#date">xsd:date</option>
+            <option value="http://www.w3.org/2001/XMLSchema#dateTime">xsd:dateTime</option>
+          </select>
+        </label>
+      </div>
       <p id="edit-form-placeholder" hidden>Additional edit forms are provided by the workbench edit modes.</p>
       <button id="generate-iri" type="button">Generate IRI from label</button>
       <span id="generated-iri-status" aria-live="polite"></span>
@@ -250,6 +278,29 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const labelValue = document.getElementById("label-value");
     const labelLanguage = document.getElementById("label-language");
     const labelReplace = document.getElementById("label-replace");
+    const semanticFields = document.getElementById("semantic-fields");
+    const semanticPropertyField = document.getElementById("semantic-property-field");
+    const semanticPropertyIri = document.getElementById("semantic-property-iri");
+    const semanticTargetField = document.getElementById("semantic-target-field");
+    const semanticTargetIri = document.getElementById("semantic-target-iri");
+    const semanticLabelField = document.getElementById("semantic-label-field");
+    const semanticLabel = document.getElementById("semantic-label");
+    const semanticDefinitionField = document.getElementById("semantic-definition-field");
+    const semanticDefinition = document.getElementById("semantic-definition");
+    const semanticValueField = document.getElementById("semantic-value-field");
+    const semanticValue = document.getElementById("semantic-value");
+    const semanticExistingField = document.getElementById("semantic-existing-field");
+    const semanticExisting = document.getElementById("semantic-existing");
+    const semanticReplacementField = document.getElementById("semantic-replacement-field");
+    const semanticReplacement = document.getElementById("semantic-replacement");
+    const semanticAnnotationValueKindField = document.getElementById("semantic-annotation-value-kind-field");
+    const semanticAnnotationValueKind = document.getElementById("semantic-annotation-value-kind");
+    const semanticValueIriField = document.getElementById("semantic-value-iri-field");
+    const semanticValueIri = document.getElementById("semantic-value-iri");
+    const semanticLanguageField = document.getElementById("semantic-language-field");
+    const semanticLanguage = document.getElementById("semantic-language");
+    const semanticDatatypeField = document.getElementById("semantic-datatype-field");
+    const semanticDatatype = document.getElementById("semantic-datatype");
     const previewStatus = document.getElementById("preview-status");
     const previewImpact = document.getElementById("preview-impact");
     const previewDiff = document.getElementById("preview-diff");
@@ -378,6 +429,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     function entityKindForEdit() {
       if (editKind.value === "create-class") return "Class";
       if (["create-object-property", "create-datatype-property"].includes(editKind.value)) return "Property";
+      if (editKind.value === "create-annotation-property") return "Property";
       if (editKind.value === "create-individual") return "Individual";
       return undefined;
     }
@@ -385,6 +437,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     function labelForEdit() {
       if (editKind.value === "create-class") return classLabel.value;
       if (["create-object-property", "create-datatype-property"].includes(editKind.value)) return propertyLabel.value;
+      if (editKind.value === "create-annotation-property") return semanticLabel.value;
       if (editKind.value === "create-individual") return individualLabel.value;
       return undefined;
     }
@@ -451,6 +504,17 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       labelValue.value = request.label || "";
       labelLanguage.value = request.language || "";
       labelReplace.checked = request.replaceExisting === true;
+      semanticPropertyIri.value = request.propertyIri || "";
+      semanticTargetIri.value = request.targetIri || "";
+      semanticLabel.value = request.label || "";
+      semanticDefinition.value = request.definition || "";
+      semanticValue.value = request.value || "";
+      semanticExisting.value = request.existing || "";
+      semanticReplacement.value = request.replacement || "";
+      semanticValueIri.value = request.valueIri || "";
+      semanticLanguage.value = request.language || "";
+      semanticDatatype.value = request.datatype || "";
+      semanticAnnotationValueKind.value = request.valueIri ? "resource" : "literal";
     }
 
     function stagePreview(preview) {
@@ -532,13 +596,24 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       const datatypeAssertion = editKind.value === "add-datatype-property-assertion";
       const hierarchyMode = editKind.value === "add-superclass" || editKind.value === "remove-superclass";
       const labelMode = editKind.value === "set-entity-label";
-      const formMode = createClass || propertyMode || individualMode || assertionMode || hierarchyMode || labelMode;
+      const semanticMode = [
+        "create-annotation-property", "add-definition", "replace-definition", "remove-definition",
+        "add-alternate-label", "replace-alternate-label", "remove-alternate-label",
+        "add-annotation", "remove-annotation",
+      ].includes(editKind.value);
+      const createAnnotationProperty = editKind.value === "create-annotation-property";
+      const definitionMode = ["add-definition", "replace-definition", "remove-definition"].includes(editKind.value);
+      const alternateLabelMode = ["add-alternate-label", "replace-alternate-label", "remove-alternate-label"].includes(editKind.value);
+      const annotationMode = ["add-annotation", "remove-annotation"].includes(editKind.value);
+      const replaceSemanticValue = ["replace-definition", "replace-alternate-label"].includes(editKind.value);
+      const formMode = createClass || propertyMode || individualMode || assertionMode || hierarchyMode || labelMode || semanticMode;
       classFields.hidden = !createClass;
       propertyFields.hidden = !propertyMode;
       individualFields.hidden = !individualMode;
       assertionFields.hidden = !assertionMode;
       hierarchyFields.hidden = !hierarchyMode;
       labelFields.hidden = !labelMode;
+      semanticFields.hidden = !semanticMode;
       editFormPlaceholder.hidden = formMode;
       previewSubmit.disabled = !formMode;
       classIri.required = createClass;
@@ -564,10 +639,33 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       hierarchySuperclassIri.required = hierarchyMode;
       labelEntityIri.required = labelMode;
       labelValue.required = labelMode;
+      semanticPropertyField.hidden = !createAnnotationProperty && !annotationMode;
+      semanticTargetField.hidden = !definitionMode && !alternateLabelMode && !annotationMode;
+      semanticLabelField.hidden = !createAnnotationProperty;
+      semanticDefinitionField.hidden = !createAnnotationProperty;
+      semanticValueField.hidden = !definitionMode && !alternateLabelMode && !annotationMode;
+      semanticExistingField.hidden = !replaceSemanticValue;
+      semanticReplacementField.hidden = !replaceSemanticValue;
+      semanticAnnotationValueKindField.hidden = !annotationMode;
+      semanticValueIriField.hidden = !annotationMode || semanticAnnotationValueKind.value !== "resource";
+      semanticLanguageField.hidden = (!definitionMode && !alternateLabelMode && !annotationMode) ||
+        (annotationMode && semanticAnnotationValueKind.value === "resource");
+      semanticDatatypeField.hidden = (!definitionMode && !alternateLabelMode && !annotationMode) ||
+        (annotationMode && semanticAnnotationValueKind.value === "resource");
+      semanticPropertyIri.required = createAnnotationProperty || annotationMode;
+      semanticTargetIri.required = definitionMode || alternateLabelMode || annotationMode;
+      semanticLabel.required = false;
+      semanticDefinition.required = false;
+      semanticValue.required = (definitionMode || alternateLabelMode || annotationMode) &&
+        (!annotationMode || semanticAnnotationValueKind.value === "literal") && !replaceSemanticValue;
+      semanticExisting.required = replaceSemanticValue;
+      semanticReplacement.required = replaceSemanticValue;
+      semanticValueIri.required = annotationMode && semanticAnnotationValueKind.value === "resource";
     }
     editKind.addEventListener("change", updateEditFormMode);
     propertyDatatype.addEventListener("change", updateEditFormMode);
     assertionDatatype.addEventListener("change", updateEditFormMode);
+    semanticAnnotationValueKind.addEventListener("change", updateEditFormMode);
     updateEditFormMode();
 
     proposalForm.addEventListener("submit", (event) => {
@@ -581,17 +679,33 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       const assertionMode = !assertionFields.hidden;
       const hierarchyMode = !hierarchyFields.hidden;
       const labelMode = !labelFields.hidden;
+      const semanticMode = !semanticFields.hidden;
       if (editKind.value === "add-datatype-property-assertion" && assertionValue.value === "") {
         previewStatus.textContent = "A literal value is required.";
         return;
       }
-      if (editKind.value !== "create-class" && !propertyMode && !individualMode && !assertionMode && !hierarchyMode && !labelMode) return;
+      if (editKind.value !== "create-class" && !propertyMode && !individualMode && !assertionMode && !hierarchyMode && !labelMode && !semanticMode) return;
       const payload = editKind.value === "create-class"
         ? {
             targetSourceId: targetSource.value,
             editKind: editKind.value,
             classIri: classIri.value,
             label: classLabel.value,
+          }
+        : semanticMode
+        ? {
+            targetSourceId: targetSource.value,
+            editKind: editKind.value,
+            propertyIri: semanticPropertyIri.value,
+            targetIri: semanticTargetIri.value,
+            label: semanticLabel.value,
+            definition: semanticDefinition.value,
+            value: semanticAnnotationValueKind.value === "literal" ? semanticValue.value : undefined,
+            valueIri: semanticAnnotationValueKind.value === "resource" ? semanticValueIri.value : undefined,
+            existing: semanticExisting.value,
+            replacement: semanticReplacement.value,
+            language: semanticLanguage.value,
+            datatype: semanticDatatype.value,
           }
         : propertyMode
         ? {
@@ -639,7 +753,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
             language: assertionLanguage.value,
           };
       vscode.postMessage({
-        type: "proposal-preview",
+        type: semanticMode ? "semantic-preview" : "proposal-preview",
         payload,
       });
       currentRequest = payload;

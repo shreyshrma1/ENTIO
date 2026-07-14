@@ -16,6 +16,7 @@ import {
   createProposalPreviewModel,
   createDeletionDependencyModel,
   createCombinedProposalModel,
+  combinedPreviewAsProposalPreviewModel,
   createEntityResolutionModel,
   createGeneratedIriModel,
   deletionDependenciesInvocationArgs,
@@ -156,6 +157,42 @@ export function activate(context: vscode.ExtensionContext): void {
               type: "semantic-search-error",
               message: error instanceof Error ? error.message : "Entio semantic search failed.",
             });
+          }
+          return;
+        }
+
+        if (message.type === "semantic-preview") {
+          const request = readProposalPreviewRequest((message as { payload?: unknown }).payload);
+          if (!request || !request.editKind.startsWith("create-annotation") && ![
+            "add-definition", "replace-definition", "remove-definition",
+            "add-alternate-label", "replace-alternate-label", "remove-alternate-label",
+            "add-annotation", "remove-annotation",
+          ].includes(request.editKind)) {
+            await panel.webview.postMessage({
+              type: "proposal-preview-error",
+              message: "The semantic edit preview request is invalid.",
+            });
+            return;
+          }
+          try {
+            const file = await writeCombinedRequest([request]);
+            const response = await engine.run(
+              combinedProposalInvocationArgs(project.rootPath, file, "preview"),
+              project.rootPath,
+            );
+            const combined = createCombinedProposalModel(response);
+            if (!combined) throw new Error("Entio CLI returned an invalid semantic edit preview.");
+            await panel.webview.postMessage({
+              type: "proposal-preview",
+              payload: combinedPreviewAsProposalPreviewModel(combined, request),
+            });
+          } catch (error) {
+            await panel.webview.postMessage({
+              type: "proposal-preview-error",
+              message: error instanceof Error ? error.message : "Entio semantic edit preview failed.",
+            });
+          } finally {
+            await removeCombinedRequest();
           }
           return;
         }

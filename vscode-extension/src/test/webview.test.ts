@@ -29,6 +29,15 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /id="property-domain-iri"/);
   assert.match(html, /id="property-range-iri"/);
   assert.match(html, /id="property-datatype"/);
+  assert.match(html, /id="semantic-fields"/);
+  assert.match(html, /id="semantic-property-iri"/);
+  assert.match(html, /id="semantic-target-iri"/);
+  assert.match(html, /id="semantic-definition"/);
+  assert.match(html, /id="semantic-existing"/);
+  assert.match(html, /id="semantic-replacement"/);
+  assert.match(html, /id="semantic-value-iri"/);
+  assert.match(html, /type: semanticMode \? "semantic-preview"/);
+  assert.match(html, /id="semantic-annotation-value-kind"/);
   assert.match(html, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
   assert.match(html, /propertyDatatypeField\.hidden = !datatypeMode/);
   assert.match(html, /id="property-replace"/);
@@ -66,7 +75,7 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /The staged list remains available for correction/);
   assert.match(html, /The changes remain staged for correction or another review/);
   assert.match(html, /currentPreview = undefined;[\s\S]*renderStagedList\(\);/);
-  assert.match(html, /type: "proposal-preview"/);
+  assert.match(html, /type: semanticMode \? "semantic-preview" : "proposal-preview"/);
   assert.match(html, /id="preview-validation"/);
   assert.match(html, /id="approve"/);
   assert.match(html, /Approve and apply/);
