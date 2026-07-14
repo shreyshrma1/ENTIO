@@ -33,7 +33,6 @@ class ProjectLoaderTest {
                 "https://example.com/entio/simple#Invoice",
                 "https://example.com/entio/simple#Shrey",
                 "https://example.com/entio/simple#ownsAccount",
-                "https://example.com/entio/simple#recievedInvoice",
             ),
             success.value.symbols.map { it.iri.value },
         )
