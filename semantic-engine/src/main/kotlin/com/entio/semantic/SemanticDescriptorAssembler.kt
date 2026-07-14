@@ -19,17 +19,24 @@ import com.entio.core.SemanticDescriptorKind
 /** Assembles descriptors from explicit graph facts without OWL inference. */
 public class SemanticDescriptorAssembler(
     private val annotationExtractor: ExplicitAnnotationExtractor = ExplicitAnnotationExtractor(),
+    private val labelPolicy: SemanticLabelPolicy = SemanticLabelPolicy(),
 ) {
-    public fun assemble(project: EntioProject): List<OntologyEntityDescriptor> =
+    public fun assemble(
+        project: EntioProject,
+        preferredLanguage: String? = null,
+    ): List<OntologyEntityDescriptor> =
         project.ontologies
-            .flatMap(::assemble)
+            .flatMap { ontology -> assemble(ontology, preferredLanguage) }
             .sortedWith(descriptorComparator)
 
-    public fun assemble(ontology: LoadedOntology): List<OntologyEntityDescriptor> {
+    public fun assemble(
+        ontology: LoadedOntology,
+        preferredLanguage: String? = null,
+    ): List<OntologyEntityDescriptor> {
         val triples = ontology.graph.triples
         val kinds = classifyEntities(triples)
         val descriptors = kinds.map { (entity, kind) ->
-            val common = commonDescriptor(ontology, entity, kind)
+            val common = commonDescriptor(ontology, entity, kind, preferredLanguage)
             when (kind) {
                 SemanticDescriptorKind.Class -> OntologyEntityDescriptor.Class(
                     common = common,
@@ -108,15 +115,26 @@ public class SemanticDescriptorAssembler(
         ontology: LoadedOntology,
         entity: RdfResource,
         kind: SemanticDescriptorKind,
+        preferredLanguage: String?,
     ): SemanticDescriptorCommon {
         val annotations = annotationExtractor.extract(ontology, entity)
+        val metadata = labelPolicy.apply(
+            entity = entity,
+            annotations = annotations,
+            preferredLanguage = preferredLanguage,
+        )
         return SemanticDescriptorCommon(
             entity = entity,
             kind = kind,
             sourceId = ontology.source.id,
             sourceOntologyId = ontology.source.id,
             locality = LocalityStatus.Unknown,
-            annotations = annotations.all,
+            preferredLabel = metadata.preferredLabel,
+            preferredLabelSource = metadata.preferredLabelSource,
+            ambiguousPreferredLabelLanguages = metadata.ambiguousPreferredLabelLanguages,
+            alternateLabels = metadata.alternateLabels,
+            definitions = metadata.definitions,
+            annotations = metadata.annotations,
         )
     }
 

@@ -71,6 +71,14 @@ public enum class LocalityStatus {
     Unknown,
 }
 
+public enum class PreferredLabelSource {
+    SkosPreferredLabel,
+    RdfsLabel,
+    AlternateLabel,
+    IriLocalName,
+    None,
+}
+
 /** Common descriptor data shared by every supported ontology entity kind. */
 public data class SemanticDescriptorCommon(
     public val entity: RdfResource,
@@ -79,6 +87,8 @@ public data class SemanticDescriptorCommon(
     public val sourceOntologyId: String? = null,
     public val locality: LocalityStatus = LocalityStatus.Unknown,
     public val preferredLabel: LocalizedText? = null,
+    public val preferredLabelSource: PreferredLabelSource = PreferredLabelSource.None,
+    public val ambiguousPreferredLabelLanguages: List<String> = emptyList(),
     public val alternateLabels: List<LocalizedText> = emptyList(),
     public val definitions: List<LocalizedText> = emptyList(),
     public val annotations: List<AnnotationStatement> = emptyList(),
