@@ -18,17 +18,17 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation, the completed Phase 1.5 Core Semantic Engine Stabilization work, and the completed Phase 2 Controlled Ontology Editing Workbench foundation.
+This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation, the completed Phase 1.5 Core Semantic Engine Stabilization work, the completed Phase 2 Controlled Ontology Editing Workbench foundation, and the completed Phase 2.5+ workbench usability and staged-change work.
 
 Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because the core work is ontology loading, RDF/Turtle parsing, deterministic validation, semantic diffing, and CLI behavior.
 
 The current implementation supports small local Entio projects, Turtle/RDF parsing through Apache Jena, RDF-term-aware graph triples, deterministic validation reports, semantic graph diffs, reusable project loading, and a thin CLI.
 
-Phase 2 is complete. It adds safe ontology mutation, preview and approval workflows, source-file persistence, and a minimal VS Code workbench while keeping the Kotlin semantic engine responsible for RDF and ontology behavior. No later planning phase is active yet.
+Phase 2, Phase 2.5, and Phase 2.5+ are complete. They add safe ontology mutation, label-first selection, deterministic IRI generation, deletion review, multi-edit staging, combined preview and approval workflows, source-file persistence, and a VS Code workbench while keeping the Kotlin semantic engine responsible for RDF and ontology behavior. Phase 3 documents are draft planning materials only; no Phase 3 implementation has begun.
 
 ## Workspace Structure
 
-The repository contains the Phase 1 and Phase 2 Kotlin/Gradle workspace plus a separate TypeScript VS Code extension:
+The repository contains the Phase 1 through Phase 2.5+ Kotlin/Gradle workspace plus a separate TypeScript VS Code extension:
 
 - `core-types`
 - `semantic-engine`
@@ -57,7 +57,8 @@ The Phase 1, Phase 1.5, and Phase 2 implementation currently supports:
 - Creating proposal baselines and detecting stale proposals.
 - Validating proposals and verifying Turtle serialization/reparsing equivalence.
 - Applying approved proposals atomically and restoring the prior source after post-save verification failure.
-- Browsing projects and symbols in a minimal VS Code ontology workbench.
+- Browsing projects and symbols in the VS Code ontology workbench.
+- Resolving entities by label, generating deterministic IRIs, reviewing deletion dependencies, staging multiple edits, and previewing combined changes.
 
 Implemented CLI commands:
 
@@ -71,6 +72,7 @@ Implemented CLI commands:
 ./gradlew :cli:run --args="proposal-diff ../examples/simple-ontology simple --edit create-class --class-iri https://example.com/Invoice --label Invoice"
 ./gradlew :cli:run --args="proposal-apply ../examples/simple-ontology simple --edit create-class --class-iri https://example.com/Invoice --label Invoice"
 ./gradlew :cli:run --args="proposal-reject ../examples/simple-ontology simple --edit create-class --class-iri https://example.com/Invoice --label Invoice"
+./gradlew :cli:run --args="deletion-dependencies ../examples/simple-ontology simple --iri https://example.com/entio/simple#recievedInvoice"
 ```
 
 Note: Gradle runs `:cli:run` from the `cli` module working directory, so the example path uses `../examples/simple-ontology`.
@@ -99,12 +101,14 @@ Run checks:
 
 - Only Turtle is supported.
 - Semantic diffs are graph-triple based, with a small special case for `rdfs:label` changes.
-- The current CLI and VS Code edit form expose `create-class`; broader typed edit contracts are available in the Kotlin core but do not yet have CLI or UI forms.
+- The VS Code extension covers the approved Phase 2.5 and Phase 2.5+ typed-edit and deletion flows, but it does not provide full Protégé-level ontology authoring or a full launched Extension Development Host regression suite.
 - Entio does not store project versions itself; `diff` compares two project directories supplied by the caller.
 - Proposal state is reconstructed within the current CLI invocation and is not persisted as long-term project history.
 - Jena serialization does not preserve original Turtle source formatting or comments.
+- Combined application currently targets one ontology source at a time.
+- Proposal and staged-change state is process/session scoped rather than a durable review store.
 
-## Implemented Phase 2 Workflow
+## Implemented Phase 2 Through Phase 2.5+ Workflow
 
 Phase 2 provides:
 
@@ -115,9 +119,11 @@ Phase 2 provides:
 - Apply only approved and current proposals to the correct Turtle source.
 - Restore the previous source and graph state when save or verification fails.
 - A minimal VS Code ontology workbench.
+- Label-first selection, deterministic IRI generation, explicit deletion dependency review, and multi-edit staging.
+- Combined preview, rejection restoration, atomic application, reload, and rollback for the complete staged set.
 - A git-like semantic workflow by analogy only: draft, preview, diff, review, approve, and apply.
 
-## Explicit Non-Goals For Phase 2
+## Explicit Non-Goals For Phase 2 Through Phase 2.5+
 
 Phase 2 should not include:
 
@@ -126,7 +132,7 @@ Phase 2 should not include:
 - Autonomous AI agents.
 - LLM-generated ontology edits.
 - Schema RAG.
-- Entity resolution.
+- Entity resolution across documents or external sources. Local deterministic label resolution is included in Phase 2.5+.
 - Full domain ontology indexing.
 - Production graph storage.
 - Full Protégé feature parity.
@@ -134,8 +140,10 @@ Phase 2 should not include:
 - Full SHACL authoring or validation environment.
 - A custom RDF, OWL, or SHACL framework.
 - Long-term project version history.
+- Durable staged-session or proposal persistence.
 - Git staging, commits, pushes, branch management, or pull-request creation inside Entio.
 - OWL reasoning or full SHACL validation.
+- Schema RAG, embeddings, external ontology retrieval, and AI-generated ontology edits.
 
 ## Technical Principle
 
@@ -149,10 +157,17 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 1 Scope](docs/architecture/phase-1-scope.md)
 - [Phase 1.5 Scope](docs/architecture/phase-1.5-scope.md)
 - [Phase 2 Scope](docs/architecture/phase-2-scope.md)
+- [Phase 2.5 Scope](docs/architecture/phase-2.5-scope.md)
+- [Phase 2.5+ Scope](docs/architecture/phase-2.5-plus-scope.md)
+- [Phase 3 Scope](docs/architecture/phase-3-scope.md)
 - [Technical Approach](docs/architecture/002-technical-approach.md)
 - [Kotlin Engine Guidelines](docs/architecture/003-kotlin-engine-guidelines.md)
 - [Phase 1.5 Spec](docs/specs/0002-phase-1.5-core-semantic-engine-stabilization.md)
 - [Phase 2 Spec](docs/specs/0003-phase-2-controlled-ontology-editing-workbench.md)
+- [Phase 2.5+ Spec](docs/specs/0005-phase-2.5-plus-ontology-workbench-usability.md)
 - [Phase 1 Implementation Summary](docs/phase-summaries/phase-1-summary.md)
 - [Phase 1.5 Implementation Summary](docs/phase-summaries/phase-1.5-summary.md)
 - [Phase 2 Implementation Summary](docs/phase-summaries/phase-2-summary.md)
+- [Phase 2.5+ Implementation Summary](docs/phase-summaries/phase-2.5-plus-summary.md)
+- [Phase 3 Spec](docs/specs/0006-phase-3-semantic-description-layer.md)
+- [Phase 3 ExecPlan](docs/execplans/0006-phase-3-semantic-description-layer.md)

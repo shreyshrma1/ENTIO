@@ -2,7 +2,7 @@
 
 ## Overview
 
-Phase 2 implemented the first controlled ontology-editing foundation for small local Entio projects. It adds a controlled, reviewable mutation pathway on top of the Phase 1 and Phase 1.5 Kotlin/JVM semantic engine, plus a minimal VS Code workbench. The current user-facing editing path supports creating a class; the Kotlin engine contains broader typed-edit contracts that are not yet exposed as CLI or workbench forms.
+Phase 2 implemented the first controlled ontology-editing foundation for small local Entio projects. It adds a controlled, reviewable mutation pathway on top of the Phase 1 and Phase 1.5 Kotlin/JVM semantic engine, plus a minimal VS Code workbench. Phase 2.5 and Phase 2.5+ later exposed the remaining approved typed edits, label-first selection, deletion review, and multi-edit staging described in their respective summaries.
 
 The implemented workflow is proposal-oriented rather than source-text-oriented:
 
@@ -197,7 +197,7 @@ Phase 2 does not include:
 
 The product workflow is Git-like only by analogy: draft, preview, diff, review, approve, and apply.
 
-## Known Limitations
+## Known Limitations At Phase 2 Completion
 
 - Turtle is the only ontology source format currently implemented.
 - The core typed-edit contract and translator cover multiple edit kinds, but the current machine-readable CLI and VS Code form expose only `create-class`.
@@ -206,9 +206,9 @@ The product workflow is Git-like only by analogy: draft, preview, diff, review, 
 - Semantic diffs are graph-based, with a focused special case for `rdfs:label` changes rather than a complete ontology-aware change taxonomy.
 - The workbench is intentionally minimal. It shows project data and selected symbol details and supports a focused edit/preview/apply flow, not a full ontology editor.
 
-## Next Steps
+## Follow-Up Work That Was Later Implemented
 
-The following Phase 2 editing capabilities are not currently available in the user-facing CLI or VS Code workbench and should be implemented as focused follow-up slices:
+The following Phase 2 editing capabilities were not available when this Phase 2 summary was written and were later implemented through Phase 2.5 and Phase 2.5+:
 
 - Add a form and CLI boundary for creating object properties and datatype properties.
 - Add a form and CLI boundary for creating individuals.
@@ -218,4 +218,4 @@ The following Phase 2 editing capabilities are not currently available in the us
 - Add workbench preview, validation, reject, apply, refresh, and source-opening coverage for each new edit form.
 - Keep the existing Kotlin typed-edit contracts as the semantic source of truth while expanding the machine-readable boundary incrementally.
 
-No later planning phase is active in the repository yet; these are completion items for the current Phase 2 workbench foundation, not permission to implement them without an approved spec and ExecPlan.
+The later Phase 2.5 and Phase 2.5+ plans and summaries document the resulting implementation and remaining limitations. New behavior still requires an approved spec and ExecPlan.

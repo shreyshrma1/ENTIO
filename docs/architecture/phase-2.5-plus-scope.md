@@ -2,6 +2,8 @@
 
 Phase 2.5+ completes the next layer of usability for the Entio ontology workbench.
 
+Phase 2.5+ is complete. The implemented result includes label-first selection, deterministic collision-checked IRI generation, explicit deletion dependency review, multi-edit staging, combined proposal review, and copied-fixture regression coverage. The detailed requirements below remain the scope record for that completed work.
+
 Phase 2.5 already supports creating and editing basic ontology elements through a controlled proposal workflow. It can preview changes, generate semantic diffs, validate proposed graphs, verify Turtle round trips, apply approved changes atomically, reload the project, and roll back failed saves.
 
 Phase 2.5+ should improve how users identify ontology elements, add deletion support, and allow several edits to be staged and reviewed together before application.

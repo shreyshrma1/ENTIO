@@ -1,10 +1,10 @@
 # Agent Guidance For Entio
 
-This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation, the completed Phase 1.5 Core Semantic Engine Stabilization work, and the completed Phase 2 Controlled Ontology Editing Workbench foundation. Earlier Phase 0B planning documents are still present, but the repository is no longer documentation-only.
+This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation, the completed Phase 1.5 Core Semantic Engine Stabilization work, the completed Phase 2 Controlled Ontology Editing Workbench foundation, and the completed Phase 2.5+ workbench usability and staged-change work. Earlier planning documents remain for history; the repository is no longer documentation-only.
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
-Phase 2, the Controlled Ontology Editing Workbench, is complete. No later planning phase is active in the repository yet. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the VS Code layer delegates semantic work to it.
+Phase 2, Phase 2.5, and Phase 2.5+ are complete. Phase 3 scope and planning documents are draft-only and no Phase 3 implementation has begun. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the VS Code layer delegates semantic work to it.
 
 ## Product Context
 
@@ -22,7 +22,7 @@ If a task seems to require later-phase infrastructure, stop and explain why befo
 
 ## Current Scope
 
-Phase 1, Phase 1.5, and Phase 2 are complete. The current Entio foundation supports:
+Phase 1, Phase 1.5, Phase 2, Phase 2.5, and Phase 2.5+ are complete. The current Entio foundation supports:
 
 - Loading an Entio project.
 - Parsing small Turtle/RDF ontology files with existing libraries.
@@ -34,19 +34,27 @@ Phase 1, Phase 1.5, and Phase 2 are complete. The current Entio foundation suppo
 - Translating supported typed ontology edits into graph changes.
 - Validating proposal previews, checking semantic equivalence, and applying current approved proposals atomically.
 - Exposing machine-readable proposal preview, validation, diff, apply, and reject commands.
-- Providing a minimal VS Code ontology workbench for project browsing, focused `create-class` editing, preview, approval, rejection, refresh, and opening changed sources.
+- Providing a VS Code ontology workbench for project browsing, label-first selection, deterministic IRI display, supported typed editing, deletion dependency review, multi-edit staging, combined preview, approval, rejection, refresh, and opening changed sources.
 
 Current implementation notes:
 
 - The Gradle modules are `core-types`, `semantic-engine`, `validation-engine`, `graph-diff`, `cli`, and `shared`.
 - The CLI exposes `validate`, `symbols`, and `diff`.
-- The CLI also exposes `project-summary`, `proposal-preview`, `proposal-validate`, `proposal-diff`, `proposal-apply`, and `proposal-reject`.
+- The CLI also exposes `project-summary`, `proposal-preview`, `proposal-validate`, `proposal-diff`, `proposal-apply`, `proposal-reject`, structured label/IRI/deletion operations, and combined proposal operations.
 - `semantic-engine` exposes reusable project loading through `ProjectLoader`.
 - `EntioProject` is constructed as a loaded-project aggregate.
 - RDF graph terms preserve IRI resources, blank nodes, plain literals, datatyped literals, and language-tagged literals.
 - `ProposalApplier` writes only the target ontology source and restores it when post-save verification fails.
 - The VS Code extension delegates ontology operations to the Kotlin CLI and does not write RDF directly.
 - `shared` intentionally remains minimal and should not collect speculative utilities.
+
+Phase 2.5 and Phase 2.5+ implemented:
+
+- User-facing typed edits for properties, individuals, assertions, values, hierarchy, domains, ranges, and labels through the existing proposal workflow.
+- Label-first entity resolution and deterministic collision-checked IRI generation.
+- Explicit deletion dependency analysis and review for supported symbols.
+- In-memory multi-edit staging, combined semantic preview, validation, approval, rejection, atomic application, reload, and rollback coverage.
+- A copied-fixture regression path that verifies source preservation before approval and recovery after failed verification.
 
 Phase 2 implemented:
 
@@ -59,7 +67,7 @@ Phase 2 implemented:
 - Introducing a minimal VS Code workbench that delegates semantic behavior to the Kotlin engine.
 - Treating the proposal workflow as git-like by analogy only: draft, preview, diff, review, approve, and apply.
 
-## Phase 2 Non-Goals
+## Phase 2 Through Phase 2.5+ Non-Goals
 
 Do not add the following in Phase 2 unless the project direction changes explicitly:
 
@@ -67,7 +75,7 @@ Do not add the following in Phase 2 unless the project direction changes explici
 - Document ingestion.
 - Autonomous AI agents.
 - Schema RAG.
-- Entity resolution.
+- Entity resolution across documents or external sources. Local deterministic label resolution is part of Phase 2.5+.
 - Full domain ontology indexing.
 - A custom RDF, OWL, or SHACL framework.
 - LLM-generated ontology edits.
@@ -76,6 +84,7 @@ Do not add the following in Phase 2 unless the project direction changes explici
 - Full OWL class-expression editing.
 - Full SHACL authoring or validation environment.
 - Long-term project version history.
+- Durable staged-session or proposal persistence.
 - Git staging, commits, pushes, branch management, or pull-request creation inside Entio.
 - OWL reasoning or full SHACL validation.
 

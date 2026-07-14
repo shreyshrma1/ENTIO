@@ -2,6 +2,8 @@
 
 Phase 2.5 completes the user-facing ontology editing work that Phase 2 originally intended to provide.
 
+Phase 2.5 is complete. Phase 2.5+ subsequently added label-first usability, deterministic IRI generation, deletion dependency review, and combined staged changes.
+
 Phase 2 already implemented the controlled proposal workflow, semantic diff generation, validation, round-trip verification, safe Turtle saving, rollback, a minimal VS Code workbench, and one complete user-facing edit flow for creating a class.
 
 Phase 2.5 should extend that same safe workflow to the remaining ontology edit types that already exist, fully or partially, in the Kotlin typed-edit contracts.

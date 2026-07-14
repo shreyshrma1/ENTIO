@@ -280,7 +280,7 @@ The existing Phase 1 and Phase 2 non-goals remain in force.
 - Validation uses explicit graph facts and deterministic compatibility checks. It does not provide OWL inference, full hierarchy reasoning, or full SHACL validation.
 - Proposal state is reconstructed during a CLI or workbench interaction. There is no durable proposal history, review queue, authentication, authorization, or server-backed review store.
 - The CLI apply command marks the proposal approved within the same invocation. It does not represent a persisted human approval performed in a separate session.
-- The VS Code form modes accept entity IRIs and values as text inputs. They do not yet provide ontology-backed symbol selectors that constrain choices to discovered classes, properties, or individuals.
+- The Phase 2.5 form modes originally accepted entity IRIs and values as text inputs. Phase 2.5+ added label-first resolution and deterministic IRI generation, but some technical fields remain text-based and the workbench is not a full ontology-backed editor.
 - VS Code tests cover TypeScript request, rendering, process-boundary, and result models. They do not launch a full Extension Development Host or provide browser-style UI integration tests.
 - Property, domain, range, and label replacement currently operate on one explicit value at a time.
 - Blank-node identifiers are parser-local and should not be treated as durable business identities.
@@ -290,10 +290,10 @@ The existing Phase 1 and Phase 2 non-goals remain in force.
 
 The Phase 2.5 specification and ExecPlan were broader than some delivered details:
 
-1. The plan calls for selecting existing classes, properties, and individuals. The current workbench uses text-based IRI fields rather than ontology-backed selectors.
+1. The Phase 2.5 plan called for selecting existing classes, properties, and individuals. Phase 2.5+ added label-first resolution and deterministic generated IRIs, but some forms still expose technical IRI fields rather than complete ontology-backed selectors.
 2. The plan calls for complete VS Code apply, reject, refresh, and open-source regression coverage. The extension implements those boundaries, but the tests are TypeScript boundary/rendering tests; copied-fixture end-to-end coverage is concentrated in Kotlin and CLI tests rather than a launched Extension Development Host.
 3. The plan describes a human-reviewable proposal lifecycle. The proposal and review contracts exist, but state is in memory and there is no durable multi-user review workflow.
 4. The plan allows richer label and replacement behavior than the current one-value-at-a-time forms expose.
-5. `AGENTS.md` and `README.md` currently describe Phase 2 as the latest completed phase and do not yet make Phase 2.5 the active status. This summary reflects the implemented Phase 2.5 code and tests without changing those repository-status documents.
+5. At the time this summary was written, `AGENTS.md` and `README.md` still described Phase 2 as the latest completed phase. The current repository-status documents now reflect the completed Phase 2.5+ work.
 
 These limitations are follow-up work, not evidence of a second semantic pathway. The Kotlin semantic engine remains the single implementation boundary for graph changes, validation, diffing, serialization, and source persistence.
