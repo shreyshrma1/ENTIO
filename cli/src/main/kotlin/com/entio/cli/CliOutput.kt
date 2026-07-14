@@ -3,7 +3,13 @@ package com.entio.cli
 import com.entio.core.LoadedSymbol
 import com.entio.core.RdfLiteral
 import com.entio.core.RdfResource
+import com.entio.core.AnnotationStatement
+import com.entio.core.DatatypePropertyAssertion
+import com.entio.core.LocalizedText
+import com.entio.core.ObjectPropertyAssertion
+import com.entio.core.OntologyEntityDescriptor
 import com.entio.core.SemanticDiff
+import com.entio.core.SemanticSearchResult
 import com.entio.core.SymbolDetails
 import com.entio.core.SymbolRelationship
 import com.entio.core.ValidationIssue
@@ -107,7 +113,7 @@ private fun symbolRelationshipJson(relationship: SymbolRelationship): JsonFragme
         "sourceId" to relationship.sourceId,
     )
 
-private fun rdfTermJson(term: com.entio.core.RdfTerm): JsonFragment =
+internal fun rdfTermJson(term: com.entio.core.RdfTerm): JsonFragment =
     when (term) {
         is RdfResource -> jsonObject(
             "kind" to if (term is com.entio.core.BlankNodeResource) "blank-node" else "iri",
@@ -122,6 +128,89 @@ private fun rdfTermJson(term: com.entio.core.RdfTerm): JsonFragment =
             "language" to term.languageTag,
         )
     }
+
+internal fun semanticDescriptorJson(descriptor: OntologyEntityDescriptor): JsonFragment {
+    val common = descriptor.common
+    val fields = mutableListOf<Pair<String, Any?>>(
+        "iri" to common.entity.value,
+        "kind" to common.kind.name,
+        "sourceId" to common.sourceId,
+        "sourceOntologyId" to common.sourceOntologyId,
+        "locality" to common.locality.name,
+        "preferredLabelSource" to common.preferredLabelSource.name,
+        "preferredLabel" to common.preferredLabel?.let(::localizedTextJson),
+        "ambiguousPreferredLabelLanguages" to jsonArray(common.ambiguousPreferredLabelLanguages),
+        "alternateLabels" to jsonArray(common.alternateLabels.map(::localizedTextJson)),
+        "definitions" to jsonArray(common.definitions.map(::localizedTextJson)),
+        "annotations" to jsonArray(common.annotations.map(::annotationStatementJson)),
+    )
+
+    when (descriptor) {
+        is OntologyEntityDescriptor.Class -> fields += listOf(
+            "directSuperclasses" to jsonArray(descriptor.directSuperclasses.map { it.value }),
+            "directSubclasses" to jsonArray(descriptor.directSubclasses.map { it.value }),
+            "directlyTypedIndividuals" to jsonArray(descriptor.directlyTypedIndividuals.map { it.value }),
+        )
+        is OntologyEntityDescriptor.ObjectProperty -> fields += listOf(
+            "domains" to jsonArray(descriptor.domains.map { it.value }),
+            "ranges" to jsonArray(descriptor.ranges.map { it.value }),
+            "directAssertions" to jsonArray(descriptor.directAssertions.map(::objectAssertionJson)),
+        )
+        is OntologyEntityDescriptor.DatatypeProperty -> fields += listOf(
+            "domains" to jsonArray(descriptor.domains.map { it.value }),
+            "datatypeRanges" to jsonArray(descriptor.datatypeRanges.map { it.value }),
+            "directAssertions" to jsonArray(descriptor.directAssertions.map(::datatypeAssertionJson)),
+        )
+        is OntologyEntityDescriptor.AnnotationProperty -> fields += listOf(
+            "statementsUsingProperty" to jsonArray(descriptor.statementsUsingProperty.map(::annotationStatementJson)),
+        )
+        is OntologyEntityDescriptor.Individual -> fields += listOf(
+            "assertedTypes" to jsonArray(descriptor.assertedTypes.map { it.value }),
+            "objectPropertyAssertions" to jsonArray(descriptor.objectPropertyAssertions.map(::objectAssertionJson)),
+            "datatypePropertyAssertions" to jsonArray(descriptor.datatypePropertyAssertions.map(::datatypeAssertionJson)),
+        )
+    }
+
+    return jsonObject(*fields.toTypedArray())
+}
+
+internal fun semanticSearchResultJson(result: SemanticSearchResult): JsonFragment =
+    jsonObject(
+        "reason" to result.reason.name,
+        "rank" to result.rank,
+        "descriptor" to semanticDescriptorJson(result.descriptor),
+    )
+
+private fun localizedTextJson(text: LocalizedText): JsonFragment =
+    jsonObject(
+        "value" to text.lexicalForm,
+        "language" to text.languageTag,
+        "datatype" to text.datatypeIri?.value,
+    )
+
+private fun annotationStatementJson(statement: AnnotationStatement): JsonFragment =
+    jsonObject(
+        "subject" to statement.subject.value,
+        "property" to statement.property.value,
+        "value" to rdfTermJson(statement.value.term),
+        "sourceId" to statement.sourceId,
+    )
+
+private fun objectAssertionJson(assertion: ObjectPropertyAssertion): JsonFragment =
+    jsonObject(
+        "subject" to assertion.subject.value,
+        "property" to assertion.property.value,
+        "value" to assertion.value.value,
+        "sourceId" to assertion.sourceId,
+    )
+
+private fun datatypeAssertionJson(assertion: DatatypePropertyAssertion): JsonFragment =
+    jsonObject(
+        "subject" to assertion.subject.value,
+        "property" to assertion.property.value,
+        "value" to rdfTermJson(assertion.value),
+        "sourceId" to assertion.sourceId,
+    )
 
 internal fun semanticDiffJson(diff: SemanticDiff): JsonFragment =
     jsonObject(

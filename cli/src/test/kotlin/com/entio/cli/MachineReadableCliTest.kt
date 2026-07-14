@@ -10,6 +10,48 @@ import kotlin.test.assertTrue
 
 class MachineReadableCliTest {
     @Test
+    fun descriptorCommandReturnsSemanticDetailsForEverySelectedEntity(): Unit {
+        val projectRoot = createSemanticDescriptionProject()
+
+        val result = runCli("descriptor", projectRoot.toString(), "https://example.com/Customer", "--language", "en")
+
+        assertEquals(0, result.exitCode, result.out)
+        assertTrue(result.out.startsWith("{\"command\":\"descriptor\",\"ok\":true"), result.out)
+        assertTrue(result.out.contains("\"kind\":\"Class\""), result.out)
+        assertTrue(result.out.contains("\"preferredLabel\":{\"value\":\"Customer\""), result.out)
+        assertTrue(result.out.contains("\"alternateLabels\":[{\"value\":\"Client\""), result.out)
+        assertEquals("", result.err)
+    }
+
+    @Test
+    fun searchCommandReturnsStableMatchReasonsAndFilters(): Unit {
+        val projectRoot = createSemanticDescriptionProject()
+
+        val result = runCli("search", projectRoot.toString(), "client", "--language", "en", "--kind", "class", "--source", "simple")
+
+        assertEquals(0, result.exitCode, result.out)
+        assertTrue(result.out.startsWith("{\"command\":\"search\",\"ok\":true"), result.out)
+        assertTrue(result.out.contains("\"reason\":\"AlternateLabel\""), result.out)
+        assertTrue(result.out.contains("\"ambiguous\":false"), result.out)
+        assertEquals("", result.err)
+
+        val unfiltered = runCli("search", projectRoot.toString(), "customer", "--language", "en")
+        assertEquals(0, unfiltered.exitCode, unfiltered.out)
+        assertTrue(unfiltered.out.contains("https://example.com/Customer"), unfiltered.out)
+    }
+
+    @Test
+    fun descriptorCommandReportsMissingEntity(): Unit {
+        val projectRoot = createProject()
+
+        val result = runCli("describe", projectRoot.toString(), "https://example.com/Missing")
+
+        assertEquals(1, result.exitCode)
+        assertTrue(result.out.contains("\"code\":\"missing-semantic-descriptor\""), result.out)
+        assertEquals("", result.err)
+    }
+
+    @Test
     fun projectSummaryReturnsStableStructuredOutput(): Unit {
         val projectRoot = createProject()
 
@@ -351,6 +393,37 @@ class MachineReadableCliTest {
                 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 
                 ex:Customer a owl:Class .
+            """.trimIndent() + "\n",
+        )
+        return projectRoot
+    }
+
+    private fun createSemanticDescriptionProject(): Path {
+        val projectRoot = Files.createTempDirectory("entio-semantic-description-cli")
+        val ontologyDirectory = projectRoot.resolve("ontology")
+        Files.createDirectories(ontologyDirectory)
+        Files.writeString(
+            projectRoot.resolve("entio.yaml"),
+            """
+                name: simple-ontology
+                ontologySources:
+                  - id: simple
+                    path: ontology/simple.ttl
+                    format: turtle
+            """.trimIndent(),
+        )
+        Files.writeString(
+            ontologyDirectory.resolve("simple.ttl"),
+            """
+                @prefix ex: <https://example.com/> .
+                @prefix owl: <http://www.w3.org/2002/07/owl#> .
+                @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+                ex:Customer a owl:Class ;
+                    skos:prefLabel "Customer"@en ;
+                    skos:altLabel "Client"@en .
+                ex:note a owl:AnnotationProperty .
+                ex:Customer ex:note "Important customer" .
             """.trimIndent() + "\n",
         )
         return projectRoot
