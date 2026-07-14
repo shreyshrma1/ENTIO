@@ -10,7 +10,7 @@ The implemented workflow is:
 2. Resolve existing entities by label, optional kind, source, or explicit IRI.
 3. Generate deterministic IRIs for new classes, properties, and individuals when the project provides an IRI namespace.
 4. Inspect explicit graph dependencies before deletion and block unresolved dependent references.
-5. Preview valid individual edits and hold them in an in-memory VS Code staged list.
+5. Preview valid typed edits and hold them in an in-memory VS Code staged list.
 6. Edit, re-preview, cancel, or remove staged entries without changing source files.
 7. Submit the ordered staged edits through the structured `proposal-combined` CLI boundary.
 8. Produce one combined preview graph, semantic diff, validation report, Turtle round-trip result, baseline, and affected-source list.
@@ -20,6 +20,16 @@ The implemented workflow is:
 For deletion, direct definition statements are always included, dependent statements receive stable keys, unresolved references block preview, and the user must explicitly select each dependent statement before deletion can enter the staged list.
 
 The Kotlin engine remains the source of truth for RDF terms, graph changes, validation, semantic diffing, Turtle serialization, stale checks, source persistence, and rollback. The VS Code extension owns form state, staged session state, CLI invocation, and presentation only.
+
+## Final Slice Additions
+
+The final Phase 2.5+ slices completed the deletion path end to end:
+
+- Slice 10 added RDF-term-aware, deterministic dependency identity keys, explicit `selectedDependencyKeys` request handling, invalid-selection reporting, and CLI output for deletion dependencies.
+- Slice 11 added Delete actions for supported symbols, direct-definition and dependent-statement review, explicit dependency checkboxes, label-first dependency text, and deletion preview through the existing staged and combined proposal lifecycle.
+- Slice 12 added copied-fixture regression coverage for unreferenced deletion and the referenced `Shrey` to `Invoice 20874` relationship, including blocking, explicit selection, preview without source mutation, apply, and reload.
+
+These slices did not create a second mutation path: Kotlin remains responsible for dependency analysis, graph changes, validation, diffing, serialization, application, and rollback.
 
 ## Repository Structure
 
@@ -80,6 +90,7 @@ Important shared contracts include:
 - `SemanticDiff` and diff entries.
 - `ChangeProposal`, `ProposalBaseline`, `CombinedProposalPreview`, apply results, and rollback results.
 - `EntitySelector`, entity resolution results, generated IRI results, deletion plans, and dependency statements.
+- `DeletionDependencyIdentity`, stable dependency keys, selected dependency keys, and invalid dependency-selection results.
 
 ## Developer Commands
 
@@ -116,6 +127,14 @@ When invoking `:cli:run`, Gradle runs the CLI with the `cli` module as its worki
 ```
 
 The structured proposal commands accept a temporary JSON request file. The combined command supports `preview`, `validate`, `diff`, `apply`, and `reject` actions.
+
+Deletion inspection and structured deletion proposals use the same machine-readable boundary:
+
+```bash
+./gradlew :cli:run --args="deletion-dependencies ../examples/simple-ontology simple --iri https://example.com/entio/simple#recievedInvoice"
+```
+
+Dependent statements must be selected by their returned stable keys before a deletion proposal can be previewed or applied.
 
 ## Examples And Fixtures
 

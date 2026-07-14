@@ -26,15 +26,4 @@
 <https://example.com/entio/simple#Shrey>
         a       <https://example.com/entio/simple#Customer> , <http://www.w3.org/2002/07/owl#NamedIndividual>;
         <http://www.w3.org/2000/01/rdf-schema#label>
-                "Shrey";
-        <https://example.com/entio/simple#recievedInvoice>
-                <https://example.com/entio/simple#20874> .
-
-<https://example.com/entio/simple#recievedInvoice>
-        a       <http://www.w3.org/2002/07/owl#ObjectProperty>;
-        <http://www.w3.org/2000/01/rdf-schema#domain>
-                <https://example.com/entio/simple#Customer>;
-        <http://www.w3.org/2000/01/rdf-schema#label>
-                "recieved invoice";
-        <http://www.w3.org/2000/01/rdf-schema#range>
-                <https://example.com/entio/simple#Invoice> .
+                "Shrey" .
