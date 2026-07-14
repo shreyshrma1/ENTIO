@@ -22,6 +22,7 @@ public class ProposalValidator(
     private val previewer: GraphChangePreviewer = GraphChangePreviewer(),
     private val proposalCreator: ProposalCreator = ProposalCreator(),
     private val issueSorter: ValidationIssueSorter = ValidationIssueSorter(),
+    private val semanticMetadataValidator: SemanticMetadataValidator = SemanticMetadataValidator(),
 ) {
     public fun validateProposal(
         proposal: ChangeProposal,
@@ -36,6 +37,7 @@ public class ProposalValidator(
         issues += validatePreview(proposal, currentProject)
         issues += validateCurrentBaseline(proposal, currentProject)
         issues += validateSemanticEquivalence(proposal, semanticEquivalenceResult)
+        issues += semanticMetadataValidator.validate(currentProject.graph, proposal.changeSet.changes)
         issues += validateEditSpecificRules(proposal, currentProject.graph)
 
         return report(issues)
@@ -239,14 +241,14 @@ public class ProposalValidator(
             }
 
             RDFS_LABEL -> {
-                issues += validateLabel(triple.objectTerm, source)
-                if (!facts.isKnownResource(triple.subjectResource)) {
-                    issues += missingResourceIssue(triple.subjectResource, source)
-                }
+                // SemanticMetadataValidator owns all metadata predicates, including labels.
             }
 
             else -> {
-                if (triple.predicate.value !in STRUCTURAL_PREDICATES) {
+                if (triple.predicate.value !in STRUCTURAL_PREDICATES &&
+                    triple.predicate.value !in SEMANTIC_METADATA_PREDICATES &&
+                    !facts.isAnnotationProperty(triple.predicate)
+                ) {
                     val propertyKind = if (triple.objectTerm is RdfLiteral) {
                         PropertyKind.Datatype
                     } else {
@@ -548,6 +550,8 @@ public class ProposalValidator(
             }
         }
 
+        fun isAnnotationProperty(resource: RdfResource): Boolean = hasType(resource, OWL_ANNOTATION_PROPERTY)
+
         fun objects(subject: RdfResource, predicate: String): List<Iri> = allTriples()
             .filter { it.subjectResource == subject && it.predicate.value == predicate }
             .mapNotNull { it.objectTerm as? Iri }
@@ -600,6 +604,7 @@ public class ProposalValidator(
         private const val OWL_OBJECT_PROPERTY: String = "http://www.w3.org/2002/07/owl#ObjectProperty"
         private const val OWL_DATATYPE_PROPERTY: String = "http://www.w3.org/2002/07/owl#DatatypeProperty"
         private const val OWL_NAMED_INDIVIDUAL: String = "http://www.w3.org/2002/07/owl#NamedIndividual"
+        private const val OWL_ANNOTATION_PROPERTY: String = "http://www.w3.org/2002/07/owl#AnnotationProperty"
         private const val RDF_LANG_STRING: String = "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString"
         private const val XSD_STRING: String = "http://www.w3.org/2001/XMLSchema#string"
         private const val XSD_BOOLEAN: String = "http://www.w3.org/2001/XMLSchema#boolean"
@@ -613,6 +618,7 @@ public class ProposalValidator(
             OWL_OBJECT_PROPERTY,
             OWL_DATATYPE_PROPERTY,
             OWL_NAMED_INDIVIDUAL,
+            OWL_ANNOTATION_PROPERTY,
         )
         private val SUPPORTED_DATATYPES: Set<String> = setOf(
             XSD_STRING,
@@ -628,6 +634,14 @@ public class ProposalValidator(
             RDFS_SUBCLASS_OF,
             RDFS_DOMAIN,
             RDFS_RANGE,
+        )
+        private val SEMANTIC_METADATA_PREDICATES: Set<String> = setOf(
+            RDFS_LABEL,
+            "http://www.w3.org/2000/01/rdf-schema#comment",
+            "http://www.w3.org/2004/02/skos/core#prefLabel",
+            "http://www.w3.org/2004/02/skos/core#altLabel",
+            "http://www.w3.org/2004/02/skos/core#definition",
+            "http://purl.org/dc/terms/source",
         )
         private val LANGUAGE_TAG = Regex("[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*")
         private val INTEGER_VALUE = Regex("[+-]?[0-9]+")
