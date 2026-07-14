@@ -19,6 +19,7 @@ The implemented behavior includes:
 - Machine-readable CLI commands for descriptor lookup and deterministic search.
 - Machine-readable CLI handling for semantic edit requests through the existing combined proposal preview, validation, diff, apply, reject, stale-baseline, and rollback lifecycle.
 - VS Code semantic details, label-aware semantic search, match-reason presentation, semantic edit forms, RDF-term-safe value controls, and staged semantic previews.
+- The VS Code semantic metadata forms submit definitions, alternate labels, and annotation values as plain strings. They do not expose language-tag, datatype, or resource-IRI controls for these human- and LLM-facing fields.
 - Copied-fixture regression coverage for preview, rejection, approval, apply, reload, language/datatype round trips, descriptor output, search, and rollback behavior.
 
 The workflow remains:
@@ -28,7 +29,7 @@ The workflow remains:
 3. Search descriptors through the Kotlin semantic engine when a user enters a query.
 4. Translate supported semantic edit requests into graph changes in the Kotlin engine.
 5. Preview, validate, diff, and verify the proposed graph without changing the source.
-6. Keep valid edits in the existing VS Code staged list for combined review.
+6. Keep valid edits in the existing VS Code staged list for combined review. Semantic metadata entered through the workbench is treated as plain human-readable text.
 7. Apply only an approved, current proposal through the existing atomic applier, or reject it without source mutation.
 8. Reload the project and expose the resulting descriptor/search state again.
 
@@ -80,7 +81,7 @@ Remains intentionally small and contains only generic utilities. It does not con
 
 ### `vscode-extension`
 
-Normalizes Kotlin CLI responses, renders project symbols and semantic details, delegates semantic search and descriptor lookup, provides semantic edit forms, and keeps valid previews in the existing in-memory staged workflow. It does not own RDF parsing, label policy, search ranking, or source persistence.
+Normalizes Kotlin CLI responses, renders project symbols and semantic details, delegates semantic search and descriptor lookup, provides semantic edit forms, and keeps valid previews in the existing in-memory staged workflow. Its semantic metadata forms use plain string values for definitions, alternate labels, and annotations; lower-level RDF term options remain outside this UI boundary. It does not own RDF parsing, label policy, search ranking, or source persistence.
 
 ## Main Contracts
 
@@ -152,7 +153,8 @@ Phase 3 does not include:
 - Descriptor metadata is based on explicit graph facts and does not perform OWL inference.
 - Search is deterministic case-insensitive matching over preferred labels, alternate labels, IRIs, and general annotation values. It is not fuzzy search, indexed search, embedding search, or external retrieval.
 - Semantic edit forms expose only the approved Phase 3 metadata operations. Unsupported OWL and SHACL editing remains out of scope.
-- VS Code tests validate rendering, normalization, and CLI message boundaries; there is no full launched Extension Development Host regression suite.
+- VS Code tests validate rendering, normalization, CLI message boundaries, and the plain-string semantic metadata form boundary; there is no full launched Extension Development Host regression suite.
+- The workbench intentionally does not expose language tags, datatypes, or resource-valued annotations for semantic metadata entry. Those RDF-term forms remain available only through lower-level core and CLI contracts when needed.
 - Staged changes and proposal state remain process/session scoped and are not durable across extension or CLI sessions.
 - The CLI currently exposes semantic edit lifecycle behavior through the combined proposal boundary; it does not introduce a durable request store or independent staging service.
 - Jena serialization preserves graph meaning and RDF terms but not original Turtle formatting or comments.

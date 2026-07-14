@@ -43,21 +43,25 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
   <h1>Entio Ontology Workbench</h1>
   <button id="refresh" type="button">Refresh</button>
   <div id="status" role="status">Loading project summary...</div>
-  <section id="entity-selector" aria-labelledby="entity-selector-heading">
-    <h2 id="entity-selector-heading">Find an existing entity</h2>
-    <form id="entity-selector-form">
-      <label>Label <input id="entity-selector-label" type="text"></label>
+  <section id="entity-search" aria-labelledby="entity-search-heading">
+    <h2 id="entity-search-heading">Find an existing entity</h2>
+    <p id="semantic-search-context">Search results are for inspection. Edit fields are verified when staged.</p>
+    <form id="semantic-search-form">
+      <label>Label or IRI <input id="semantic-search-query" type="search"></label>
       <label>Kind
-        <select id="entity-selector-kind">
+        <select id="semantic-search-kind">
           <option value="">Any kind</option>
           <option value="Class">Class</option>
-          <option value="Property">Property</option>
+          <option value="ObjectProperty">Object property</option>
+          <option value="DatatypeProperty">Datatype property</option>
+          <option value="AnnotationProperty">Annotation property</option>
           <option value="Individual">Individual</option>
         </select>
       </label>
-      <button id="resolve-entity" type="submit">Resolve entity</button>
+      <label>Source <select id="semantic-search-source"><option value="">All sources</option></select></label>
+      <button id="semantic-search-submit" type="submit">Search</button>
     </form>
-    <div id="entity-resolution" aria-live="polite">No entity selected.</div>
+    <div id="semantic-search-results" aria-live="polite">No entity search requested.</div>
   </section>
   <main>
     <section aria-labelledby="sources-heading">
@@ -67,25 +71,6 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     <section aria-labelledby="symbols-heading">
       <h2 id="symbols-heading">Symbols</h2>
       <div id="symbol-groups"></div>
-      <section id="semantic-search" aria-labelledby="semantic-search-heading">
-        <h3 id="semantic-search-heading">Semantic search</h3>
-        <form id="semantic-search-form">
-          <label>Search text <input id="semantic-search-query" type="search"></label>
-          <label>Kind
-            <select id="semantic-search-kind">
-              <option value="">Any kind</option>
-              <option value="Class">Class</option>
-              <option value="ObjectProperty">Object property</option>
-              <option value="DatatypeProperty">Datatype property</option>
-              <option value="AnnotationProperty">Annotation property</option>
-              <option value="Individual">Individual</option>
-            </select>
-          </label>
-          <label>Source <select id="semantic-search-source"><option value="">All sources</option></select></label>
-          <button id="semantic-search-submit" type="submit">Search</button>
-        </form>
-        <div id="semantic-search-results" aria-live="polite">No semantic search requested.</div>
-      </section>
       <div id="details" aria-live="polite">Select a symbol to inspect its details.</div>
     </section>
   </main>
@@ -95,14 +80,22 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       <label>Target source <select id="target-source" required></select></label>
       <label>Edit type <select id="edit-kind">${editKindOptions}</select></label>
       <div id="class-fields">
-        <label>Class IRI <input id="class-iri" type="url" required></label>
-        <label>Label <input id="class-label" type="text"></label>
+        <label>Class label <input id="class-label" type="text" required></label>
+        <input id="class-iri" type="hidden">
       </div>
       <div id="property-fields" hidden>
-        <label>Property IRI <input id="property-iri" type="url"></label>
-        <label id="property-label-field">Label <input id="property-label" type="text"></label>
-        <label id="property-domain-field">Domain IRI <input id="property-domain-iri" type="url"></label>
-        <label id="property-range-field">Range IRI <input id="property-range-iri" type="url"></label>
+        <div id="property-label-field" class="entity-picker">
+          <label>Property label <input id="property-label" type="text"></label>
+        </div>
+        <input id="property-iri" type="hidden">
+        <div id="property-domain-field" class="entity-picker">
+          <label>Domain label <input id="property-domain-label" type="text"></label>
+          <input id="property-domain-iri" type="hidden">
+        </div>
+        <div id="property-range-field" class="entity-picker">
+          <label>Range label <input id="property-range-label" type="text"></label>
+          <input id="property-range-iri" type="hidden">
+        </div>
         <label id="property-datatype-field">Datatype
           <select id="property-datatype">
             <option value="">Select a datatype</option>
@@ -117,14 +110,28 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         <label><input id="property-replace" type="checkbox"> Replace existing domain or range</label>
       </div>
       <div id="individual-fields" hidden>
-        <label>Individual IRI <input id="individual-iri" type="url"></label>
-        <label>Type IRI <input id="individual-type-iri" type="url"></label>
-        <label>Label <input id="individual-label" type="text"></label>
+        <div id="individual-label-field" class="entity-picker">
+          <label>Individual label <input id="individual-label" type="text"></label>
+        </div>
+        <input id="individual-iri" type="hidden">
+        <div class="entity-picker">
+          <label>Type label <input id="individual-type-label" type="text"></label>
+          <input id="individual-type-iri" type="hidden">
+        </div>
       </div>
       <div id="assertion-fields" hidden>
-        <label>Subject IRI <input id="assertion-subject-iri" type="url"></label>
-        <label>Property IRI <input id="assertion-property-iri" type="url"></label>
-        <label id="assertion-object-field">Object IRI <input id="assertion-object-iri" type="url"></label>
+        <div class="entity-picker">
+          <label>Subject label <input id="assertion-subject-label" type="text"></label>
+          <input id="assertion-subject-iri" type="hidden">
+        </div>
+        <div class="entity-picker">
+          <label>Property label <input id="assertion-property-label" type="text"></label>
+          <input id="assertion-property-iri" type="hidden">
+        </div>
+        <div id="assertion-object-field" class="entity-picker">
+          <label>Object label <input id="assertion-object-label" type="text"></label>
+          <input id="assertion-object-iri" type="hidden">
+        </div>
         <label id="assertion-value-field">Value <input id="assertion-value" type="text"></label>
         <label id="assertion-datatype-field">Datatype
           <select id="assertion-datatype">
@@ -140,54 +147,49 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         <label id="assertion-language-field">Language tag <input id="assertion-language" type="text"></label>
       </div>
       <div id="hierarchy-fields" hidden>
-        <label>Class IRI <input id="hierarchy-class-iri" type="url"></label>
-        <label>Superclass IRI <input id="hierarchy-superclass-iri" type="url"></label>
+        <div class="entity-picker">
+          <label>Class label <input id="hierarchy-class-label" type="text"></label>
+          <input id="hierarchy-class-iri" type="hidden">
+        </div>
+        <div class="entity-picker">
+          <label>Superclass label <input id="hierarchy-superclass-label" type="text"></label>
+          <input id="hierarchy-superclass-iri" type="hidden">
+        </div>
       </div>
       <div id="label-fields" hidden>
-        <label>Entity IRI <input id="label-entity-iri" type="url"></label>
+        <div class="entity-picker">
+          <label>Entity label <input id="label-entity-label" type="text"></label>
+          <input id="label-entity-iri" type="hidden">
+        </div>
         <label>Label <input id="label-value" type="text"></label>
         <label>Language tag <input id="label-language" type="text"></label>
         <label><input id="label-replace" type="checkbox"> Replace existing labels</label>
       </div>
       <div id="semantic-fields" hidden>
-        <label id="semantic-property-field">Annotation property IRI <input id="semantic-property-iri" type="url"></label>
-        <label id="semantic-target-field">Target IRI <input id="semantic-target-iri" type="url"></label>
+        <div id="semantic-property-field" class="entity-picker">
+          <label id="semantic-property-picker-label">Annotation property label <input id="semantic-property-label" type="text"></label>
+          <input id="semantic-property-iri" type="hidden">
+        </div>
+        <div id="semantic-target-field" class="entity-picker">
+          <label>Target label <input id="semantic-target-label" type="text"></label>
+          <input id="semantic-target-iri" type="hidden">
+        </div>
         <label id="semantic-label-field">Label <input id="semantic-label" type="text"></label>
         <label id="semantic-definition-field">Definition <input id="semantic-definition" type="text"></label>
         <label id="semantic-value-field">Value <input id="semantic-value" type="text"></label>
         <label id="semantic-existing-field">Existing value <input id="semantic-existing" type="text"></label>
         <label id="semantic-replacement-field">Replacement value <input id="semantic-replacement" type="text"></label>
-        <label id="semantic-annotation-value-kind-field">Annotation value kind
-          <select id="semantic-annotation-value-kind">
-            <option value="literal">Literal</option>
-            <option value="resource">Resource IRI</option>
-          </select>
-        </label>
-        <label id="semantic-value-iri-field">Value IRI <input id="semantic-value-iri" type="url"></label>
-        <label id="semantic-language-field">Language tag <input id="semantic-language" type="text"></label>
-        <label id="semantic-datatype-field">Datatype
-          <select id="semantic-datatype">
-            <option value="">Select a datatype</option>
-            <option value="http://www.w3.org/2001/XMLSchema#string">xsd:string</option>
-            <option value="http://www.w3.org/2001/XMLSchema#boolean">xsd:boolean</option>
-            <option value="http://www.w3.org/2001/XMLSchema#integer">xsd:integer</option>
-            <option value="http://www.w3.org/2001/XMLSchema#decimal">xsd:decimal</option>
-            <option value="http://www.w3.org/2001/XMLSchema#date">xsd:date</option>
-            <option value="http://www.w3.org/2001/XMLSchema#dateTime">xsd:dateTime</option>
-          </select>
-        </label>
       </div>
       <p id="edit-form-placeholder" hidden>Additional edit forms are provided by the workbench edit modes.</p>
-      <button id="generate-iri" type="button">Generate IRI from label</button>
-      <span id="generated-iri-status" aria-live="polite"></span>
-      <button id="preview-submit" type="submit">Preview change</button>
+      <button id="preview-submit" type="button">Stage change</button>
+      <div id="edit-status" aria-live="polite">No edit staged.</div>
     </form>
   </section>
   <section id="deletion-review" aria-labelledby="deletion-heading">
     <h2 id="deletion-heading">Review deletion dependencies</h2>
     <form id="deletion-form">
       <label>Entity label <input id="deletion-label" type="text"></label>
-      <label>Entity IRI <input id="deletion-iri" type="url"></label>
+      <input id="deletion-iri" type="hidden">
       <label>Kind
         <select id="deletion-kind">
           <option value="">Any kind</option>
@@ -199,7 +201,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       <button id="inspect-deletion" type="submit">Inspect dependencies</button>
     </form>
     <div id="deletion-dependencies" aria-live="polite">No deletion review requested.</div>
-    <button id="preview-deletion" type="button" disabled>Preview deletion</button>
+    <button id="preview-deletion" type="button" disabled>Stage deletion</button>
   </section>
   <section id="staged-changes" aria-labelledby="staged-heading">
     <h2 id="staged-heading">Staged changes</h2>
@@ -230,18 +232,13 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const semanticSearchKind = document.getElementById("semantic-search-kind");
     const semanticSearchSource = document.getElementById("semantic-search-source");
     const semanticSearchResults = document.getElementById("semantic-search-results");
-    const entitySelectorForm = document.getElementById("entity-selector-form");
-    const entitySelectorLabel = document.getElementById("entity-selector-label");
-    const entitySelectorKind = document.getElementById("entity-selector-kind");
-    const entityResolution = document.getElementById("entity-resolution");
     const proposalForm = document.getElementById("proposal-form");
     const targetSource = document.getElementById("target-source");
     const editKind = document.getElementById("edit-kind");
     const classFields = document.getElementById("class-fields");
     const editFormPlaceholder = document.getElementById("edit-form-placeholder");
     const previewSubmit = document.getElementById("preview-submit");
-    const generateIri = document.getElementById("generate-iri");
-    const generatedIriStatus = document.getElementById("generated-iri-status");
+    const editStatus = document.getElementById("edit-status");
     const classIri = document.getElementById("class-iri");
     const classLabel = document.getElementById("class-label");
     const propertyFields = document.getElementById("property-fields");
@@ -250,20 +247,27 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const propertyLabel = document.getElementById("property-label");
     const propertyDomainField = document.getElementById("property-domain-field");
     const propertyDomainIri = document.getElementById("property-domain-iri");
+    const propertyDomainLabel = document.getElementById("property-domain-label");
     const propertyRangeField = document.getElementById("property-range-field");
     const propertyRangeIri = document.getElementById("property-range-iri");
+    const propertyRangeLabel = document.getElementById("property-range-label");
     const propertyDatatypeField = document.getElementById("property-datatype-field");
     const propertyDatatype = document.getElementById("property-datatype");
     const propertyReplace = document.getElementById("property-replace");
     const individualFields = document.getElementById("individual-fields");
     const individualIri = document.getElementById("individual-iri");
+    const individualLabelField = document.getElementById("individual-label-field");
     const individualTypeIri = document.getElementById("individual-type-iri");
+    const individualTypeLabel = document.getElementById("individual-type-label");
     const individualLabel = document.getElementById("individual-label");
     const assertionFields = document.getElementById("assertion-fields");
     const assertionSubjectIri = document.getElementById("assertion-subject-iri");
+    const assertionSubjectLabel = document.getElementById("assertion-subject-label");
     const assertionPropertyIri = document.getElementById("assertion-property-iri");
+    const assertionPropertyLabel = document.getElementById("assertion-property-label");
     const assertionObjectField = document.getElementById("assertion-object-field");
     const assertionObjectIri = document.getElementById("assertion-object-iri");
+    const assertionObjectLabel = document.getElementById("assertion-object-label");
     const assertionValueField = document.getElementById("assertion-value-field");
     const assertionValue = document.getElementById("assertion-value");
     const assertionDatatypeField = document.getElementById("assertion-datatype-field");
@@ -272,17 +276,23 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const assertionLanguage = document.getElementById("assertion-language");
     const hierarchyFields = document.getElementById("hierarchy-fields");
     const hierarchyClassIri = document.getElementById("hierarchy-class-iri");
+    const hierarchyClassLabel = document.getElementById("hierarchy-class-label");
     const hierarchySuperclassIri = document.getElementById("hierarchy-superclass-iri");
+    const hierarchySuperclassLabel = document.getElementById("hierarchy-superclass-label");
     const labelFields = document.getElementById("label-fields");
     const labelEntityIri = document.getElementById("label-entity-iri");
+    const labelEntityLabel = document.getElementById("label-entity-label");
     const labelValue = document.getElementById("label-value");
     const labelLanguage = document.getElementById("label-language");
     const labelReplace = document.getElementById("label-replace");
     const semanticFields = document.getElementById("semantic-fields");
     const semanticPropertyField = document.getElementById("semantic-property-field");
+    const semanticPropertyPickerLabel = document.getElementById("semantic-property-picker-label");
     const semanticPropertyIri = document.getElementById("semantic-property-iri");
+    const semanticPropertyLabel = document.getElementById("semantic-property-label");
     const semanticTargetField = document.getElementById("semantic-target-field");
     const semanticTargetIri = document.getElementById("semantic-target-iri");
+    const semanticTargetLabel = document.getElementById("semantic-target-label");
     const semanticLabelField = document.getElementById("semantic-label-field");
     const semanticLabel = document.getElementById("semantic-label");
     const semanticDefinitionField = document.getElementById("semantic-definition-field");
@@ -293,14 +303,6 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const semanticExisting = document.getElementById("semantic-existing");
     const semanticReplacementField = document.getElementById("semantic-replacement-field");
     const semanticReplacement = document.getElementById("semantic-replacement");
-    const semanticAnnotationValueKindField = document.getElementById("semantic-annotation-value-kind-field");
-    const semanticAnnotationValueKind = document.getElementById("semantic-annotation-value-kind");
-    const semanticValueIriField = document.getElementById("semantic-value-iri-field");
-    const semanticValueIri = document.getElementById("semantic-value-iri");
-    const semanticLanguageField = document.getElementById("semantic-language-field");
-    const semanticLanguage = document.getElementById("semantic-language");
-    const semanticDatatypeField = document.getElementById("semantic-datatype-field");
-    const semanticDatatype = document.getElementById("semantic-datatype");
     const previewStatus = document.getElementById("preview-status");
     const previewImpact = document.getElementById("preview-impact");
     const previewDiff = document.getElementById("preview-diff");
@@ -330,7 +332,35 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     let selectedDeletionKeys = new Set();
     let currentModel;
     let selectedSemanticIri;
+    let pendingIriGenerationKey;
+    let pendingPreviewAfterIri = false;
+    let pendingEntityResolution = false;
     document.getElementById("refresh").addEventListener("click", () => vscode.postMessage({ type: "refresh" }));
+
+    [
+      [classLabel, classIri],
+      [propertyLabel, propertyIri],
+      [propertyDomainLabel, propertyDomainIri],
+      [propertyRangeLabel, propertyRangeIri],
+      [individualLabel, individualIri],
+      [individualTypeLabel, individualTypeIri],
+      [assertionSubjectLabel, assertionSubjectIri],
+      [assertionPropertyLabel, assertionPropertyIri],
+      [assertionObjectLabel, assertionObjectIri],
+      [semanticLabel, semanticPropertyIri],
+      [semanticPropertyLabel, semanticPropertyIri],
+      [semanticTargetLabel, semanticTargetIri],
+      [hierarchyClassLabel, hierarchyClassIri],
+      [hierarchySuperclassLabel, hierarchySuperclassIri],
+      [labelEntityLabel, labelEntityIri],
+    ].forEach(([labelInput, iriInput]) => {
+      labelInput.addEventListener("input", () => {
+        iriInput.value = "";
+        pendingEntityResolution = false;
+        pendingIriGenerationKey = undefined;
+        pendingPreviewAfterIri = false;
+      });
+    });
 
     semanticSearchForm.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -350,33 +380,28 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       semanticSearchResults.textContent = "Searching semantic descriptions...";
     });
 
-    entitySelectorForm.addEventListener("submit", (event) => {
-      event.preventDefault();
-      if (entitySelectorLabel.value === "") {
-        entityResolution.textContent = "Enter a label to resolve an entity.";
-        return;
-      }
-      vscode.postMessage({
-        type: "resolve-entity",
-        payload: {
-          label: entitySelectorLabel.value,
-          kind: entitySelectorKind.value || undefined,
-          sourceId: targetSource.value || undefined,
-        },
-      });
-      entityResolution.textContent = "Resolving entity...";
-    });
-
-    generateIri.addEventListener("click", () => {
+    function requestIriGeneration() {
       const kind = entityKindForEdit();
       const label = labelForEdit();
-      if (!kind || !label) {
-        generatedIriStatus.textContent = "Choose a supported new-entity edit and provide a label first.";
-        return;
-      }
+      if (!kind || !label) return false;
+      pendingIriGenerationKey = editKind.value + "|" + label.trim();
       vscode.postMessage({ type: "generate-iri", payload: { label, kind } });
-      generatedIriStatus.textContent = "Generating deterministic IRI...";
-    });
+      editStatus.textContent = "Generating deterministic IRI...";
+      return true;
+    }
+
+    function requestEntityResolutions(entries) {
+      pendingEntityResolution = true;
+      editStatus.textContent = "Verifying entity labels...";
+      vscode.postMessage({
+        type: "resolve-edit-entities",
+        payload: {
+          sourceId: targetSource.value,
+          entries,
+        },
+      });
+      return true;
+    }
 
     deletionForm.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -444,10 +469,13 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
 
     function clearEditForm() {
       const source = targetSource.value;
+      pendingIriGenerationKey = undefined;
+      pendingPreviewAfterIri = false;
+      pendingEntityResolution = false;
       proposalForm.reset();
       targetSource.value = source;
       updateEditFormMode();
-      generatedIriStatus.textContent = "";
+      editStatus.textContent = "No edit staged.";
     }
 
     function requestDeletionReview(selector) {
@@ -477,6 +505,18 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       previewDeletion.disabled = !canPreviewDeletion();
     }
 
+    function labelForIri(iri) {
+      if (!iri) return "";
+      const symbol = currentModel?.symbolGroups.flatMap((group) => group.symbols).find((candidate) => candidate.iri === iri);
+      return symbol?.label || displayIri(iri);
+    }
+
+    function setEntityPicker(labelInput, iriInput, iri, label) {
+      iriInput.value = iri || "";
+      labelInput.value = iri ? (label || labelForIri(iri)) : "";
+      labelInput.dataset.resolvedLabel = labelInput.value;
+    }
+
     function restoreEditForm(request) {
       editKind.value = request.editKind;
       updateEditFormMode();
@@ -484,37 +524,33 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       classIri.value = request.classIri || "";
       classLabel.value = request.label || "";
       propertyIri.value = request.propertyIri || "";
-      propertyLabel.value = request.label || "";
-      propertyDomainIri.value = request.domainIri || "";
-      propertyRangeIri.value = request.rangeIri || "";
+      propertyLabel.value = request.label || labelForIri(request.propertyIri);
+      setEntityPicker(propertyDomainLabel, propertyDomainIri, request.domainIri);
+      setEntityPicker(propertyRangeLabel, propertyRangeIri, request.rangeIri);
       propertyDatatype.value = request.datatype || "";
       propertyReplace.checked = request.replaceExisting === true;
       individualIri.value = request.individualIri || "";
-      individualTypeIri.value = request.typeIri || "";
-      individualLabel.value = request.label || "";
-      assertionSubjectIri.value = request.subjectIri || "";
-      assertionPropertyIri.value = request.propertyIri || "";
-      assertionObjectIri.value = request.objectIri || "";
+      setEntityPicker(individualTypeLabel, individualTypeIri, request.typeIri);
+      individualLabel.value = request.label || labelForIri(request.individualIri);
+      setEntityPicker(assertionSubjectLabel, assertionSubjectIri, request.subjectIri);
+      setEntityPicker(assertionPropertyLabel, assertionPropertyIri, request.propertyIri);
+      setEntityPicker(assertionObjectLabel, assertionObjectIri, request.objectIri);
       assertionValue.value = request.value || "";
       assertionDatatype.value = request.datatype || "";
       assertionLanguage.value = request.language || "";
-      hierarchyClassIri.value = request.classIri || "";
-      hierarchySuperclassIri.value = request.superclassIri || "";
-      labelEntityIri.value = request.entityIri || "";
+      setEntityPicker(hierarchyClassLabel, hierarchyClassIri, request.classIri);
+      setEntityPicker(hierarchySuperclassLabel, hierarchySuperclassIri, request.superclassIri);
+      setEntityPicker(labelEntityLabel, labelEntityIri, request.entityIri);
       labelValue.value = request.label || "";
       labelLanguage.value = request.language || "";
       labelReplace.checked = request.replaceExisting === true;
-      semanticPropertyIri.value = request.propertyIri || "";
-      semanticTargetIri.value = request.targetIri || "";
+      setEntityPicker(semanticPropertyLabel, semanticPropertyIri, request.propertyIri);
+      setEntityPicker(semanticTargetLabel, semanticTargetIri, request.targetIri);
       semanticLabel.value = request.label || "";
       semanticDefinition.value = request.definition || "";
       semanticValue.value = request.value || "";
       semanticExisting.value = request.existing || "";
       semanticReplacement.value = request.replacement || "";
-      semanticValueIri.value = request.valueIri || "";
-      semanticLanguage.value = request.language || "";
-      semanticDatatype.value = request.datatype || "";
-      semanticAnnotationValueKind.value = request.valueIri ? "resource" : "literal";
     }
 
     function stagePreview(preview) {
@@ -535,7 +571,8 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       currentPreview = undefined;
       clearEditForm();
       renderStagedList();
-      previewStatus.textContent = "Change staged successfully.";
+      editStatus.textContent = "Change staged successfully.";
+      previewStatus.textContent = "No combined proposal preview requested.";
       previewImpact.textContent = "The source file has not changed.";
       previewDiff.replaceChildren();
       previewValidation.replaceChildren();
@@ -616,63 +653,122 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       semanticFields.hidden = !semanticMode;
       editFormPlaceholder.hidden = formMode;
       previewSubmit.disabled = !formMode;
-      classIri.required = createClass;
-      propertyIri.required = propertyMode;
-      propertyLabelField.hidden = !createProperty;
+      classIri.required = false;
+      classLabel.required = createClass;
+      propertyIri.required = false;
+      propertyLabel.required = createProperty;
+      propertyLabelField.hidden = !propertyMode;
       propertyDomainField.hidden = !domainMode;
       propertyRangeField.hidden = !rangeMode;
       propertyDatatypeField.hidden = !datatypeMode;
       propertyReplace.parentElement.hidden = editKind.value !== "set-property-domain" && editKind.value !== "set-property-range";
-      propertyDomainIri.required = editKind.value === "set-property-domain";
-      propertyRangeIri.required = editKind.value === "set-property-range" && propertyDatatype.value === "";
-      individualIri.required = individualMode;
-      individualTypeIri.required = editKind.value === "assign-individual-type";
-      assertionSubjectIri.required = assertionMode;
-      assertionPropertyIri.required = assertionMode;
+      propertyDomainIri.required = false;
+      propertyRangeIri.required = false;
+      individualIri.required = false;
+      individualLabel.required = editKind.value === "create-individual";
+      individualLabelField.hidden = !individualMode;
+      individualTypeIri.required = false;
+      assertionSubjectIri.required = false;
+      assertionPropertyIri.required = false;
       assertionObjectField.hidden = !assertionMode || datatypeAssertion;
       assertionValueField.hidden = !datatypeAssertion;
       assertionDatatypeField.hidden = !datatypeAssertion;
       assertionLanguageField.hidden = !datatypeAssertion;
-      assertionObjectIri.required = editKind.value === "add-object-property-assertion";
+      assertionObjectIri.required = false;
       assertionValue.required = datatypeAssertion;
-      hierarchyClassIri.required = hierarchyMode;
-      hierarchySuperclassIri.required = hierarchyMode;
-      labelEntityIri.required = labelMode;
+      hierarchyClassIri.required = false;
+      hierarchySuperclassIri.required = false;
+      labelEntityIri.required = false;
       labelValue.required = labelMode;
       semanticPropertyField.hidden = !createAnnotationProperty && !annotationMode;
+      semanticPropertyPickerLabel.hidden = createAnnotationProperty;
       semanticTargetField.hidden = !definitionMode && !alternateLabelMode && !annotationMode;
       semanticLabelField.hidden = !createAnnotationProperty;
       semanticDefinitionField.hidden = !createAnnotationProperty;
       semanticValueField.hidden = !definitionMode && !alternateLabelMode && !annotationMode;
       semanticExistingField.hidden = !replaceSemanticValue;
       semanticReplacementField.hidden = !replaceSemanticValue;
-      semanticAnnotationValueKindField.hidden = !annotationMode;
-      semanticValueIriField.hidden = !annotationMode || semanticAnnotationValueKind.value !== "resource";
-      semanticLanguageField.hidden = (!definitionMode && !alternateLabelMode && !annotationMode) ||
-        (annotationMode && semanticAnnotationValueKind.value === "resource");
-      semanticDatatypeField.hidden = (!definitionMode && !alternateLabelMode && !annotationMode) ||
-        (annotationMode && semanticAnnotationValueKind.value === "resource");
-      semanticPropertyIri.required = createAnnotationProperty || annotationMode;
-      semanticTargetIri.required = definitionMode || alternateLabelMode || annotationMode;
+      semanticPropertyIri.required = false;
+      semanticTargetIri.required = false;
       semanticLabel.required = false;
       semanticDefinition.required = false;
       semanticValue.required = (definitionMode || alternateLabelMode || annotationMode) &&
-        (!annotationMode || semanticAnnotationValueKind.value === "literal") && !replaceSemanticValue;
+        !replaceSemanticValue;
       semanticExisting.required = replaceSemanticValue;
       semanticReplacement.required = replaceSemanticValue;
-      semanticValueIri.required = annotationMode && semanticAnnotationValueKind.value === "resource";
     }
-    editKind.addEventListener("change", updateEditFormMode);
+    editKind.addEventListener("change", () => {
+      updateEditFormMode();
+      pendingIriGenerationKey = undefined;
+      pendingPreviewAfterIri = false;
+      pendingEntityResolution = false;
+    });
     propertyDatatype.addEventListener("change", updateEditFormMode);
     assertionDatatype.addEventListener("change", updateEditFormMode);
-    semanticAnnotationValueKind.addEventListener("change", updateEditFormMode);
     updateEditFormMode();
 
-    proposalForm.addEventListener("submit", (event) => {
-      event.preventDefault();
+    function collectEntityResolutions(editState) {
+      const {
+        propertyMode,
+        createProperty,
+        hierarchyMode,
+        labelMode,
+        annotationMode,
+        definitionMode,
+        alternateLabelMode,
+      } = editState;
+      const entries = [];
+      const missing = [];
+      const add = (field, labelInput, iriInput, kind, description, required = true) => {
+        if (iriInput.value) return;
+        const label = labelInput.value.trim();
+        if (!label) {
+          if (required) missing.push(description);
+          return;
+        }
+        entries.push({ field, label, kind, description });
+      };
+      const propertyExisting = propertyMode && !createProperty;
+      if (propertyExisting) add("property-iri", propertyLabel, propertyIri, "Property", "property");
+      if (editKind.value === "set-property-domain") add("property-domain-iri", propertyDomainLabel, propertyDomainIri, "Class", "domain");
+      if (editKind.value === "set-property-range" || createProperty) {
+        add("property-range-iri", propertyRangeLabel, propertyRangeIri, "Class", "range", editKind.value === "set-property-range" && !propertyDatatype.value);
+      }
+      if (createProperty) {
+        add("property-domain-iri", propertyDomainLabel, propertyDomainIri, "Class", "domain", false);
+      }
+      if (editKind.value === "create-individual") add("individual-type-iri", individualTypeLabel, individualTypeIri, "Class", "individual type", false);
+      if (editKind.value === "assign-individual-type") {
+        add("individual-iri", individualLabel, individualIri, "Individual", "individual");
+        add("individual-type-iri", individualTypeLabel, individualTypeIri, "Class", "individual type");
+      }
+      if (editKind.value === "add-object-property-assertion") {
+        add("assertion-subject-iri", assertionSubjectLabel, assertionSubjectIri, undefined, "assertion subject");
+        add("assertion-property-iri", assertionPropertyLabel, assertionPropertyIri, "Property", "assertion property");
+        add("assertion-object-iri", assertionObjectLabel, assertionObjectIri, undefined, "assertion object");
+      }
+      if (editKind.value === "add-datatype-property-assertion") {
+        add("assertion-subject-iri", assertionSubjectLabel, assertionSubjectIri, undefined, "assertion subject");
+        add("assertion-property-iri", assertionPropertyLabel, assertionPropertyIri, "Property", "assertion property");
+      }
+      if (hierarchyMode) {
+        add("hierarchy-class-iri", hierarchyClassLabel, hierarchyClassIri, "Class", "class");
+        add("hierarchy-superclass-iri", hierarchySuperclassLabel, hierarchySuperclassIri, "Class", "superclass");
+      }
+      if (labelMode) add("label-entity-iri", labelEntityLabel, labelEntityIri, undefined, "entity");
+      if (annotationMode) {
+        add("semantic-property-iri", semanticPropertyLabel, semanticPropertyIri, "AnnotationProperty", "annotation property");
+        add("semantic-target-iri", semanticTargetLabel, semanticTargetIri, undefined, "annotation target");
+      } else if (definitionMode || alternateLabelMode) {
+        add("semantic-target-iri", semanticTargetLabel, semanticTargetIri, undefined, "target entity");
+      }
+      return { entries, missing };
+    }
+
+    function submitProposalPreview() {
       const propertyMode = !propertyFields.hidden;
       if (editKind.value === "set-property-range" && propertyRangeIri.value === "" && propertyDatatype.value === "") {
-        previewStatus.textContent = "A range IRI or datatype is required.";
+        editStatus.textContent = "A range IRI or datatype is required.";
         return;
       }
       const individualMode = !individualFields.hidden;
@@ -680,11 +776,58 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       const hierarchyMode = !hierarchyFields.hidden;
       const labelMode = !labelFields.hidden;
       const semanticMode = !semanticFields.hidden;
+      const createProperty = editKind.value === "create-object-property" || editKind.value === "create-datatype-property";
+      const createAnnotationProperty = editKind.value === "create-annotation-property";
+      const definitionMode = ["add-definition", "replace-definition", "remove-definition"].includes(editKind.value);
+      const alternateLabelMode = ["add-alternate-label", "replace-alternate-label", "remove-alternate-label"].includes(editKind.value);
+      const annotationMode = ["add-annotation", "remove-annotation"].includes(editKind.value);
       if (editKind.value === "add-datatype-property-assertion" && assertionValue.value === "") {
-        previewStatus.textContent = "A literal value is required.";
+        editStatus.textContent = "A literal value is required.";
         return;
       }
       if (editKind.value !== "create-class" && !propertyMode && !individualMode && !assertionMode && !hierarchyMode && !labelMode && !semanticMode) return;
+      if (editKind.value === "create-class" && !classIri.value) {
+        pendingPreviewAfterIri = true;
+        editStatus.textContent = "Generating an IRI before staging...";
+        if (!requestIriGeneration()) pendingPreviewAfterIri = false;
+        return;
+      }
+      if (createProperty && !propertyIri.value) {
+        pendingPreviewAfterIri = true;
+        editStatus.textContent = "Generating an IRI before staging...";
+        if (!requestIriGeneration()) pendingPreviewAfterIri = false;
+        return;
+      }
+      if (editKind.value === "set-property-range" && propertyRangeIri.value === "" && propertyDatatype.value === "") return;
+      if (editKind.value === "create-individual" && !individualIri.value) {
+        pendingPreviewAfterIri = true;
+        editStatus.textContent = "Generating an IRI before staging...";
+        if (!requestIriGeneration()) pendingPreviewAfterIri = false;
+        return;
+      }
+      if (createAnnotationProperty && !semanticPropertyIri.value) {
+        pendingPreviewAfterIri = true;
+        editStatus.textContent = "Generating an IRI before staging...";
+        if (!requestIriGeneration()) pendingPreviewAfterIri = false;
+        return;
+      }
+      const entityResolutions = collectEntityResolutions({
+        propertyMode,
+        createProperty,
+        hierarchyMode,
+        labelMode,
+        annotationMode,
+        definitionMode,
+        alternateLabelMode,
+      });
+      if (entityResolutions.missing.length > 0) {
+        editStatus.textContent = "Enter a " + entityResolutions.missing[0] + " label before staging.";
+        return;
+      }
+      if (entityResolutions.entries.length > 0) {
+        if (!pendingEntityResolution) requestEntityResolutions(entityResolutions.entries);
+        return;
+      }
       const payload = editKind.value === "create-class"
         ? {
             targetSourceId: targetSource.value,
@@ -700,12 +843,9 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
             targetIri: semanticTargetIri.value,
             label: semanticLabel.value,
             definition: semanticDefinition.value,
-            value: semanticAnnotationValueKind.value === "literal" ? semanticValue.value : undefined,
-            valueIri: semanticAnnotationValueKind.value === "resource" ? semanticValueIri.value : undefined,
+            value: semanticValue.value,
             existing: semanticExisting.value,
             replacement: semanticReplacement.value,
-            language: semanticLanguage.value,
-            datatype: semanticDatatype.value,
           }
         : propertyMode
         ? {
@@ -752,12 +892,20 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
             datatype: assertionDatatype.value,
             language: assertionLanguage.value,
           };
+      currentRequest = payload;
       vscode.postMessage({
         type: semanticMode ? "semantic-preview" : "proposal-preview",
         payload,
       });
-      currentRequest = payload;
-      previewStatus.textContent = "Requesting proposal preview...";
+      editStatus.textContent = "Preparing staged change...";
+    }
+
+    previewSubmit.addEventListener("click", () => {
+      try {
+        submitProposalPreview();
+      } catch (error) {
+        renderPreviewError(error instanceof Error ? error.message : "The proposal preview could not be started.");
+      }
     });
 
     approve.addEventListener("click", () => {
@@ -907,35 +1055,40 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       approvalState.textContent = "Approval is disabled because preview failed.";
     }
 
-    function renderEntityResolution(result) {
-      entityResolution.replaceChildren();
-      if (result.status === "resolved" && result.candidate) {
-        entityResolution.textContent = result.candidate.label || result.candidate.iri;
-        const details = document.createElement("div");
-        details.textContent = result.candidate.kind + " · " + result.candidate.sourceId + " · " + result.candidate.iri;
-        entityResolution.append(details);
-        return;
-      }
-      if (result.status === "ambiguous") {
-        const heading = document.createElement("strong");
-        heading.textContent = "Ambiguous entity; choose a kind or source filter.";
-        const list = document.createElement("ul");
-        result.candidates.forEach((candidate) => {
-          const item = document.createElement("li");
-          item.textContent = (candidate.label || candidate.iri) + " · " + candidate.kind + " · " + candidate.sourceId;
-          list.append(item);
-        });
-        entityResolution.append(heading, list);
-        return;
-      }
-      entityResolution.textContent = result.message || "Entity was not found.";
-    }
-
     function renderGeneratedIri(result) {
-      generatedIriStatus.textContent = result.iri + " · " + result.collision;
+      const currentKey = editKind.value + "|" + (labelForEdit() || "").trim();
+      if (pendingIriGenerationKey !== currentKey) {
+        pendingPreviewAfterIri = false;
+        editStatus.textContent = "The label changed while the IRI was being generated. Click Stage change again.";
+        return;
+      }
+      pendingIriGenerationKey = undefined;
+      editStatus.textContent = "Generated IRI: " + result.iri + " · " + result.collision;
       if (editKind.value === "create-class") classIri.value = result.iri;
       if (["create-object-property", "create-datatype-property"].includes(editKind.value)) propertyIri.value = result.iri;
       if (editKind.value === "create-individual") individualIri.value = result.iri;
+      if (editKind.value === "create-annotation-property") semanticPropertyIri.value = result.iri;
+      if (pendingPreviewAfterIri) {
+        pendingPreviewAfterIri = false;
+        try {
+          submitProposalPreview();
+        } catch (error) {
+          renderPreviewError(error instanceof Error ? error.message : "The proposal preview could not be started.");
+        }
+      }
+    }
+
+    function renderEntityResolutions(result) {
+      pendingEntityResolution = false;
+      Object.entries(result.entities || {}).forEach(([field, iri]) => {
+        const input = document.getElementById(field);
+        if (input && typeof iri === "string") input.value = iri;
+      });
+      try {
+        submitProposalPreview();
+      } catch (error) {
+        renderPreviewError(error instanceof Error ? error.message : "The staged change could not be prepared.");
+      }
     }
 
     function renderDeletionReview(result) {
@@ -984,7 +1137,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       if (list.childElementCount > 0) deletionDependencies.append(list);
       if (!result.safe && canPreviewDeletion()) {
         const ready = document.createElement("p");
-        ready.textContent = "All dependent statements are selected. Preview deletion is ready.";
+        ready.textContent = "All dependent statements are selected. Stage deletion is ready.";
         deletionDependencies.append(ready);
       } else if (!result.safe) {
         const blocker = document.createElement("p");
@@ -1371,17 +1524,20 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       if (message.type === "combined-action-error") {
         renderCombinedActionResult({ ok: false, action: message.action || "apply", reason: message.message, changedFiles: [] });
       }
-      if (message.type === "entity-resolution") {
-        renderEntityResolution(message.payload);
-      }
-      if (message.type === "entity-resolution-error") {
-        entityResolution.textContent = message.message;
-      }
       if (message.type === "generated-iri") {
         renderGeneratedIri(message.payload);
       }
       if (message.type === "generated-iri-error") {
-        generatedIriStatus.textContent = message.message;
+        pendingPreviewAfterIri = false;
+        pendingIriGenerationKey = undefined;
+        editStatus.textContent = message.message;
+      }
+      if (message.type === "edit-entities-resolved") {
+        renderEntityResolutions(message.payload);
+      }
+      if (message.type === "edit-entities-error") {
+        pendingEntityResolution = false;
+        editStatus.textContent = message.message;
       }
       if (message.type === "deletion-dependencies") {
         renderDeletionReview(message.payload);
