@@ -2,6 +2,7 @@ package com.entio.cli
 
 import com.entio.core.ChangeProposal
 import com.entio.core.ChangeProposalStatus
+import com.entio.core.ChangeSet
 import com.entio.core.CombinedProposalPreview
 import com.entio.core.CombinedProposalStatus
 import com.entio.core.EntioProject
@@ -14,7 +15,13 @@ import com.entio.core.StagedChangeSet
 import com.entio.core.ValidationIssue
 import com.entio.core.ValidationSeverity
 import com.entio.diff.CombinedPreviewService
+import com.entio.diff.ProposalDiffGenerator
+import com.entio.semantic.PreviewTurtleRoundTripVerifier
 import com.entio.semantic.ProjectLoader
+import com.entio.semantic.ProposalCreator
+import com.entio.semantic.TypedOntologyEditTranslator
+import com.entio.validation.ProjectValidator
+import com.entio.validation.ProposalValidator
 import java.nio.file.Path
 import java.util.concurrent.Callable
 import picocli.CommandLine.Command
@@ -34,6 +41,12 @@ internal class CombinedProposalCommand(
     private val parser: StructuredRequestParser = StructuredRequestParser(),
     private val previewService: CombinedPreviewService = CombinedPreviewService(),
     private val proposalApplier: com.entio.semantic.ProposalApplier = com.entio.semantic.ProposalApplier(),
+    private val proposalCreator: ProposalCreator = ProposalCreator(),
+    private val proposalDiffGenerator: ProposalDiffGenerator = ProposalDiffGenerator(),
+    private val proposalValidator: ProposalValidator = ProposalValidator(),
+    private val projectValidator: ProjectValidator = ProjectValidator(),
+    private val equivalenceVerifier: PreviewTurtleRoundTripVerifier = PreviewTurtleRoundTripVerifier(),
+    private val editTranslator: TypedOntologyEditTranslator = TypedOntologyEditTranslator(),
 ) : Callable<Int> {
     @Spec
     private lateinit var spec: CommandSpec
@@ -65,6 +78,12 @@ internal class CombinedProposalCommand(
         if (actionName !in SUPPORTED_ACTIONS) {
             return printFailure(failure("unsupported-proposal-action", "Unsupported proposal action '$action'."))
         }
+        if (request.edits.any(StructuredEditRequest::isSemanticEdit)) {
+            if (request.edits.any { !it.isSemanticEdit() }) {
+                return printFailure(failure("mixed-edit-kinds", "Semantic and structural edits must be submitted in separate requests."))
+            }
+            return semanticLifecycle(root, project, request, actionName)
+        }
         val staged = when (val result = stagedChanges(project, request)) {
             is EntioResult.Failure -> return printFailure(result)
             is EntioResult.Success -> result.value
@@ -94,6 +113,136 @@ internal class CombinedProposalCommand(
         val ok = if (rejected) true else validForAction
         spec.commandLine().out.println(combinedPayload(actionName, request, combined, project, ok, rejected).encoded)
         return if (ok) EXIT_OK else EXIT_FAILED
+    }
+
+    private fun semanticLifecycle(
+        projectRoot: Path,
+        project: EntioProject,
+        request: StructuredProposalRequest,
+        action: String,
+    ): Int {
+        val changeSet = when (val result = semanticChangeSet(project, request)) {
+            is EntioResult.Failure -> return printFailure(result)
+            is EntioResult.Success -> result.value
+        }
+        val proposal = when (
+            val result = proposalCreator.createProposal(
+                project = project,
+                targetSourceId = request.targetSourceId,
+                changeSet = changeSet,
+                id = request.proposalId,
+                title = request.title,
+            )
+        ) {
+            is EntioResult.Failure -> return printFailure(result)
+            is EntioResult.Success -> result.value
+        }
+        val requestedBaseline = when (val result = expectedBaseline(project, request)) {
+            is EntioResult.Failure -> return printFailure(result)
+            is EntioResult.Success -> result.value
+        }
+        val proposalWithBaseline = requestedBaseline?.let { proposal.copy(baseline = it) } ?: proposal
+        val proposalWithDiff = when (val result = proposalDiffGenerator.attachDiff(proposalWithBaseline, project.graph)) {
+            is EntioResult.Failure -> return printFailure(result)
+            is EntioResult.Success -> result.value
+        }
+        val preview = proposalWithDiff.preview
+            ?: return printFailure(failure("missing-proposal-preview", "Proposal '${proposalWithDiff.id}' does not include a preview graph."))
+        val equivalence = when (val result = equivalenceVerifier.verify(preview)) {
+            is EntioResult.Failure -> return printFailure(result)
+            is EntioResult.Success -> result.value
+        }
+        val validationReport = proposalValidator.validateProposal(
+            proposal = proposalWithDiff,
+            currentProject = project,
+            projectValidationReport = projectValidator.validateProject(projectRoot),
+            semanticEquivalenceResult = equivalence,
+        )
+        val preparedProposal = proposalWithDiff.copy(validationReport = validationReport)
+        val combined = semanticCombinedPreview(request, preparedProposal, validationReport, equivalence)
+
+        if (action == "apply") {
+            val valid = validationReport.ok && equivalence is SemanticEquivalenceResult.Equivalent
+            if (!valid) {
+                spec.commandLine().out.println(combinedPayload(action, request, combined, project, ok = false, rejected = false).encoded)
+                return EXIT_FAILED
+            }
+            val applyResult = proposalApplier.applyProposal(
+                projectRoot,
+                preparedProposal.copy(status = ChangeProposalStatus.Approved),
+            )
+            spec.commandLine().out.println(
+                combinedPayload(
+                    action = action,
+                    request = request,
+                    combined = combined,
+                    project = project,
+                    ok = applyResult is com.entio.core.ApplyProposalResult.Applied,
+                    rejected = false,
+                    applyResult = applyResult,
+                ).encoded,
+            )
+            return if (applyResult is com.entio.core.ApplyProposalResult.Applied) EXIT_OK else EXIT_FAILED
+        }
+
+        val rejected = action == "reject"
+        val validForAction = validationReport.ok && equivalence is SemanticEquivalenceResult.Equivalent
+        val ok = rejected || validForAction
+        spec.commandLine().out.println(combinedPayload(action, request, combined, project, ok, rejected).encoded)
+        return if (ok) EXIT_OK else EXIT_FAILED
+    }
+
+    private fun semanticChangeSet(
+        project: EntioProject,
+        request: StructuredProposalRequest,
+    ): EntioResult<ChangeSet> {
+        val existingAnnotationProperties = project.graph.triples
+            .filter { triple ->
+                triple.predicate.value == RDF_TYPE &&
+                    (triple.objectTerm as? com.entio.core.RdfResource)?.value == OWL_ANNOTATION_PROPERTY
+            }
+            .map { triple -> triple.subjectResource }
+            .filterIsInstance<com.entio.core.Iri>()
+            .toSet()
+        val changes = mutableListOf<com.entio.core.GraphChange>()
+        request.edits.forEach { edit ->
+            val semanticEdit = when (val result = edit.toSemanticEditRequest(request.targetSourceId)) {
+                is EntioResult.Failure -> return result
+                is EntioResult.Success -> result.value
+            }
+            when (val result = editTranslator.translate(semanticEdit, existingAnnotationProperties)) {
+                is EntioResult.Failure -> return result
+                is EntioResult.Success -> changes += result.value.changes
+            }
+        }
+        return EntioResult.Success(ChangeSet(changes))
+    }
+
+    private fun semanticCombinedPreview(
+        request: StructuredProposalRequest,
+        proposal: ChangeProposal,
+        validationReport: com.entio.core.ValidationReport,
+        equivalence: SemanticEquivalenceResult,
+    ): CombinedProposalPreview {
+        val status = when {
+            validationReport.issues.any { issue -> issue.code == "stale-proposal-baseline" } -> CombinedProposalStatus.Stale
+            validationReport.ok && equivalence is SemanticEquivalenceResult.Equivalent -> CombinedProposalStatus.ReadyForReview
+            else -> CombinedProposalStatus.Invalid
+        }
+        return CombinedProposalPreview(
+            metadata = com.entio.core.CombinedProposalMetadata(
+                proposalId = request.proposalId,
+                stagedChangeIds = request.edits.indices.map { index -> "${request.proposalId}-$index" },
+                targetSourceIds = listOf(request.targetSourceId),
+                status = status,
+                baseline = proposal.baseline,
+            ),
+            changeSet = proposal.changeSet,
+            preview = proposal.preview,
+            diff = proposal.diff,
+            validationReport = validationReport,
+            equivalence = equivalence,
+        )
     }
 
     private fun apply(
@@ -278,6 +427,8 @@ internal class CombinedProposalCommand(
         private val SUPPORTED_ACTIONS = setOf("preview", "validate", "diff", "apply", "reject")
         private const val EXIT_OK = 0
         private const val EXIT_FAILED = 1
+        private const val RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+        private const val OWL_ANNOTATION_PROPERTY = "http://www.w3.org/2002/07/owl#AnnotationProperty"
 
         private fun failure(code: String, message: String): EntioResult.Failure =
             EntioResult.Failure(

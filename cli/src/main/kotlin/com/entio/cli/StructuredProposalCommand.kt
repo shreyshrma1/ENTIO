@@ -3,6 +3,7 @@ package com.entio.cli
 import com.entio.core.AddDatatypePropertyAssertionEdit
 import com.entio.core.AddObjectPropertyAssertionEdit
 import com.entio.core.AddSuperclassEdit
+import com.entio.core.AnnotationValue
 import com.entio.core.AssignTypeEdit
 import com.entio.core.CreateClassEdit
 import com.entio.core.CreateDatatypePropertyEdit
@@ -24,6 +25,7 @@ import com.entio.core.StagedChange
 import com.entio.core.StagedChangeOperation
 import com.entio.core.StagedChangeSet
 import com.entio.core.SymbolKind
+import com.entio.core.SemanticEditRequest
 import com.entio.core.TypedOntologyEdit
 import com.entio.core.ValidationIssue
 import com.entio.core.ValidationSeverity
@@ -359,6 +361,106 @@ internal fun StructuredEditRequest.toOperation(
     }
     return EntioResult.Success(StagedChangeOperation.TypedEdit(typed))
 }
+
+internal fun StructuredEditRequest.isSemanticEdit(): Boolean = kind in SEMANTIC_EDIT_KINDS
+
+internal fun StructuredEditRequest.toSemanticEditRequest(sourceId: String): EntioResult<SemanticEditRequest> {
+    fun requiredIri(name: String): Iri? = fields[name]?.takeIf { it.isNotBlank() }?.let(::Iri)
+    fun missing(name: String): EntioResult.Failure = EntioResult.Failure(
+        "Semantic edit '$kind' must define $name.",
+        listOf(ValidationIssue(ValidationSeverity.Error, "missing-semantic-edit-value", "Semantic edit '$kind' must define $name.", kind)),
+    )
+    fun literal(name: String): RdfLiteral? = fields[name]?.takeIf { it.isNotBlank() }?.let {
+        RdfLiteral(
+            lexicalForm = it,
+            datatypeIri = fields["datatype"]?.takeIf(String::isNotBlank)?.let(::Iri),
+            languageTag = fields["language"]?.takeIf(String::isNotBlank),
+        )
+    }
+    fun requiredLiteral(name: String): RdfLiteral {
+        return literal(name) ?: throw SemanticEditInputException(missing(name))
+    }
+    fun value(): AnnotationValue? = fields["valueIri"]?.takeIf { it.isNotBlank() }?.let { AnnotationValue.Resource(Iri(it)) }
+        ?: literal("value")?.let(AnnotationValue::Literal)
+
+    return try {
+        val edit = when (kind) {
+            "create-annotation-property" -> SemanticEditRequest.CreateAnnotationProperty(
+                propertyIri = requiredIri("propertyIri") ?: return missing("propertyIri"),
+                sourceId = sourceId,
+                label = literal("label"),
+                definition = literal("definition"),
+            )
+            "add-definition" -> SemanticEditRequest.AddDefinition(
+                target = requiredIri("targetIri") ?: return missing("targetIri"),
+                value = requiredLiteral("value"),
+                sourceId = sourceId,
+            )
+            "replace-definition" -> SemanticEditRequest.ReplaceDefinition(
+                target = requiredIri("targetIri") ?: return missing("targetIri"),
+                existing = requiredLiteral("existing"),
+                replacement = requiredLiteral("replacement"),
+                sourceId = sourceId,
+            )
+            "remove-definition" -> SemanticEditRequest.RemoveDefinition(
+                target = requiredIri("targetIri") ?: return missing("targetIri"),
+                value = requiredLiteral("value"),
+                sourceId = sourceId,
+            )
+            "add-alternate-label" -> SemanticEditRequest.AddAlternateLabel(
+                target = requiredIri("targetIri") ?: return missing("targetIri"),
+                value = requiredLiteral("value"),
+                sourceId = sourceId,
+            )
+            "replace-alternate-label" -> SemanticEditRequest.ReplaceAlternateLabel(
+                target = requiredIri("targetIri") ?: return missing("targetIri"),
+                existing = requiredLiteral("existing"),
+                replacement = requiredLiteral("replacement"),
+                sourceId = sourceId,
+            )
+            "remove-alternate-label" -> SemanticEditRequest.RemoveAlternateLabel(
+                target = requiredIri("targetIri") ?: return missing("targetIri"),
+                value = requiredLiteral("value"),
+                sourceId = sourceId,
+            )
+            "add-annotation" -> SemanticEditRequest.AddAnnotation(
+                target = requiredIri("targetIri") ?: return missing("targetIri"),
+                property = requiredIri("propertyIri") ?: return missing("propertyIri"),
+                value = value() ?: return missing("value or valueIri"),
+                sourceId = sourceId,
+            )
+            "remove-annotation" -> SemanticEditRequest.RemoveAnnotation(
+                target = requiredIri("targetIri") ?: return missing("targetIri"),
+                property = requiredIri("propertyIri") ?: return missing("propertyIri"),
+                value = value() ?: return missing("value or valueIri"),
+                sourceId = sourceId,
+            )
+            else -> return EntioResult.Failure(
+                "Unsupported semantic edit kind '$kind'.",
+                listOf(ValidationIssue(ValidationSeverity.Error, "unsupported-semantic-edit", "Unsupported semantic edit kind '$kind'.", kind)),
+            )
+        }
+        EntioResult.Success(edit)
+    } catch (exception: SemanticEditInputException) {
+        exception.failure
+    }
+}
+
+private class SemanticEditInputException(
+    val failure: EntioResult.Failure,
+) : RuntimeException()
+
+private val SEMANTIC_EDIT_KINDS = setOf(
+    "create-annotation-property",
+    "add-definition",
+    "replace-definition",
+    "remove-definition",
+    "add-alternate-label",
+    "replace-alternate-label",
+    "remove-alternate-label",
+    "add-annotation",
+    "remove-annotation",
+)
 
 private fun StructuredEditRequest.requiredIri(name: String): Iri = Iri(fields[name].orEmpty())
 

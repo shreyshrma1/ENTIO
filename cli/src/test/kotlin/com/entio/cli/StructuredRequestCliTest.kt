@@ -178,6 +178,62 @@ class StructuredRequestCliTest {
         assertEquals(before.toList(), Files.readAllBytes(source).toList())
     }
 
+    @Test
+    fun semanticCombinedRequestUsesExistingPreviewAndRejectLifecycle(): Unit {
+        val project = createProject()
+        val request = Files.createTempFile("entio-semantic-combined", ".json")
+        request.writeText(semanticAnnotationPropertyRequest())
+        val source = project.resolve("ontology/simple.ttl")
+        val before = Files.readAllBytes(source)
+
+        val preview = runCli("proposal-combined", project.toString(), "--request-file", request.toString(), "--action", "preview")
+        val reject = runCli("proposal-combined", project.toString(), "--request-file", request.toString(), "--action", "reject")
+
+        assertEquals(0, preview.first, preview.second)
+        assertTrue(preview.second.contains("\"status\":\"readyforreview\""), preview.second)
+        assertTrue(preview.second.contains("\"semanticEquivalence\":{\"status\":\"equivalent\"}"), preview.second)
+        assertEquals(0, reject.first, reject.second)
+        assertTrue(reject.second.contains("\"status\":\"rejected\""), reject.second)
+        assertEquals(before.toList(), Files.readAllBytes(source).toList())
+    }
+
+    @Test
+    fun semanticCombinedRequestAppliesThroughExistingProposalApplier(): Unit {
+        val project = createProject()
+        val request = Files.createTempFile("entio-semantic-apply", ".json")
+        request.writeText(semanticAnnotationPropertyRequest(propertyIri = "https://example.com/hasDefinition"))
+
+        val run = runCli("proposal-combined", project.toString(), "--request-file", request.toString(), "--action", "apply")
+
+        assertEquals(0, run.first, run.second)
+        assertTrue(run.second.contains("\"status\":\"applied\""), run.second)
+        assertTrue(project.resolve("ontology/simple.ttl").toFile().readText().contains("hasDefinition"))
+    }
+
+    @Test
+    fun semanticCombinedRequestReportsMalformedEditFields(): Unit {
+        val project = createProject()
+        val request = Files.createTempFile("entio-semantic-invalid", ".json")
+        request.writeText(
+            """
+            {
+              "schemaVersion": 1,
+              "proposalId": "semantic-invalid",
+              "title": "Invalid semantic edit",
+              "targetSourceId": "simple",
+              "edits": [
+                {"kind": "add-definition", "targetIri": "https://example.com/Customer"}
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        val run = runCli("proposal-combined", project.toString(), "--request-file", request.toString(), "--action", "preview")
+
+        assertEquals(1, run.first)
+        assertTrue(run.second.contains("missing-semantic-edit-value"), run.second)
+    }
+
     private fun runCli(vararg args: String): Pair<Int, String> {
         val output = ByteArrayOutputStream()
         val error = ByteArrayOutputStream()
@@ -232,6 +288,26 @@ class StructuredRequestCliTest {
         )
         return root
     }
+
+    private fun semanticAnnotationPropertyRequest(
+        propertyIri: String = "https://example.com/hasDefinition",
+    ): String =
+        """
+        {
+          "schemaVersion": 1,
+          "proposalId": "semantic-property-1",
+          "title": "Create semantic annotation property",
+          "targetSourceId": "simple",
+          "edits": [
+            {
+              "kind": "create-annotation-property",
+              "propertyIri": "$propertyIri",
+              "label": "has definition",
+              "definition": "A human-readable definition."
+            }
+          ]
+        }
+        """.trimIndent()
 
     private fun deleteRequest(selectedDependencyKey: String? = null): String {
         val selected = selectedDependencyKey?.let { "\n          ,\"selectedDependencyKeys\": [\"$it\"]" }.orEmpty()
