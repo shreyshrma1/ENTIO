@@ -29,7 +29,6 @@ class CliExampleProjectTest {
                 Class https://example.com/entio/simple#Invoice "Invoice" [simple]
                 Individual https://example.com/entio/simple#Shrey "Shrey" [simple]
                 Property https://example.com/entio/simple#ownsAccount "owns account" [simple]
-                Property https://example.com/entio/simple#recievedInvoice "recieved invoice" [simple]
             """.trimIndent() + "\n",
             symbols.out,
         )

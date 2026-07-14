@@ -79,6 +79,7 @@ class Phase25PlusEndToEndRegressionTest {
     @Test
     fun labelResolutionGenerationCollisionAndDeletionUseStructuredBoundaries(): Unit {
         val fixture = copyExampleProject()
+        addReferencedInvoiceRelationship(fixture)
 
         val resolved = runCli(
             "resolve-label",
@@ -226,6 +227,7 @@ class Phase25PlusEndToEndRegressionTest {
         })
 
         val referencedFixture = copyExampleProject()
+        addReferencedInvoiceRelationship(referencedFixture)
         val propertyIri = Iri("https://example.com/entio/simple#recievedInvoice")
         val subjectIri = Iri("https://example.com/entio/simple#Shrey")
         val objectIri = Iri("https://example.com/entio/simple#20874")
@@ -349,6 +351,23 @@ class Phase25PlusEndToEndRegressionTest {
             )
         }
         return ProjectFixture(targetRoot, targetRoot.resolve("ontology/simple.ttl"))
+    }
+
+    private fun addReferencedInvoiceRelationship(fixture: ProjectFixture): Unit {
+        fixture.ontologyPath.writeText(
+            fixture.ontologyPath.readText() + """
+
+            <https://example.com/entio/simple#recievedInvoice>
+                a <http://www.w3.org/2002/07/owl#ObjectProperty> ;
+                <http://www.w3.org/2000/01/rdf-schema#domain> <https://example.com/entio/simple#Customer> ;
+                <http://www.w3.org/2000/01/rdf-schema#range> <https://example.com/entio/simple#Invoice> ;
+                <http://www.w3.org/2000/01/rdf-schema#label> "recieved invoice" .
+
+            <https://example.com/entio/simple#Shrey>
+                <https://example.com/entio/simple#recievedInvoice>
+                    <https://example.com/entio/simple#20874> .
+            """.trimIndent() + "\n",
+        )
     }
 
     private fun ambiguousProject(): Path {
