@@ -161,6 +161,70 @@ export function activate(context: vscode.ExtensionContext): void {
           return;
         }
 
+        if (message.type === "resolve-edit-entities") {
+          const payload = message as {
+            payload?: {
+              sourceId?: unknown;
+              entries?: unknown;
+            };
+          };
+          const sourceId = typeof payload.payload?.sourceId === "string" ? payload.payload.sourceId : undefined;
+          const entries = Array.isArray(payload.payload?.entries)
+            ? payload.payload.entries.filter((entry): entry is {
+              field: string;
+              label: string;
+              kind?: string;
+              description: string;
+            } => {
+              if (!entry || typeof entry !== "object") return false;
+              const value = entry as Record<string, unknown>;
+              return typeof value.field === "string" && typeof value.label === "string" &&
+                typeof value.description === "string" &&
+                (value.kind === undefined || typeof value.kind === "string");
+            })
+            : [];
+          if (!sourceId || entries.length === 0) {
+            await panel.webview.postMessage({
+              type: "edit-entities-error",
+              message: !sourceId
+                ? "A source is required to verify edit fields."
+                : "At least one existing entity label is required.",
+            });
+            return;
+          }
+          try {
+            const entities: Record<string, string> = {};
+            for (const entry of entries) {
+              const response = await engine.run(
+                entityResolutionInvocationArgs(project.rootPath, {
+                  label: entry.label.trim(),
+                  kind: entry.kind,
+                  sourceId,
+                }),
+                project.rootPath,
+              );
+              const resolution = createEntityResolutionModel(response);
+              if (resolution?.status === "not-found") {
+                throw new Error("The " + entry.description + " '" + entry.label + "' does not exist in the selected source.");
+              }
+              if (resolution?.status !== "resolved" || !resolution.candidate) {
+                throw new Error("The " + entry.description + " '" + entry.label + "' could not be uniquely verified in the selected source.");
+              }
+              entities[entry.field] = resolution.candidate.iri;
+            }
+            await panel.webview.postMessage({
+              type: "edit-entities-resolved",
+              payload: { entities },
+            });
+          } catch (error) {
+            await panel.webview.postMessage({
+              type: "edit-entities-error",
+              message: error instanceof Error ? error.message : "Entio could not verify the edit fields.",
+            });
+          }
+          return;
+        }
+
         if (message.type === "semantic-preview") {
           const request = readProposalPreviewRequest((message as { payload?: unknown }).payload);
           if (!request || !request.editKind.startsWith("create-annotation") && ![
@@ -339,34 +403,6 @@ export function activate(context: vscode.ExtensionContext): void {
               type: "combined-action-error",
               action,
               message: error instanceof Error ? error.message : "Entio combined proposal action failed.",
-            });
-          }
-        }
-
-        if (message.type === "resolve-entity") {
-          const selector = readEntitySelectorRequest((message as { payload?: unknown }).payload);
-          if (!selector) {
-            await panel.webview.postMessage({
-              type: "entity-resolution-error",
-              message: "An entity label or IRI is required.",
-            });
-            return;
-          }
-          try {
-            const response = await engine.run(
-              entityResolutionInvocationArgs(project.rootPath, selector),
-              project.rootPath,
-            );
-            const resolution = createEntityResolutionModel(response);
-            if (!resolution) throw new Error("Entio CLI returned an invalid entity resolution result.");
-            await panel.webview.postMessage({
-              type: "entity-resolution",
-              payload: resolution,
-            });
-          } catch (error) {
-            await panel.webview.postMessage({
-              type: "entity-resolution-error",
-              message: error instanceof Error ? error.message : "Entio entity resolution failed.",
             });
           }
         }
