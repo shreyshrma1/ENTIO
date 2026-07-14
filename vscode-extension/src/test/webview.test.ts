@@ -42,6 +42,9 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /type: "deletion-preview"/);
   assert.match(html, /selectedDependencyKeys/);
   assert.match(html, /checkbox/);
+  assert.match(html, /deletion-dependency/);
+  assert.match(html, /RequiresExplicitDependencies/);
+  assert.match(html, /All dependent statements are selected/);
   assert.match(html, /explicit dependencies required/);
   assert.match(html, /id="staged-changes"/);
   assert.match(html, /id="staged-list"/);
@@ -53,6 +56,8 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /type: "combined-action"/);
   assert.match(html, /Combined preview is valid and ready for approval/);
   assert.match(html, /The staged list remains available for correction/);
+  assert.match(html, /The changes remain staged for correction or another review/);
+  assert.match(html, /currentPreview = undefined;[\s\S]*renderStagedList\(\);/);
   assert.match(html, /type: "proposal-preview"/);
   assert.match(html, /id="preview-validation"/);
   assert.match(html, /id="approve"/);

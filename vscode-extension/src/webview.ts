@@ -27,6 +27,8 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     #details { min-height: 100px; }
     form { display: grid; gap: 8px; max-width: 520px; }
     label { display: grid; gap: 4px; }
+    .deletion-dependency { display: flex; align-items: flex-start; gap: 8px; }
+    .deletion-dependency input { width: auto; margin: 2px 0 0; }
     [hidden] { display: none !important; }
     input, select { color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); padding: 6px; }
     #edit-form, #preview { margin-top: 20px; }
@@ -367,7 +369,9 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     }
 
     function canPreviewDeletion() {
-      if (!currentDeletionReview || currentDeletionReview.status !== "Safe") return false;
+      if (!currentDeletionReview ||
+          !["Safe", "RequiresExplicitDependencies"].includes(currentDeletionReview.status) ||
+          currentDeletionReview.invalidSelectedDependencyKeys.length > 0) return false;
       return currentDeletionReview.dependentStatements.every((statement) =>
         typeof statement.dependencyKey === "string" && selectedDeletionKeys.has(statement.dependencyKey));
     }
@@ -716,8 +720,15 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         return;
       }
       if (result.ok && result.action === "reject") {
+        currentRequest = undefined;
+        currentPreview = undefined;
+        changedSource = undefined;
+        renderStagedList();
         previewStatus.textContent = "Combined proposal rejected; source files were not changed.";
-        approvalState.textContent = "The staged list remains available for correction.";
+        previewImpact.textContent = "No source files were changed.";
+        previewDiff.replaceChildren();
+        previewValidation.replaceChildren();
+        approvalState.textContent = "The changes remain staged for correction or another review.";
         return;
       }
       previewStatus.textContent = result.reason || "Combined proposal action failed.";
@@ -802,6 +813,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
           updateDeletionPreviewState();
         });
         const label = document.createElement("label");
+        label.className = "deletion-dependency";
         label.append(
           checkbox,
           document.createTextNode(" " + statement.kind + " · " + displayStatementValue(statement.subjectLabel, statement.subject) + " · " +
@@ -812,7 +824,11 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         list.append(item);
       });
       if (list.childElementCount > 0) deletionDependencies.append(list);
-      if (!result.safe) {
+      if (!result.safe && canPreviewDeletion()) {
+        const ready = document.createElement("p");
+        ready.textContent = "All dependent statements are selected. Preview deletion is ready.";
+        deletionDependencies.append(ready);
+      } else if (!result.safe) {
         const blocker = document.createElement("p");
         blocker.textContent = result.invalidSelectedDependencyKeys.length > 0
           ? "Deletion remains blocked because one or more selected dependencies are invalid."
