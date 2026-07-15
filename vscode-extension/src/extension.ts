@@ -4,6 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as vscode from "vscode";
 import { EntioEngineClient } from "./engineCli";
+import {
+  createExternalBrowseModel,
+  createExternalDependenciesModel,
+  createExternalDescriptorModel,
+  createExternalManifestModel,
+  createExternalProposalModel,
+  createExternalSearchModel,
+} from "./externalWorkbench";
 import { detectEntioProject } from "./projectDetector";
 import { renderWorkbench } from "./webview";
 import {
@@ -121,6 +129,23 @@ export function activate(context: vscode.ExtensionContext): void {
           },
         });
       };
+      const refreshExternal = async (): Promise<void> => {
+        try {
+          const [manifestResponse, browseResponse] = await Promise.all([
+            engine.run(["external-manifest", project.rootPath], project.rootPath),
+            engine.run(["external-browse", project.rootPath, "--mode", "curated", "--page-size", "25"], project.rootPath),
+          ]);
+          const manifest = createExternalManifestModel(manifestResponse);
+          const browse = createExternalBrowseModel(browseResponse);
+          if (!manifest || !browse) throw new Error("Entio CLI returned an invalid external ontology catalog response.");
+          await panel.webview.postMessage({ type: "external-state", payload: { manifest, browse } });
+        } catch (error) {
+          await panel.webview.postMessage({
+            type: "external-error",
+            message: error instanceof Error ? error.message : "Entio external ontology catalog loading failed.",
+          });
+        }
+      };
       const messageSubscription = panel.webview.onDidReceiveMessage(async (message: { type?: string }) => {
         if (message.type === "refresh") {
           await refresh();
@@ -137,6 +162,123 @@ export function activate(context: vscode.ExtensionContext): void {
             await refreshPhase4();
           } catch (error) {
             await panel.webview.postMessage({ type: "phase4-error", message: error instanceof Error ? error.message : "Entio Phase 4 refresh failed." });
+          }
+          return;
+        }
+
+        if (message.type === "external-refresh") {
+          await refreshExternal();
+          return;
+        }
+
+        if (message.type === "external-browse") {
+          const payload = message as { payload?: { mode?: unknown; moduleIri?: unknown; page?: unknown; pageSize?: unknown } };
+          const mode = typeof payload.payload?.mode === "string" ? payload.payload.mode : "curated";
+          const page = typeof payload.payload?.page === "number" ? payload.payload.page : 0;
+          const pageSize = typeof payload.payload?.pageSize === "number" ? payload.payload.pageSize : 25;
+          try {
+            const args = ["external-browse", project.rootPath, "--mode", mode, "--page", String(page), "--page-size", String(pageSize)];
+            if (typeof payload.payload?.moduleIri === "string" && payload.payload.moduleIri) args.push("--module-iri", payload.payload.moduleIri);
+            const response = await engine.run(args, project.rootPath);
+            const browse = createExternalBrowseModel(response);
+            if (!browse) throw new Error("Entio CLI returned an invalid external browse result.");
+            await panel.webview.postMessage({ type: "external-browse", payload: browse });
+          } catch (error) {
+            await panel.webview.postMessage({ type: "external-browse-error", message: error instanceof Error ? error.message : "Entio external browse failed." });
+          }
+          return;
+        }
+
+        if (message.type === "external-search") {
+          const payload = message as { payload?: { query?: unknown; kind?: unknown; moduleIri?: unknown; domain?: unknown; curatedOnly?: unknown; page?: unknown; pageSize?: unknown } };
+          const query = typeof payload.payload?.query === "string" ? payload.payload.query.trim() : "";
+          if (!query) {
+            await panel.webview.postMessage({ type: "external-search-error", message: "Enter text to search the external catalog." });
+            return;
+          }
+          try {
+            const page = typeof payload.payload?.page === "number" ? payload.payload.page : 0;
+            const pageSize = typeof payload.payload?.pageSize === "number" ? payload.payload.pageSize : 25;
+            const args = ["external-search", project.rootPath, query, "--page", String(page), "--page-size", String(pageSize)];
+            if (typeof payload.payload?.kind === "string" && payload.payload.kind) args.push("--kind", payload.payload.kind);
+            if (typeof payload.payload?.moduleIri === "string" && payload.payload.moduleIri) args.push("--module-iri", payload.payload.moduleIri);
+            if (typeof payload.payload?.domain === "string" && payload.payload.domain) args.push("--domain", payload.payload.domain);
+            if (payload.payload?.curatedOnly === true) args.push("--curated-only");
+            const response = await engine.run(args, project.rootPath);
+            const search = createExternalSearchModel(response);
+            if (!search) throw new Error("Entio CLI returned an invalid external search result.");
+            await panel.webview.postMessage({ type: "external-search", payload: search });
+          } catch (error) {
+            await panel.webview.postMessage({ type: "external-search-error", message: error instanceof Error ? error.message : "Entio external search failed." });
+          }
+          return;
+        }
+
+        if (message.type === "external-describe") {
+          const payload = message as { payload?: { iri?: unknown; kind?: unknown } };
+          const iri = typeof payload.payload?.iri === "string" ? payload.payload.iri : "";
+          if (!iri) {
+            await panel.webview.postMessage({ type: "external-describe-error", message: "An external element IRI is required." });
+            return;
+          }
+          try {
+            const args = ["external-describe", project.rootPath, iri];
+            if (typeof payload.payload?.kind === "string" && payload.payload.kind) args.push("--kind", payload.payload.kind);
+            const response = await engine.run(args, project.rootPath);
+            const descriptor = createExternalDescriptorModel(response);
+            if (!descriptor) throw new Error("Entio CLI returned an invalid external descriptor.");
+            await panel.webview.postMessage({ type: "external-describe", payload: descriptor });
+          } catch (error) {
+            await panel.webview.postMessage({ type: "external-describe-error", message: error instanceof Error ? error.message : "Entio external descriptor lookup failed." });
+          }
+          return;
+        }
+
+        if (message.type === "external-dependencies") {
+          const payload = message as { payload?: { iri?: unknown; kind?: unknown } };
+          const iri = typeof payload.payload?.iri === "string" ? payload.payload.iri : "";
+          if (!iri) {
+            await panel.webview.postMessage({ type: "external-dependencies-error", message: "An external element IRI is required." });
+            return;
+          }
+          try {
+            const args = ["external-dependencies", project.rootPath, iri];
+            if (typeof payload.payload?.kind === "string" && payload.payload.kind) args.push("--kind", payload.payload.kind);
+            const response = await engine.run(args, project.rootPath);
+            const dependencies = createExternalDependenciesModel(response);
+            if (!dependencies) throw new Error("Entio CLI returned an invalid external dependency response.");
+            await panel.webview.postMessage({ type: "external-dependencies", payload: dependencies });
+          } catch (error) {
+            await panel.webview.postMessage({ type: "external-dependencies-error", message: error instanceof Error ? error.message : "Entio external dependency review failed." });
+          }
+          return;
+        }
+
+        if (message.type === "external-proposal") {
+          const payload = message as { payload?: { targetSourceId?: unknown; targetOntologyIri?: unknown; intent?: unknown; externalIri?: unknown; kind?: unknown; localClassIri?: unknown; selectedDependencyKeys?: unknown } };
+          const value = payload.payload;
+          const targetSourceId = typeof value?.targetSourceId === "string" ? value.targetSourceId : "";
+          const targetOntologyIri = typeof value?.targetOntologyIri === "string" ? value.targetOntologyIri : "";
+          const intent = typeof value?.intent === "string" ? value.intent : "";
+          const externalIri = typeof value?.externalIri === "string" ? value.externalIri : "";
+          if (!targetSourceId || !targetOntologyIri || !intent || (!externalIri && intent !== "add-reference")) {
+            await panel.webview.postMessage({ type: "external-proposal-error", message: "An external intent, target source, target ontology, and selected external element are required." });
+            return;
+          }
+          try {
+            const args = ["external-proposal", project.rootPath, targetSourceId, targetOntologyIri, "--intent", intent];
+            if (externalIri) args.push("--external-iri", externalIri);
+            if (typeof value?.kind === "string" && value.kind) args.push("--kind", value.kind);
+            if (typeof value?.localClassIri === "string" && value.localClassIri) args.push("--local-class-iri", value.localClassIri);
+            if (Array.isArray(value?.selectedDependencyKeys)) {
+              value.selectedDependencyKeys.filter((key): key is string => typeof key === "string").forEach((key) => args.push("--select-dependency", key));
+            }
+            const response = await engine.run(args, project.rootPath);
+            const proposal = createExternalProposalModel(response);
+            if (!proposal) throw new Error("Entio CLI returned an invalid external proposal response.");
+            await panel.webview.postMessage({ type: "external-proposal", payload: proposal });
+          } catch (error) {
+            await panel.webview.postMessage({ type: "external-proposal-error", message: error instanceof Error ? error.message : "Entio external proposal preparation failed." });
           }
           return;
         }
@@ -546,6 +688,7 @@ export function activate(context: vscode.ExtensionContext): void {
       } catch (error) {
         await panel.webview.postMessage({ type: "phase4-error", message: error instanceof Error ? error.message : "Entio Phase 4 refresh failed." });
       }
+      await refreshExternal();
     },
   );
 
