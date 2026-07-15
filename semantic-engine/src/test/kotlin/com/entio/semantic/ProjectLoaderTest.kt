@@ -23,20 +23,21 @@ class ProjectLoaderTest {
 
         val success = assertIs<EntioResult.Success<EntioProject>>(result)
         assertEquals("simple-ontology", success.value.config.name)
-        assertEquals(listOf("simple"), success.value.resolvedSources.map { it.id })
-        assertTrue(success.value.ontologies.single().graph.triples.isNotEmpty())
+        assertEquals(listOf("simple", "shapes"), success.value.resolvedSources.map { it.id })
+        assertTrue(success.value.ontologies.all { it.graph.triples.isNotEmpty() })
         assertEquals(
             listOf(
                 "https://example.com/entio/simple#20874",
                 "https://example.com/entio/simple#Account",
                 "https://example.com/entio/simple#Customer",
+                "https://example.com/entio/simple#CustomerShape",
                 "https://example.com/entio/simple#Invoice",
                 "https://example.com/entio/simple#Shrey",
                 "https://example.com/entio/simple#ownsAccount",
             ),
             success.value.symbols.map { it.iri.value },
         )
-        assertEquals(success.value.ontologies.single().graph.triples, success.value.graph.triples)
+        assertEquals(success.value.ontologies.flatMap { it.graph.triples }.toSet(), success.value.graph.triples)
     }
 
     @Test
