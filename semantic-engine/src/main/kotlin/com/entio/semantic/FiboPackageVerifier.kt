@@ -72,7 +72,11 @@ public object FiboPackageVerifier {
             GENERATED_FILES.forEach { relative ->
                 val expected = Files.readAllBytes(packageRoot.resolve(relative))
                 val actual = Files.readAllBytes(tempOutput.resolve(relative))
-                require(expected.contentEquals(actual)) { "Generated package output drifted: $relative" }
+                require(expected.contentEquals(actual)) {
+                    "Generated package output drifted: $relative " +
+                        "(committed=${sha256Bytes(expected)}, regenerated=${sha256Bytes(actual)}, " +
+                        "firstDifference=${firstDifference(expected, actual)})"
+                }
             }
         } finally {
             tempOutput.toFile().deleteRecursively()
@@ -101,6 +105,12 @@ public object FiboPackageVerifier {
     private fun sha256(path: Path): String = sha256Bytes(Files.readAllBytes(path))
 
     private fun sha256Text(value: String): String = sha256Bytes(value.toByteArray(Charsets.UTF_8))
+
+    private fun firstDifference(expected: ByteArray, actual: ByteArray): String {
+        val length = minOf(expected.size, actual.size)
+        val index = (0 until length).firstOrNull { expected[it] != actual[it] } ?: length
+        return "offset=$index"
+    }
 
     private fun sha256Bytes(value: ByteArray): String = MessageDigest.getInstance("SHA-256")
         .digest(value)
