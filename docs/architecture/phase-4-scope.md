@@ -1,5 +1,9 @@
 # Phase 4 Scope
 
+## Status
+
+Complete. The approved Phase 4 OWL reasoning and SHACL constraint foundation is implemented and summarized in `docs/phase-summaries/phase-4-summary.md`. Phase 5 is the current planning boundary.
+
 Phase 4 adds OWL reasoning and SHACL constraint authoring and validation to Entio.
 
 Phase 3 already gives Entio a structured semantic description layer for explicit ontology facts, labels, definitions, annotations, classes, properties, and individuals.

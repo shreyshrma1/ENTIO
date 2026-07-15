@@ -1,4 +1,4 @@
-# Feature Spec: Phase 4 External Ontology Browsing And Basic Schema RAG
+# Feature Spec: Phase 5 External Ontology Browsing And Basic Schema RAG
 
 ## Status
 
@@ -8,13 +8,13 @@ Draft
 
 Entio can now describe and edit local ontology elements through a deterministic semantic-description layer, but users still need to recreate concepts and properties that already exist in trusted standards. This encourages duplicate modeling and makes it harder to use established financial ontology vocabulary.
 
-Phase 4 should make one trusted external ontology, FIBO, available inside Entio. Users need to browse a useful curated foundation set, search the wider approved catalog, inspect the original semantic descriptions, understand supporting dependencies, and decide whether to reuse an external concept or extend it locally.
+Phase 5 should make one trusted external ontology, FIBO, available inside Entio. Users need to browse a useful curated foundation set, search the wider approved catalog, inspect the original semantic descriptions, understand supporting dependencies, and decide whether to reuse an external concept or extend it locally.
 
 External ontology content must remain read-only and reproducible. Selecting or searching FIBO must not change the local project. Any use of a FIBO element in the local project must become a staged, reviewable proposal that reuses the existing preview, validation, semantic diff, approval, atomic application, reload, and rollback workflow.
 
 ## Goals
 
-- Provide an extensible external-ontology source model with FIBO as the only Phase 4 source.
+- Provide an extensible external-ontology source model with FIBO as the only Phase 5 source.
 - Ship one fixed, versioned, reproducible FIBO package without downloading from the network at runtime.
 - Load and display an approved curated FIBO Foundations package immediately after FIBO is selected.
 - Keep the wider pinned FIBO catalog searchable without displaying the full catalog by default.
@@ -29,7 +29,7 @@ External ontology content must remain read-only and reproducible. Selecting or s
 
 ## Non-Goals
 
-- Supporting external ontology sources other than FIBO in Phase 4.
+- Supporting external ontology sources other than FIBO in Phase 5.
 - Automatically downloading, live-synchronizing, or silently upgrading FIBO.
 - Editing, rewriting, or serializing bundled FIBO assets.
 - Copying FIBO concepts into the local namespace by default.
@@ -60,7 +60,7 @@ The system will expose an external ontology source model with these common field
 - Searchable catalog metadata.
 - Original source and licensing metadata.
 
-Only FIBO will be selectable in Phase 4. The model must not hard-code the workbench or CLI around FIBO-specific control flow where a generic source contract is sufficient.
+Only FIBO will be selectable in Phase 5. The model must not hard-code the workbench or CLI around FIBO-specific control flow where a generic source contract is sufficient.
 
 Selecting FIBO will activate the bundled package, expose its manifest and release metadata, show the curated Foundations package, and enable browsing and search. Selection is read-only and must not modify `entio.yaml`, local ontology files, or any other project file.
 
@@ -124,7 +124,7 @@ Every external FIBO class and property will use the Phase 3 semantic-description
 - Local or external status.
 - Catalog, curated-package, selected, and already-used status.
 
-Descriptions must organize explicit statements only. Phase 4 will not infer parents, domains, ranges, imports, or dependencies through OWL reasoning.
+Descriptions must organize explicit statements only. Phase 5 will not infer parents, domains, ranges, imports, or dependencies through OWL reasoning.
 
 External descriptors must use Entio-owned RDF and semantic-description contracts. Apache Jena types must remain contained inside the semantic engine.
 
@@ -144,7 +144,7 @@ The UI will display readable labels as the primary value and expose the full IRI
 
 ### Deterministic Schema RAG search
 
-Phase 4 search is deterministic catalog retrieval and ranking, not generative AI. It will search both classes and properties.
+Phase 5 search is deterministic catalog retrieval and ranking, not generative AI. It will search both classes and properties.
 
 #### Query inputs
 
@@ -228,7 +228,7 @@ Search suggestions must never silently replace the user’s local edit or create
 
 Selecting an external element will not immediately change the project. The user must review the element and its explicit supporting dependency set first.
 
-Phase 4 will support these controlled proposal intents, subject to the implementation plan’s final contract names:
+Phase 5 will support these controlled proposal intents, subject to the implementation plan’s final contract names:
 
 - Reference or reuse a FIBO class directly.
 - Reference or reuse a FIBO object property directly.
@@ -326,7 +326,7 @@ The VS Code extension will render Kotlin-owned source metadata, descriptors, sea
 
 ## Expected Data Contracts
 
-Phase 4 may introduce or refine these Entio-owned contracts:
+Phase 5 may introduce or refine these Entio-owned contracts:
 
 - `ExternalOntologySource`: source identity, display metadata, version, availability, curated package, catalog, and attribution metadata.
 - `ExternalOntologyManifest`: exact FIBO release, package version, checksums or asset identity, curated modules, dependencies, and licensing metadata.
@@ -472,7 +472,7 @@ Empty search results are valid responses, not package failures. Ambiguous or tie
 - Failed final verification restores the prior local source.
 - The CLI and VS Code consume Kotlin-owned catalog and semantic-search results without duplicating RDF parsing or ranking logic.
 - Focused package, semantic-engine, validation, graph-diff, CLI, and VS Code tests pass, including copied-fixture tests.
-- Phase 4 adds no additional external ontology source, AI retrieval, embeddings, inference, persistence, Git workflow, or unrelated infrastructure.
+- Phase 5 adds no additional external ontology source, AI retrieval, embeddings, inference, persistence, Git workflow, or unrelated infrastructure.
 
 ## Open Questions
 

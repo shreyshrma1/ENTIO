@@ -1,16 +1,16 @@
-# Phase 4 Scope
+# Phase 5 Scope
 
-Phase 4 adds external ontology browsing and basic Schema RAG to Entio.
+Phase 5 adds external ontology browsing and basic Schema RAG to Entio.
 
 Phase 3 already gives Entio a structured way to describe ontology classes, properties, annotation properties, and individuals using labels, alternate labels, definitions, structural relationships, source information, and IRIs.
 
-Phase 4 should use that semantic description format for external ontology content, starting with FIBO.
+Phase 5 should use that semantic description format for external ontology content, starting with FIBO.
 
-The purpose of Phase 4 is to help users build on trusted existing ontology standards instead of creating every class and property from scratch.
+The purpose of Phase 5 is to help users build on trusted existing ontology standards instead of creating every class and property from scratch.
 
-## Phase 4 Goals
+## Phase 5 Goals
 
-Phase 4 should support:
+Phase 5 should support:
 
 - Letting the user select an external ontology source.
 - Supporting FIBO as the only available external ontology source in the first implementation.
@@ -34,7 +34,7 @@ Phase 4 should support:
 - Preventing any local project file from changing until the user has previewed, validated, and approved the proposed additions.
 - Reusing the existing semantic diff, validation, staging, combined preview, approval, atomic save, reload, and rollback behavior.
 
-Phase 4 should make FIBO immediately useful inside Entio while keeping external ontology reuse controlled, reviewable, and safe.
+Phase 5 should make FIBO immediately useful inside Entio while keeping external ontology reuse controlled, reviewable, and safe.
 
 ## Working Definitions
 
@@ -75,7 +75,7 @@ The user should be able to:
 - See the curated Foundations package.
 - Search the wider pinned FIBO catalog.
 
-Only FIBO is required in Phase 4.
+Only FIBO is required in Phase 5.
 
 The design should allow later ontology sources to provide the same basic information:
 
@@ -148,7 +148,7 @@ It should include approved foundational areas such as:
 - Products and services.
 - Payments, payers, payees, and payment schedules.
 
-The exact ontology files must be selected from the pinned FIBO release in the Phase 4 specification.
+The exact ontology files must be selected from the pinned FIBO release in the Phase 5 specification.
 
 The curated package should be generated from approved modules and required imports, not by manually recreating FIBO concepts.
 
@@ -234,7 +234,7 @@ The Kotlin semantic engine should read the bundled FIBO statements and assemble 
 
 The semantic engine should organize only information explicitly present in the bundled ontology files.
 
-Phase 4 should not add OWL reasoning or infer new relationships.
+Phase 5 should not add OWL reasoning or infer new relationships.
 
 The same external semantic descriptions should be available through:
 
@@ -246,7 +246,7 @@ The same external semantic descriptions should be available through:
 
 ## Basic Schema RAG Search
 
-Phase 4 should provide deterministic search over the bundled FIBO catalog.
+Phase 5 should provide deterministic search over the bundled FIBO catalog.
 
 The wider pinned FIBO catalog should be searchable even though only the curated Foundations package is visible by default.
 
@@ -265,7 +265,7 @@ The first stage should find candidates using:
 - Entity-kind filter.
 - Source module or domain filter.
 
-Embeddings are not required in Phase 4.
+Embeddings are not required in Phase 5.
 
 ### Candidate Ranking
 
@@ -346,7 +346,7 @@ Selecting an external element does not immediately change the project.
 
 The user should choose how the external element will be used.
 
-Supported Phase 4 actions may include:
+Supported Phase 5 actions may include:
 
 - Reference the FIBO class directly.
 - Use a FIBO class as the parent of a new local class.
@@ -375,7 +375,7 @@ local:CommercialLoan
 
 When a user selects a FIBO class or property, Entio should identify the supporting external elements needed for the proposed use.
 
-Phase 4 dependency review should consider explicit information such as:
+Phase 5 dependency review should consider explicit information such as:
 
 - Direct parent classes.
 - Property domains.
@@ -397,7 +397,7 @@ The user should be able to:
 
 Entio should not silently add an uncontrolled set of FIBO modules.
 
-Phase 4 should use explicit dependency rules from the pinned catalog and should not require full OWL reasoning.
+Phase 5 should use explicit dependency rules from the pinned catalog and should not require full OWL reasoning.
 
 ## Existing Proposal Workflow Integration
 
@@ -425,7 +425,7 @@ The same rule applies to specialized FIBO elements found through search.
 
 ## Expected Project Concepts
 
-Phase 4 may introduce or refine:
+Phase 5 may introduce or refine:
 
 - `ExternalOntologySource`
 - `ExternalOntologyManifest`
@@ -452,7 +452,7 @@ The contracts should use Entio-owned RDF and semantic-description types and shou
 
 ## CLI Requirements
 
-Phase 4 should extend the machine-readable CLI so the VS Code extension can:
+Phase 5 should extend the machine-readable CLI so the VS Code extension can:
 
 - List external ontology sources.
 - Select or activate FIBO.
@@ -512,7 +512,7 @@ The extension should not:
 
 ## Validation Expectations
 
-Phase 4 should add deterministic validation for:
+Phase 5 should add deterministic validation for:
 
 - Missing or unavailable external ontology package.
 - Unsupported external ontology source.
@@ -535,7 +535,7 @@ Validation should not use AI judgment or full OWL reasoning.
 
 ## Testing Requirements
 
-Phase 4 should include focused tests for:
+Phase 5 should include focused tests for:
 
 ### FIBO Package
 
@@ -620,7 +620,7 @@ Tests must not modify committed FIBO assets or committed example projects.
 
 ## Non-Goals
 
-Phase 4 should not include:
+Phase 5 should not include:
 
 - Additional external ontology sources beyond FIBO.
 - Automatic downloading of the newest FIBO release.
@@ -646,7 +646,7 @@ Phase 4 should not include:
 
 ## Success Criteria
 
-Phase 4 is successful if a user can:
+Phase 5 is successful if a user can:
 
 - Open the External Ontologies section.
 - Select FIBO.
@@ -669,4 +669,4 @@ Phase 4 is successful if a user can:
 - Confirm that bundled FIBO files were not modified.
 - Recover the prior local source automatically if final verification fails.
 
-Phase 4 should establish Entio’s first trusted external ontology catalog and basic Schema RAG workflow while preserving the existing safety rule: nothing is added to the local project without staging, preview, deterministic validation, semantic diff, explicit approval, atomic application, reload, and rollback.
+Phase 5 should establish Entio’s first trusted external ontology catalog and basic Schema RAG workflow while preserving the existing safety rule: nothing is added to the local project without staging, preview, deterministic validation, semantic diff, explicit approval, atomic application, reload, and rollback.

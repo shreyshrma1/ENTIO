@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft
+Implemented. The thirteen slices in this plan were completed and merged locally into `main`. See `docs/phase-summaries/phase-4-summary.md` for the actual implementation result and documented limitations.
 
 ## Source Spec
 
@@ -24,7 +24,7 @@ Phase 4 is intentionally bounded. OWL API and HermiT are the OWL boundary, Apach
 - `cli` exposes project, symbol, diff, proposal, and semantic-description operations through a thin command boundary.
 - `vscode-extension` presents the controlled editing workbench and delegates semantic work to the Kotlin CLI.
 - `examples/simple-ontology` is a committed fixture and must be copied before mutating tests.
-- Phase 3 is complete. Phase 4 implementation has not started.
+- Phase 3 is complete. Phase 4 implementation is complete according to this plan.
 
 ## Target State
 
