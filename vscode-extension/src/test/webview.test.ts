@@ -12,6 +12,16 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /type: "semantic-search"/);
   assert.match(html, /type: "semantic-describe"/);
   assert.match(html, /id="semantic-search-results"/);
+  assert.match(html, /id="phase4-workbench"/);
+  assert.match(html, /id="phase4-refresh"/);
+  assert.match(html, /id="reasoning-status"/);
+  assert.match(html, /id="shacl-status"/);
+  assert.match(html, /Refresh reasoning and validation/);
+  assert.match(html, /renderReasoning/);
+  assert.match(html, /renderShaclValidation/);
+  assert.match(html, /renderShaclShapes/);
+  assert.match(html, /renderProposalImpact/);
+  assert.match(html, /type: "phase4-refresh"/);
   assert.match(html, /renderSemanticDescriptor/);
   assert.match(html, /formatSearchReason/);
   assert.match(html, /Technical details/);

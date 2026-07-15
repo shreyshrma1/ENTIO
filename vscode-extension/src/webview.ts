@@ -74,6 +74,17 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       <div id="details" aria-live="polite">Select a symbol to inspect its details.</div>
     </section>
   </main>
+  <section id="phase4-workbench" aria-labelledby="phase4-heading">
+    <h2 id="phase4-heading">Reasoning and SHACL</h2>
+    <div class="phase4-actions">
+      <button id="phase4-refresh" type="button">Refresh reasoning and validation</button>
+    </div>
+    <div id="reasoning-status" aria-live="polite">Reasoning has not been refreshed.</div>
+    <div id="reasoning-results"></div>
+    <div id="shacl-status" aria-live="polite">SHACL validation has not been run.</div>
+    <div id="shacl-results"></div>
+    <div id="shacl-shapes"></div>
+  </section>
   <section id="edit-form" aria-labelledby="edit-heading">
     <h2 id="edit-heading">Preview Ontology Edit</h2>
     <form id="proposal-form">
@@ -227,6 +238,12 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const sources = document.getElementById("sources");
     const symbolGroups = document.getElementById("symbol-groups");
     const details = document.getElementById("details");
+    const phase4Refresh = document.getElementById("phase4-refresh");
+    const reasoningStatus = document.getElementById("reasoning-status");
+    const reasoningResults = document.getElementById("reasoning-results");
+    const shaclStatus = document.getElementById("shacl-status");
+    const shaclResults = document.getElementById("shacl-results");
+    const shaclShapes = document.getElementById("shacl-shapes");
     const semanticSearchForm = document.getElementById("semantic-search-form");
     const semanticSearchQuery = document.getElementById("semantic-search-query");
     const semanticSearchKind = document.getElementById("semantic-search-kind");
@@ -336,6 +353,10 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     let pendingPreviewAfterIri = false;
     let pendingEntityResolution = false;
     document.getElementById("refresh").addEventListener("click", () => vscode.postMessage({ type: "refresh" }));
+    phase4Refresh.addEventListener("click", () => {
+      reasoningStatus.textContent = "Refreshing reasoning and SHACL validation...";
+      vscode.postMessage({ type: "phase4-refresh" });
+    });
 
     [
       [classLabel, classIri],
@@ -965,6 +986,81 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       stagePreview(preview);
     }
 
+    function renderPhase4State(state) {
+      if (state.reasoning) renderReasoning(state.reasoning);
+      else reasoningStatus.textContent = "Reasoning result unavailable.";
+      if (state.validation) renderShaclValidation(state.validation);
+      else shaclStatus.textContent = "SHACL validation result unavailable.";
+      if (state.shapes) renderShaclShapes(state.shapes);
+      else shaclShapes.textContent = "SHACL shape descriptors unavailable.";
+    }
+
+    function renderReasoning(result) {
+      reasoningStatus.textContent = "Reasoning: " + result.status + " · consistency: " + result.consistency +
+        " · imports: " + (result.importClosureComplete ? "complete" : "incomplete");
+      reasoningResults.replaceChildren();
+      const facts = [
+        ...result.classRelationships.map((fact) => ({ ...fact, title: "Class relationship" })),
+        ...result.individualTypes.map((fact) => ({ ...fact, title: "Individual type" })),
+        ...result.propertyRelationships.map((fact) => ({ ...fact, title: "Property relationship" })),
+      ];
+      appendPhase4List(reasoningResults, "Asserted and inferred facts", facts.map((fact) =>
+        fact.title + " · " + (fact.origin === "inferred" ? "Inferred" : "Asserted") + " · " +
+        displayIri(fact.subject) + (fact.predicate ? " · " + displayIri(fact.predicate) : "") + " · " + displayIri(fact.object)),
+        "No derived facts returned.");
+      appendPhase4List(reasoningResults, "Unsatisfiable classes", result.unsatisfiableClasses.map(displayIri), "None");
+      appendPhase4List(reasoningResults, "OWL limitations", result.unsupportedFeatures.map((feature) =>
+        feature.feature + " · " + feature.support + (feature.message ? " · " + feature.message : "")), "None");
+      appendPhase4List(reasoningResults, "Warnings and errors", result.warnings.concat(result.errors), "None");
+    }
+
+    function renderShaclValidation(result) {
+      shaclStatus.textContent = "SHACL: " + result.status + " · mode: " + result.mode +
+        " · " + result.results.length + " result(s)";
+      shaclResults.replaceChildren();
+      appendPhase4List(shaclResults, "Validation findings", result.results.map((finding) =>
+        finding.severity + " · " + finding.message + " · focus " + displayIri(finding.focusNode) +
+        (finding.path ? " · path " + displayIri(finding.path) : "")), "No validation findings.");
+      appendPhase4List(shaclResults, "Validation warnings and errors", result.warnings.concat(result.errors), "None");
+    }
+
+    function renderShaclShapes(result) {
+      shaclShapes.replaceChildren();
+      appendPhase4List(shaclShapes, "Supported SHACL shapes", result.shapes.map((shape) =>
+        displayIri(shape.iri) + " · targets: " + (shape.targets.map(displayIri).join(", ") || "none") +
+        " · paths: " + (shape.propertyShapes.map(displayIri).join(", ") || "none") +
+        " · constraints: " + (shape.constraints.join(", ") || "none")), "No supported shapes found.");
+    }
+
+    function renderProposalImpact(result) {
+      previewImpact.replaceChildren();
+      const heading = document.createElement("strong");
+      heading.textContent = "Proposal impact: " + result.status + " · " + result.explicitDiffCount + " explicit change(s)";
+      previewImpact.append(heading);
+      appendPhase4List(previewImpact, "Reasoning impact", result.addedInferences.concat(result.removedInferences), "No reasoning changes.");
+      appendPhase4List(previewImpact, "New or worsened SHACL findings", result.newShaclResults.concat(result.worsenedShaclResults), "None");
+      appendPhase4List(previewImpact, "Unchanged or resolved SHACL findings", result.unchangedShaclResults.concat(result.resolvedShaclResults), "None");
+      appendPhase4List(previewImpact, "Blocking messages", result.blockingMessages, "None");
+    }
+
+    function appendPhase4List(container, title, values, emptyText) {
+      const heading = document.createElement("h4");
+      heading.textContent = title;
+      const list = document.createElement("ul");
+      if (values.length === 0) {
+        const empty = document.createElement("li");
+        empty.textContent = emptyText;
+        list.append(empty);
+      } else {
+        values.forEach((value) => {
+          const item = document.createElement("li");
+          item.textContent = value;
+          list.append(item);
+        });
+      }
+      container.append(heading, list);
+    }
+
     function renderDeletionPreview(combined) {
       const deletionRequest = currentRequest;
       const preview = {
@@ -1485,6 +1581,13 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       if (message.type === "project-summary") {
         renderModel(message.payload);
       }
+      if (message.type === "phase4-state") {
+        renderPhase4State(message.payload);
+      }
+      if (message.type === "phase4-error") {
+        reasoningStatus.textContent = message.message;
+        shaclStatus.textContent = "Phase 4 state unavailable.";
+      }
       if (message.type === "semantic-descriptor") {
         renderSemanticDescriptor(message.payload);
       }
@@ -1503,6 +1606,9 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       }
       if (message.type === "combined-preview") {
         renderCombinedPreview(message.payload);
+      }
+      if (message.type === "proposal-impact") {
+        renderProposalImpact(message.payload);
       }
       if (message.type === "deletion-preview") {
         renderDeletionPreview(message.payload);

@@ -7,8 +7,12 @@ import { EntioEngineClient } from "./engineCli";
 import { detectEntioProject } from "./projectDetector";
 import { renderWorkbench } from "./webview";
 import {
+  createProposalImpactModel,
+  createReasoningModel,
   createSemanticDescriptorModel,
   createSemanticSearchModel,
+  createShaclShapesModel,
+  createShaclValidationModel,
   createWorkbenchModel,
 } from "./workbenchModel";
 import {
@@ -60,22 +64,29 @@ export function activate(context: vscode.ExtensionContext): void {
         .get<string>("cliCommand", "entio");
       const engine = new EntioEngineClient(cliCommand);
       let combinedRequestFile: string | undefined;
-      const writeCombinedRequest = async (value: unknown): Promise<string> => {
+      const writeRequestFile = async (value: unknown): Promise<string> => {
         const requests = readCombinedProposalRequests(value);
         const request = requests ? createCombinedProposalRequest(requests) : undefined;
         if (!request) throw new Error("The staged changes cannot form one combined proposal request.");
         const directory = await mkdtemp(join(tmpdir(), "entio-vscode-"));
         const file = join(directory, "proposal.json");
         await writeFile(file, JSON.stringify(request), "utf8");
+        return file;
+      };
+      const writeCombinedRequest = async (value: unknown): Promise<string> => {
+        const file = await writeRequestFile(value);
         combinedRequestFile = file;
         return file;
+      };
+      const removeRequestFile = async (file: string): Promise<void> => {
+        await rm(file, { force: true });
+        await rm(join(file, ".."), { recursive: true, force: true });
       };
       const removeCombinedRequest = async (): Promise<void> => {
         if (!combinedRequestFile) return;
         const file = combinedRequestFile;
         combinedRequestFile = undefined;
-        await rm(file, { force: true });
-        await rm(join(file, ".."), { recursive: true, force: true });
+        await removeRequestFile(file);
       };
       const refresh = async (): Promise<void> => {
         try {
@@ -95,9 +106,38 @@ export function activate(context: vscode.ExtensionContext): void {
           });
         }
       };
+      const refreshPhase4 = async (): Promise<void> => {
+        const responses = await Promise.all([
+          engine.run(["reasoning-refresh", project.rootPath], project.rootPath),
+          engine.run(["shacl-validate", project.rootPath, "--mode", "asserted-only"], project.rootPath),
+          engine.run(["shacl-shapes", project.rootPath], project.rootPath),
+        ]);
+        await panel.webview.postMessage({
+          type: "phase4-state",
+          payload: {
+            reasoning: createReasoningModel(responses[0]),
+            validation: createShaclValidationModel(responses[1]),
+            shapes: createShaclShapesModel(responses[2]),
+          },
+        });
+      };
       const messageSubscription = panel.webview.onDidReceiveMessage(async (message: { type?: string }) => {
         if (message.type === "refresh") {
           await refresh();
+          try {
+            await refreshPhase4();
+          } catch (error) {
+            await panel.webview.postMessage({ type: "phase4-error", message: error instanceof Error ? error.message : "Entio Phase 4 refresh failed." });
+          }
+          return;
+        }
+
+        if (message.type === "phase4-refresh") {
+          try {
+            await refreshPhase4();
+          } catch (error) {
+            await panel.webview.postMessage({ type: "phase4-error", message: error instanceof Error ? error.message : "Entio Phase 4 refresh failed." });
+          }
           return;
         }
 
@@ -330,7 +370,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
         if (message.type === "combined-preview") {
           try {
-            const file = await writeCombinedRequest((message as { payload?: unknown }).payload);
+            const payload = (message as { payload?: unknown }).payload;
+            const file = await writeCombinedRequest(payload);
             const response = await engine.run(
               combinedProposalInvocationArgs(project.rootPath, file, "preview"),
               project.rootPath,
@@ -338,6 +379,14 @@ export function activate(context: vscode.ExtensionContext): void {
             const combined = createCombinedProposalModel(response);
             if (!combined) throw new Error("Entio CLI returned an invalid combined proposal preview.");
             await panel.webview.postMessage({ type: "combined-preview", payload: combined });
+            const impactFile = await writeRequestFile(payload);
+            try {
+              const impactResponse = await engine.run(["proposal-impact", project.rootPath, "--request-file", impactFile], project.rootPath);
+              const impact = createProposalImpactModel(impactResponse);
+              if (impact) await panel.webview.postMessage({ type: "proposal-impact", payload: impact });
+            } finally {
+              await removeRequestFile(impactFile);
+            }
           } catch (error) {
             await panel.webview.postMessage({
               type: "combined-preview-error",
@@ -492,6 +541,11 @@ export function activate(context: vscode.ExtensionContext): void {
         void removeCombinedRequest();
       });
       await refresh();
+      try {
+        await refreshPhase4();
+      } catch (error) {
+        await panel.webview.postMessage({ type: "phase4-error", message: error instanceof Error ? error.message : "Entio Phase 4 refresh failed." });
+      }
     },
   );
 

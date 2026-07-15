@@ -201,6 +201,230 @@ export function createSemanticSearchModel(response: unknown): SemanticSearchSumm
   };
 }
 
+export interface ReasoningFactSummary {
+  readonly subject: string;
+  readonly predicate?: string;
+  readonly object: string;
+  readonly origin: string;
+  readonly sourceId: string | null;
+}
+
+export interface ReasoningFeatureSummary {
+  readonly feature: string;
+  readonly support: string;
+  readonly affectsCompleteness: boolean;
+  readonly message: string | null;
+}
+
+export interface ReasoningViewModel {
+  readonly status: string;
+  readonly consistency: string;
+  readonly importClosureComplete: boolean;
+  readonly fingerprints: Readonly<Record<string, string>>;
+  readonly classRelationships: readonly ReasoningFactSummary[];
+  readonly individualTypes: readonly ReasoningFactSummary[];
+  readonly propertyRelationships: readonly ReasoningFactSummary[];
+  readonly unsatisfiableClasses: readonly string[];
+  readonly unsupportedFeatures: readonly ReasoningFeatureSummary[];
+  readonly warnings: readonly string[];
+  readonly errors: readonly string[];
+}
+
+export interface ShaclResultSummary {
+  readonly resultId: string;
+  readonly severity: string;
+  readonly message: string;
+  readonly focusNode: string;
+  readonly path: string | null;
+  readonly shape: string;
+  readonly constraint: string;
+  readonly value: string | null;
+  readonly sourceId: string | null;
+}
+
+export interface ShaclValidationViewModel {
+  readonly status: string;
+  readonly mode: string;
+  readonly dataGraphFingerprint: string;
+  readonly shapesGraphFingerprint: string;
+  readonly results: readonly ShaclResultSummary[];
+  readonly warnings: readonly string[];
+  readonly errors: readonly string[];
+}
+
+export interface ShaclShapeSummary {
+  readonly iri: string;
+  readonly sourceId: string;
+  readonly targets: readonly string[];
+  readonly propertyShapes: readonly string[];
+  readonly constraints: readonly string[];
+}
+
+export interface ShaclShapesViewModel {
+  readonly shapes: readonly ShaclShapeSummary[];
+}
+
+export interface ProposalImpactViewModel {
+  readonly status: string;
+  readonly explicitDiffCount: number;
+  readonly addedInferences: readonly string[];
+  readonly removedInferences: readonly string[];
+  readonly newShaclResults: readonly string[];
+  readonly worsenedShaclResults: readonly string[];
+  readonly unchangedShaclResults: readonly string[];
+  readonly resolvedShaclResults: readonly string[];
+  readonly blockingMessages: readonly string[];
+}
+
+export function createReasoningModel(response: unknown): ReasoningViewModel | undefined {
+  const root = asRecord(response);
+  const reasoning = root ? asRecord(root.reasoning) : undefined;
+  if (!root || root.ok !== true || !reasoning || typeof reasoning.status !== "string" ||
+      typeof reasoning.consistency !== "string" || typeof reasoning.importClosureComplete !== "boolean") {
+    return undefined;
+  }
+  const fingerprints = asRecord(reasoning.fingerprints);
+  if (!fingerprints) return undefined;
+  const readFacts = (value: unknown, subjectKey: string, objectKey: string): readonly ReasoningFactSummary[] => {
+    if (!Array.isArray(value)) return [];
+    return value.map((entry) => {
+      const fact = asRecord(entry);
+      if (!fact || typeof fact[subjectKey] !== "string" || typeof fact[objectKey] !== "string" || typeof fact.origin !== "string") return undefined;
+      return {
+        subject: fact[subjectKey] as string,
+        predicate: typeof fact.predicate === "string" ? fact.predicate : undefined,
+        object: fact[objectKey] as string,
+        origin: fact.origin as string,
+        sourceId: typeof fact.sourceId === "string" ? fact.sourceId : null,
+      };
+    }).filter(isDefined);
+  };
+  const features = Array.isArray(reasoning.unsupportedFeatures)
+    ? reasoning.unsupportedFeatures.map((entry) => {
+      const feature = asRecord(entry);
+      if (!feature || typeof feature.feature !== "string" || typeof feature.support !== "string" || typeof feature.affectsCompleteness !== "boolean") return undefined;
+      return {
+        feature: feature.feature,
+        support: feature.support,
+        affectsCompleteness: feature.affectsCompleteness,
+        message: typeof feature.message === "string" ? feature.message : null,
+      };
+    }).filter(isDefined)
+    : [];
+  return {
+    status: reasoning.status,
+    consistency: reasoning.consistency,
+    importClosureComplete: reasoning.importClosureComplete,
+    fingerprints: Object.fromEntries(Object.entries(fingerprints).filter((entry): entry is [string, string] => typeof entry[1] === "string")),
+    classRelationships: readFacts(reasoning.classRelationships, "subject", "objectClass"),
+    individualTypes: readFacts(reasoning.individualTypes, "individual", "type"),
+    propertyRelationships: readFacts(reasoning.propertyRelationships, "subject", "objectResource"),
+    unsatisfiableClasses: stringArray(reasoning.unsatisfiableClasses) ?? [],
+    unsupportedFeatures: features,
+    warnings: stringArray(reasoning.warnings) ?? [],
+    errors: stringArray(reasoning.errors) ?? [],
+  };
+}
+
+export function createShaclValidationModel(response: unknown): ShaclValidationViewModel | undefined {
+  const root = asRecord(response);
+  const validation = root ? asRecord(root.validation) : undefined;
+  const identity = validation ? asRecord(validation.graphIdentity) : undefined;
+  if (!root || typeof root.ok !== "boolean" || !validation || !identity ||
+      typeof validation.status !== "string" || typeof validation.mode !== "string" ||
+      typeof identity.dataGraphFingerprint !== "string" || typeof identity.shapesGraphFingerprint !== "string") return undefined;
+  const results = Array.isArray(validation.results) ? validation.results.map((entry) => {
+    const result = asRecord(entry);
+    const path = result ? asRecord(result.path) : undefined;
+    if (!result || typeof result.resultId !== "string" || typeof result.severity !== "string" ||
+        typeof result.message !== "string" || typeof result.focusNode !== "string" ||
+        typeof result.shape !== "string" || typeof result.constraint !== "string") return undefined;
+    return {
+      resultId: result.resultId,
+      severity: result.severity,
+      message: result.message,
+      focusNode: result.focusNode,
+      path: path && typeof path.iri === "string" ? path.iri : null,
+      shape: result.shape,
+      constraint: result.constraint,
+      value: typeof result.value === "string" ? result.value : null,
+      sourceId: typeof result.sourceId === "string" ? result.sourceId : null,
+    };
+  }).filter(isDefined) : [];
+  return {
+    status: validation.status,
+    mode: validation.mode,
+    dataGraphFingerprint: identity.dataGraphFingerprint,
+    shapesGraphFingerprint: identity.shapesGraphFingerprint,
+    results,
+    warnings: stringArray(validation.warnings) ?? [],
+    errors: stringArray(validation.errors) ?? [],
+  };
+}
+
+export function createShaclShapesModel(response: unknown): ShaclShapesViewModel | undefined {
+  const root = asRecord(response);
+  if (!root || root.ok !== true || !Array.isArray(root.shapes)) return undefined;
+  const shapes = root.shapes.map((entry) => {
+    const shape = asRecord(entry);
+    if (!shape || typeof shape.iri !== "string" || typeof shape.sourceId !== "string") return undefined;
+    const targets = Array.isArray(shape.targets) ? shape.targets.map((target) => {
+      const value = asRecord(target);
+      if (!value) return undefined;
+      return typeof value.iri === "string" ? value.iri : typeof value.value === "string" ? value.value : undefined;
+    }).filter(isDefined) : [];
+    const propertyShapes = Array.isArray(shape.propertyShapes) ? shape.propertyShapes.map((property) => {
+      const value = asRecord(property);
+      const path = value ? asRecord(value.path) : undefined;
+      return path && typeof path.iri === "string" ? path.iri : undefined;
+    }).filter(isDefined) : [];
+    const constraints = Array.isArray(shape.constraints) ? shape.constraints.map((constraint) => {
+      const value = asRecord(constraint);
+      return value && typeof value.kind === "string" ? value.kind : undefined;
+    }).filter(isDefined) : [];
+    return { iri: shape.iri, sourceId: shape.sourceId, targets, propertyShapes, constraints };
+  }).filter(isDefined);
+  return { shapes };
+}
+
+export function createProposalImpactModel(response: unknown): ProposalImpactViewModel | undefined {
+  const root = asRecord(response);
+  const impact = root ? asRecord(root.impact) : undefined;
+  const explicit = impact ? asRecord(impact.explicitDiff) : undefined;
+  const reasoning = impact ? asRecord(impact.reasoningImpact) : undefined;
+  const shacl = impact ? asRecord(impact.shaclImpact) : undefined;
+  if (!root || typeof root.ok !== "boolean" || !impact || typeof impact.status !== "string" || !explicit || !reasoning || !shacl) return undefined;
+  const relationshipSummary = (value: unknown): readonly string[] => Array.isArray(value) ? value.map((entry) => {
+    const relationship = asRecord(entry);
+    if (!relationship) return undefined;
+    const subject = typeof relationship.subject === "string" ? relationship.subject : "";
+    const predicate = typeof relationship.predicate === "string" ? relationship.predicate : "";
+    const object = typeof relationship.objectResource === "string" ? relationship.objectResource : "";
+    return subject && predicate && object ? `${displayLocalName(subject)} · ${displayLocalName(predicate)} · ${displayLocalName(object)}` : undefined;
+  }).filter(isDefined) : [];
+  const resultSummary = (value: unknown): readonly string[] => Array.isArray(value) ? value.map((entry) => {
+    const result = asRecord(entry);
+    return result && typeof result.message === "string" ? `${result.severity || "result"} · ${result.message}` : undefined;
+  }).filter(isDefined) : [];
+  const diffEntries = asRecord(explicit)?.entries;
+  return {
+    status: impact.status,
+    explicitDiffCount: Array.isArray(diffEntries) ? diffEntries.length : 0,
+    addedInferences: relationshipSummary(reasoning.addedInferences),
+    removedInferences: relationshipSummary(reasoning.removedInferences),
+    newShaclResults: resultSummary(shacl.newResults),
+    worsenedShaclResults: resultSummary(shacl.worsenedResults),
+    unchangedShaclResults: resultSummary(shacl.unchangedResults),
+    resolvedShaclResults: resultSummary(shacl.resolvedResults),
+    blockingMessages: stringArray(impact.blockingMessages) ?? [],
+  };
+}
+
+function displayLocalName(value: string): string {
+  const separator = Math.max(value.lastIndexOf("#"), value.lastIndexOf("/"));
+  return separator >= 0 && separator < value.length - 1 ? value.slice(separator + 1) : value;
+}
+
 function groupSymbols(symbols: readonly SymbolSummary[]): readonly SymbolGroup[] {
   const groups = new Map<string, SymbolSummary[]>();
 

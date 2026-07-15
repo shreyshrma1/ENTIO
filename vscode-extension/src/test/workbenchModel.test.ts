@@ -3,6 +3,10 @@ import { test } from "node:test";
 import {
   createSemanticDescriptorModel,
   createSemanticSearchModel,
+  createProposalImpactModel,
+  createReasoningModel,
+  createShaclShapesModel,
+  createShaclValidationModel,
   createWorkbenchModel,
   entitySelectorOptions,
   labelDisplay,
@@ -185,4 +189,77 @@ test("normalizes semantic search results and preserves Kotlin match reasons", ()
   assert.ok(search);
   assert.equal(search.results[0].reason, "AlternateLabel");
   assert.equal(search.results[0].descriptor.preferredLabel?.value, "Customer");
+});
+
+test("normalizes Phase 4 reasoning, SHACL, and proposal impact results", () => {
+  const reasoning = createReasoningModel({
+    ok: true,
+    reasoning: {
+      status: "completed",
+      consistency: "consistent",
+      importClosureComplete: true,
+      fingerprints: { graph: "graph-1", imports: "imports-1", configuration: "config-1" },
+      classRelationships: [{ subject: "https://example.com/Child", objectClass: "https://example.com/Parent", origin: "inferred", sourceId: "simple" }],
+      individualTypes: [],
+      propertyRelationships: [],
+      unsatisfiableClasses: [],
+      unsupportedFeatures: [{ feature: "OWL 2 DL profile", support: "unsupported", affectsCompleteness: true, message: "Partial profile coverage." }],
+      warnings: [],
+      errors: [],
+    },
+  });
+  assert.ok(reasoning);
+  assert.equal(reasoning.classRelationships[0].origin, "inferred");
+  assert.equal(reasoning.fingerprints.graph, "graph-1");
+
+  const validation = createShaclValidationModel({
+    ok: false,
+    validation: {
+      status: "completed",
+      mode: "asserted-only",
+      graphIdentity: { dataGraphFingerprint: "data-1", shapesGraphFingerprint: "shapes-1" },
+      results: [{
+        resultId: "result-1",
+        severity: "violation",
+        message: "code is required",
+        focusNode: "https://example.com/Account1",
+        path: { kind: "direct-property", iri: "https://example.com/code" },
+        shape: "https://example.com/AccountShape",
+        constraint: "mincount",
+        value: null,
+        sourceId: "simple",
+      }],
+      warnings: [],
+      errors: [],
+    },
+  });
+  assert.ok(validation);
+  assert.equal(validation.results[0].path, "https://example.com/code");
+
+  const shapes = createShaclShapesModel({
+    ok: true,
+    shapes: [{
+      iri: "https://example.com/AccountShape",
+      sourceId: "simple",
+      targets: [{ kind: "target-class", iri: "https://example.com/Account" }],
+      propertyShapes: [{ path: { kind: "direct-property", iri: "https://example.com/code" } }],
+      constraints: [{ kind: "mincount", value: "1" }],
+    }],
+  });
+  assert.ok(shapes);
+  assert.deepEqual(shapes.shapes[0].propertyShapes, ["https://example.com/code"]);
+
+  const impact = createProposalImpactModel({
+    ok: true,
+    impact: {
+      status: "safe",
+      explicitDiff: { entryCount: 1, entries: [{}] },
+      reasoningImpact: { addedInferences: [], removedInferences: [] },
+      shaclImpact: { newResults: [], worsenedResults: [], unchangedResults: [], resolvedResults: [] },
+      blockingMessages: [],
+    },
+  });
+  assert.ok(impact);
+  assert.equal(impact.explicitDiffCount, 1);
+  assert.equal(impact.status, "safe");
 });
