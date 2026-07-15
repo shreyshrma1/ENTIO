@@ -5,6 +5,7 @@ import com.entio.core.EntioResult
 import com.entio.core.OntologyFormat
 import com.entio.core.OntologySourceReference
 import com.entio.core.ResolvedOntologySource
+import com.entio.core.ShaclGraphRole
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
@@ -50,6 +51,23 @@ class OntologySourceResolverTest {
 
         val success = assertIs<EntioResult.Success<List<ResolvedOntologySource>>>(result)
         assertEquals(listOf("first", "second"), success.value.map { it.id })
+    }
+
+    @Test
+    fun preservesConfiguredGraphRoles(): Unit {
+        val projectRoot = Files.createTempDirectory("entio-source-roles")
+        projectRoot.resolve("shapes.ttl").writeText("@prefix ex: <https://example.com/> .")
+        val config = configWithSources(
+            source(
+                path = "shapes.ttl",
+                roles = setOf(ShaclGraphRole.Shapes),
+            ),
+        )
+
+        val result = resolver.resolveSources(projectRoot, config)
+
+        val resolved = assertIs<EntioResult.Success<List<ResolvedOntologySource>>>(result).value.single()
+        assertEquals(setOf(ShaclGraphRole.Shapes), resolved.roles)
     }
 
     @Test
@@ -121,10 +139,12 @@ class OntologySourceResolverTest {
     private fun source(
         id: String = "simple",
         path: String,
+        roles: Set<ShaclGraphRole> = setOf(ShaclGraphRole.Ontology, ShaclGraphRole.Data),
     ): OntologySourceReference =
         OntologySourceReference(
             id = id,
             path = path,
             format = OntologyFormat.Turtle,
+            roles = roles,
         )
 }

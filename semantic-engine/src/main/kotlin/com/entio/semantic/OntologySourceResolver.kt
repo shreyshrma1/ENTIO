@@ -84,6 +84,7 @@ public class OntologySourceResolver {
                 id = source.id,
                 path = resolvedPath,
                 format = source.format,
+                roles = source.roles,
             ),
         )
     }

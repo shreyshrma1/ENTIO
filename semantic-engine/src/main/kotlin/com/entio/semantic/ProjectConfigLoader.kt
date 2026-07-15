@@ -6,6 +6,7 @@ import com.entio.core.Iri
 import com.entio.core.IriNamespaceConfig
 import com.entio.core.OntologyFormat
 import com.entio.core.OntologySourceReference
+import com.entio.core.ShaclGraphRole
 import com.entio.core.ValidationIssue
 import com.entio.core.ValidationSeverity
 import java.nio.file.Files
@@ -84,13 +85,43 @@ public class ProjectConfigLoader {
             }
         }
 
+        val importMappings = parseImportMappings(root)
+        when (importMappings) {
+            is EntioResult.Failure -> return importMappings
+            is EntioResult.Success -> Unit
+        }
+
         return EntioResult.Success(
             EntioProjectConfig(
                 name = name,
                 ontologySources = sources,
                 iriNamespace = iriNamespace.valueOrNull(),
+                importMappings = importMappings.valueOrNull().orEmpty(),
             ),
         )
+    }
+
+    private fun parseImportMappings(root: Map<*, *>): EntioResult<Map<String, String>> {
+        val value = root["importMappings"] ?: return EntioResult.Success(emptyMap())
+        val mappings = value as? Map<*, *>
+            ?: return failure(
+                code = "invalid-import-mappings",
+                message = "importMappings must be a YAML mapping.",
+                source = "importMappings",
+            )
+
+        val result = linkedMapOf<String, String>()
+        mappings.forEach { (importIri, sourceId) ->
+            if (importIri !is String || importIri.isBlank() || sourceId !is String || sourceId.isBlank()) {
+                return failure(
+                    code = "invalid-import-mapping",
+                    message = "importMappings entries must map non-empty import IRIs to source ids.",
+                    source = "importMappings",
+                )
+            }
+            result[importIri] = sourceId
+        }
+        return EntioResult.Success(result)
     }
 
     private fun parseIriNamespace(root: Map<*, *>): EntioResult<IriNamespaceConfig?> {
@@ -182,13 +213,68 @@ public class ProjectConfigLoader {
                 source = "$sourcePath.format",
             )
 
+        val roles = parseRoles(sourcePath, source["roles"])
+        when (roles) {
+            is EntioResult.Failure -> return roles
+            is EntioResult.Success -> Unit
+        }
+
         return EntioResult.Success(
             OntologySourceReference(
                 id = id,
                 path = path,
                 format = format,
+                roles = roles.valueOrNull().orEmpty(),
             ),
         )
+    }
+
+    private fun parseRoles(
+        sourcePath: String,
+        value: Any?,
+    ): EntioResult<Set<ShaclGraphRole>> {
+        if (value == null) {
+            return EntioResult.Success(
+                setOf(ShaclGraphRole.Ontology, ShaclGraphRole.Data),
+            )
+        }
+
+        val roleEntries = value as? List<*>
+            ?: return failure(
+                code = "invalid-ontology-source-roles",
+                message = "$sourcePath.roles must be a YAML list.",
+                source = "$sourcePath.roles",
+            )
+
+        if (roleEntries.isEmpty()) {
+            return failure(
+                code = "empty-ontology-source-roles",
+                message = "$sourcePath.roles must contain at least one role.",
+                source = "$sourcePath.roles",
+            )
+        }
+
+        val roles = mutableSetOf<ShaclGraphRole>()
+        roleEntries.forEach { entry ->
+            val roleName = entry as? String
+                ?: return failure(
+                    code = "invalid-ontology-source-role",
+                    message = "$sourcePath.roles must contain role strings.",
+                    source = "$sourcePath.roles",
+                )
+            val role = when (roleName.lowercase()) {
+                "ontology" -> ShaclGraphRole.Ontology
+                "data" -> ShaclGraphRole.Data
+                "shapes" -> ShaclGraphRole.Shapes
+                else -> null
+            } ?: return failure(
+                code = "unsupported-ontology-source-role",
+                message = "$sourcePath.roles contains unsupported role '$roleName'.",
+                source = "$sourcePath.roles",
+            )
+            roles += role
+        }
+        return EntioResult.Success(roles)
     }
 
     private fun parseFormat(value: String): OntologyFormat? =
