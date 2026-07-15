@@ -2,7 +2,7 @@
 
 Phase 1 is the Core Semantic Engine. It is the first backend foundation of Entio.
 
-Phase 1 has been implemented, and Phase 1.5 stabilized the engine. Phase 2, Phase 2.5, and Phase 2.5+ have since completed the controlled ontology-editing and workbench foundation. The Phase 3 scope and planning documents are draft-only; no Phase 3 implementation has begun.
+Phase 1 has been implemented, and Phase 1.5 stabilized the engine. Phase 2, Phase 2.5, Phase 2.5+, and Phase 3 have since completed the controlled ontology-editing, workbench, and semantic-description foundations. Phase 4 is the current planning boundary for OWL reasoning and SHACL constraints; no Phase 4 implementation has begun.
 
 ## Phase 1 Goals
 

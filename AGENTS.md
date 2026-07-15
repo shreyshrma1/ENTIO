@@ -1,10 +1,10 @@
 # Agent Guidance For Entio
 
-This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation, the completed Phase 1.5 Core Semantic Engine Stabilization work, the completed Phase 2 Controlled Ontology Editing Workbench foundation, and the completed Phase 2.5+ workbench usability and staged-change work. Earlier planning documents remain for history; the repository is no longer documentation-only.
+This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation, the completed Phase 1.5 Core Semantic Engine Stabilization work, the completed Phase 2 Controlled Ontology Editing Workbench foundation, the completed Phase 2.5+ workbench usability and staged-change work, and the completed Phase 3 Semantic Description Layer. Earlier planning documents remain for history; the repository is no longer documentation-only.
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
-Phase 2, Phase 2.5, and Phase 2.5+ are complete. Phase 3 scope and planning documents are draft-only and no Phase 3 implementation has begun. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the VS Code layer delegates semantic work to it.
+Phase 2, Phase 2.5, Phase 2.5+, and Phase 3 are complete. Phase 4 planning covers OWL reasoning and SHACL constraint authoring and validation; no Phase 4 implementation has begun. Phase 5 planning covers external ontology browsing and Schema RAG as a later phase. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the VS Code layer delegates semantic work to it.
 
 ## Product Context
 
@@ -22,7 +22,7 @@ If a task seems to require later-phase infrastructure, stop and explain why befo
 
 ## Current Scope
 
-Phase 1, Phase 1.5, Phase 2, Phase 2.5, and Phase 2.5+ are complete. The current Entio foundation supports:
+Phase 1, Phase 1.5, Phase 2, Phase 2.5, Phase 2.5+, and Phase 3 are complete. The current Entio foundation supports:
 
 - Loading an Entio project.
 - Parsing small Turtle/RDF ontology files with existing libraries.
@@ -35,6 +35,10 @@ Phase 1, Phase 1.5, Phase 2, Phase 2.5, and Phase 2.5+ are complete. The current
 - Validating proposal previews, checking semantic equivalence, and applying current approved proposals atomically.
 - Exposing machine-readable proposal preview, validation, diff, apply, and reject commands.
 - Providing a VS Code ontology workbench for project browsing, label-first selection, deterministic IRI display, supported typed editing, deletion dependency review, multi-edit staging, combined preview, approval, rejection, refresh, and opening changed sources.
+- Building deterministic semantic descriptors for classes, properties, annotation properties, and individuals.
+- Selecting preferred labels, collecting alternate labels and definitions, and preserving explicit semantic annotations.
+- Performing deterministic semantic search with stable match reasons and ranked results.
+- Translating supported semantic edits through the existing proposal, validation, diff, approval, apply, reload, and rollback workflow.
 
 Current implementation notes:
 
@@ -56,6 +60,17 @@ Phase 2.5 and Phase 2.5+ implemented:
 - In-memory multi-edit staging, combined semantic preview, validation, approval, rejection, atomic application, reload, and rollback coverage.
 - A copied-fixture regression path that verifies source preservation before approval and recovery after failed verification.
 
+Phase 3 implemented:
+
+- Explicit semantic descriptors for classes, object properties, datatype properties, annotation properties, and individuals.
+- Deterministic preferred-label selection, alternate-label and definition extraction, annotation handling, and semantic ordering.
+- Semantic metadata validation and typed semantic edit translation.
+- Machine-readable descriptor and search commands.
+- VS Code semantic details, label-aware search, semantic edit forms, and staged semantic previews.
+- Copied-fixture regression coverage for semantic descriptors, search, semantic edits, approval, rejection, reload, and rollback.
+
+Phase 4 is the current planning boundary for OWL reasoning and SHACL constraint authoring and validation. It is not implemented yet. Phase 5 planning for external ontology browsing and Schema RAG is later and is not part of the current implementation.
+
 Phase 2 implemented:
 
 - Adding controlled graph changes and atomic change sets.
@@ -67,7 +82,7 @@ Phase 2 implemented:
 - Introducing a minimal VS Code workbench that delegates semantic behavior to the Kotlin engine.
 - Treating the proposal workflow as git-like by analogy only: draft, preview, diff, review, approve, and apply.
 
-## Phase 2 Through Phase 2.5+ Non-Goals
+## Phase 2 Through Phase 2.5+ Historical Non-Goals
 
 Do not add the following in Phase 2 unless the project direction changes explicitly:
 
@@ -87,6 +102,12 @@ Do not add the following in Phase 2 unless the project direction changes explici
 - Durable staged-session or proposal persistence.
 - Git staging, commits, pushes, branch management, or pull-request creation inside Entio.
 - OWL reasoning or full SHACL validation.
+
+## Current Phase Boundary
+
+Phase 3 is complete. Do not treat the Phase 4 or Phase 5 planning documents as implemented behavior.
+
+Phase 4 implementation must remain limited to an approved plan for OWL reasoning, import-aware reasoning views, SHACL authoring, SHACL validation, and their existing proposal-workflow integration. Phase 5 implementation must remain deferred until explicitly activated and planned.
 
 ## Software Architecture Rules
 

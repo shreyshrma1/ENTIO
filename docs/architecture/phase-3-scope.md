@@ -1,6 +1,6 @@
 # Phase 3 Scope
 
-Phase 3 is draft planning only. Phase 2.5+ is the latest completed implementation phase, and no Phase 3 product implementation has begun.
+Phase 3 is complete. It delivered the semantic description layer, deterministic semantic search, semantic metadata editing, and their Kotlin, CLI, and VS Code integration. Phase 4 is the next planning boundary for OWL reasoning and SHACL constraint authoring and validation.
 
 Phase 3 adds the semantic description layer that Entio needs for clearer ontology authoring, stronger search, and future Schema RAG and document-to-KG workflows.
 

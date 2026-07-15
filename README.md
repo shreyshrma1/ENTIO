@@ -18,17 +18,17 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation, the completed Phase 1.5 Core Semantic Engine Stabilization work, the completed Phase 2 Controlled Ontology Editing Workbench foundation, and the completed Phase 2.5+ workbench usability and staged-change work.
+This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation, the completed Phase 1.5 Core Semantic Engine Stabilization work, the completed Phase 2 Controlled Ontology Editing Workbench foundation, the completed Phase 2.5+ workbench usability and staged-change work, and the completed Phase 3 Semantic Description Layer.
 
 Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because the core work is ontology loading, RDF/Turtle parsing, deterministic validation, semantic diffing, and CLI behavior.
 
 The current implementation supports small local Entio projects, Turtle/RDF parsing through Apache Jena, RDF-term-aware graph triples, deterministic validation reports, semantic graph diffs, reusable project loading, and a thin CLI.
 
-Phase 2, Phase 2.5, and Phase 2.5+ are complete. They add safe ontology mutation, label-first selection, deterministic IRI generation, deletion review, multi-edit staging, combined preview and approval workflows, source-file persistence, and a VS Code workbench while keeping the Kotlin semantic engine responsible for RDF and ontology behavior. Phase 3 documents are draft planning materials only; no Phase 3 implementation has begun.
+Phase 2, Phase 2.5, Phase 2.5+, and Phase 3 are complete. Phases 2 through 2.5+ add safe ontology mutation, label-first selection, deterministic IRI generation, deletion review, multi-edit staging, combined preview and approval workflows, source-file persistence, and a VS Code workbench. Phase 3 adds semantic descriptors, deterministic label policy, semantic metadata editing, and semantic search. The Kotlin semantic engine remains responsible for RDF and ontology behavior. Phase 4 planning now covers OWL reasoning and SHACL constraint authoring/validation; Phase 4 implementation has not begun.
 
 ## Workspace Structure
 
-The repository contains the Phase 1 through Phase 2.5+ Kotlin/Gradle workspace plus a separate TypeScript VS Code extension:
+The repository contains the Phase 1 through Phase 3 Kotlin/Gradle workspace plus a separate TypeScript VS Code extension:
 
 - `core-types`
 - `semantic-engine`
@@ -42,7 +42,7 @@ The VS Code extension consumes the Kotlin/JVM core engine through the machine-re
 
 ## Current Capabilities
 
-The Phase 1, Phase 1.5, and Phase 2 implementation currently supports:
+The Phase 1 through Phase 3 implementation currently supports:
 
 - Loading an Entio project configuration.
 - Loading a project through a reusable `ProjectLoader`.
@@ -59,6 +59,10 @@ The Phase 1, Phase 1.5, and Phase 2 implementation currently supports:
 - Applying approved proposals atomically and restoring the prior source after post-save verification failure.
 - Browsing projects and symbols in the VS Code ontology workbench.
 - Resolving entities by label, generating deterministic IRIs, reviewing deletion dependencies, staging multiple edits, and previewing combined changes.
+- Building semantic descriptors for classes, properties, annotation properties, and individuals.
+- Selecting preferred labels and extracting alternate labels, definitions, and explicit annotations deterministically.
+- Searching semantic descriptions through the Kotlin engine and machine-readable CLI.
+- Editing supported semantic metadata through the existing staged proposal workflow.
 
 Implemented CLI commands:
 
@@ -108,7 +112,7 @@ Run checks:
 - Combined application currently targets one ontology source at a time.
 - Proposal and staged-change state is process/session scoped rather than a durable review store.
 
-## Implemented Phase 2 Through Phase 2.5+ Workflow
+## Implemented Phase 2 Through Phase 3 Workflow
 
 Phase 2 provides:
 
@@ -123,7 +127,14 @@ Phase 2 provides:
 - Combined preview, rejection restoration, atomic application, reload, and rollback for the complete staged set.
 - A git-like semantic workflow by analogy only: draft, preview, diff, review, approve, and apply.
 
-## Explicit Non-Goals For Phase 2 Through Phase 2.5+
+Phase 3 adds:
+
+- Human-readable semantic descriptors and explicit annotation vocabulary.
+- Deterministic preferred-label selection, semantic ordering, and label-aware search.
+- Typed semantic edits for annotation properties, definitions, alternate labels, and general annotations.
+- Semantic validation and CLI/VS Code integration without moving RDF or semantic policy into TypeScript.
+
+## Explicit Historical Non-Goals For Phase 2 Through Phase 2.5+
 
 Phase 2 should not include:
 
@@ -145,6 +156,12 @@ Phase 2 should not include:
 - OWL reasoning or full SHACL validation.
 - Schema RAG, embeddings, external ontology retrieval, and AI-generated ontology edits.
 
+## Current Planning Boundary
+
+Phase 3 is complete. Phase 4 is the current planning phase and concerns OWL reasoning, import-aware reasoning, SHACL constraint authoring, SHACL validation, and their integration with the existing proposal workflow. Phase 4 is not implemented yet.
+
+Phase 5 planning concerns external ontology browsing and basic Schema RAG. It remains a later, unimplemented phase.
+
 ## Technical Principle
 
 Entio should not reinvent RDF, OWL, or SHACL.
@@ -160,6 +177,8 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 2.5 Scope](docs/architecture/phase-2.5-scope.md)
 - [Phase 2.5+ Scope](docs/architecture/phase-2.5-plus-scope.md)
 - [Phase 3 Scope](docs/architecture/phase-3-scope.md)
+- [Phase 4 Scope](docs/architecture/phase-4-scope.md)
+- [Phase 5 Scope](docs/architecture/phase-5-scope.md)
 - [Technical Approach](docs/architecture/002-technical-approach.md)
 - [Kotlin Engine Guidelines](docs/architecture/003-kotlin-engine-guidelines.md)
 - [Phase 1.5 Spec](docs/specs/0002-phase-1.5-core-semantic-engine-stabilization.md)
@@ -171,3 +190,6 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 2.5+ Implementation Summary](docs/phase-summaries/phase-2.5-plus-summary.md)
 - [Phase 3 Spec](docs/specs/0006-phase-3-semantic-description-layer.md)
 - [Phase 3 ExecPlan](docs/execplans/0006-phase-3-semantic-description-layer.md)
+- [Phase 3 Implementation Summary](docs/phase-summaries/phase-3-summary.md)
+- [Phase 4 Spec](docs/specs/0007-phase-4-owl-reasoning-shacl-revised.md)
+- [Phase 5 Spec](docs/specs/0008-phase-5-external-ontology-browsing-schema-rag.md)
