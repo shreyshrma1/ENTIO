@@ -66,6 +66,13 @@ public class EntioCli(
             .addSubcommand("shacl-validate", ShaclValidateCommand())
             .addSubcommand("shacl-shapes", ShaclShapesCommand())
             .addSubcommand("proposal-impact", ProposalImpactCommand())
+            .addSubcommand("external-sources", ExternalSourcesCommand())
+            .addSubcommand("external-manifest", ExternalManifestCommand())
+            .addSubcommand("external-browse", ExternalBrowseCommand())
+            .addSubcommand("external-describe", ExternalDescribeCommand())
+            .addSubcommand("external-search", ExternalSearchCommand())
+            .addSubcommand("external-dependencies", ExternalDependenciesCommand())
+            .addSubcommand("external-proposal", ExternalProposalCommand())
 
         return commandLine
             .setOut(out)
