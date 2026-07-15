@@ -61,6 +61,11 @@ public class EntioCli(
             .addSubcommand("resolve-label", ResolveLabelCommand())
             .addSubcommand("generate-iri", GenerateIriCommand())
             .addSubcommand("deletion-dependencies", DeletionDependenciesCommand())
+            .addSubcommand("reasoning-refresh", ReasoningRefreshCommand())
+            .addSubcommand("reasoning-explain", ReasoningExplainCommand())
+            .addSubcommand("shacl-validate", ShaclValidateCommand())
+            .addSubcommand("shacl-shapes", ShaclShapesCommand())
+            .addSubcommand("proposal-impact", ProposalImpactCommand())
 
         return commandLine
             .setOut(out)
