@@ -266,6 +266,7 @@ public data class ShaclValidationResult(
     public val constraint: ShaclConstraintKind,
     public val value: RdfTerm? = null,
     public val sourceId: String? = null,
+    public val resultId: String = "",
 )
 
 public data class ShaclValidationReport(
