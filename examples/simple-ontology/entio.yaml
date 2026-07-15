@@ -4,3 +4,11 @@ ontologySources:
   - id: simple
     path: ontology/simple.ttl
     format: turtle
+    roles:
+      - ontology
+      - data
+  - id: shapes
+    path: ontology/shapes.ttl
+    format: turtle
+    roles:
+      - shapes
