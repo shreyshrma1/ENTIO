@@ -305,6 +305,9 @@ public class ExternalFiboCatalogSession internal constructor(
             element.descriptor.descriptor.common.entity == iri && (kind == null || element.kind == kind)
         }?.withProjectStatus()
 
+    /** Returns the loaded compact index in deterministic order for read-only services. */
+    public fun allElements(): List<ExternalCatalogElement> = loaded.elements.map { it.withProjectStatus() }
+
     private fun <T> page(items: List<T>, page: Int, pageSize: Int): ExternalCatalogPage<T> {
         require(page >= 0) { "Page must not be negative." }
         require(pageSize in 1..100) { "Page size must be between 1 and 100." }
