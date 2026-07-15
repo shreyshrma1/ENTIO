@@ -4,6 +4,7 @@ import com.entio.core.EntioResult
 import com.entio.core.EntioProjectConfig
 import com.entio.core.IriNamespaceConfig
 import com.entio.core.OntologyFormat
+import com.entio.core.ShaclGraphRole
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.writeText
@@ -74,6 +75,35 @@ class ProjectConfigLoaderTest {
         val config = assertIs<EntioResult.Success<EntioProjectConfig>>(loader.loadConfig(projectRoot)).value
 
         assertEquals(null, config.iriNamespace)
+    }
+
+    @Test
+    fun loadsExplicitGraphRolesAndImportMappings(): Unit {
+        val projectRoot = projectRootWithConfig(
+            """
+            name: simple-ontology
+            importMappings:
+              https://example.com/imported: imported
+            ontologySources:
+              - id: shapes
+                path: ontology/shapes.ttl
+                format: turtle
+                roles: [shapes]
+              - id: imported
+                path: ontology/imported.ttl
+                format: turtle
+                roles: [ontology, data]
+            """.trimIndent(),
+        )
+
+        val config = assertIs<EntioResult.Success<EntioProjectConfig>>(loader.loadConfig(projectRoot)).value
+
+        assertEquals(setOf(ShaclGraphRole.Shapes), config.ontologySources[0].roles)
+        assertEquals(
+            setOf(ShaclGraphRole.Ontology, ShaclGraphRole.Data),
+            config.ontologySources[1].roles,
+        )
+        assertEquals("imported", config.importMappings["https://example.com/imported"])
     }
 
     @Test
