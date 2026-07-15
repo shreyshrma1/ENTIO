@@ -34,6 +34,10 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     #edit-form, #preview { margin-top: 20px; }
     #preview-status { white-space: pre-wrap; }
     #preview-diff, #preview-validation, #preview-impact { margin: 8px 0; }
+    #external-workbench { margin-top: 20px; }
+    #external-results, #external-details, #external-dependencies, #external-proposal { margin: 8px 0; }
+    .external-card { border: 1px solid var(--vscode-panel-border); padding: 8px; margin: 6px 0; }
+    .external-card button { margin-right: 6px; }
     #approval-state { margin-left: 8px; }
     #open-source { margin-left: 8px; }
     @media (max-width: 640px) { main { grid-template-columns: 1fr; } }
@@ -84,6 +88,30 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     <div id="shacl-status" aria-live="polite">SHACL validation has not been run.</div>
     <div id="shacl-results"></div>
     <div id="shacl-shapes"></div>
+  </section>
+  <section id="external-workbench" aria-labelledby="external-heading">
+    <h2 id="external-heading">External ontology catalog</h2>
+    <button id="external-refresh" type="button">Refresh external catalog</button>
+    <div id="external-status" aria-live="polite">External catalog has not been loaded.</div>
+    <div id="external-manifest" class="external-card">Select FIBO to inspect the pinned release.</div>
+    <form id="external-search-form">
+      <label>Search external concepts <input id="external-search-query" type="search"></label>
+      <label>Kind
+        <select id="external-search-kind">
+          <option value="">Any kind</option>
+          <option value="Class">Class</option>
+          <option value="ObjectProperty">Object property</option>
+          <option value="DatatypeProperty">Datatype property</option>
+        </select>
+      </label>
+      <label>Domain <input id="external-search-domain" type="text"></label>
+      <label><input id="external-search-curated" type="checkbox"> Curated Foundations only</label>
+      <button id="external-search-submit" type="submit">Search external catalog</button>
+    </form>
+    <div id="external-results" aria-live="polite">No external search requested.</div>
+    <div id="external-details" aria-live="polite">Select an external element to inspect its details.</div>
+    <div id="external-dependencies" aria-live="polite">No external dependencies inspected.</div>
+    <div id="external-proposal" aria-live="polite">No external proposal prepared.</div>
   </section>
   <section id="edit-form" aria-labelledby="edit-heading">
     <h2 id="edit-heading">Preview Ontology Edit</h2>
@@ -249,6 +277,18 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const semanticSearchKind = document.getElementById("semantic-search-kind");
     const semanticSearchSource = document.getElementById("semantic-search-source");
     const semanticSearchResults = document.getElementById("semantic-search-results");
+    const externalRefresh = document.getElementById("external-refresh");
+    const externalStatus = document.getElementById("external-status");
+    const externalManifest = document.getElementById("external-manifest");
+    const externalSearchForm = document.getElementById("external-search-form");
+    const externalSearchQuery = document.getElementById("external-search-query");
+    const externalSearchKind = document.getElementById("external-search-kind");
+    const externalSearchDomain = document.getElementById("external-search-domain");
+    const externalSearchCurated = document.getElementById("external-search-curated");
+    const externalResults = document.getElementById("external-results");
+    const externalDetails = document.getElementById("external-details");
+    const externalDependencies = document.getElementById("external-dependencies");
+    const externalProposal = document.getElementById("external-proposal");
     const proposalForm = document.getElementById("proposal-form");
     const targetSource = document.getElementById("target-source");
     const editKind = document.getElementById("edit-kind");
@@ -349,6 +389,11 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     let selectedDeletionKeys = new Set();
     let currentModel;
     let selectedSemanticIri;
+    let selectedExternal;
+    let selectedExternalDependencies = new Set();
+    let externalTargetOntologyIri = "";
+    let externalSearchRequest;
+    let externalSearchPage = 0;
     let pendingIriGenerationKey;
     let pendingPreviewAfterIri = false;
     let pendingEntityResolution = false;
@@ -399,6 +444,40 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         },
       });
       semanticSearchResults.textContent = "Searching semantic descriptions...";
+    });
+
+    externalRefresh.addEventListener("click", () => {
+      externalStatus.textContent = "Loading the approved read-only FIBO package...";
+      vscode.postMessage({ type: "external-refresh" });
+    });
+
+    externalSearchForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const query = externalSearchQuery.value.trim();
+      if (query === "") {
+        externalResults.textContent = "Enter text to search the external catalog.";
+        return;
+      }
+      externalResults.textContent = "Searching the pinned external catalog...";
+      vscode.postMessage({
+        type: "external-search",
+        payload: {
+          query,
+          kind: externalSearchKind.value || undefined,
+          domain: externalSearchDomain.value.trim() || undefined,
+          curatedOnly: externalSearchCurated.checked,
+          page: 0,
+          pageSize: 25,
+        },
+      });
+      externalSearchRequest = {
+        query,
+        kind: externalSearchKind.value || undefined,
+        domain: externalSearchDomain.value.trim() || undefined,
+        curatedOnly: externalSearchCurated.checked,
+        pageSize: 25,
+      };
+      externalSearchPage = 0;
     });
 
     function requestIriGeneration() {
@@ -1525,6 +1604,237 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       semanticSearchResults.append(list);
     }
 
+    function externalElementLabel(element) {
+      const descriptor = element && element.descriptor;
+      const semantic = descriptor && descriptor.semantic;
+      const preferred = semantic && semantic.preferredLabel;
+      return (preferred && preferred.value) || (semantic && semantic.iri) || "Unnamed external element";
+    }
+
+    function externalElementIri(element) {
+      return element && element.descriptor && element.descriptor.semantic && element.descriptor.semantic.iri;
+    }
+
+    function externalElementKind(element) {
+      return (element && element.kind) || "Unknown";
+    }
+
+    function renderExternalState(state) {
+      externalStatus.textContent = "FIBO " + state.manifest.release + " · " + state.manifest.elementCount +
+        " catalog element(s) · " + state.manifest.moduleCount + " module(s) · read-only";
+      externalManifest.textContent = "Source: " + state.manifest.sourceId + " · catalog: " + state.manifest.catalogSchema +
+        " · availability: " + state.manifest.availability + " · commit: " + state.manifest.commitSha;
+      externalResults.replaceChildren();
+      const heading = document.createElement("h3");
+      heading.textContent = "Curated Foundations · showing " + state.browse.items.length + " of " + state.browse.totalCount;
+      externalResults.append(heading);
+      const list = document.createElement("ul");
+      state.browse.items.forEach((module) => {
+        const item = document.createElement("li");
+        item.className = "external-card";
+        const label = document.createElement("strong");
+        label.textContent = (module.label || module.ontologyIri) + " · " + (module.domain || "unknown domain");
+        const browse = document.createElement("button");
+        browse.type = "button";
+        browse.textContent = "Browse module";
+        browse.addEventListener("click", () => {
+          externalStatus.textContent = "Loading module contents...";
+          vscode.postMessage({
+            type: "external-browse",
+            payload: { mode: "module", moduleIri: module.ontologyIri, page: 0, pageSize: 25 },
+          });
+        });
+        item.append(label, browse);
+        list.append(item);
+      });
+      externalResults.append(list);
+    }
+
+    function renderExternalBrowse(result) {
+      externalResults.replaceChildren();
+      const heading = document.createElement("h3");
+      heading.textContent = "Module contents · showing " + result.items.length + " of " + result.totalCount;
+      externalResults.append(heading);
+      if (result.items.length === 0) {
+        externalResults.append(document.createTextNode("No catalog elements were found in this module."));
+        return;
+      }
+      const list = document.createElement("ul");
+      result.items.forEach((element) => {
+        const item = document.createElement("li");
+        item.className = "external-card";
+        const label = document.createElement("strong");
+        label.textContent = externalElementLabel(element) + " · " + externalElementKind(element);
+        const inspect = document.createElement("button");
+        inspect.type = "button";
+        inspect.textContent = "Inspect details";
+        inspect.addEventListener("click", () => inspectExternal(element));
+        item.append(label, inspect);
+        list.append(item);
+      });
+      externalResults.append(list);
+    }
+
+    function renderExternalSearch(result) {
+      externalResults.replaceChildren();
+      const heading = document.createElement("h3");
+      heading.textContent = "External results · showing " + result.candidates.length + " of " + result.totalResultCount;
+      externalResults.append(heading);
+      if (result.candidates.length === 0) {
+        externalResults.append(document.createTextNode("No external concepts matched '" + result.query + "'."));
+        return;
+      }
+      const list = document.createElement("ul");
+      result.candidates.forEach((candidate) => {
+        const element = candidate.element;
+        const item = document.createElement("li");
+        item.className = "external-card";
+        const label = document.createElement("strong");
+        label.textContent = externalElementLabel(element) + " · " + externalElementKind(element);
+        const score = document.createElement("span");
+        score.textContent = " · score " + candidate.score + " · " + candidate.confidence;
+        const inspect = document.createElement("button");
+        inspect.type = "button";
+        inspect.textContent = "Inspect details";
+        inspect.addEventListener("click", () => inspectExternal(element));
+        item.append(label, score, inspect);
+        if (candidate.scoreBreakdown) {
+          const breakdown = document.createElement("small");
+          breakdown.textContent = "Signals: " + Object.entries(candidate.scoreBreakdown)
+            .filter(([, value]) => value)
+            .map(([key, value]) => key + " " + value)
+            .join(", ");
+          item.append(breakdown);
+        }
+        if (Array.isArray(candidate.reasons) && candidate.reasons.length > 0) {
+          const reasons = document.createElement("small");
+          reasons.textContent = "Matched by: " + candidate.reasons.map((reason) => reason.matchedField || reason.type).join(", ");
+          item.append(reasons);
+        }
+        if (candidate.tieGroupId) {
+          const tie = document.createElement("small");
+          tie.textContent = " Tied candidate group: " + candidate.tieGroupId;
+          item.append(tie);
+        }
+        list.append(item);
+      });
+      externalResults.append(list);
+      externalSearchPage = result.page;
+      if (result.hasNext && externalSearchRequest) {
+        const next = document.createElement("button");
+        next.type = "button";
+        next.textContent = "Load more results";
+        next.addEventListener("click", () => {
+          const page = externalSearchPage + 1;
+          externalResults.append(document.createTextNode(" Loading more results..."));
+          vscode.postMessage({ type: "external-search", payload: { ...externalSearchRequest, page } });
+        });
+        externalResults.append(next);
+      }
+    }
+
+    function inspectExternal(element) {
+      const iri = externalElementIri(element);
+      if (!iri) return;
+      selectedExternal = element;
+      externalDetails.textContent = "Loading external descriptor details...";
+      externalDependencies.textContent = "Loading explicit dependencies...";
+      vscode.postMessage({ type: "external-describe", payload: { iri, kind: externalElementKind(element) } });
+      vscode.postMessage({ type: "external-dependencies", payload: { iri, kind: externalElementKind(element) } });
+    }
+
+    function renderExternalDescriptor(result) {
+      const descriptor = result.descriptor;
+      const semantic = descriptor.semantic || {};
+      externalDetails.replaceChildren();
+      const heading = document.createElement("h3");
+      heading.textContent = externalElementLabel({ descriptor: descriptor }) + " · " + result.kind;
+      externalDetails.append(heading);
+      const metadata = descriptor || {};
+      const fields = [
+        ["Module", metadata.moduleIri],
+        ["Domain", metadata.domain],
+        ["Maturity", metadata.maturity],
+        ["Status", metadata.catalogStatus],
+        ["Locality", metadata.locality],
+        ["External IRI", semantic.iri],
+      ];
+      fields.forEach(([label, value]) => {
+        if (!value) return;
+        const field = document.createElement("p");
+        field.textContent = label + ": " + value;
+        externalDetails.append(field);
+      });
+      const inspectButton = document.createElement("button");
+      inspectButton.type = "button";
+      inspectButton.textContent = "Inspect dependencies";
+      inspectButton.addEventListener("click", () => inspectExternal({ kind: result.kind, descriptor }));
+      const reuseButton = document.createElement("button");
+      reuseButton.type = "button";
+      reuseButton.textContent = "Prepare external reuse";
+      reuseButton.disabled = !semantic.iri;
+      reuseButton.addEventListener("click", () => prepareExternalProposal(result.kind === "Class" ? "reuse-class" : result.kind === "ObjectProperty" ? "reuse-object-property" : "reuse-datatype-property"));
+      externalDetails.append(inspectButton, reuseButton);
+      if (result.kind === "Class") {
+        const localButton = document.createElement("button");
+        localButton.type = "button";
+        localButton.textContent = "Prepare local subclass";
+        localButton.addEventListener("click", () => prepareExternalProposal("local-subclass"));
+        externalDetails.append(localButton);
+      }
+    }
+
+    function renderExternalDependencies(result) {
+      selectedExternalDependencies = new Set();
+      externalDependencies.replaceChildren();
+      const heading = document.createElement("h3");
+      heading.textContent = result.requiresExplicitApproval ? "Dependency review · approval required" : "Dependency review · ready";
+      externalDependencies.append(heading);
+      const list = document.createElement("ul");
+      result.dependencies.forEach((dependency) => {
+        const item = document.createElement("li");
+        item.className = "external-card";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.disabled = dependency.selection !== "Missing";
+        checkbox.addEventListener("change", () => {
+          const key = [dependency.category, dependency.externalIri || "", dependency.sourceModule || ""].join("|");
+          if (checkbox.checked) selectedExternalDependencies.add(key);
+          else selectedExternalDependencies.delete(key);
+        });
+        const text = document.createElement("span");
+        text.textContent = dependency.category + " · " + (dependency.externalIri || dependency.sourceModule || "package") +
+          " · " + dependency.selection + " · " + dependency.reason;
+        item.append(checkbox, text);
+        list.append(item);
+      });
+      externalDependencies.append(list);
+    }
+
+    function prepareExternalProposal(intent) {
+      const iri = externalElementIri(selectedExternal);
+      if (!iri) {
+        externalProposal.textContent = "Select an external element before preparing a proposal.";
+        return;
+      }
+      const targetOntology = prompt("Target ontology IRI for this proposal", "https://example.com/entio/" + targetSource.value);
+      if (!targetOntology) return;
+      externalTargetOntologyIri = targetOntology;
+      externalProposal.textContent = "Preparing an external proposal; local files remain unchanged...";
+      vscode.postMessage({
+        type: "external-proposal",
+        payload: {
+          targetSourceId: targetSource.value,
+          targetOntologyIri: externalTargetOntologyIri,
+          intent,
+          externalIri: iri,
+          kind: externalElementKind(selectedExternal),
+          localClassIri: intent === "local-subclass" ? prompt("Local class IRI", "") : undefined,
+          selectedDependencyKeys: Array.from(selectedExternalDependencies),
+        },
+      });
+    }
+
     function formatSearchReason(reason) {
       const labels = {
         PreferredLabel: "preferred label",
@@ -1601,6 +1911,47 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       if (message.type === "semantic-search-error") {
         semanticSearchResults.textContent = message.message;
       }
+      if (message.type === "external-state") {
+        renderExternalState(message.payload);
+      }
+      if (message.type === "external-error") {
+        externalStatus.textContent = message.message;
+      }
+      if (message.type === "external-browse") {
+        externalStatus.textContent = "External catalog browse complete.";
+        renderExternalBrowse(message.payload);
+      }
+      if (message.type === "external-browse-error") {
+        externalStatus.textContent = message.message;
+        externalResults.textContent = message.message;
+      }
+      if (message.type === "external-search") {
+        externalStatus.textContent = "External catalog search complete.";
+        renderExternalSearch(message.payload);
+      }
+      if (message.type === "external-search-error") {
+        externalResults.textContent = message.message;
+      }
+      if (message.type === "external-describe") {
+        renderExternalDescriptor(message.payload);
+      }
+      if (message.type === "external-describe-error") {
+        externalDetails.textContent = message.message;
+      }
+      if (message.type === "external-dependencies") {
+        renderExternalDependencies(message.payload);
+      }
+      if (message.type === "external-dependencies-error") {
+        externalDependencies.textContent = message.message;
+      }
+      if (message.type === "external-proposal") {
+        const proposal = message.payload;
+        externalProposal.textContent = "External proposal prepared: " + proposal.proposalId + " · " + proposal.changeCount +
+          " change(s) · " + proposal.dependencyStatus + ". No local files were changed.";
+      }
+      if (message.type === "external-proposal-error") {
+        externalProposal.textContent = message.message;
+      }
       if (message.type === "proposal-preview") {
         renderPreview(message.payload);
       }
@@ -1663,6 +2014,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     });
     renderStagedList();
     vscode.postMessage({ type: "refresh" });
+    vscode.postMessage({ type: "external-refresh" });
   </script>
 </body>
 </html>`;
