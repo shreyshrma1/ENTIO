@@ -1,0 +1,1525 @@
+sourceId: fibo
+release: master_2026Q2
+commitSha: f59157fe156e3d91b1c045222d0a7dc06b7d78a2
+packageSchema: entio-fibo-package-v1
+catalogSchema: fibo-catalog-v1
+checksumAlgorithm: SHA-256
+commonsVersion: 1.3
+packageFingerprint: 015142b94819291379b89c3bba92048f037f1d8e635d3f1342d29f0f02f374ad
+sourceArchive: edmcouncil/fibo@f59157fe156e3d91b1c045222d0a7dc06b7d78a2
+sourceArchivePath: source/fibo-master_2026Q2-f59157f.zip
+sourceArchiveSha256: 18947607581fc65f76db846a455440cca6efc596b52d2cacf32c43530c312bd9
+sourceFileCount: 297
+catalogElementCount: 4232
+curatedSeedOntologyIris:
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Documents/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/IdentifiersAndIndices/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Parties/Parties/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/AgentsAndPeople/People/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/DatesAndTimes/FinancialDates/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/DatesAndTimes/BusinessDates/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/DatesAndTimes/Occurrences/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Accounting/CurrencyAmount/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/Ownership/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/Control/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/PaymentsAndSchedules/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Places/RealProperty/
+importClosureOntologyIris:
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Accounting/CurrencyAmount/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/AgentsAndPeople/People/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Arrangements/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Assessments/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Documents/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/IdentifiersAndIndices/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Reporting/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/DatesAndTimes/BusinessDates/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/DatesAndTimes/FinancialDates/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/DatesAndTimes/Occurrences/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/GoalsAndObjectives/Objectives/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Law/LegalCapacity/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Law/LegalCore/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/Control/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/Ownership/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Parties/Parties/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Places/Addresses/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Places/RealProperty/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/PaymentsAndSchedules/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Relations/Relations/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Utilities/Analytics/
+  - https://spec.edmcouncil.org/fibo/ontology/FND/Utilities/AnnotationVocabulary/
+  - https://www.omg.org/spec/Commons/AnnotationVocabulary/
+  - https://www.omg.org/spec/Commons/BusinessAuthorizations/
+  - https://www.omg.org/spec/Commons/Classifiers/
+  - https://www.omg.org/spec/Commons/CodesAndCodeSets/
+  - https://www.omg.org/spec/Commons/Collections/
+  - https://www.omg.org/spec/Commons/ContextualDesignators/
+  - https://www.omg.org/spec/Commons/ContextualIdentifiers/
+  - https://www.omg.org/spec/Commons/DatesAndTimes/
+  - https://www.omg.org/spec/Commons/Designators/
+  - https://www.omg.org/spec/Commons/Documents/
+  - https://www.omg.org/spec/Commons/Identifiers/
+  - https://www.omg.org/spec/Commons/Locations/
+  - https://www.omg.org/spec/Commons/Organizations/
+  - https://www.omg.org/spec/Commons/PartiesAndSituations/
+  - https://www.omg.org/spec/Commons/QuantitiesAndUnits/
+  - https://www.omg.org/spec/Commons/RegulatoryAgencies/
+  - https://www.omg.org/spec/Commons/RolesAndCompositions/
+  - https://www.omg.org/spec/Commons/SitesAndFacilities/
+  - https://www.omg.org/spec/Commons/TextDatatype/
+ontologyIriMappings:
+  - iri: https://spec.edmcouncil.org/fibo/ontology/ACTUS/ACTUS-examples/
+    path: source/ACTUS/ACTUS-examples.ttl
+  - iri: https://spec.edmcouncil.org/fibo/ontology/ACTUS/ACTUSContractTermMapping/
+    path: source/ACTUS/ACTUSContractTermMapping.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/ACTUS/ACTUSContractTerms/
+    path: source/ACTUS/ACTUSContractTerms.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/ACTUS/ACTUSTaxonomy/
+    path: source/ACTUS/ACTUSTaxonomy.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/ACTUS/MetadataACTUS/
+    path: source/ACTUS/MetadataACTUS.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/AboutFIBODev-TBoxOnly/
+    path: source/AboutFIBODev-TBoxOnly.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/AboutFIBODev/
+    path: source/AboutFIBODev.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/AboutFIBOProd-IncludingReferenceData/
+    path: source/AboutFIBOProd-IncludingReferenceData.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/AboutFIBOProd-TBoxOnly/
+    path: source/AboutFIBOProd-TBoxOnly.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/AboutFIBOProd/
+    path: source/AboutFIBOProd.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/AllBE-Europe/
+    path: source/BE/AllBE-Europe.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/AllBE-NorthAmerica/
+    path: source/BE/AllBE-NorthAmerica.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/AllBE-ReferenceIndividuals/
+    path: source/BE/AllBE-ReferenceIndividuals.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/AllBE/
+    path: source/BE/AllBE.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/Corporations/Corporations/
+    path: source/BE/Corporations/Corporations.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/Corporations/MetadataBECorporations/
+    path: source/BE/Corporations/MetadataBECorporations.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/FunctionalEntities/FunctionalEntities/
+    path: source/BE/FunctionalEntities/FunctionalEntities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/FunctionalEntities/MetadataBEFunctionalEntities/
+    path: source/BE/FunctionalEntities/MetadataBEFunctionalEntities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/FunctionalEntities/Publishers/
+    path: source/BE/FunctionalEntities/Publishers.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/AsianJurisdiction/CentralAsiaGovernmentEntitiesAndJurisdictions/
+    path: source/BE/GovernmentEntities/AsianJurisdiction/CentralAsiaGovernmentEntitiesAndJurisdictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/AsianJurisdiction/EasternAsiaGovernmentEntitiesAndJurisdictions/
+    path: source/BE/GovernmentEntities/AsianJurisdiction/EasternAsiaGovernmentEntitiesAndJurisdictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/AsianJurisdiction/SoutheasternAsiaGovernmentEntitiesAndJurisdictions/
+    path: source/BE/GovernmentEntities/AsianJurisdiction/SoutheasternAsiaGovernmentEntitiesAndJurisdictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/AsianJurisdiction/SouthernAsiaGovernmentEntitiesAndJurisdictions/
+    path: source/BE/GovernmentEntities/AsianJurisdiction/SouthernAsiaGovernmentEntitiesAndJurisdictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/AsianJurisdiction/WesternAsiaGovernmentEntitiesAndJurisdictions/
+    path: source/BE/GovernmentEntities/AsianJurisdiction/WesternAsiaGovernmentEntitiesAndJurisdictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/EuropeanJurisdiction/EUGovernmentEntitiesAndJurisdictions/
+    path: source/BE/GovernmentEntities/EuropeanJurisdiction/EUGovernmentEntitiesAndJurisdictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/EuropeanJurisdiction/EasternEuropeGovernmentEntitiesAndJurisdictions/
+    path: source/BE/GovernmentEntities/EuropeanJurisdiction/EasternEuropeGovernmentEntitiesAndJurisdictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/EuropeanJurisdiction/NorthernEuropeGovernmentEntitiesAndJurisdictions/
+    path: source/BE/GovernmentEntities/EuropeanJurisdiction/NorthernEuropeGovernmentEntitiesAndJurisdictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/EuropeanJurisdiction/SouthernEuropeGovernmentEntitiesAndJurisdictions/
+    path: source/BE/GovernmentEntities/EuropeanJurisdiction/SouthernEuropeGovernmentEntitiesAndJurisdictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/EuropeanJurisdiction/UKGovernmentEntitiesAndJurisdictions/
+    path: source/BE/GovernmentEntities/EuropeanJurisdiction/UKGovernmentEntitiesAndJurisdictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/EuropeanJurisdiction/WesternEuropeGovernmentEntitiesAndJurisdictions/
+    path: source/BE/GovernmentEntities/EuropeanJurisdiction/WesternEuropeGovernmentEntitiesAndJurisdictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/GovernmentEntities/
+    path: source/BE/GovernmentEntities/GovernmentEntities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/LatinAmericanJurisdiction/CentralAmericanGovernmentEntitiesAndJurisdictions/
+    path: source/BE/GovernmentEntities/LatinAmericanJurisdiction/CentralAmericanGovernmentEntitiesAndJurisdictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/LatinAmericanJurisdiction/SouthAmericanGovernmentEntitiesAndJurisdictions/
+    path: source/BE/GovernmentEntities/LatinAmericanJurisdiction/SouthAmericanGovernmentEntitiesAndJurisdictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/MetadataBEGovernmentEntities/
+    path: source/BE/GovernmentEntities/MetadataBEGovernmentEntities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/NorthAmericanJurisdiction/CAGovernmentEntitiesAndJurisdictions/
+    path: source/BE/GovernmentEntities/NorthAmericanJurisdiction/CAGovernmentEntitiesAndJurisdictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/NorthAmericanJurisdiction/CaribbeanGovernmentEntitiesAndJurisdictions/
+    path: source/BE/GovernmentEntities/NorthAmericanJurisdiction/CaribbeanGovernmentEntitiesAndJurisdictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/NorthAmericanJurisdiction/MXGovernmentEntitiesAndJurisdictions/
+    path: source/BE/GovernmentEntities/NorthAmericanJurisdiction/MXGovernmentEntitiesAndJurisdictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/GovernmentEntities/NorthAmericanJurisdiction/USGovernmentEntitiesAndJurisdictions/
+    path: source/BE/GovernmentEntities/NorthAmericanJurisdiction/USGovernmentEntitiesAndJurisdictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/CorporateBodies/
+    path: source/BE/LegalEntities/CorporateBodies.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/FormalBusinessOrganizations/
+    path: source/BE/LegalEntities/FormalBusinessOrganizations.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LEIEntities/
+    path: source/BE/LegalEntities/LEIEntities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalPersons/
+    path: source/BE/LegalEntities/LegalPersons.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/MetadataBELegalEntities/
+    path: source/BE/LegalEntities/MetadataBELegalEntities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/MetadataBE/
+    path: source/BE/MetadataBE.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/OwnershipAndControl/ControlParties/
+    path: source/BE/OwnershipAndControl/ControlParties.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/OwnershipAndControl/CorporateControl/
+    path: source/BE/OwnershipAndControl/CorporateControl.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/OwnershipAndControl/CorporateOwnership/
+    path: source/BE/OwnershipAndControl/CorporateOwnership.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/OwnershipAndControl/Executives/
+    path: source/BE/OwnershipAndControl/Executives.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/OwnershipAndControl/MetadataBEOwnershipAndControl/
+    path: source/BE/OwnershipAndControl/MetadataBEOwnershipAndControl.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/OwnershipAndControl/OwnershipParties/
+    path: source/BE/OwnershipAndControl/OwnershipParties.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/Partnerships/MetadataBEPartnerships/
+    path: source/BE/Partnerships/MetadataBEPartnerships.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/Partnerships/Partnerships/
+    path: source/BE/Partnerships/Partnerships.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/PrivateLimitedCompanies/MetadataBEPrivateLimitedCompanies/
+    path: source/BE/PrivateLimitedCompanies/MetadataBEPrivateLimitedCompanies.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/PrivateLimitedCompanies/PrivateLimitedCompanies/
+    path: source/BE/PrivateLimitedCompanies/PrivateLimitedCompanies.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/SoleProprietorships/MetadataBESoleProprietorships/
+    path: source/BE/SoleProprietorships/MetadataBESoleProprietorships.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/SoleProprietorships/SoleProprietorships/
+    path: source/BE/SoleProprietorships/SoleProprietorships.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/Trusts/MetadataBETrusts/
+    path: source/BE/Trusts/MetadataBETrusts.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BE/Trusts/Trusts/
+    path: source/BE/Trusts/Trusts.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BP/MetadataBP/
+    path: source/BP/MetadataBP.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BP/Process/FinancialContextAndProcess/
+    path: source/BP/Process/FinancialContextAndProcess.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BP/Process/MetadataBPProcess/
+    path: source/BP/Process/MetadataBPProcess.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BP/SecuritiesIssuance/AgencyMBSIssuance/
+    path: source/BP/SecuritiesIssuance/AgencyMBSIssuance.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BP/SecuritiesIssuance/DebtIssuance/
+    path: source/BP/SecuritiesIssuance/DebtIssuance.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BP/SecuritiesIssuance/EquitiesIPOIssuance/
+    path: source/BP/SecuritiesIssuance/EquitiesIPOIssuance.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BP/SecuritiesIssuance/IssuanceDocuments/
+    path: source/BP/SecuritiesIssuance/IssuanceDocuments.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BP/SecuritiesIssuance/IssuanceProcess/
+    path: source/BP/SecuritiesIssuance/IssuanceProcess.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BP/SecuritiesIssuance/MBSIssuance/
+    path: source/BP/SecuritiesIssuance/MBSIssuance.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BP/SecuritiesIssuance/MetadataBPSecuritiesIssuance/
+    path: source/BP/SecuritiesIssuance/MetadataBPSecuritiesIssuance.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BP/SecuritiesIssuance/MuniIssuance/
+    path: source/BP/SecuritiesIssuance/MuniIssuance.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/BP/SecuritiesIssuance/PrivateLabelMBSIssuance/
+    path: source/BP/SecuritiesIssuance/PrivateLabelMBSIssuance.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/CAE/AllCAE/
+    path: source/CAE/AllCAE.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/CAE/CorporateEvents/CorporateActions/
+    path: source/CAE/CorporateEvents/CorporateActions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/CAE/CorporateEvents/GLEIF-CorporateActionIndividuals/
+    path: source/CAE/CorporateEvents/GLEIF-CorporateActionIndividuals.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/CAE/CorporateEvents/ISO15022-CorporateActionIndividuals/
+    path: source/CAE/CorporateEvents/ISO15022-CorporateActionIndividuals.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/CAE/CorporateEvents/MetadataCAECorporateEvents/
+    path: source/CAE/CorporateEvents/MetadataCAECorporateEvents.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/CAE/CorporateEvents/SecurityRelatedCorporateActions/
+    path: source/CAE/CorporateEvents/SecurityRelatedCorporateActions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/CAE/MetadataCAE/
+    path: source/CAE/MetadataCAE.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/AllDER-ReferenceIndividuals/
+    path: source/DER/AllDER-ReferenceIndividuals.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/AllDER/
+    path: source/DER/AllDER.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/CreditDerivatives/CreditDefaultSwaps/
+    path: source/DER/CreditDerivatives/CreditDefaultSwaps.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/CreditDerivatives/MetadataDERCreditDerivatives/
+    path: source/DER/CreditDerivatives/MetadataDERCreditDerivatives.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/DerivativesContracts/CommoditiesContracts/
+    path: source/DER/DerivativesContracts/CommoditiesContracts.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/DerivativesContracts/CurrencyContracts/
+    path: source/DER/DerivativesContracts/CurrencyContracts.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/DerivativesContracts/DerivativesBasics/
+    path: source/DER/DerivativesContracts/DerivativesBasics.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/DerivativesContracts/DerivativesMasterAgreements/
+    path: source/DER/DerivativesContracts/DerivativesMasterAgreements.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/DerivativesContracts/ExoticOptions/
+    path: source/DER/DerivativesContracts/ExoticOptions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/DerivativesContracts/FuturesAndForwards/
+    path: source/DER/DerivativesContracts/FuturesAndForwards.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/DerivativesContracts/MetadataDERDerivativesContracts/
+    path: source/DER/DerivativesContracts/MetadataDERDerivativesContracts.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/DerivativesContracts/Options/
+    path: source/DER/DerivativesContracts/Options.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/DerivativesContracts/RightsAndWarrants/
+    path: source/DER/DerivativesContracts/RightsAndWarrants.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/DerivativesContracts/StructuredInstruments/
+    path: source/DER/DerivativesContracts/StructuredInstruments.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/DerivativesContracts/Swaps/
+    path: source/DER/DerivativesContracts/Swaps.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/DerivativesContracts/SwapsIndividuals/
+    path: source/DER/DerivativesContracts/SwapsIndividuals.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/MetadataDER/
+    path: source/DER/MetadataDER.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/RateDerivatives/IRSwaps/
+    path: source/DER/RateDerivatives/IRSwaps.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/RateDerivatives/MetadataDERRateDerivatives/
+    path: source/DER/RateDerivatives/MetadataDERRateDerivatives.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/RateDerivatives/RateDerivatives/
+    path: source/DER/RateDerivatives/RateDerivatives.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/SecurityBasedDerivatives/EquitySwaps/
+    path: source/DER/SecurityBasedDerivatives/EquitySwaps.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/SecurityBasedDerivatives/MetadataDERSecurityBasedDerivatives/
+    path: source/DER/SecurityBasedDerivatives/MetadataDERSecurityBasedDerivatives.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/DER/SecurityBasedDerivatives/SecurityBasedDerivatives/
+    path: source/DER/SecurityBasedDerivatives/SecurityBasedDerivatives.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/EXMP/LegalEntities/DowJonesIndustrialAverageCompanies/
+    path: source/EXMP/LegalEntities/DowJonesIndustrialAverageCompanies.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/EXMP/LegalEntities/DowJonesIndustrialAverageExecutives/
+    path: source/EXMP/LegalEntities/DowJonesIndustrialAverageExecutives.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/EXMP/LegalEntities/FinancialInstitutionExamples/
+    path: source/EXMP/LegalEntities/FinancialInstitutionExamples.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/EXMP/LegalEntities/MarketsAndExchangesExamples/
+    path: source/EXMP/LegalEntities/MarketsAndExchangesExamples.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/EXMP/LegalEntities/MetadataEXMPLegalEntities/
+    path: source/EXMP/LegalEntities/MetadataEXMPLegalEntities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/EXMP/MetadataEXMP/
+    path: source/EXMP/MetadataEXMP.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/EXMP/Securities/EquitiesExamples/
+    path: source/EXMP/Securities/EquitiesExamples.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/EXMP/Securities/EquityIndexExamples/
+    path: source/EXMP/Securities/EquityIndexExamples.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/EXMP/Securities/IRSwapExamples/
+    path: source/EXMP/Securities/IRSwapExamples.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/EXMP/Securities/MetadataEXMPSecurities/
+    path: source/EXMP/Securities/MetadataEXMPSecurities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/AllFBC-Europe/
+    path: source/FBC/AllFBC-Europe.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/AllFBC-EuropeAndNorthAmerica/
+    path: source/FBC/AllFBC-EuropeAndNorthAmerica.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/AllFBC-NorthAmerica/
+    path: source/FBC/AllFBC-NorthAmerica.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/AllFBC-NorthAmericanExamples/
+    path: source/FBC/AllFBC-NorthAmericanExamples.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/AllFBC-ReferenceIndividuals/
+    path: source/FBC/AllFBC-ReferenceIndividuals.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/AllFBC-ReferenceMarkets/
+    path: source/FBC/AllFBC-ReferenceMarkets.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/AllFBC/
+    path: source/FBC/AllFBC.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/CreditEvents/
+    path: source/FBC/DebtAndEquities/CreditEvents.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/CreditRatings/
+    path: source/FBC/DebtAndEquities/CreditRatings.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/
+    path: source/FBC/DebtAndEquities/Debt.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Guaranty/
+    path: source/FBC/DebtAndEquities/Guaranty.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/MetadataFBCDebtAndEquities/
+    path: source/FBC/DebtAndEquities/MetadataFBCDebtAndEquities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/
+    path: source/FBC/FinancialInstruments/FinancialInstruments.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/InstrumentPricing/
+    path: source/FBC/FinancialInstruments/InstrumentPricing.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/MetadataFBCFinancialInstruments/
+    path: source/FBC/FinancialInstruments/MetadataFBCFinancialInstruments.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/Settlement/
+    path: source/FBC/FinancialInstruments/Settlement.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/BusinessCenters/
+    path: source/FBC/FunctionalEntities/BusinessCenters.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/BusinessCentersIndividuals/
+    path: source/FBC/FunctionalEntities/BusinessCentersIndividuals.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/BusinessRegistries/
+    path: source/FBC/FunctionalEntities/BusinessRegistries.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/CommercialRegistrationAuthorities/
+    path: source/FBC/FunctionalEntities/CommercialRegistrationAuthorities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/EuropeanEntities/EUFinancialServicesEntities/
+    path: source/FBC/FunctionalEntities/EuropeanEntities/EUFinancialServicesEntities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/EuropeanEntities/EURegulatoryAgencies/
+    path: source/FBC/FunctionalEntities/EuropeanEntities/EURegulatoryAgencies.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/EuropeanEntities/EuropeanFinancialServicesEntitiesIndividuals/
+    path: source/FBC/FunctionalEntities/EuropeanEntities/EuropeanFinancialServicesEntitiesIndividuals.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/FinancialServicesEntities/
+    path: source/FBC/FunctionalEntities/FinancialServicesEntities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/InternationalRegistriesAndAuthorities/
+    path: source/FBC/FunctionalEntities/InternationalRegistriesAndAuthorities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/Markets/
+    path: source/FBC/FunctionalEntities/Markets.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/MarketsIndividuals/
+    path: source/FBC/FunctionalEntities/MarketsIndividuals.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/MetadataFBCFunctionalEntities/
+    path: source/FBC/FunctionalEntities/MetadataFBCFunctionalEntities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/NorthAmericanEntities/CAFinancialServicesEntities/
+    path: source/FBC/FunctionalEntities/NorthAmericanEntities/CAFinancialServicesEntities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/NorthAmericanEntities/CARegulatoryAgencies/
+    path: source/FBC/FunctionalEntities/NorthAmericanEntities/CARegulatoryAgencies.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/NorthAmericanEntities/USFinancialServicesEntities/
+    path: source/FBC/FunctionalEntities/NorthAmericanEntities/USFinancialServicesEntities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/NorthAmericanEntities/USNationalInformationCenterControlledVocabularies/
+    path: source/FBC/FunctionalEntities/NorthAmericanEntities/USNationalInformationCenterControlledVocabularies.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/NorthAmericanEntities/USRegulatoryAgencies/
+    path: source/FBC/FunctionalEntities/NorthAmericanEntities/USRegulatoryAgencies.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/RegulatoryAgencies/
+    path: source/FBC/FunctionalEntities/RegulatoryAgencies.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/MetadataFBC/
+    path: source/FBC/MetadataFBC.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/ClientsAndAccounts/
+    path: source/FBC/ProductsAndServices/ClientsAndAccounts.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/FinancialProductsAndServices/
+    path: source/FBC/ProductsAndServices/FinancialProductsAndServices.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/MetadataFBCProductsAndServices/
+    path: source/FBC/ProductsAndServices/MetadataFBCProductsAndServices.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Accounting/AccountingEquity/
+    path: source/FND/Accounting/AccountingEquity.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Accounting/CashFlows/
+    path: source/FND/Accounting/CashFlows.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Accounting/CurrencyAmount/
+    path: source/FND/Accounting/CurrencyAmount.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Accounting/ISO4217-CurrencyCodes/
+    path: source/FND/Accounting/ISO4217-CurrencyCodes.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Accounting/MetadataFNDAccounting/
+    path: source/FND/Accounting/MetadataFNDAccounting.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/AgentsAndPeople/Agents/
+    path: source/FND/AgentsAndPeople/Agents.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/AgentsAndPeople/MetadataFNDAgentsAndPeople/
+    path: source/FND/AgentsAndPeople/MetadataFNDAgentsAndPeople.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/AgentsAndPeople/People/
+    path: source/FND/AgentsAndPeople/People.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/
+    path: source/FND/Agreements/Agreements.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/
+    path: source/FND/Agreements/Contracts.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/MetadataFNDAgreements/
+    path: source/FND/Agreements/MetadataFNDAgreements.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/AllFND-NorthAmerica/
+    path: source/FND/AllFND-NorthAmerica.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/AllFND/
+    path: source/FND/AllFND.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Arrangements/
+    path: source/FND/Arrangements/Arrangements.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Assessments/
+    path: source/FND/Arrangements/Assessments.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/ClassificationSchemes/
+    path: source/FND/Arrangements/ClassificationSchemes.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Documents/
+    path: source/FND/Arrangements/Documents.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/IdentifiersAndIndices/
+    path: source/FND/Arrangements/IdentifiersAndIndices.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Lifecycles/
+    path: source/FND/Arrangements/Lifecycles.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/MetadataFNDArrangements/
+    path: source/FND/Arrangements/MetadataFNDArrangements.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Ratings/
+    path: source/FND/Arrangements/Ratings.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Reporting/
+    path: source/FND/Arrangements/Reporting.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/DatesAndTimes/BusinessDates/
+    path: source/FND/DatesAndTimes/BusinessDates.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/DatesAndTimes/FinancialDates/
+    path: source/FND/DatesAndTimes/FinancialDates.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/DatesAndTimes/MetadataFNDDatesAndTimes/
+    path: source/FND/DatesAndTimes/MetadataFNDDatesAndTimes.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/DatesAndTimes/Occurrences/
+    path: source/FND/DatesAndTimes/Occurrences.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/GoalsAndObjectives/MetadataFNDGoalsAndObjectives/
+    path: source/FND/GoalsAndObjectives/MetadataFNDGoalsAndObjectives.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/GoalsAndObjectives/Objectives/
+    path: source/FND/GoalsAndObjectives/Objectives.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Law/LegalCapacity/
+    path: source/FND/Law/LegalCapacity.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Law/LegalCore/
+    path: source/FND/Law/LegalCore.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Law/MetadataFNDLaw/
+    path: source/FND/Law/MetadataFNDLaw.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/MetadataFND/
+    path: source/FND/MetadataFND.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/FormalOrganizations/
+    path: source/FND/Organizations/FormalOrganizations.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/MetadataFNDOrganizations/
+    path: source/FND/Organizations/MetadataFNDOrganizations.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/TestFormalOrganizations/
+    path: source/etc/testing/data/fnd/Organizations/TestFormalOrganizations.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/Control/
+    path: source/FND/OwnershipAndControl/Control.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/MetadataFNDOwnershipAndControl/
+    path: source/FND/OwnershipAndControl/MetadataFNDOwnershipAndControl.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/Ownership/
+    path: source/FND/OwnershipAndControl/Ownership.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/OwnershipAndControl/
+    path: source/FND/OwnershipAndControl/OwnershipAndControl.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/TestControl/
+    path: source/etc/testing/data/fnd/OwnershipAndControl/TestControl.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/TestOwnership/
+    path: source/etc/testing/data/fnd/OwnershipAndControl/TestOwnership.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Parties/MetadataFNDParties/
+    path: source/FND/Parties/MetadataFNDParties.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Parties/Parties/
+    path: source/FND/Parties/Parties.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Places/Addresses/
+    path: source/FND/Places/Addresses.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Places/Facilities/
+    path: source/FND/Places/Facilities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Places/MetadataFNDPlaces/
+    path: source/FND/Places/MetadataFNDPlaces.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Places/NorthAmerica/USPostalServiceAddresses/
+    path: source/FND/Places/NorthAmerica/USPostalServiceAddresses.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Places/NorthAmerica/USPostalServiceAddressesIndividuals/
+    path: source/FND/Places/NorthAmerica/USPostalServiceAddressesIndividuals.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Places/RealProperty/
+    path: source/FND/Places/RealProperty.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Places/VirtualPlaces/
+    path: source/FND/Places/VirtualPlaces.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/MetadataFNDProductsAndServices/
+    path: source/FND/ProductsAndServices/MetadataFNDProductsAndServices.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/PaymentsAndSchedules/
+    path: source/FND/ProductsAndServices/PaymentsAndSchedules.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/
+    path: source/FND/ProductsAndServices/ProductsAndServices.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Relations/MetadataFNDRelations/
+    path: source/FND/Relations/MetadataFNDRelations.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Relations/Relations/
+    path: source/FND/Relations/Relations.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/TransactionsExt/MarketTransactions/
+    path: source/FND/TransactionsExt/MarketTransactions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/TransactionsExt/MetadataFNDTransactionsExt/
+    path: source/FND/TransactionsExt/MetadataFNDTransactionsExt.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/TransactionsExt/REATransactions/
+    path: source/FND/TransactionsExt/REATransactions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/TransactionsExt/SecuritiesTransactions/
+    path: source/FND/TransactionsExt/SecuritiesTransactions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Utilities/Analytics/
+    path: source/FND/Utilities/Analytics.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Utilities/AnnotationVocabulary/
+    path: source/FND/Utilities/AnnotationVocabulary.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/FND/Utilities/MetadataFNDUtilities/
+    path: source/FND/Utilities/MetadataFNDUtilities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/AllIND-NorthAmerica/
+    path: source/IND/AllIND-NorthAmerica.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/AllIND-ReferenceRates/
+    path: source/IND/AllIND-ReferenceRates.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/AllIND/
+    path: source/IND/AllIND.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/EconomicIndicators/EconomicIndicators/
+    path: source/IND/EconomicIndicators/EconomicIndicators.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/EconomicIndicators/MetadataINDEconomicIndicators/
+    path: source/IND/EconomicIndicators/MetadataINDEconomicIndicators.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/EconomicIndicators/NorthAmericanIndicators/CAEconomicIndicators/
+    path: source/IND/EconomicIndicators/NorthAmericanIndicators/CAEconomicIndicators.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/EconomicIndicators/NorthAmericanIndicators/USEconomicIndicators/
+    path: source/IND/EconomicIndicators/NorthAmericanIndicators/USEconomicIndicators.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/ForeignExchange/ForeignExchange/
+    path: source/IND/ForeignExchange/ForeignExchange.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/ForeignExchange/MetadataINDForeignExchange/
+    path: source/IND/ForeignExchange/MetadataINDForeignExchange.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/Indicators/Indicators/
+    path: source/IND/Indicators/Indicators.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/Indicators/MetadataINDIndicators/
+    path: source/IND/Indicators/MetadataINDIndicators.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/InterestRates/CommonInterestRates/
+    path: source/IND/InterestRates/CommonInterestRates.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/InterestRates/InterestRates/
+    path: source/IND/InterestRates/InterestRates.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/InterestRates/MarketDataProviders/
+    path: source/IND/InterestRates/MarketDataProviders.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/InterestRates/MetadataINDInterestRates/
+    path: source/IND/InterestRates/MetadataINDInterestRates.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/MarketIndices/BasketIndices/
+    path: source/IND/MarketIndices/BasketIndices.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/MarketIndices/MetadataINDMarketIndices/
+    path: source/IND/MarketIndices/MetadataINDMarketIndices.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/IND/MetadataIND/
+    path: source/IND/MetadataIND.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/AllLOAN/
+    path: source/LOAN/AllLOAN.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansGeneral/LoanApplications/
+    path: source/LOAN/LoansGeneral/LoanApplications.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansGeneral/LoanEvents/
+    path: source/LOAN/LoansGeneral/LoanEvents.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansGeneral/Loans/
+    path: source/LOAN/LoansGeneral/Loans.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansGeneral/LoansRegulatory/
+    path: source/LOAN/LoansGeneral/LoansRegulatory.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansGeneral/MetadataLOANLoansGeneral/
+    path: source/LOAN/LoansGeneral/MetadataLOANLoansGeneral.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansSpecific/CardAccounts/
+    path: source/LOAN/LoansSpecific/CardAccounts.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansSpecific/CommercialLoans/
+    path: source/LOAN/LoansSpecific/CommercialLoans.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansSpecific/ConsumerLoans/
+    path: source/LOAN/LoansSpecific/ConsumerLoans.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansSpecific/GreenLoans/
+    path: source/LOAN/LoansSpecific/GreenLoans.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansSpecific/LoanProducts/
+    path: source/LOAN/LoansSpecific/LoanProducts.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansSpecific/MarineFinance/
+    path: source/LOAN/LoansSpecific/MarineFinance.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansSpecific/MetadataLOANLoansSpecific/
+    path: source/LOAN/LoansSpecific/MetadataLOANLoansSpecific.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansSpecific/StudentLoans/
+    path: source/LOAN/LoansSpecific/StudentLoans.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/MetadataLOAN/
+    path: source/LOAN/MetadataLOAN.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/RealEstateLoans/ConstructionLoans/
+    path: source/LOAN/RealEstateLoans/ConstructionLoans.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/RealEstateLoans/HomeMortgageDisclosureActCoveredMortgages/
+    path: source/LOAN/RealEstateLoans/HomeMortgageDisclosureActCoveredMortgages.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/RealEstateLoans/MetadataLOANRealEstateLoans/
+    path: source/LOAN/RealEstateLoans/MetadataLOANRealEstateLoans.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/RealEstateLoans/MortgageOrigination/
+    path: source/LOAN/RealEstateLoans/MortgageOrigination.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/LOAN/RealEstateLoans/Mortgages/
+    path: source/LOAN/RealEstateLoans/Mortgages.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/MD/CIVTemporal/FundsTemporal/
+    path: source/MD/CIVTemporal/FundsTemporal.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/MD/CIVTemporal/MetadataMDCIVTemporal/
+    path: source/MD/CIVTemporal/MetadataMDCIVTemporal.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/MD/DebtTemporal/DebtAnalytics/
+    path: source/MD/DebtTemporal/DebtAnalytics.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/MD/DebtTemporal/MetadataMDDebtTemporal/
+    path: source/MD/DebtTemporal/MetadataMDDebtTemporal.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/MD/DerivativesTemporal/ETOptionsTemporal/
+    path: source/MD/DerivativesTemporal/ETOptionsTemporal.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/MD/DerivativesTemporal/FuturesTemporal/
+    path: source/MD/DerivativesTemporal/FuturesTemporal.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/MD/DerivativesTemporal/MetadataMDDerivativesTemporal/
+    path: source/MD/DerivativesTemporal/MetadataMDDerivativesTemporal.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/MD/MetadataMD/
+    path: source/MD/MetadataMD.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/MD/TemporalCore/MetadataMDTemporalCore/
+    path: source/MD/TemporalCore/MetadataMDTemporalCore.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/MD/TemporalCore/SecurityCreditStatuses/
+    path: source/MD/TemporalCore/SecurityCreditStatuses.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/MD/TemporalCore/SecurityTradingStatuses/
+    path: source/MD/TemporalCore/SecurityTradingStatuses.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/MetadataFIBO/
+    path: source/MetadataFIBO.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/AllSEC-Europe/
+    path: source/SEC/AllSEC-Europe.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/AllSEC-NorthAmerica/
+    path: source/SEC/AllSEC-NorthAmerica.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/AllSEC-ReferenceIndividuals/
+    path: source/SEC/AllSEC-ReferenceIndividuals.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/AllSEC/
+    path: source/SEC/AllSEC.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Debt/AssetBackedSecurities/
+    path: source/SEC/Debt/AssetBackedSecurities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Debt/Bonds/
+    path: source/SEC/Debt/Bonds.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Debt/CollateralizedDebtObligations/
+    path: source/SEC/Debt/CollateralizedDebtObligations.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Debt/DebtInstruments/
+    path: source/SEC/Debt/DebtInstruments.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Debt/DistributedLoans/
+    path: source/SEC/Debt/DistributedLoans.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Debt/ExerciseConventions/
+    path: source/SEC/Debt/ExerciseConventions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Debt/MetadataSECDebt/
+    path: source/SEC/Debt/MetadataSECDebt.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Debt/MortgageBackedSecurities/
+    path: source/SEC/Debt/MortgageBackedSecurities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Debt/PoolBackedSecurities/
+    path: source/SEC/Debt/PoolBackedSecurities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Debt/SyntheticCDOs/
+    path: source/SEC/Debt/SyntheticCDOs.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Debt/TradedShortTermDebt/
+    path: source/SEC/Debt/TradedShortTermDebt.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Equities/DepositaryReceipts/
+    path: source/SEC/Equities/DepositaryReceipts.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Equities/EquityCFIClassificationIndividuals/
+    path: source/SEC/Equities/EquityCFIClassificationIndividuals.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Equities/EquityInstruments/
+    path: source/SEC/Equities/EquityInstruments.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Equities/MetadataSECEquities/
+    path: source/SEC/Equities/MetadataSECEquities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Funds/CollectiveInvestmentVehicles/
+    path: source/SEC/Funds/CollectiveInvestmentVehicles.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Funds/Funds/
+    path: source/SEC/Funds/Funds.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Funds/MetadataSECFunds/
+    path: source/SEC/Funds/MetadataSECFunds.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/MetadataSEC/
+    path: source/SEC/MetadataSEC.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Securities/Baskets/
+    path: source/SEC/Securities/Baskets.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Securities/EuropeanSecurities/EUSecuritiesRestrictions/
+    path: source/SEC/Securities/EuropeanSecurities/EUSecuritiesRestrictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Securities/MetadataSECSecurities/
+    path: source/SEC/Securities/MetadataSECSecurities.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Securities/NorthAmericanSecurities/USSecuritiesRestrictions/
+    path: source/SEC/Securities/NorthAmericanSecurities/USSecuritiesRestrictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Securities/ParametricSchedules/
+    path: source/SEC/Securities/ParametricSchedules.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Securities/Pools/
+    path: source/SEC/Securities/Pools.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Securities/SecuritiesClassification/
+    path: source/SEC/Securities/SecuritiesClassification.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Securities/SecuritiesIdentification/
+    path: source/SEC/Securities/SecuritiesIdentification.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Securities/SecuritiesIdentificationIndividuals/
+    path: source/SEC/Securities/SecuritiesIdentificationIndividuals.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Securities/SecuritiesIssuance/
+    path: source/SEC/Securities/SecuritiesIssuance.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Securities/SecuritiesListings/
+    path: source/SEC/Securities/SecuritiesListings.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Securities/SecuritiesRestrictions/
+    path: source/SEC/Securities/SecuritiesRestrictions.rdf
+  - iri: https://spec.edmcouncil.org/fibo/ontology/SEC/Securities/SecurityAssets/
+    path: source/SEC/Securities/SecurityAssets.rdf
+  - iri: https://spec.edmcouncil.org/fibo/vocabulary/
+    path: source/etc/vocabulary/scaffolding.ttl
+  - iri: https://www.omg.org/spec/Commons/AnnotationVocabulary/
+    path: dependencies/omg-commons-1.3/AnnotationVocabulary.rdf
+  - iri: https://www.omg.org/spec/Commons/BusinessAuthorizations/
+    path: dependencies/omg-commons-1.3/BusinessAuthorizations.rdf
+  - iri: https://www.omg.org/spec/Commons/Classifiers/
+    path: dependencies/omg-commons-1.3/Classifiers.rdf
+  - iri: https://www.omg.org/spec/Commons/CodesAndCodeSets/
+    path: dependencies/omg-commons-1.3/CodesAndCodeSets.rdf
+  - iri: https://www.omg.org/spec/Commons/Collections/
+    path: dependencies/omg-commons-1.3/Collections.rdf
+  - iri: https://www.omg.org/spec/Commons/ContextualDesignators/
+    path: dependencies/omg-commons-1.3/ContextualDesignators.rdf
+  - iri: https://www.omg.org/spec/Commons/ContextualIdentifiers/
+    path: dependencies/omg-commons-1.3/ContextualIdentifiers.rdf
+  - iri: https://www.omg.org/spec/Commons/DatesAndTimes/
+    path: dependencies/omg-commons-1.3/DatesAndTimes.rdf
+  - iri: https://www.omg.org/spec/Commons/Designators/
+    path: dependencies/omg-commons-1.3/Designators.rdf
+  - iri: https://www.omg.org/spec/Commons/Documents/
+    path: dependencies/omg-commons-1.3/Documents.rdf
+  - iri: https://www.omg.org/spec/Commons/Identifiers/
+    path: dependencies/omg-commons-1.3/Identifiers.rdf
+  - iri: https://www.omg.org/spec/Commons/Languages/
+    path: dependencies/omg-commons-1.3/Languages.rdf
+  - iri: https://www.omg.org/spec/Commons/Locations/
+    path: dependencies/omg-commons-1.3/Locations.rdf
+  - iri: https://www.omg.org/spec/Commons/Organizations/
+    path: dependencies/omg-commons-1.3/Organizations.rdf
+  - iri: https://www.omg.org/spec/Commons/PartiesAndSituations/
+    path: dependencies/omg-commons-1.3/PartiesAndSituations.rdf
+  - iri: https://www.omg.org/spec/Commons/QuantitiesAndUnits/
+    path: dependencies/omg-commons-1.3/QuantitiesAndUnits.rdf
+  - iri: https://www.omg.org/spec/Commons/RegistrationAuthorities/
+    path: dependencies/omg-commons-1.3/RegistrationAuthorities.rdf
+  - iri: https://www.omg.org/spec/Commons/RegulatoryAgencies/
+    path: dependencies/omg-commons-1.3/RegulatoryAgencies.rdf
+  - iri: https://www.omg.org/spec/Commons/RolesAndCompositions/
+    path: dependencies/omg-commons-1.3/RolesAndCompositions.rdf
+  - iri: https://www.omg.org/spec/Commons/SitesAndFacilities/
+    path: dependencies/omg-commons-1.3/SitesAndFacilities.rdf
+  - iri: https://www.omg.org/spec/Commons/StructuredCollections/
+    path: dependencies/omg-commons-1.3/StructuredCollections.rdf
+  - iri: https://www.omg.org/spec/Commons/TextDatatype/
+    path: dependencies/omg-commons-1.3/TextDatatype.rdf
+assetChecksums:
+  - path: ATTRIBUTION.md
+    sha256: a8edb5717d7ab60ca6d0228bc206d259434f5364ae0055bb73c3f45e8ad17fc5
+  - path: LICENSE-FIBO-MIT.txt
+    sha256: 59f852c87fa59411aa7dc527bd5629074d2caced7de4a48bbe7c5763359d8559
+  - path: LICENSE-OMG-COMMONS-MIT.txt
+    sha256: 1a827ac3d467f31eb55fae3873d2f28e4495b606af4c704caf8f1b6138dbe21f
+  - path: dependencies/omg-commons-1.3/AnnotationVocabulary.rdf
+    sha256: 0f31efad729e9c5dc260d4cca8cb92c69ec25a4554ead4c866903f652e3789f7
+  - path: dependencies/omg-commons-1.3/BusinessAuthorizations.rdf
+    sha256: 603b9985b7553c49cd5e9adfd055dab8c4fb1b3d88a6db51e031d6df9cef12d3
+  - path: dependencies/omg-commons-1.3/Classifiers.rdf
+    sha256: 766312bdb13a27cdc6fe722d5be3c815135a284dbb5e6990455cc655aecad6e9
+  - path: dependencies/omg-commons-1.3/CodesAndCodeSets.rdf
+    sha256: 272ea377f588ed30759c37a2b0455a8b04643c8114ebf35ad31656c039d09150
+  - path: dependencies/omg-commons-1.3/Collections.rdf
+    sha256: 44450edbe870cad6fa406319ecb21fed6a27824904e865b1d683f8bfd2a03553
+  - path: dependencies/omg-commons-1.3/ContextualDesignators.rdf
+    sha256: aa1c6c1d403a79b04b5f1cf65d1cd993b64d87aee51b9f7a3889ea06f01a96a8
+  - path: dependencies/omg-commons-1.3/ContextualIdentifiers.rdf
+    sha256: c26dd75874f66ca5a7dcfff0285b0f0cb8f2c66f0de56190e7f1220c702a28f7
+  - path: dependencies/omg-commons-1.3/DatesAndTimes.rdf
+    sha256: 29f48874c004475893202d0359ca1deb9e44e87d6e1a382e12e57c0fc86f90e7
+  - path: dependencies/omg-commons-1.3/Designators.rdf
+    sha256: 6475c00a66050560c11560c91e824118aaa4f13f9e0d62e8eddaf2eb6a447eca
+  - path: dependencies/omg-commons-1.3/Documents.rdf
+    sha256: 958264c82c7011097cf6da6352464dc094a9d1cada1d37a41ff26ed763f91a5c
+  - path: dependencies/omg-commons-1.3/Identifiers.rdf
+    sha256: c5ed5f3551ff4d0a711bd50ff6a7388383a1cf33a27bc1661e54f6bf7a75987a
+  - path: dependencies/omg-commons-1.3/Languages.rdf
+    sha256: 5c2a08e01e24f84cba64aebfa3e6ed21e9ef6daa6a8e22c7e6b902b8c4673a2f
+  - path: dependencies/omg-commons-1.3/Locations.rdf
+    sha256: 0d6a8eedb4461f4256ea61f03506e882bdadc8b1ca2024493eb6585b3e574c31
+  - path: dependencies/omg-commons-1.3/Organizations.rdf
+    sha256: 3a1ab7e936b656fff8aa8beb44d30ddc02aaa6f6eac5353d4157e355ef164eb7
+  - path: dependencies/omg-commons-1.3/PartiesAndSituations.rdf
+    sha256: 1c207e4f04e51fee7d06bbee1e5c53ae90f04374da3568e0470699d8f20cc1f3
+  - path: dependencies/omg-commons-1.3/QuantitiesAndUnits.rdf
+    sha256: b1fbe90e6c4b23cd7c7485fbe06b94d373b598ece83f074c05b82b8bcc399d7f
+  - path: dependencies/omg-commons-1.3/RegistrationAuthorities.rdf
+    sha256: 38562388ef6790635abc5b09eee644a60a659544520b1f93a333ed3e50460991
+  - path: dependencies/omg-commons-1.3/RegulatoryAgencies.rdf
+    sha256: cd309406734bb8ba01a5626d1af7b5c8dc6bb3ab3a275e3faac791e5dd460d55
+  - path: dependencies/omg-commons-1.3/RolesAndCompositions.rdf
+    sha256: 81d40576c2afa3f1a9fabd0b08f67a31e1a82bead9467782d8450d7b331275fc
+  - path: dependencies/omg-commons-1.3/SitesAndFacilities.rdf
+    sha256: 9c4672f52a8a6e1ce743af6110a0e3cd8229cd5120e8e21936f253d786fb72ac
+  - path: dependencies/omg-commons-1.3/StructuredCollections.rdf
+    sha256: 288c3d5f047ccda3ee1c48c81ac462829182aa943f83003317b4038714a29430
+  - path: dependencies/omg-commons-1.3/TextDatatype.rdf
+    sha256: d29a6e24bffb67fd6a4fe9955880fb9e8bd2f858a12d3e846fc45fd571bd8314
+  - path: source/ACTUS/ACTUS-examples.ttl
+    sha256: 85f298cf4eab8addb87017a8faaeb1d74ebcfaaadc09de00c8c0079bb9b3b6c3
+  - path: source/ACTUS/ACTUSContractTermMapping.rdf
+    sha256: 2d3fd0b4ab33b978d860fc5f9d04591b8d4b967408165f77b197b45ea9d40fe9
+  - path: source/ACTUS/ACTUSContractTerms.rdf
+    sha256: 62074186f49b77d56019c2b0ee6ddc4d9ed06eea64b2c04efe9152ad6ffab86e
+  - path: source/ACTUS/ACTUSTaxonomy.rdf
+    sha256: 8c65cbd8d5453f3cf4ab3079bcd237d1954c2cf2bd2ae749c904f29212fc8add
+  - path: source/ACTUS/MetadataACTUS.rdf
+    sha256: 0dab13930412176c0ad010d7a790d14cfe91f541de263082089d7ab09b398fe5
+  - path: source/ACTUS/catalog-v001.xml
+    sha256: 23e0caa729bad9b6f8b86b46571a9e55cbe41ccdecddb47b4a47c12cf82b9ac6
+  - path: source/AboutFIBODev-TBoxOnly.rdf
+    sha256: 99992fddedd03b97c22a0dd8b35ca343211cf191a60f623b690e22c1c3d60c3a
+  - path: source/AboutFIBODev.rdf
+    sha256: facc8f3e01738f558a563a6db8fbe1a56330052ccc17a8807847259d4f61386a
+  - path: source/AboutFIBOProd-IncludingReferenceData.rdf
+    sha256: 6ab2fc3a255312d418a8b4c3bb8305ea044b0757f4b8579bffa7fbf6d17244ba
+  - path: source/AboutFIBOProd-TBoxOnly.rdf
+    sha256: e29cef0a9d10b073d912484758b07fde7ad4bfec78b59c516f721d3a60e35335
+  - path: source/AboutFIBOProd.rdf
+    sha256: 6f14a70427a35359cfd03b4cc62d3174db09c7d1c506ae769e846001f2a9c195
+  - path: source/BE/AllBE-Europe.rdf
+    sha256: 92312c39288150b2f7a6a72dec88645f771dbf5946db5b490df77e7930ff4fa8
+  - path: source/BE/AllBE-NorthAmerica.rdf
+    sha256: 3feedee4934dc1583c4c83a8b0069c953dd3b35fe302a525b64ecd9e1ee38796
+  - path: source/BE/AllBE-ReferenceIndividuals.rdf
+    sha256: 8af99d714892fbaca984438efb7b6b2841400bc9f152dd6e8de6b22a3fc204ec
+  - path: source/BE/AllBE.rdf
+    sha256: 460e19b552e33788311bbba9f994e59ebdf4fa0895e654f406adb385de7339eb
+  - path: source/BE/Corporations/Corporations.rdf
+    sha256: 9d0dd0cd6fb33cc59011891b96cb400d370515ff04464f69e1c8777dac5fd257
+  - path: source/BE/Corporations/MetadataBECorporations.rdf
+    sha256: 1e0a364748ada8b2c57c94ac9b7ed1add8371f29a17dc4d8d4d3bd665a84d89f
+  - path: source/BE/FunctionalEntities/FunctionalEntities.rdf
+    sha256: 57e9067f3a1d88945e24c18079ae48c54444bbbc9255fee5c804bfd4ae28f313
+  - path: source/BE/FunctionalEntities/MetadataBEFunctionalEntities.rdf
+    sha256: 5dc8584b809a655b4a2735055399f23b3cafafefdec43b090281073e068a2fa7
+  - path: source/BE/FunctionalEntities/Publishers.rdf
+    sha256: 52dc4fa3121b945675a09d16cf2ac667857ea974e3e8d588be8576218b9a93d6
+  - path: source/BE/GovernmentEntities/AsianJurisdiction/CentralAsiaGovernmentEntitiesAndJurisdictions.rdf
+    sha256: 633c10589410bff017f22c87b0d4dff574d1d043c36e089c76172bca9b79038c
+  - path: source/BE/GovernmentEntities/AsianJurisdiction/EasternAsiaGovernmentEntitiesAndJurisdictions.rdf
+    sha256: fff5f7bed3e877b59e379ef09fc8b91cd51cb6e35beca37aa7e92cc6092947f9
+  - path: source/BE/GovernmentEntities/AsianJurisdiction/SoutheasternAsiaGovernmentEntitiesAndJurisdictions.rdf
+    sha256: ddb2889821eba9001ff25b0f2b2f8fab33174ad7ec63013d18fd079fff130b99
+  - path: source/BE/GovernmentEntities/AsianJurisdiction/SouthernAsiaGovernmentEntitiesAndJurisdictions.rdf
+    sha256: 500480d4ac9ad4b85cf496570d2bfb0760c2ccc149c018f5880582ab4a57b857
+  - path: source/BE/GovernmentEntities/AsianJurisdiction/WesternAsiaGovernmentEntitiesAndJurisdictions.rdf
+    sha256: afb1a152df48e94d704e74838d8571949b767a4c206c75d532df492888bed00c
+  - path: source/BE/GovernmentEntities/EuropeanJurisdiction/EUGovernmentEntitiesAndJurisdictions.rdf
+    sha256: e4ea40cbe15054ce0a6c791ecc1ad7797855439eabf003ec279ec3edcd6a4c62
+  - path: source/BE/GovernmentEntities/EuropeanJurisdiction/EasternEuropeGovernmentEntitiesAndJurisdictions.rdf
+    sha256: 1bedfa3f9e8129517f3ce5b23d2b9038c0fb3c7821f3532b6658213a13ba718e
+  - path: source/BE/GovernmentEntities/EuropeanJurisdiction/NorthernEuropeGovernmentEntitiesAndJurisdictions.rdf
+    sha256: 74962bb49d3cdbee9b21b0809cbd653dc0e6f676fa01ae8f65d3c4f7293bae83
+  - path: source/BE/GovernmentEntities/EuropeanJurisdiction/SouthernEuropeGovernmentEntitiesAndJurisdictions.rdf
+    sha256: 2832a0e528d609f419b1750db03dd7a17f6be098402d14888d828c1e4bf9ad1c
+  - path: source/BE/GovernmentEntities/EuropeanJurisdiction/UKGovernmentEntitiesAndJurisdictions.rdf
+    sha256: 0e5be74d435f1caca7b581e54722eeeefeb54d3e5cece4c2a7004610442fb30a
+  - path: source/BE/GovernmentEntities/EuropeanJurisdiction/WesternEuropeGovernmentEntitiesAndJurisdictions.rdf
+    sha256: 496869e6cf9b3b7437b9e346b76a4fb9788c980f94f9dc687c17ad42292b4cd5
+  - path: source/BE/GovernmentEntities/GovernmentEntities.rdf
+    sha256: 811c4579da9e3fe338cf3ed44acee8f282ef517d0432794e1ea9a358a941f28d
+  - path: source/BE/GovernmentEntities/LatinAmericanJurisdiction/CentralAmericanGovernmentEntitiesAndJurisdictions.rdf
+    sha256: d714987c9a5b372dea1c819389a48654aeb4ed913d320931aa15cadaf0d10e6a
+  - path: source/BE/GovernmentEntities/LatinAmericanJurisdiction/SouthAmericanGovernmentEntitiesAndJurisdictions.rdf
+    sha256: 6b7fc95f55acc4cd3206004a4ded3235dc3cc7263e9bf2da75beeb9b5bd2e5d6
+  - path: source/BE/GovernmentEntities/MetadataBEGovernmentEntities.rdf
+    sha256: c4e908bdfa16faea2a92c785e01857c33ef02ebc55d6a01812ea6cb58123c7ee
+  - path: source/BE/GovernmentEntities/NorthAmericanJurisdiction/CAGovernmentEntitiesAndJurisdictions.rdf
+    sha256: 319dbaf677bc321ce33d4f604c3edef60cbdd389193f83cbcfe2a5576d5a29cc
+  - path: source/BE/GovernmentEntities/NorthAmericanJurisdiction/CaribbeanGovernmentEntitiesAndJurisdictions.rdf
+    sha256: 78956bbc749845d68481b33540846b5a167536a5950e1f20af9a6bb7697ecccf
+  - path: source/BE/GovernmentEntities/NorthAmericanJurisdiction/MXGovernmentEntitiesAndJurisdictions.rdf
+    sha256: 370a776cddf22e2cbea5f40376c234fc50225828e4d68a6b042f2f3c601deb8e
+  - path: source/BE/GovernmentEntities/NorthAmericanJurisdiction/USGovernmentEntitiesAndJurisdictions.rdf
+    sha256: 26fc33ef106345009c23aef35a37316a03f3640ebd9d0c2c7cf83c48f9fde93e
+  - path: source/BE/LegalEntities/CorporateBodies.rdf
+    sha256: 13bcc4c012154230cd00f775c3ec12f4cf29616e7c484f2b2b9f61f659dd3235
+  - path: source/BE/LegalEntities/FormalBusinessOrganizations.rdf
+    sha256: 60686e1934350885e2c1fdd78a99e7d9ad6ca49f3f4ea0b15b52e185028d6f7b
+  - path: source/BE/LegalEntities/LEIEntities.rdf
+    sha256: 6a24df8bfa2923512cdde5c48c725b9ab505a6d1fe0082d29c97071adf61e29e
+  - path: source/BE/LegalEntities/LegalPersons.rdf
+    sha256: d55897f004e97c7ad355ca8800641805f3836338a1c9cdb58614c7b5ef5eb101
+  - path: source/BE/LegalEntities/MetadataBELegalEntities.rdf
+    sha256: dccb56a118a2ac79819680b64ce16c46d79c4deada085dcbc700c166b724f1c6
+  - path: source/BE/MetadataBE.rdf
+    sha256: 28e1d18365628889c8c80d452ce763876adddbc26e4d091bde2b4d9c0b086706
+  - path: source/BE/OwnershipAndControl/ControlParties.rdf
+    sha256: 4f6951000cd1170174aa5e156e7febf2fed7fb0e4dc7e61ce2b0fec9a47f2c5f
+  - path: source/BE/OwnershipAndControl/CorporateControl.rdf
+    sha256: 8bef1195064a29e2a15322a2773afc815f0cfd170a0d821bd49a3687a8f0e120
+  - path: source/BE/OwnershipAndControl/CorporateOwnership.rdf
+    sha256: caa7cd8e61645849921ba376344ef633c90bcebf3c8775689522b9b0a896cc83
+  - path: source/BE/OwnershipAndControl/Executives.rdf
+    sha256: ff46f7ca3fb1c5d7e02edd8a612679965c9444894848494d58b1fef5ed39ad1b
+  - path: source/BE/OwnershipAndControl/MetadataBEOwnershipAndControl.rdf
+    sha256: 7af0eb041fe9e774a192ddc2a9c50eed2fe60cc22e074ae0646ab9db63070745
+  - path: source/BE/OwnershipAndControl/OwnershipParties.rdf
+    sha256: 05f6b0a9db27eee7ef7f4a56cb5a348b03d9bfa1b0fd72bec5b17815af3d39bf
+  - path: source/BE/Partnerships/MetadataBEPartnerships.rdf
+    sha256: 03e6a69b0d3b11751bdcb81e5bd6d0a47a8eb1bba32defb3e829602ba8a1df21
+  - path: source/BE/Partnerships/Partnerships.rdf
+    sha256: fdca04ae8217b65cdcfccf96c87010c903e8667d9c102a8d632285375d71ad70
+  - path: source/BE/PrivateLimitedCompanies/MetadataBEPrivateLimitedCompanies.rdf
+    sha256: fc261e06e967192ee676da4c238e1f454f7a49d18bb86e7ce0b8e629655fd926
+  - path: source/BE/PrivateLimitedCompanies/PrivateLimitedCompanies.rdf
+    sha256: 2f0d8b87d9db83d0726fef47222f049d990d526212b1968e54abb88d68f24341
+  - path: source/BE/SoleProprietorships/MetadataBESoleProprietorships.rdf
+    sha256: 5e16eb59d70e18a3d1959fc73ca86678af2598e93c6cbaee6701a297f09dcd17
+  - path: source/BE/SoleProprietorships/SoleProprietorships.rdf
+    sha256: 35de4651fbcccc32e636480f38008424b8f5330ff6995c559b2ec949e32a3497
+  - path: source/BE/Trusts/MetadataBETrusts.rdf
+    sha256: 9ccbb3a01d3f24201d9de9cd191faf5920e06ccd3edd76c9858452168e46d416
+  - path: source/BE/Trusts/Trusts.rdf
+    sha256: 013d5d1bc25215ddc83e1e764e38fa0c7ddf62894fc08e3a113e7f9479793da5
+  - path: source/BE/catalog-v001.xml
+    sha256: a5aa2537680813cad049a0c144f985be78f04afbf487d4c2f6f35b5aa7175e95
+  - path: source/BP/MetadataBP.rdf
+    sha256: ed735ac26464bea7561b5a029b96080cedb79fa6b2848e2555bc1537a700230a
+  - path: source/BP/Process/FinancialContextAndProcess.rdf
+    sha256: 4dcc92b5154a94d8c5fae071bbec8a330bfcf065f1158820538307ac5a2e87b4
+  - path: source/BP/Process/MetadataBPProcess.rdf
+    sha256: c9eb9390a13aabd230fba9e1b2b2ebbbc18da2c0a0561222fbbda13929f0103b
+  - path: source/BP/SecuritiesIssuance/AgencyMBSIssuance.rdf
+    sha256: 1a79107437fc0e0320140bda79c94c55016a10fff4596897bf701fc0b26d2fb2
+  - path: source/BP/SecuritiesIssuance/DebtIssuance.rdf
+    sha256: d862c5e994f710113de660ffaee9637fea9063e3643acc77a569fc11ccc531ec
+  - path: source/BP/SecuritiesIssuance/EquitiesIPOIssuance.rdf
+    sha256: 2475a43547951031ee1f4b847e16fe698215f7fed3a1d52fcbb72d8d94a090ea
+  - path: source/BP/SecuritiesIssuance/IssuanceDocuments.rdf
+    sha256: 4b0831f7f2a35f076dd9945c9256743407e4246fd168f6a4984fc37f31081b9e
+  - path: source/BP/SecuritiesIssuance/IssuanceProcess.rdf
+    sha256: 45a1c4c7aec4898fe897c042bd704ee639fef31190c1e88a00099af7751ff7d9
+  - path: source/BP/SecuritiesIssuance/MBSIssuance.rdf
+    sha256: 54be24c0d2589ee06a8a1160d9a529f4954b9ad44be047a54365a15e39e905a7
+  - path: source/BP/SecuritiesIssuance/MetadataBPSecuritiesIssuance.rdf
+    sha256: 79075c2fb4ecd040ebf9a684d110863fb4801272748bbe46c24ceb8a28b74b6c
+  - path: source/BP/SecuritiesIssuance/MuniIssuance.rdf
+    sha256: e88d228613e3a2e2c3c6fedc8a3337024a4afd5c31d43d372e50eab7cb93fad0
+  - path: source/BP/SecuritiesIssuance/PrivateLabelMBSIssuance.rdf
+    sha256: 297a9b1ba23d4230ae9469b6c9b90533e0dec69c681d7d515e8a2986175e0025
+  - path: source/CAE/AllCAE.rdf
+    sha256: d658955ee38823338394a4412a00acec2c43324c142264fb539d849307889bcc
+  - path: source/CAE/CorporateEvents/CorporateActions.rdf
+    sha256: ee1294446b9c2e29fce4bedb3330ff7249750c2ff1ad71cb4cb3a878b57ce9a3
+  - path: source/CAE/CorporateEvents/GLEIF-CorporateActionIndividuals.rdf
+    sha256: b7a43aee30c910e3ab6970bc909e0f344de1a67d94bb86e1de48c6306e303436
+  - path: source/CAE/CorporateEvents/ISO15022-CorporateActionIndividuals.rdf
+    sha256: d3759e0d15b2fb3661d3fa71bd9cebdf26a690564f8159b700734b9b78874cd1
+  - path: source/CAE/CorporateEvents/MetadataCAECorporateEvents.rdf
+    sha256: ec32b67b0758210b78f76263be3fa8a7ea51627b9ef9319f82e7a30b7530125d
+  - path: source/CAE/CorporateEvents/SecurityRelatedCorporateActions.rdf
+    sha256: b69a6b7023b177604d994ee518f3b93efc193b6110c4f83aed086f2abff66036
+  - path: source/CAE/MetadataCAE.rdf
+    sha256: a2addefc1a33c879db97b67c2855383f7cbbbe0ef8dc7a6c43e3216939498ad6
+  - path: source/DER/AllDER-ReferenceIndividuals.rdf
+    sha256: 6ea3c1f866a6d3935da4beb5ee6229928d34b07298c77f564a44bce4fdd3401c
+  - path: source/DER/AllDER.rdf
+    sha256: abdbcca48da629dfd0d7d3be581eca394360c3a811f40f2d81566171dd5a81b1
+  - path: source/DER/CreditDerivatives/CreditDefaultSwaps.rdf
+    sha256: 78043cd09aa459816ef8841ef3ebabaabab8d860a93b19d90973bf9500554807
+  - path: source/DER/CreditDerivatives/MetadataDERCreditDerivatives.rdf
+    sha256: 1d175001ea5decbbeafab52bd11856ba734010d2bb3447c024fa9af17a9434d0
+  - path: source/DER/DerivativesContracts/CommoditiesContracts.rdf
+    sha256: 8d7b6e77a072d2aa0a1e9c986dadd51dcc1b3a6b578d1ee2d034cd5d14c6ccaf
+  - path: source/DER/DerivativesContracts/CurrencyContracts.rdf
+    sha256: 8b8adc0e51d2b353ef3adc2850c2a145cd3a5387bf22045f1cf1fc2a23b80875
+  - path: source/DER/DerivativesContracts/DerivativesBasics.rdf
+    sha256: 7d7f2d2104ba16dac20a7e146c05040804289caf378ab498b0d6b33f3183772d
+  - path: source/DER/DerivativesContracts/DerivativesMasterAgreements.rdf
+    sha256: 22206f339bd85baab5bc8cf09177951e44748ed6ee06ebcf3104f74fdbc1b2f6
+  - path: source/DER/DerivativesContracts/ExoticOptions.rdf
+    sha256: 55071f96ef4ea85be82a2787989a073cf6f8f71f49d4b17e3a9be027e083a4c5
+  - path: source/DER/DerivativesContracts/FuturesAndForwards.rdf
+    sha256: b00c89431c6e07338774ff2a6af5a639d534f96303ac60788d34340075d39a0b
+  - path: source/DER/DerivativesContracts/MetadataDERDerivativesContracts.rdf
+    sha256: 9d983d33fe3b7479eaa48ee71a61f4a74d0809e37214fe952143303383cc6011
+  - path: source/DER/DerivativesContracts/Options.rdf
+    sha256: 8ffc8a523f6695315d1026119787340c2f24bc3f8f6373a572f8fbeb88a8f085
+  - path: source/DER/DerivativesContracts/RightsAndWarrants.rdf
+    sha256: 87f7a557fb95d19ab913e2e2aee2c2f8fb1fdb7e8f41df9764863b6bf49e9a64
+  - path: source/DER/DerivativesContracts/StructuredInstruments.rdf
+    sha256: 7d4335bea0a4fba9f203f06842515f37074c64049de0e71ac98733eb2ca86974
+  - path: source/DER/DerivativesContracts/Swaps.rdf
+    sha256: 7a8f5ee84548ce14a07fa5b38c2e9356713ee67d91508f24928d2ce9933dc28a
+  - path: source/DER/DerivativesContracts/SwapsIndividuals.rdf
+    sha256: beb08b75fd859d43041612629fd09d3df0a855aa908f788203bf88f1b7d67268
+  - path: source/DER/MetadataDER.rdf
+    sha256: 1d9b067ee470a1e5ccd6cbe15528b83aa6996417f5a68b2dffa3ab708c07b250
+  - path: source/DER/RateDerivatives/IRSwaps.rdf
+    sha256: 9609c215a83500608f0bc7056697e1dac637f2184c9919eb5242bbd9cc254111
+  - path: source/DER/RateDerivatives/MetadataDERRateDerivatives.rdf
+    sha256: ddff33929ad9cf6e49b77eaae9da53cc8dbb9ae6cfc48050f2697c182cb45fe9
+  - path: source/DER/RateDerivatives/RateDerivatives.rdf
+    sha256: be28c7b6ee25b6ac7458fcf382598802b3b2b0e334778bea746a5413e0a9110a
+  - path: source/DER/SecurityBasedDerivatives/EquitySwaps.rdf
+    sha256: 8346f5184c9f000d747a26f3673d1fd296441503dcaef60b79b487a16c0b614b
+  - path: source/DER/SecurityBasedDerivatives/MetadataDERSecurityBasedDerivatives.rdf
+    sha256: ccf2d3e9174a7cca70671db9f44688a46b1fb47f61b88472ade3d9462bb04b19
+  - path: source/DER/SecurityBasedDerivatives/SecurityBasedDerivatives.rdf
+    sha256: 1775c15451ced7feaba9da58f9ac80e45be8bae5484af49a61bc29786af742ce
+  - path: source/EXMP/LegalEntities/DowJonesIndustrialAverageCompanies.rdf
+    sha256: dfbb221d65d48d1621ca3ff21e6ffc767e83e280f2f32028d83a27e9370afaff
+  - path: source/EXMP/LegalEntities/DowJonesIndustrialAverageExecutives.rdf
+    sha256: e658c61f6d73e56680e79f5cc89c38d2226792e4b4c48eec6d4c0c59088885cf
+  - path: source/EXMP/LegalEntities/FinancialInstitutionExamples.rdf
+    sha256: 496d49a17c9840f791bb805d3056104e7eed1ad33d14e74cee9bb3b234395f33
+  - path: source/EXMP/LegalEntities/MarketsAndExchangesExamples.rdf
+    sha256: bfd0ec779abccf8c81888173092420cba6ae607e3477e921733d2cbbbb26bab4
+  - path: source/EXMP/LegalEntities/MetadataEXMPLegalEntities.rdf
+    sha256: ff5bb7c2136979fbc09eb69b945255ea65b7e7ff8c94cbe3e5debd8a94ccfa85
+  - path: source/EXMP/MetadataEXMP.rdf
+    sha256: e4551a50e1f5046ac4ab22e08b1aefa2e560933a4b2c46309dc8d2e4499887bf
+  - path: source/EXMP/Securities/EquitiesExamples.rdf
+    sha256: 5121484ecc135171634465e92405b441c319d5c1f68d7ed5d89c630ef931f2aa
+  - path: source/EXMP/Securities/EquityIndexExamples.rdf
+    sha256: 6ff8c7e078451ba77e3d4719f19da8481dde444ca780272ea8b8e755bb58a42c
+  - path: source/EXMP/Securities/IRSwapExamples.rdf
+    sha256: 83c92eded18e7c6bc7fd7475980672aa428b4f3b180dd55b00612352a174d447
+  - path: source/EXMP/Securities/MetadataEXMPSecurities.rdf
+    sha256: 578703294c68721cd4e1cf2e4711d6d1387a34aeca136c8525fe8c64a4eced11
+  - path: source/FBC/AllFBC-Europe.rdf
+    sha256: 1508f65966f2b637638c9968473ae11ad7becf71e4f565841e1d3533f425be0f
+  - path: source/FBC/AllFBC-EuropeAndNorthAmerica.rdf
+    sha256: 93b9b0279d6cbda09912c33d0b9e775c48020c1c1e438bec40ef0ac9086823e6
+  - path: source/FBC/AllFBC-NorthAmerica.rdf
+    sha256: 67b1bed39bc537e0587cbe3380b2717b3636cf3a58908e9b3208a1758b27372d
+  - path: source/FBC/AllFBC-NorthAmericanExamples.rdf
+    sha256: f1ee29bd2237e2e05d29ecdcb0c987db9d3529b15515758a61087c5a2b957b75
+  - path: source/FBC/AllFBC-ReferenceIndividuals.rdf
+    sha256: 4437ee0f8245a0f102427f4af545ce7270759b11d6218c9ea21f63cd3e0e3491
+  - path: source/FBC/AllFBC-ReferenceMarkets.rdf
+    sha256: 9265210d1ed0ccb7202133c0d3ebfa0c635305d685a7837edd8932bf13b13c4a
+  - path: source/FBC/AllFBC.rdf
+    sha256: cf4b7f46ab5f3cdc318169ed43a03d22682180445e06365106bfbda43e712d90
+  - path: source/FBC/DebtAndEquities/CreditEvents.rdf
+    sha256: 1d3df1c69304ab50a1bbd9de4bab3ef1bb1342670894db940ccf5e175687caa7
+  - path: source/FBC/DebtAndEquities/CreditRatings.rdf
+    sha256: 97a8c8790e28c796fd2de5219a75899a263eb47c512a825840873222e41fe5a3
+  - path: source/FBC/DebtAndEquities/Debt.rdf
+    sha256: e0ff6864aefb7163930c3cc4d920725ef8a835c739f26da5c4b980eca08c1147
+  - path: source/FBC/DebtAndEquities/Guaranty.rdf
+    sha256: 0fa2feace1cb6966ce3af7002862b16336d7a5576b815e022e4c383e680d2e55
+  - path: source/FBC/DebtAndEquities/MetadataFBCDebtAndEquities.rdf
+    sha256: 9a64daef033513f6f10c7a9fd175ffd64bc9fae5a373ff0ffa5ddf0603f7cdd5
+  - path: source/FBC/FinancialInstruments/FinancialInstruments.rdf
+    sha256: f12707677bb6590a80f68ee305a8cddd3a68b8b9e31f493774d864dc060229d0
+  - path: source/FBC/FinancialInstruments/InstrumentPricing.rdf
+    sha256: a796a751bdfac7d3f092b7505c92e6bda1996a3749bbd4b222cac31a0c9e33fa
+  - path: source/FBC/FinancialInstruments/MetadataFBCFinancialInstruments.rdf
+    sha256: 1d18540ab66ba494848e87db9bcd2ac8942f92b5e9345af8aeef68620a52f427
+  - path: source/FBC/FinancialInstruments/Settlement.rdf
+    sha256: 45ed22079ecc6b6f90f75ae6d3ebff9c7228e716509bc4fb701e03b77e6daae1
+  - path: source/FBC/FunctionalEntities/BusinessCenters.rdf
+    sha256: 1d1d6450712a3c27901386d6a0cc3dc449b4f6fba74867389596e7b887464a49
+  - path: source/FBC/FunctionalEntities/BusinessCentersIndividuals.rdf
+    sha256: c092f7f2fff5cd445eb0bde50ddc64c2cd3c655189e693bdc47153748798f827
+  - path: source/FBC/FunctionalEntities/BusinessRegistries.rdf
+    sha256: 2352370c07fff60d7d5e82ad1cc503ebcb49280172bd68638c4989ca6ebc06c2
+  - path: source/FBC/FunctionalEntities/CommercialRegistrationAuthorities.rdf
+    sha256: bc236c4254c0903a25360fbff5b57943331bd16ce28eb8c3503b95606abf9c9c
+  - path: source/FBC/FunctionalEntities/EuropeanEntities/EUFinancialServicesEntities.rdf
+    sha256: 909275bc01b8952cb65c03c8d350d22d7064d0fcbc607434bb30ad8b8834b3ba
+  - path: source/FBC/FunctionalEntities/EuropeanEntities/EURegulatoryAgencies.rdf
+    sha256: d2c794214454ece579dd57d4f708b9894af9082792c54742b5bd583fa9c54380
+  - path: source/FBC/FunctionalEntities/EuropeanEntities/EuropeanFinancialServicesEntitiesIndividuals.rdf
+    sha256: afd12e8b79dc5a90341ee55660ada1390d4fc4f02931872eeb337952b2b3988e
+  - path: source/FBC/FunctionalEntities/FinancialServicesEntities.rdf
+    sha256: f1047cce38f164b6f49bd6c21a340073f0168ff1b36a491e1556b79ad7d6d0da
+  - path: source/FBC/FunctionalEntities/InternationalRegistriesAndAuthorities.rdf
+    sha256: b1d1671b600dbd1c019e9c6ec6e3430e698e80695e8611a620185cd315fcb195
+  - path: source/FBC/FunctionalEntities/Markets.rdf
+    sha256: f7728e3c1bcea3b68875b46728fd29754a5f9f45b012076544a7fbcbbd958582
+  - path: source/FBC/FunctionalEntities/MarketsIndividuals.rdf
+    sha256: 4f1b6f7a080de4d6cb3e28b50ac31134176bf6755db85d5214eb03e5b30cb14e
+  - path: source/FBC/FunctionalEntities/MetadataFBCFunctionalEntities.rdf
+    sha256: 0ef22282c23e44943c9830da19d5379904fcaedcaa8abcf8e07b65f9aa184442
+  - path: source/FBC/FunctionalEntities/NorthAmericanEntities/CAFinancialServicesEntities.rdf
+    sha256: 72a4999f880c6e951d16b51b4169bb1c0045d31d701bade1bf583488eb042162
+  - path: source/FBC/FunctionalEntities/NorthAmericanEntities/CARegulatoryAgencies.rdf
+    sha256: 582fccfb9de05a2c17b66fb4adbf0567f7f2a78f165afffc8322eb28db89ced2
+  - path: source/FBC/FunctionalEntities/NorthAmericanEntities/USFinancialServicesEntities.rdf
+    sha256: 76ce3af8979057ca0f2d5a600b06339dcff726d8742f72591f8b6233543b760f
+  - path: source/FBC/FunctionalEntities/NorthAmericanEntities/USNationalInformationCenterControlledVocabularies.rdf
+    sha256: af6a337dcc3152b5be4f8d698ba9270f616e2db12041bc4e896f5f48aa91d4db
+  - path: source/FBC/FunctionalEntities/NorthAmericanEntities/USRegulatoryAgencies.rdf
+    sha256: 3b4ad26d713da6e9f5867d405f3ceb7af030a4806b7b905c57dbc07da5e9b504
+  - path: source/FBC/FunctionalEntities/RegulatoryAgencies.rdf
+    sha256: 5036f185222c9c52a3baaebe9ce59f238c07dd02b5576703067509f07dacaafb
+  - path: source/FBC/MetadataFBC.rdf
+    sha256: edc8db865ea40af3638f348095fc03ddb6c60ff43813a97ca97b4cba223cce8e
+  - path: source/FBC/ProductsAndServices/ClientsAndAccounts.rdf
+    sha256: 48e1d347b97577a140785f28f6c0321950a5ab057f5e0ac5104e6d63dcf6e671
+  - path: source/FBC/ProductsAndServices/FinancialProductsAndServices.rdf
+    sha256: 84cfba5ccf3a9074027fd001fcfda12ef91a5a2aa7c5d9e976e7a68ee2014321
+  - path: source/FBC/ProductsAndServices/MetadataFBCProductsAndServices.rdf
+    sha256: 2df4a611d276111978c4bd29defe5e3ca03a4d2efe6ca89cb237dab16863b6a3
+  - path: source/FND/Accounting/AccountingEquity.rdf
+    sha256: e61603ef59e1b353fdef960c04f6d081a4590d27aa28318c60c0dc640d9cdccf
+  - path: source/FND/Accounting/CashFlows.rdf
+    sha256: 3ce1b7e2334a77dbb87b79e81c49fb4def636c75188375e6c4887d03448ad4f7
+  - path: source/FND/Accounting/CurrencyAmount.rdf
+    sha256: fe5b6c81be202255d76f0ad61c7fedbcbed08a6e7bd1fcd9a491fe568db7cfce
+  - path: source/FND/Accounting/ISO4217-CurrencyCodes.rdf
+    sha256: 3be16170afea0e7de5155740dc7639a097aa86deb6561e4b59b7f645ee2fc734
+  - path: source/FND/Accounting/MetadataFNDAccounting.rdf
+    sha256: 2bc0c57a77825eaaca0faae70d5713a51d7c10769974a55860f1c65385d84d05
+  - path: source/FND/AgentsAndPeople/Agents.rdf
+    sha256: f40cfbf08c691cfb190e15afd3ebaccb7512df60ab8acbdf20d78232d8867b43
+  - path: source/FND/AgentsAndPeople/MetadataFNDAgentsAndPeople.rdf
+    sha256: 609753a27b9286d31c9e7165be88946db528e9ba3b0b3337f55c32734c9995f9
+  - path: source/FND/AgentsAndPeople/People.rdf
+    sha256: dd47a618da7e12aef0005088cba892d0cc642c7e52b9d73fb571b34aff00920e
+  - path: source/FND/Agreements/Agreements.rdf
+    sha256: 8f03910f2638fd6d9d0d67f85d82fb908de9e276c54f8af6eed3526c62a9e851
+  - path: source/FND/Agreements/Contracts.rdf
+    sha256: d1177c7b092ae26228c5cc07f63172443e99e867b6ed8139389f7fccfb0bf65e
+  - path: source/FND/Agreements/MetadataFNDAgreements.rdf
+    sha256: c7db559e9808748e1498fa2b4d04d2e7ee019e1030be5f566fa683d2c9903753
+  - path: source/FND/AllFND-NorthAmerica.rdf
+    sha256: 406566744b90c6901a73edbd1c8acb77e81250306d7c30655d787cec21aa2d23
+  - path: source/FND/AllFND.rdf
+    sha256: b0c2cd56d2bfef60351b4b4f568dc14b2a21606d14fd8114d76e97c268499f93
+  - path: source/FND/Arrangements/Arrangements.rdf
+    sha256: 2b7ae23dcfcceee82c07275c03388d39067d40f006a74a4bc77382f458d98a49
+  - path: source/FND/Arrangements/Assessments.rdf
+    sha256: 6586aa6d220aca95f048f412f351bd53f9526b5d875d2faac55e91590cbbc7f2
+  - path: source/FND/Arrangements/ClassificationSchemes.rdf
+    sha256: 6965fd38d09b420286fa9d3ec493e6249ad6d3234e1be7bc6eaaa530b53e80e4
+  - path: source/FND/Arrangements/Documents.rdf
+    sha256: 85c7e8ca07c62263c3817bf70f00ca3e1263ed20a6aba0fd3e99ab7d82c78968
+  - path: source/FND/Arrangements/IdentifiersAndIndices.rdf
+    sha256: ce50105aa7bac35a8ff2f424e325b5793ef9723ce8017ea272750d7577516c68
+  - path: source/FND/Arrangements/Lifecycles.rdf
+    sha256: 8b81d1e6f9fa68a64a74564ae97f48f8f148a8b4da44d79959c5e957778140f9
+  - path: source/FND/Arrangements/MetadataFNDArrangements.rdf
+    sha256: 482eba8abdb975adb925362864bdba3b592966d308c546ebfc82b9938f63a866
+  - path: source/FND/Arrangements/Ratings.rdf
+    sha256: 212f37a5f23980942d59b2e537f93a7cbdfef9849aa92c3638b18ee0e11cee9d
+  - path: source/FND/Arrangements/Reporting.rdf
+    sha256: 859fe8b85ab507cb4e9d6b9241ea226eb8dbd51e427ea04e132afdce98397e33
+  - path: source/FND/DatesAndTimes/BusinessDates.rdf
+    sha256: c959b708ac603b2b0ae7a6fc8c0a3003bf1c4139cab711e06fe9273e2ae76473
+  - path: source/FND/DatesAndTimes/FinancialDates.rdf
+    sha256: 9a7ad36032eca33df0c49cd592b344abd5b8f3660a69a51f24899cebfcca0531
+  - path: source/FND/DatesAndTimes/MetadataFNDDatesAndTimes.rdf
+    sha256: 248cb7f046fe9c57cc342f1e2131fe09da3a70f9e09699338946ecbadfd6deb6
+  - path: source/FND/DatesAndTimes/Occurrences.rdf
+    sha256: ed38b6a6df233ebb667f5e2f926d1eb437274fd7b73f0fb16853f69c834d9eb9
+  - path: source/FND/GoalsAndObjectives/MetadataFNDGoalsAndObjectives.rdf
+    sha256: 47370e93fc0a2195210a42370de5408df8dc84a4d1005c0b09daf7fec7279472
+  - path: source/FND/GoalsAndObjectives/Objectives.rdf
+    sha256: a3f8f31c1b579047f55163fdf5ff0d14c58a840cff804bed4202acd09d6fb615
+  - path: source/FND/Law/LegalCapacity.rdf
+    sha256: 78a290868169a7aed3e1c51202863eeda515df9e4efcd159c6bd70902774aac6
+  - path: source/FND/Law/LegalCore.rdf
+    sha256: 8095fdeb20b85acf31923c9067cb431fd561669e4ed0681b95ae4d6b9a3b188e
+  - path: source/FND/Law/MetadataFNDLaw.rdf
+    sha256: 9e795fb766c096f73567c62436f4ef5a7ebd3e080c42a34a8594aa7e18c598a8
+  - path: source/FND/MetadataFND.rdf
+    sha256: 5781201e501821eee17c4604d6c563ac41f4ef83d8d3d531226ebef2270ebd69
+  - path: source/FND/Organizations/FormalOrganizations.rdf
+    sha256: 096aa689714365c74308e35f71e0e1ccf8696e807fcee62885a568e6b018f961
+  - path: source/FND/Organizations/MetadataFNDOrganizations.rdf
+    sha256: d56437154a6c90071ae7ee455f864aaf252dafa8c17ede1a0bbde678a5305a96
+  - path: source/FND/OwnershipAndControl/Control.rdf
+    sha256: c96d1a23c9db41103a87c762a65ceca6704816db9136500cb87ced8f69d7b14e
+  - path: source/FND/OwnershipAndControl/MetadataFNDOwnershipAndControl.rdf
+    sha256: aba8e1b82984e4e211409ad4a6ad8a9f664af89641083f173bf9af3441c098b9
+  - path: source/FND/OwnershipAndControl/Ownership.rdf
+    sha256: de5f330c61e508bfe96f83a3bab8f0de76f306bfb7371424f5f20fc078338e79
+  - path: source/FND/OwnershipAndControl/OwnershipAndControl.rdf
+    sha256: 85154189ed11e4ee44303c4b2b28a0ba855086e2e326d7c831689dbd9680abd5
+  - path: source/FND/Parties/MetadataFNDParties.rdf
+    sha256: e138f50e5c7ca2a29536a5f4201d74d339d6b3a0d6414504ba5fdfd2a20bc5eb
+  - path: source/FND/Parties/Parties.rdf
+    sha256: 6ada5986f86ad91bb506e1cdbec6cff126855d3ac44a9bf019a1e1485c4b6927
+  - path: source/FND/Places/Addresses.rdf
+    sha256: b2a3b4b9f2f8bc8473e4b4714736b50ab94fff721a3d24d8fa0617a0fd4ebcb4
+  - path: source/FND/Places/Facilities.rdf
+    sha256: 13acf962d2d9bbc5c790dd123fafdcdea6fb151779d29a2cad054267cce422ab
+  - path: source/FND/Places/MetadataFNDPlaces.rdf
+    sha256: bf96cfea680edf9ea662ece2ec6fcce31dd3f1bc858ee701fdcd4bfee40a9afe
+  - path: source/FND/Places/NorthAmerica/USPostalServiceAddresses.rdf
+    sha256: eb67059110af2aca7a96280dd1bd1719cca48bd89c765945e5344bc9ea9e0a07
+  - path: source/FND/Places/NorthAmerica/USPostalServiceAddressesIndividuals.rdf
+    sha256: 8dba748efb934469c461d9484738297bed0b1888587dbef3d30ac4feea077492
+  - path: source/FND/Places/RealProperty.rdf
+    sha256: ca19736b2ce96a4bfbe3de6d540e0d1816b484941dc0f0ddecf44037b217446a
+  - path: source/FND/Places/VirtualPlaces.rdf
+    sha256: 438392ab8ef9dce6a82f22719521b06cd6aaa6c8e0e4266cf15f5e4f6428a79c
+  - path: source/FND/ProductsAndServices/MetadataFNDProductsAndServices.rdf
+    sha256: 72f9b5d60840bcadea3f07122b3249a63163eb23de7de21b3832e6031aba5bce
+  - path: source/FND/ProductsAndServices/PaymentsAndSchedules.rdf
+    sha256: 7f9f6645a2e8e5387cd0d4dd9f5ba28c053283acb47bd37595851d7919d75dc0
+  - path: source/FND/ProductsAndServices/ProductsAndServices.rdf
+    sha256: 936ef96bed298618994869b56f05e8bcc3390d25d9e03d9aeaa5e7bb01550834
+  - path: source/FND/Relations/MetadataFNDRelations.rdf
+    sha256: d37882e758cdb30e66eecbd506d24a77ff9985ae2b6ab6aa2069a81488f2cb4f
+  - path: source/FND/Relations/Relations.rdf
+    sha256: 53e66c732bb0a593a0a976df08b2d80e3ac0e12c197aed58671c660f8cc427c5
+  - path: source/FND/TransactionsExt/MarketTransactions.rdf
+    sha256: dc808d57082b71a654902f9c9f52464df7b9865907492ac649bddec73e072539
+  - path: source/FND/TransactionsExt/MetadataFNDTransactionsExt.rdf
+    sha256: 0a378893e904de9b25f1fce18bc34b643c55b0fb742dd47b1dff5fed3bcf67d9
+  - path: source/FND/TransactionsExt/REATransactions.rdf
+    sha256: 4fd9b33a12f68e3432bce68833b1af1c34009fe94fbb3ae1ef2232cac5ddbb28
+  - path: source/FND/TransactionsExt/SecuritiesTransactions.rdf
+    sha256: 621657abe09ced6d3215b1f634a6d6a1297108445cc95431ad145dead6a9b2c4
+  - path: source/FND/Utilities/Analytics.rdf
+    sha256: 6d06b28f25094ffb0a2286beb4da2352f6d1c5327a7654fa5a13abe101994c06
+  - path: source/FND/Utilities/AnnotationVocabulary.rdf
+    sha256: fe863cf8a5bf58a3cff8a59d8555b00acf22a02096998c3189e0ec9f912c6e71
+  - path: source/FND/Utilities/MetadataFNDUtilities.rdf
+    sha256: 98e493d964ab21aa91c0b3f318fa3f55b777660068ebfdac4747e19004d99a42
+  - path: source/IND/AllIND-NorthAmerica.rdf
+    sha256: 4fce3f60de4d4028ce6311b0496c54624b381823eb28ebc176d1237f55a8c50c
+  - path: source/IND/AllIND-ReferenceRates.rdf
+    sha256: e84f94bc0b9bbdff10089b6e83005cce6d166e1a85e9cc0f33d5f47b07a30b74
+  - path: source/IND/AllIND.rdf
+    sha256: 4750a58a00078fb7101546d92240f98f247eec9ffda6a4f42c9471c0e17d25fe
+  - path: source/IND/EconomicIndicators/EconomicIndicators.rdf
+    sha256: 2fb7bf7e39e60ab1a172ea3f3772ff1c2e534d1d316cc5b5dcfee46659f7f70f
+  - path: source/IND/EconomicIndicators/MetadataINDEconomicIndicators.rdf
+    sha256: ee927d336db23edc720abb5093facc8357b5046f07202b847a411763b77c5b9f
+  - path: source/IND/EconomicIndicators/NorthAmericanIndicators/CAEconomicIndicators.rdf
+    sha256: 6117f0f6e167c3c9b4f12d5330ab722a33886c50c6f66499000f87b8b4763843
+  - path: source/IND/EconomicIndicators/NorthAmericanIndicators/USEconomicIndicators.rdf
+    sha256: 26cc3408c7fed5e96fd058a6523feef0a2d635e602b3c4737e9c6a1ff49da682
+  - path: source/IND/ForeignExchange/ForeignExchange.rdf
+    sha256: 951abe905fae8bf8f78b8884827c6fd56eed715fcc5df70616fc5d640eb3db98
+  - path: source/IND/ForeignExchange/MetadataINDForeignExchange.rdf
+    sha256: 93e4f8966c922b3d06bba0879ae3cdaaece039e24255b8d57d2e1c21aeca5643
+  - path: source/IND/Indicators/Indicators.rdf
+    sha256: 0587b1763d4c888000c8a6751b55c80a7102899a57e065c64040fa324a4e43ea
+  - path: source/IND/Indicators/MetadataINDIndicators.rdf
+    sha256: 91e9840ccfea3f5be40ff39233e152db4c341590af033407da23681e66b95d5b
+  - path: source/IND/InterestRates/CommonInterestRates.rdf
+    sha256: 87264ce5599586508ad6c42bd57552fb15508df4bfcf5421834a77c07c53d18b
+  - path: source/IND/InterestRates/InterestRates.rdf
+    sha256: bed6cec773d5817304ae9326140e2a4a88d52eb268fecb92039f856be8e5f8f9
+  - path: source/IND/InterestRates/MarketDataProviders.rdf
+    sha256: a27ce8f36c9114caa6cd0fa1c0ed1badab2b68cefbcee8069693256ed675482c
+  - path: source/IND/InterestRates/MetadataINDInterestRates.rdf
+    sha256: b019d3241aac46f9c25aa97c02a1c7298fcb00adde5ffaee89d0ff962d7484df
+  - path: source/IND/MarketIndices/BasketIndices.rdf
+    sha256: c673ca8c9aa09bceb571402582fa85af12036a8cbaddf3c27dbc722239854916
+  - path: source/IND/MarketIndices/MetadataINDMarketIndices.rdf
+    sha256: 39fe15062cb7d4f2e44e4348830d2474a33661a9bf205800ba7bd8100f62bf20
+  - path: source/IND/MetadataIND.rdf
+    sha256: 609869587c559e501d93fdfef8ca1cd8acc62df5856e6da6bfd84ebe7e1edb6e
+  - path: source/LOAN/AllLOAN.rdf
+    sha256: 6cab267b6551718efc4ccc1a4024ad0cda580ac78bdfd094caa9f174c699e12d
+  - path: source/LOAN/LoansGeneral/LoanApplications.rdf
+    sha256: ad7df5c986fa0bf6d1e108aff41f9772e18303b6300d97e3e0d5e7f6de038f67
+  - path: source/LOAN/LoansGeneral/LoanEvents.rdf
+    sha256: 1ce1f1bf66edc321d141de34065e53f01f21d933b1c84335ba82cbf180ab2725
+  - path: source/LOAN/LoansGeneral/Loans.rdf
+    sha256: 87024035dac38303e21738879202d87f0f37c1347a16119f9ec2b4e37e124f05
+  - path: source/LOAN/LoansGeneral/LoansRegulatory.rdf
+    sha256: 2ac7db4283eb42d68cfa4acad8e0d41db324a1635789d771bb37b4ba3f7f9d35
+  - path: source/LOAN/LoansGeneral/MetadataLOANLoansGeneral.rdf
+    sha256: 8c8d57295e4565b86a4de0818da5dfd49332af2f601dd7f22da896c07bc4e399
+  - path: source/LOAN/LoansSpecific/CardAccounts.rdf
+    sha256: 7e6a021797af88e8a9e0b1c967bf874f7c43d9d67a24009a1dbee61afceaca74
+  - path: source/LOAN/LoansSpecific/CommercialLoans.rdf
+    sha256: f1368c816d6ba3e7a5b4d6e94fd76bd66df314ebe741adb7eecfc5ebbc0bcb52
+  - path: source/LOAN/LoansSpecific/ConsumerLoans.rdf
+    sha256: ed1bc2753636b9797e2b329147b236d69f20e0e7aa34cae2db7716a8892a9460
+  - path: source/LOAN/LoansSpecific/GreenLoans.rdf
+    sha256: 510fa81ba4e12ce737e8b81c9bc43b61cf33cda44d0cbc7fac588bfd3e6e254a
+  - path: source/LOAN/LoansSpecific/LoanProducts.rdf
+    sha256: 53a0b6df1545ae482cd770f591b794ad95885b2ccc5d40b6bfbd686252dccf1e
+  - path: source/LOAN/LoansSpecific/MarineFinance.rdf
+    sha256: f95a470fc34641bfbb2831094042a03321f2b60a5791dd6985ed5ef3702346cc
+  - path: source/LOAN/LoansSpecific/MetadataLOANLoansSpecific.rdf
+    sha256: 29de4377a9a4804dcfe427f0c5d26990859f31ae045db9a8a37b12918002d9af
+  - path: source/LOAN/LoansSpecific/StudentLoans.rdf
+    sha256: 2e988d8c097169157129178fe629acf566582bdb86b1cca02980abc08f3ae38d
+  - path: source/LOAN/MetadataLOAN.rdf
+    sha256: e14e8030a7bcdae00362ea9ab66fc96da34b750f2b0cd5b812e9cf77a89aa6c8
+  - path: source/LOAN/RealEstateLoans/ConstructionLoans.rdf
+    sha256: e74051751d6b3f53d4fd200ba735b2c08d6b191d03c406246cce97093df2ec4f
+  - path: source/LOAN/RealEstateLoans/HomeMortgageDisclosureActCoveredMortgages.rdf
+    sha256: ebf2e21857e3e4fca2d3b11b26057a45c1e54caf6486864c0296d3007214e15a
+  - path: source/LOAN/RealEstateLoans/MetadataLOANRealEstateLoans.rdf
+    sha256: 48bebe6ec2f5af6c08c4fa7394cc9c6d0a97fa39132f7e0839a931aaf63fc444
+  - path: source/LOAN/RealEstateLoans/MortgageOrigination.rdf
+    sha256: dda3d7a2dc8fdcee8b5b0825f90373336231f5a6557977bb1457bde3a5d1eb2e
+  - path: source/LOAN/RealEstateLoans/Mortgages.rdf
+    sha256: 4d40e80c9add98aee948d11fd06f84f26f5bea2f228619b05adea1073bfa9634
+  - path: source/MD/CIVTemporal/FundsTemporal.rdf
+    sha256: 450ceb0b7fb330ffb1353db20920301be4f37539bc4b590bfc1cb8d260c174c1
+  - path: source/MD/CIVTemporal/MetadataMDCIVTemporal.rdf
+    sha256: 54b76643b972be49e5a03ae885f51540d43bbb87441f2b4c3a8313830f9b77f0
+  - path: source/MD/DebtTemporal/DebtAnalytics.rdf
+    sha256: 23741415a51c9f8dcb02ba831ae5bb2dbd179f3e8656927472bc143ce29e5324
+  - path: source/MD/DebtTemporal/MetadataMDDebtTemporal.rdf
+    sha256: 66bf01a7fcb4727115973c0a4eb898e164bd48554d8eac8df607695a5f98a358
+  - path: source/MD/DerivativesTemporal/ETOptionsTemporal.rdf
+    sha256: 627cb05156e9e7f805ddf1cfe40e5579c3f7ac9fbbf060357ea9363c23408bde
+  - path: source/MD/DerivativesTemporal/FuturesTemporal.rdf
+    sha256: bdce7a31496a5d5143802aacede218d5b63724bc67d7e60dafd92734c4a9d8c8
+  - path: source/MD/DerivativesTemporal/MetadataMDDerivativesTemporal.rdf
+    sha256: c9d927fbf00e6141f56191a25799463c5b27e7350001e096ee6e3b6906d0121a
+  - path: source/MD/MetadataMD.rdf
+    sha256: 565d3ddf24bfc0852f6177f29003258bc7ae2649e859edef04c0bdfc99718eed
+  - path: source/MD/TemporalCore/MetadataMDTemporalCore.rdf
+    sha256: 9e029c1725e2f85468e2e8da44fe7204d6fd2b0a9a40ba703f8db6d3aceebec2
+  - path: source/MD/TemporalCore/SecurityCreditStatuses.rdf
+    sha256: 1dfcc510ddafc66b190823cad8af6d3f753c9db5888091b0bf90817f8be61600
+  - path: source/MD/TemporalCore/SecurityTradingStatuses.rdf
+    sha256: 327b5d840ec23fbae8027b3a470238ceba4b460232510e9e3306718ddcaa6855
+  - path: source/MetadataFIBO.rdf
+    sha256: e6037bae42583e69fac7fcefa756fb3fb8e2214899481e28f10abab3ebcab10a
+  - path: source/SEC/AllSEC-Europe.rdf
+    sha256: 2e1ac6354c728d780421b6bc47909e5f9839e237e2ac59003cf46606a720c4bc
+  - path: source/SEC/AllSEC-NorthAmerica.rdf
+    sha256: f39e4ce450c57e9c864dad9d76ccda033665f4e3666c9a7ba2a94fac61a3a7a9
+  - path: source/SEC/AllSEC-ReferenceIndividuals.rdf
+    sha256: bce00918b66a0f7d012ba021a475e20e70eb0bcbb94ca441add451e1cadcb59e
+  - path: source/SEC/AllSEC.rdf
+    sha256: 0718b25932b5392f68c5b080ac2364f6dd3f6957c5a5b35c03be0a4d1e6b07cb
+  - path: source/SEC/Debt/AssetBackedSecurities.rdf
+    sha256: 646ea7b5e905fae21885661a5dbec54a06096395302b1d510f4788a81040e154
+  - path: source/SEC/Debt/Bonds.rdf
+    sha256: 2d7bda00967be3952bd2190a63d30b24674928be4a357d6b1a816c8c461ebc80
+  - path: source/SEC/Debt/CollateralizedDebtObligations.rdf
+    sha256: f964cce3b9fcc3a403dddc116c48dace04819573bb92c82be10e5746358af3ad
+  - path: source/SEC/Debt/DebtInstruments.rdf
+    sha256: 3ab697507ea6674ca65f700fed7f79bdff9ee3f787e6884623ebe92e920e0ec1
+  - path: source/SEC/Debt/DistributedLoans.rdf
+    sha256: c82a391775f4db7577c501a0f2f9bd18999ef4144b5948035ab575e716401662
+  - path: source/SEC/Debt/ExerciseConventions.rdf
+    sha256: 0395ee04f86926124c2cd57c375e7a7b90cf9a5818aada6c44b2ba5b71876bcb
+  - path: source/SEC/Debt/MetadataSECDebt.rdf
+    sha256: 664bc5b9ea461067d735580bd88a53fe9a69ee11ca39dfe51a0247bc3824cebd
+  - path: source/SEC/Debt/MortgageBackedSecurities.rdf
+    sha256: 49d16ce2c78c6b61d49ce66252cd0743ce3ecf56ffb5b9b0114719d3800e3b8a
+  - path: source/SEC/Debt/PoolBackedSecurities.rdf
+    sha256: 1264ab83271e1377d9be0a21869c97a17c4f18498fc66ac8d02e469995de2f15
+  - path: source/SEC/Debt/SyntheticCDOs.rdf
+    sha256: 579dbbf48088907df055a231cb0bbfb53b4678be5963dfed16df9f681fc77ea2
+  - path: source/SEC/Debt/TradedShortTermDebt.rdf
+    sha256: 536cdb1749a6106fa5ab43931ece780654aef9407ed5618be4cf359effaee2af
+  - path: source/SEC/Equities/DepositaryReceipts.rdf
+    sha256: 67e0627f311f852854fcc1d976bbd028d476a766d6f68270b6b7967e00412286
+  - path: source/SEC/Equities/EquityCFIClassificationIndividuals.rdf
+    sha256: e9625ba5c9e9f5f1c2578dbace678827c98dbb573888af25b054f784e71be56e
+  - path: source/SEC/Equities/EquityInstruments.rdf
+    sha256: 57552a710950a2d0afef166aeb432f619e2473a6784b6901474ddcee2de1684d
+  - path: source/SEC/Equities/MetadataSECEquities.rdf
+    sha256: 732000ab90a81e5647a6b5a9c867e866df013a00d65959097062551a96dfef0f
+  - path: source/SEC/Funds/CollectiveInvestmentVehicles.rdf
+    sha256: 260f00ee9d48ab7b2963970ea9095cf45b017e75c6c9686a3084f8aaf3c53992
+  - path: source/SEC/Funds/Funds.rdf
+    sha256: dcbf1a622b98ddcc180feec339de998dc61d3a878c2252faefd4d2d595133c32
+  - path: source/SEC/Funds/MetadataSECFunds.rdf
+    sha256: b6e9c72d184e1acab0e3fbba2a4e171c580459a6837fb38eea5b13bddcf0573b
+  - path: source/SEC/MetadataSEC.rdf
+    sha256: f16ea82b4ea8c8a314699eb995b986d4539b4ef4e2c5984ed4952c849b8a2c2f
+  - path: source/SEC/Securities/Baskets.rdf
+    sha256: 08ebe45c24170e9f5ee619e51ab6b0f95d5ac46a87e21c9f0eccc1392bbc1b36
+  - path: source/SEC/Securities/EuropeanSecurities/EUSecuritiesRestrictions.rdf
+    sha256: d871be3eb9a05609f1af0955d82beec26f26e8089e529d051eb5d4878945f09b
+  - path: source/SEC/Securities/MetadataSECSecurities.rdf
+    sha256: 0c24a1737b44ba8275183c03d0ab2c8089bf63d30bb703024efe0009ab14c334
+  - path: source/SEC/Securities/NorthAmericanSecurities/USSecuritiesRestrictions.rdf
+    sha256: 58146a04f2f19b4bff1167aea348302f6db4d45cb67367084a6070a21cb2b3be
+  - path: source/SEC/Securities/ParametricSchedules.rdf
+    sha256: 530e0820fa333ae5cdd3d68e21d6e2593bd3642db041843cac34d6195e05286f
+  - path: source/SEC/Securities/Pools.rdf
+    sha256: eb1da4d5fa8156eb2be4aecc170b0985e9b89a6b481b1c55731f74931c84a0b4
+  - path: source/SEC/Securities/SecuritiesClassification.rdf
+    sha256: af778d9bb01217ae2336ab1832ae81c7e0158d8ec5bed45cf3677e2e18b7ebbe
+  - path: source/SEC/Securities/SecuritiesIdentification.rdf
+    sha256: faff45ecaa12fed12cf6a4ae6ca40fa912c987d101084ffe0ea8b168d435b573
+  - path: source/SEC/Securities/SecuritiesIdentificationIndividuals.rdf
+    sha256: 2c7605091362c55d496db7ffeabf6b4b7a7e3599e910e477f8da2aad275a4380
+  - path: source/SEC/Securities/SecuritiesIssuance.rdf
+    sha256: 4539061ed96883346d73d0d884beca6d9cfae7904f55fc6009f8d2c1dd57aa91
+  - path: source/SEC/Securities/SecuritiesListings.rdf
+    sha256: be2c77cb53ffbf2451b72c395587f08ca83f7f000f959b8c60b821421653a700
+  - path: source/SEC/Securities/SecuritiesRestrictions.rdf
+    sha256: c3809f6619beb30ea8c263a03891152ddf90557343365d4d1c869a7f4b8aa0d9
+  - path: source/SEC/Securities/SecurityAssets.rdf
+    sha256: 1f176c681f11b3210d8289c74194162c24b70fc4c0882def08f52be6e6917150
+  - path: source/catalog-v001.xml
+    sha256: 01b6176ad4ff75386980335f302d3d3ffc081c9d1ed795e154a2cf11f9c5bf08
+  - path: source/etc/testing/data/fnd/Organizations/TestFormalOrganizations.rdf
+    sha256: 82f0233663a0688133ab50695256a56c1bfedeab7d466ebb562af1c13b01a035
+  - path: source/etc/testing/data/fnd/OwnershipAndControl/TestControl.rdf
+    sha256: a52e76241f44fb7f4c91d0239fcd8f2887e4d83f115ac223e6e80cdece93a77f
+  - path: source/etc/testing/data/fnd/OwnershipAndControl/TestOwnership.rdf
+    sha256: 97ec8fe988bd68b9de36db685a51d5a338710b50dce0290e109e96b604dc8499
+  - path: source/etc/vocabulary/scaffolding.ttl
+    sha256: 96ea5967501ae36d434dbe55c5861f1acb6282fe3c2bb8fcbf1ed7500ecec767
+  - path: source/fibo-master_2026Q2-f59157f.zip
+    sha256: 18947607581fc65f76db846a455440cca6efc596b52d2cacf32c43530c312bd9
+commonsDependencies:
+  - path: dependencies/omg-commons-1.3/AnnotationVocabulary.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/AnnotationVocabulary/
+    versionIri: https://www.omg.org/spec/Commons/20250801/AnnotationVocabulary/
+    officialSourceUrl: https://www.omg.org/spec/Commons/AnnotationVocabulary/
+    sha256: 0f31efad729e9c5dc260d4cca8cb92c69ec25a4554ead4c866903f652e3789f7
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/BusinessAuthorizations.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/BusinessAuthorizations/
+    versionIri: https://www.omg.org/spec/Commons/20250801/BusinessAuthorizations/
+    officialSourceUrl: https://www.omg.org/spec/Commons/BusinessAuthorizations/
+    sha256: 603b9985b7553c49cd5e9adfd055dab8c4fb1b3d88a6db51e031d6df9cef12d3
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/Classifiers.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/Classifiers/
+    versionIri: https://www.omg.org/spec/Commons/20240801/Classifiers/
+    officialSourceUrl: https://www.omg.org/spec/Commons/Classifiers/
+    sha256: 766312bdb13a27cdc6fe722d5be3c815135a284dbb5e6990455cc655aecad6e9
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/CodesAndCodeSets.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/CodesAndCodeSets/
+    versionIri: https://www.omg.org/spec/Commons/20221101/CodesAndCodeSets/
+    officialSourceUrl: https://www.omg.org/spec/Commons/CodesAndCodeSets/
+    sha256: 272ea377f588ed30759c37a2b0455a8b04643c8114ebf35ad31656c039d09150
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/Collections.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/Collections/
+    versionIri: https://www.omg.org/spec/Commons/20221101/Collections/
+    officialSourceUrl: https://www.omg.org/spec/Commons/Collections/
+    sha256: 44450edbe870cad6fa406319ecb21fed6a27824904e865b1d683f8bfd2a03553
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/ContextualDesignators.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/ContextualDesignators/
+    versionIri: https://www.omg.org/spec/Commons/20250801/ContextualDesignators/
+    officialSourceUrl: https://www.omg.org/spec/Commons/ContextualDesignators/
+    sha256: aa1c6c1d403a79b04b5f1cf65d1cd993b64d87aee51b9f7a3889ea06f01a96a8
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/ContextualIdentifiers.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/ContextualIdentifiers/
+    versionIri: https://www.omg.org/spec/Commons/20221101/ContextualIdentifiers/
+    officialSourceUrl: https://www.omg.org/spec/Commons/ContextualIdentifiers/
+    sha256: c26dd75874f66ca5a7dcfff0285b0f0cb8f2c66f0de56190e7f1220c702a28f7
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/DatesAndTimes.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/DatesAndTimes/
+    versionIri: https://www.omg.org/spec/Commons/20250801/DatesAndTimes/
+    officialSourceUrl: https://www.omg.org/spec/Commons/DatesAndTimes/
+    sha256: 29f48874c004475893202d0359ca1deb9e44e87d6e1a382e12e57c0fc86f90e7
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/Designators.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/Designators/
+    versionIri: https://www.omg.org/spec/Commons/20250801/Designators/
+    officialSourceUrl: https://www.omg.org/spec/Commons/Designators/
+    sha256: 6475c00a66050560c11560c91e824118aaa4f13f9e0d62e8eddaf2eb6a447eca
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/Documents.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/Documents/
+    versionIri: https://www.omg.org/spec/Commons/20250801/Documents/
+    officialSourceUrl: https://www.omg.org/spec/Commons/Documents/
+    sha256: 958264c82c7011097cf6da6352464dc094a9d1cada1d37a41ff26ed763f91a5c
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/Identifiers.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/Identifiers/
+    versionIri: https://www.omg.org/spec/Commons/20221101/Identifiers/
+    officialSourceUrl: https://www.omg.org/spec/Commons/Identifiers/
+    sha256: c5ed5f3551ff4d0a711bd50ff6a7388383a1cf33a27bc1661e54f6bf7a75987a
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/Languages.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/Languages/
+    versionIri: https://www.omg.org/spec/Commons/20250801/Languages/
+    officialSourceUrl: https://www.omg.org/spec/Commons/Languages/
+    sha256: 5c2a08e01e24f84cba64aebfa3e6ed21e9ef6daa6a8e22c7e6b902b8c4673a2f
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/Locations.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/Locations/
+    versionIri: https://www.omg.org/spec/Commons/20250801/Locations/
+    officialSourceUrl: https://www.omg.org/spec/Commons/Locations/
+    sha256: 0d6a8eedb4461f4256ea61f03506e882bdadc8b1ca2024493eb6585b3e574c31
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/Organizations.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/Organizations/
+    versionIri: https://www.omg.org/spec/Commons/20250801/Organizations/
+    officialSourceUrl: https://www.omg.org/spec/Commons/Organizations/
+    sha256: 3a1ab7e936b656fff8aa8beb44d30ddc02aaa6f6eac5353d4157e355ef164eb7
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/PartiesAndSituations.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/PartiesAndSituations/
+    versionIri: https://www.omg.org/spec/Commons/20250801/PartiesAndSituations/
+    officialSourceUrl: https://www.omg.org/spec/Commons/PartiesAndSituations/
+    sha256: 1c207e4f04e51fee7d06bbee1e5c53ae90f04374da3568e0470699d8f20cc1f3
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/QuantitiesAndUnits.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/QuantitiesAndUnits/
+    versionIri: https://www.omg.org/spec/Commons/20240801/QuantitiesAndUnits/
+    officialSourceUrl: https://www.omg.org/spec/Commons/QuantitiesAndUnits/
+    sha256: b1fbe90e6c4b23cd7c7485fbe06b94d373b598ece83f074c05b82b8bcc399d7f
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/RegistrationAuthorities.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/RegistrationAuthorities/
+    versionIri: https://www.omg.org/spec/Commons/20250801/RegistrationAuthorities/
+    officialSourceUrl: https://www.omg.org/spec/Commons/RegistrationAuthorities/
+    sha256: 38562388ef6790635abc5b09eee644a60a659544520b1f93a333ed3e50460991
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/RegulatoryAgencies.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/RegulatoryAgencies/
+    versionIri: https://www.omg.org/spec/Commons/20250801/RegulatoryAgencies/
+    officialSourceUrl: https://www.omg.org/spec/Commons/RegulatoryAgencies/
+    sha256: cd309406734bb8ba01a5626d1af7b5c8dc6bb3ab3a275e3faac791e5dd460d55
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/RolesAndCompositions.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/RolesAndCompositions/
+    versionIri: https://www.omg.org/spec/Commons/20230801/RolesAndCompositions/
+    officialSourceUrl: https://www.omg.org/spec/Commons/RolesAndCompositions/
+    sha256: 81d40576c2afa3f1a9fabd0b08f67a31e1a82bead9467782d8450d7b331275fc
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/SitesAndFacilities.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/SitesAndFacilities/
+    versionIri: https://www.omg.org/spec/Commons/20250801/Facilities/
+    officialSourceUrl: https://www.omg.org/spec/Commons/SitesAndFacilities/
+    sha256: 9c4672f52a8a6e1ce743af6110a0e3cd8229cd5120e8e21936f253d786fb72ac
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/StructuredCollections.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/StructuredCollections/
+    versionIri: https://www.omg.org/spec/Commons/20250801/StructuredCollections/
+    officialSourceUrl: https://www.omg.org/spec/Commons/StructuredCollections/
+    sha256: 288c3d5f047ccda3ee1c48c81ac462829182aa943f83003317b4038714a29430
+    copyright: Object Management Group
+    license: MIT
+  - path: dependencies/omg-commons-1.3/TextDatatype.rdf
+    ontologyIri: https://www.omg.org/spec/Commons/TextDatatype/
+    versionIri: https://www.omg.org/spec/Commons/20221101/TextDatatype/
+    officialSourceUrl: https://www.omg.org/spec/Commons/TextDatatype/
+    sha256: d29a6e24bffb67fd6a4fe9955880fb9e8bd2f858a12d3e846fc45fd571bd8314
+    copyright: Object Management Group
+    license: MIT
+licenses:
+  fibo: MIT
+  omgCommons: MIT
+attribution: ATTRIBUTION.md
