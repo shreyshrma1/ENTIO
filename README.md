@@ -24,7 +24,7 @@ Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because th
 
 The current implementation supports small local Entio projects, Turtle/RDF parsing through Apache Jena, RDF-term-aware graph triples, deterministic validation reports, semantic graph diffs, reusable project loading, and a thin CLI.
 
-Phase 2, Phase 2.5, Phase 2.5+, and Phase 3 are complete. Phases 2 through 2.5+ add safe ontology mutation, label-first selection, deterministic IRI generation, deletion review, multi-edit staging, combined preview and approval workflows, source-file persistence, and a VS Code workbench. Phase 3 adds semantic descriptors, deterministic label policy, semantic metadata editing, and semantic search. The Kotlin semantic engine remains responsible for RDF and ontology behavior. Phase 4 planning now covers OWL reasoning and SHACL constraint authoring/validation; Phase 4 implementation has not begun.
+Phase 2, Phase 2.5, Phase 2.5+, Phase 3, and Phase 4 are complete. Phases 2 through 2.5+ add safe ontology mutation, label-first selection, deterministic IRI generation, deletion review, multi-edit staging, combined preview and approval workflows, source-file persistence, and a VS Code workbench. Phase 3 adds semantic descriptors, deterministic label policy, semantic metadata editing, and semantic search. Phase 4 adds bounded OWL reasoning, import-aware reasoning views, SHACL shape and validation support, proposal impact integration, and corresponding CLI and VS Code views. The Kotlin semantic engine remains responsible for RDF and ontology behavior.
 
 ## Workspace Structure
 
@@ -42,7 +42,7 @@ The VS Code extension consumes the Kotlin/JVM core engine through the machine-re
 
 ## Current Capabilities
 
-The Phase 1 through Phase 3 implementation currently supports:
+The Phase 1 through Phase 4 implementation currently supports:
 
 - Loading an Entio project configuration.
 - Loading a project through a reusable `ProjectLoader`.
@@ -63,6 +63,10 @@ The Phase 1 through Phase 3 implementation currently supports:
 - Selecting preferred labels and extracting alternate labels, definitions, and explicit annotations deterministically.
 - Searching semantic descriptions through the Kotlin engine and machine-readable CLI.
 - Editing supported semantic metadata through the existing staged proposal workflow.
+- Running bounded OWL reasoning with asserted and inferred separation, import status, explanations, fingerprints, and feature limitations.
+- Validating configured SHACL data against configured shape graphs in asserted-only or explicit asserted-plus-inferred modes.
+- Inspecting SHACL shapes and reasoning/SHACL proposal impact through the CLI and VS Code workbench.
+- Applying approved multi-source proposals atomically with reload verification and rollback on failure.
 
 Implemented CLI commands:
 
@@ -158,9 +162,7 @@ Phase 2 should not include:
 
 ## Current Planning Boundary
 
-Phase 3 is complete. Phase 4 is the current planning phase and concerns OWL reasoning, import-aware reasoning, SHACL constraint authoring, SHACL validation, and their integration with the existing proposal workflow. Phase 4 is not implemented yet.
-
-Phase 5 planning concerns external ontology browsing and basic Schema RAG. It remains a later, unimplemented phase.
+Phase 4 is complete. Phase 5 is the current planning phase and concerns external ontology browsing and basic Schema RAG. Phase 5 is not implemented yet.
 
 ## Technical Principle
 
@@ -192,4 +194,5 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 3 ExecPlan](docs/execplans/0006-phase-3-semantic-description-layer.md)
 - [Phase 3 Implementation Summary](docs/phase-summaries/phase-3-summary.md)
 - [Phase 4 Spec](docs/specs/0007-phase-4-owl-reasoning-shacl-revised.md)
+- [Phase 4 Implementation Summary](docs/phase-summaries/phase-4-summary.md)
 - [Phase 5 Spec](docs/specs/0008-phase-5-external-ontology-browsing-schema-rag.md)

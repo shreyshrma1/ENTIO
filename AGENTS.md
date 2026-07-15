@@ -4,7 +4,7 @@ This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engi
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
-Phase 2, Phase 2.5, Phase 2.5+, and Phase 3 are complete. Phase 4 planning covers OWL reasoning and SHACL constraint authoring and validation; no Phase 4 implementation has begun. Phase 5 planning covers external ontology browsing and Schema RAG as a later phase. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the VS Code layer delegates semantic work to it.
+Phase 2, Phase 2.5, Phase 2.5+, Phase 3, and Phase 4 are complete. Phase 5 planning covers external ontology browsing and Schema RAG. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the VS Code layer delegates semantic work to it.
 
 ## Product Context
 
@@ -22,7 +22,7 @@ If a task seems to require later-phase infrastructure, stop and explain why befo
 
 ## Current Scope
 
-Phase 1, Phase 1.5, Phase 2, Phase 2.5, Phase 2.5+, and Phase 3 are complete. The current Entio foundation supports:
+Phase 1, Phase 1.5, Phase 2, Phase 2.5, Phase 2.5+, Phase 3, and Phase 4 are complete. The current Entio foundation supports:
 
 - Loading an Entio project.
 - Parsing small Turtle/RDF ontology files with existing libraries.
@@ -69,7 +69,7 @@ Phase 3 implemented:
 - VS Code semantic details, label-aware search, semantic edit forms, and staged semantic previews.
 - Copied-fixture regression coverage for semantic descriptors, search, semantic edits, approval, rejection, reload, and rollback.
 
-Phase 4 is the current planning boundary for OWL reasoning and SHACL constraint authoring and validation. It is not implemented yet. Phase 5 planning for external ontology browsing and Schema RAG is later and is not part of the current implementation.
+Phase 4 is complete. It added bounded OWL reasoning, import-aware reasoning views, SHACL shape and validation support, proposal impact integration, CLI commands, VS Code views, and regression coverage. Phase 5 is the current planning boundary for external ontology browsing and basic Schema RAG; it is not implemented yet.
 
 Phase 2 implemented:
 
@@ -105,9 +105,9 @@ Do not add the following in Phase 2 unless the project direction changes explici
 
 ## Current Phase Boundary
 
-Phase 3 is complete. Do not treat the Phase 4 or Phase 5 planning documents as implemented behavior.
+Phase 4 is complete. Do not treat the Phase 5 planning documents as implemented behavior.
 
-Phase 4 implementation must remain limited to an approved plan for OWL reasoning, import-aware reasoning views, SHACL authoring, SHACL validation, and their existing proposal-workflow integration. Phase 5 implementation must remain deferred until explicitly activated and planned.
+Phase 4 implementation is complete and remains bounded to the approved OWL reasoning, import-aware reasoning views, SHACL authoring, SHACL validation, proposal-workflow integration, and documented limitations. Phase 5 implementation must remain deferred until explicitly activated and planned.
 
 ## Software Architecture Rules
 
