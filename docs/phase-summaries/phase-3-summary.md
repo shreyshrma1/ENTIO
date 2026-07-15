@@ -2,7 +2,7 @@
 
 ## Status
 
-Phase 3, the Semantic Description Layer, is implemented on local `main` through Slice 11. The implementation remains a local Kotlin/JVM semantic engine with a thin machine-readable CLI boundary and a TypeScript VS Code presentation layer.
+Phase 3, the Semantic Description Layer, is complete on local `main` through Slice 11. The implementation remains a local Kotlin/JVM semantic engine with a thin machine-readable CLI boundary and a TypeScript VS Code presentation layer. Phase 4 planning covers OWL reasoning and SHACL constraint authoring and validation; no Phase 4 implementation is included in this summary.
 
 ## What Phase 3 Implemented
 
