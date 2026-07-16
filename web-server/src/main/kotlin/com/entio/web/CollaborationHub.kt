@@ -66,9 +66,21 @@ public class CollaborationHub(
         proposalId = proposalId,
     )
 
-    private suspend fun publishByProject(projectId: String, eventType: String, stagedChangeId: String? = null, proposalId: String? = null): Unit {
+    public suspend fun job(projectId: String, eventType: String, jobId: String): Unit = publishByProject(
+        projectId,
+        eventType,
+        jobId = jobId,
+    )
+
+    private suspend fun publishByProject(
+        projectId: String,
+        eventType: String,
+        stagedChangeId: String? = null,
+        proposalId: String? = null,
+        jobId: String? = null,
+    ): Unit {
         val room = rooms[projectId] ?: return
-        publish(room, eventType, stagedChangeId = stagedChangeId, proposalId = proposalId)
+        publish(room, eventType, stagedChangeId = stagedChangeId, proposalId = proposalId, jobId = jobId)
     }
 
     private suspend fun handleClientEvent(room: CollaborationRoom, socket: WebSocketServerSession, userId: String, raw: String): Unit {
@@ -103,9 +115,10 @@ public class CollaborationHub(
         entityIri: String? = null,
         stagedChangeId: String? = null,
         proposalId: String? = null,
+        jobId: String? = null,
         data: Map<String, Any?> = emptyMap(),
     ): Unit {
-        val event = nextEvent(room, eventType, userId, entityIri, stagedChangeId, proposalId, data)
+        val event = nextEvent(room, eventType, userId, entityIri, stagedChangeId, proposalId, jobId, data)
         val sockets = synchronized(room) { room.clients.keys.toList() }
         sockets.forEach { socket -> send(socket, event) }
     }
@@ -117,6 +130,7 @@ public class CollaborationHub(
         entityIri: String? = null,
         stagedChangeId: String? = null,
         proposalId: String? = null,
+        jobId: String? = null,
         data: Map<String, Any?> = emptyMap(),
     ): WebCollaborationEvent = synchronized(room) {
         room.sequence += 1
@@ -131,6 +145,7 @@ public class CollaborationHub(
             entityIri = entityIri,
             stagedChangeId = stagedChangeId,
             proposalId = proposalId,
+            jobId = jobId,
             data = data,
         )
     }

@@ -43,6 +43,13 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
     val readOnly = ReadOnlyProjectAdapter(dependencies.projectRegistry)
     val staging = StagingWorkflowService(dependencies.projectRegistry)
     val collaboration = CollaborationHub(dependencies.projectRegistry, staging::snapshot)
+    val jobs = SemanticJobManager(
+        staging = staging,
+        projectRegistry = dependencies.projectRegistry,
+        onUpdate = { status ->
+            collaboration.job(status.projectId, "semantic-job.${status.status.name.lowercase()}", status.id)
+        },
+    )
 
     routing {
         get("/health") {
@@ -164,6 +171,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
                 }
                 val projectId = call.requiredProjectId()
                 val result = staging.stage(projectId, call.receive<WebStageChangeRequest>(), user.id)
+                jobs.invalidateProposalJobs(projectId)
                 collaboration.stagedChange(projectId, result.entries.lastOrNull()?.id)
                 result
             }
@@ -173,6 +181,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
             call.respondWorkflow {
                 val projectId = call.requiredProjectId()
                 val result = staging.discard(projectId, call.requiredStagedId())
+                jobs.invalidateProposalJobs(projectId)
                 collaboration.stagedChange(projectId)
                 result
             }
@@ -200,6 +209,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
             call.respondWorkflow {
                 val projectId = call.requiredProjectId()
                 val result = staging.reject(projectId, call.requireReviewer(dependencies).id)
+                jobs.invalidateProposalJobs(projectId)
                 collaboration.proposal(projectId, "proposal.rejected")
                 result
             }
@@ -215,6 +225,27 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
                     result.proposal?.id,
                 )
                 result
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/semantic-jobs") {
+            call.respondJob {
+                call.requireUser(dependencies)
+                jobs.submit(call.requiredProjectId(), call.receive<WebJobRequest>())
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/semantic-jobs/{jobId}") {
+            call.respondJob {
+                jobs.find(call.requiredProjectId(), call.requiredJobId())
+                    ?: throw WebWorkflowFailure("unknown-semantic-job", "The requested semantic job was not found.")
+            }
+        }
+
+        delete("/api/v1/projects/{projectId}/semantic-jobs/{jobId}") {
+            call.respondJob {
+                call.requireReviewer(dependencies)
+                jobs.cancel(call.requiredProjectId(), call.requiredJobId())
             }
         }
 
@@ -251,6 +282,10 @@ private fun ApplicationCall.pageRequest(): WebPageRequest = try {
 private fun ApplicationCall.requiredStagedId(): String = parameters["stagedId"]
     ?.takeIf(String::isNotBlank)
     ?: throw WebWorkflowFailure("missing-staged-id", "A staged change id is required.")
+
+private fun ApplicationCall.requiredJobId(): String = parameters["jobId"]
+    ?.takeIf(String::isNotBlank)
+    ?: throw WebWorkflowFailure("missing-semantic-job-id", "A semantic job id is required.")
 
 private fun ApplicationCall.requireUser(dependencies: WebApplicationDependencies): com.entio.web.contract.WebSessionUser {
     val user = dependencies.identityProvider.find(request.headers["X-Entio-User"])
@@ -303,6 +338,24 @@ private suspend fun ApplicationCall.respondWorkflow(block: suspend () -> WebStag
             requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
             code = failure.code,
             message = failure.message ?: "The workflow request could not be completed.",
+        ),
+    )
+}
+
+private suspend fun ApplicationCall.respondJob(block: suspend () -> WebSemanticJobStatus): Unit = try {
+    respond(block())
+} catch (failure: WebWorkflowFailure) {
+    val status = when (failure.code) {
+        "unknown-project", "unknown-semantic-job" -> HttpStatusCode.NotFound
+        "forbidden" -> HttpStatusCode.Forbidden
+        else -> HttpStatusCode.BadRequest
+    }
+    respond(
+        status,
+        WebErrorResponse(
+            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
+            code = failure.code,
+            message = failure.message ?: "The semantic job request could not be completed.",
         ),
     )
 }

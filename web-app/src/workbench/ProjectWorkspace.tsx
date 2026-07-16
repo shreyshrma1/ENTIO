@@ -4,6 +4,7 @@ import EntityDetails from "./EntityDetails";
 import HierarchyNode from "./HierarchyNode";
 import StagingPanel from "./StagingPanel";
 import CollaborationPresence from "./CollaborationPresence";
+import SemanticJobPanel from "./SemanticJobPanel";
 import { useHierarchy, useProjectSearch, useProjectSummary } from "../web/queries";
 import type { WebEntityReference } from "../web/projectApi";
 
@@ -92,6 +93,7 @@ export default function ProjectWorkspace() {
           {tabs.length ? <nav className="entity-tabs" aria-label="Open entities">{tabs.map((tab) => <div className={`entity-tab ${tab.iri === activeIri ? "active" : ""}`} key={tab.iri}><button type="button" onClick={() => openEntity(tab)}>{tab.label}</button><button type="button" className="tab-close" aria-label={`Close ${tab.label}`} onClick={() => closeTab(tab.iri)}>×</button></div>)}</nav> : null}
           {activeTab ? <EntityDetails projectId={projectId} iri={activeTab.iri} /> : <EmptyWorkspace />}
           {sourceId ? <StagingPanel projectId={projectId} sourceId={sourceId} /> : null}
+          <SemanticJobPanel projectId={projectId} />
         </section>
       </div>
     </main>

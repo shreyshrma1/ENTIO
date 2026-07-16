@@ -46,6 +46,12 @@ public class WebWorkflowFailure(
     message: String,
 ) : IllegalArgumentException(message)
 
+public data class WorkflowGraphSnapshot(
+    val graph: com.entio.core.GraphState,
+    val graphFingerprint: String,
+    val proposalFingerprint: String? = null,
+)
+
 private data class StoredEntry(
     val staged: StagedChange,
     val authorId: String,
@@ -76,6 +82,28 @@ public class StagingWorkflowService(
 
     @Synchronized
     public fun snapshot(projectId: String): WebStagingResponse = response(projectId, session(projectId))
+
+    @Synchronized
+    public fun graphSnapshot(projectId: String, scope: WebJobScope): WorkflowGraphSnapshot {
+        val project = load(projectId)
+        return when (scope) {
+            WebJobScope.Applied -> WorkflowGraphSnapshot(
+                graph = project.graph,
+                graphFingerprint = webGraphFingerprint(project.graph),
+            )
+            WebJobScope.Proposal -> {
+                val proposal = session(projectId).proposal
+                    ?: throw WebWorkflowFailure("missing-proposal", "A proposal preview is required for proposal-scoped semantic work.")
+                val previewGraph = proposal.preview?.graph
+                    ?: throw WebWorkflowFailure("missing-proposal-preview", "The proposal has no preview graph.")
+                WorkflowGraphSnapshot(
+                    graph = previewGraph,
+                    graphFingerprint = webGraphFingerprint(previewGraph),
+                    proposalFingerprint = webProposalFingerprint(proposal.id, previewGraph),
+                )
+            }
+        }
+    }
 
     @Synchronized
     public fun stage(projectId: String, request: WebStageChangeRequest, userId: String): WebStagingResponse {

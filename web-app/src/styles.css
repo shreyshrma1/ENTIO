@@ -222,6 +222,44 @@ button:hover {
   padding-top: 24px;
 }
 
+.semantic-job-panel {
+  border-top: 1px solid var(--border);
+  padding: 1.5rem 0 0;
+  margin-top: 1.5rem;
+}
+
+.semantic-job-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.semantic-job-controls label,
+.semantic-job-controls select {
+  display: block;
+}
+
+.semantic-job-controls select {
+  min-width: 12rem;
+}
+
+.semantic-job-status {
+  border-left: 3px solid var(--accent);
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+}
+
+.semantic-job-status small {
+  display: block;
+  color: var(--muted);
+}
+
+.job-state {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
 .staging-form {
   display: grid;
   gap: 8px;
