@@ -216,6 +216,54 @@ button:hover {
   gap: 6px;
 }
 
+.staging-panel {
+  border-top: 1px solid #28333a;
+  margin-top: 32px;
+  padding-top: 24px;
+}
+
+.staging-form {
+  display: grid;
+  gap: 8px;
+  max-width: 720px;
+}
+
+.staged-list,
+.proposal-summary ul {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 16px 0;
+  padding: 0;
+}
+
+.staged-list li {
+  align-items: center;
+  border: 1px solid #33424b;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 10px;
+}
+
+.staged-list small {
+  color: #aab8c0;
+  display: block;
+  margin-top: 4px;
+}
+
+.proposal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.proposal-summary {
+  border-left: 3px solid #1685cf;
+  margin-top: 16px;
+  padding: 8px 12px;
+}
+
 .search-results {
   display: grid;
   gap: 4px;
