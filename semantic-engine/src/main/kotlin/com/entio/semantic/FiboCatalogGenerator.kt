@@ -59,6 +59,19 @@ public object FiboCatalogGenerator {
 
         val ontologyMappings = linkedMapOf<String, String>()
         val records = mutableListOf<CatalogRecord>()
+        val dependencyRecords = dependencyFiles(packageRoot).flatMap { path ->
+            val relative = packageRoot.relativize(path).toString().replace('\\', '/')
+            val model = readModel(path)
+            val ontologyIri = model.listResourcesWithProperty(model.createProperty(RDF_TYPE), model.createResource(OWL_ONTOLOGY))
+                .asSequence()
+                .mapNotNull { it.uri }
+                .sorted()
+                .firstOrNull()
+            model.catalogRecords(relative, ontologyIri)
+        }
+        val dependencyMetadata = dependencyRecords
+            .groupBy { it.iri to it.kind }
+            .mapValues { (_, values) -> values.reduce(CatalogRecord::mergeMetadata) }
         sourceFiles.forEach { path ->
             val relative = sourceRoot.relativize(path).toString().replace('\\', '/')
             val packageRelative = "source/$relative"
@@ -69,8 +82,12 @@ public object FiboCatalogGenerator {
                 .sorted()
                 .firstOrNull()
             if (ontologyIri != null) ontologyMappings[ontologyIri] = packageRelative
-            records += model.catalogRecords(packageRelative, ontologyIri)
+            records += model.catalogRecords(packageRelative, ontologyIri).map { record ->
+                dependencyMetadata[record.iri to record.kind]?.let(record::mergeMetadata) ?: record
+            }
         }
+        val sourceRecordKeys = records.map { it.iri to it.kind }.toSet()
+        records += dependencyRecords.filterNot { it.iri to it.kind in sourceRecordKeys }
         dependencyFiles(packageRoot).forEach { path ->
             val relative = packageRoot.relativize(path).toString().replace('\\', '/')
             val model = readModel(path)
@@ -381,6 +398,15 @@ public object FiboCatalogGenerator {
             append(",\"domain\":\"${jsonEscape(domain)}\",\"module\":\"${jsonEscape(module)}\"")
             append(",\"maturity\":\"$maturity\",\"curated\":$curated}")
         }
+
+        fun mergeMetadata(fallback: CatalogRecord): CatalogRecord = copy(
+            preferredLabel = preferredLabel ?: fallback.preferredLabel,
+            alternateLabels = (alternateLabels + fallback.alternateLabels).distinct().sorted(),
+            definitions = (definitions + fallback.definitions).distinct().sorted(),
+            parents = (parents + fallback.parents).distinct().sorted(),
+            domains = (domains + fallback.domains).distinct().sorted(),
+            ranges = (ranges + fallback.ranges).distinct().sorted(),
+        )
     }
 
     private data class CommonsProvenance(

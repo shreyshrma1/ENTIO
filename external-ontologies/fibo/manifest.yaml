@@ -10,7 +10,7 @@ sourceArchive: edmcouncil/fibo@f59157fe156e3d91b1c045222d0a7dc06b7d78a2
 sourceArchivePath: source/fibo-master_2026Q2-f59157f.zip
 sourceArchiveSha256: 18947607581fc65f76db846a455440cca6efc596b52d2cacf32c43530c312bd9
 sourceFileCount: 297
-catalogElementCount: 4232
+catalogElementCount: 4579
 curatedSeedOntologyIris:
   - https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/
   - https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/

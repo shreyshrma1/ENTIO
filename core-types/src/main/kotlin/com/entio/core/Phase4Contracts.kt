@@ -234,6 +234,7 @@ public data class ShaclPropertyShape(
 
 public data class ShaclNodeShape(
     public val id: ShaclShapeId,
+    public val label: String? = null,
     public val targets: List<ShaclTarget> = emptyList(),
     public val propertyShapes: List<ShaclPropertyShape> = emptyList(),
     public val constraints: List<ShaclConstraint> = emptyList(),

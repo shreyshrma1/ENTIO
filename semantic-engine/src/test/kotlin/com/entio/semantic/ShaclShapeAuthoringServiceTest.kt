@@ -52,8 +52,10 @@ class ShaclShapeAuthoringServiceTest {
         val graph = parse("""
             @prefix ex: <https://example.com/> .
             @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
             @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
             ex:AccountShape a sh:NodeShape ;
+                rdfs:label "Account shape" ;
                 sh:targetClass ex:Account ; sh:targetNode ex:Specific ;
                 sh:targetSubjectsOf ex:owner ; sh:targetObjectsOf ex:ownedBy ;
                 sh:closed true ; sh:message "Account shape" ;
@@ -66,6 +68,7 @@ class ShaclShapeAuthoringServiceTest {
         val second = assertIs<EntioResult.Success<ShaclAuthoringDocument>>(authoring.load("shapes", graph)).value
         assertEquals(first.nodeShapes, second.nodeShapes)
         val shape = first.nodeShapes.single()
+        assertEquals("Account shape", shape.label)
         assertTrue(shape.targets.contains(ShaclTarget.TargetClass(Iri("https://example.com/Account"))))
         assertTrue(shape.targets.contains(ShaclTarget.TargetNode(Iri("https://example.com/Specific"))))
         assertEquals(1, shape.propertyShapes.size)

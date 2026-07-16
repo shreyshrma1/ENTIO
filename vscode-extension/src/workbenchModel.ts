@@ -172,7 +172,7 @@ export function entitySelectorOptions(
 }
 
 export function labelDisplay(symbol: SymbolSummary): string {
-  return symbol.label ? `${symbol.label} · ${symbol.kind} · ${symbol.sourceId}` : `${symbol.iri} · ${symbol.kind} · ${symbol.sourceId}`;
+  return `${symbol.label || readableLocalName(symbol.iri)} · ${symbol.kind} · ${symbol.sourceId}`;
 }
 
 export function createSemanticDescriptorModel(response: unknown): SemanticDescriptorSummary | undefined {
@@ -254,6 +254,7 @@ export interface ShaclValidationViewModel {
 
 export interface ShaclShapeSummary {
   readonly iri: string;
+  readonly label: string | null;
   readonly sourceId: string;
   readonly targets: readonly string[];
   readonly propertyShapes: readonly string[];
@@ -382,7 +383,7 @@ export function createShaclShapesModel(response: unknown): ShaclShapesViewModel 
       const value = asRecord(constraint);
       return value && typeof value.kind === "string" ? value.kind : undefined;
     }).filter(isDefined) : [];
-    return { iri: shape.iri, sourceId: shape.sourceId, targets, propertyShapes, constraints };
+    return { iri: shape.iri, label: typeof shape.label === "string" ? shape.label : null, sourceId: shape.sourceId, targets, propertyShapes, constraints };
   }).filter(isDefined);
   return { shapes };
 }
@@ -704,6 +705,12 @@ function compareSymbols(first: SymbolSummary, second: SymbolSummary): number {
   return compareText(first.kind, second.kind) ||
     compareText(first.label ?? first.iri, second.label ?? second.iri) ||
     compareText(first.iri, second.iri);
+}
+
+function readableLocalName(iri: string): string {
+  const separator = Math.max(iri.lastIndexOf("#"), iri.lastIndexOf("/"));
+  const localName = separator >= 0 && separator < iri.length - 1 ? iri.slice(separator + 1) : iri;
+  return localName.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]/g, " ");
 }
 
 function compareKinds(first: string, second: string): number {

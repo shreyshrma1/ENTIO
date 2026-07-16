@@ -56,6 +56,16 @@ class TypedOntologyEditTranslatorTest {
     }
 
     @Test
+    fun translatesSetEntityLabelForAShape(): Unit {
+        val shape = Iri("https://example.com/CustomerShape")
+        val label = RdfLiteral("Customer shape")
+
+        val changeSet = translate(SetEntityLabelEdit(entity = shape, label = label))
+
+        assertEquals(listOf(added(shape, RDFS_LABEL, label)), changeSet.changes)
+    }
+
+    @Test
     fun translatesSuperclassEdits(): Unit {
         val add = translate(AddSuperclassEdit(classIri = CUSTOMER, superclassIri = ACCOUNT))
         val remove = translate(RemoveSuperclassEdit(classIri = CUSTOMER, superclassIri = ACCOUNT))

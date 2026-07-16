@@ -15,9 +15,10 @@ public class LabelResolver {
             return EntityResolutionResult.Invalid("A label or IRI is required.")
         }
 
+        val selectorLabel = selector.label
         val candidates = symbols
             .filter { symbol -> selector.iri == null || symbol.iri == selector.iri }
-            .filter { symbol -> selector.label == null || symbol.label == selector.label }
+            .filter { symbol -> selectorLabel == null || symbol.matchesLabel(selectorLabel) }
             .filter { symbol -> selector.kind == null || symbol.kind == selector.kind }
             .filter { symbol -> selector.sourceId == null || symbol.sourceId == selector.sourceId }
             .map { symbol ->
@@ -35,5 +36,15 @@ public class LabelResolver {
             1 -> EntityResolutionResult.Resolved(candidates.single())
             else -> EntityResolutionResult.Ambiguous(candidates)
         }
+    }
+
+    private fun LoadedSymbol.matchesLabel(label: String): Boolean {
+        val symbolLabel = this.label
+        return symbolLabel == label || (symbolLabel == null && iri.localName() == label)
+    }
+
+    private fun com.entio.core.Iri.localName(): String {
+        val localName = this.value.substringAfterLast('#', this.value.substringAfterLast('/'))
+        return localName.takeIf { it.isNotBlank() }.orEmpty()
     }
 }

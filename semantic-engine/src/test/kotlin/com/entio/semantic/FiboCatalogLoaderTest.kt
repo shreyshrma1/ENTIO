@@ -3,6 +3,7 @@ package com.entio.semantic
 import com.entio.core.EntioProject
 import com.entio.core.EntioProjectConfig
 import com.entio.core.EntioResult
+import com.entio.core.ExternalEntityKind
 import com.entio.core.GraphState
 import com.entio.core.GraphTriple
 import com.entio.core.Iri
@@ -63,6 +64,18 @@ class FiboCatalogLoaderTest {
             }
             else -> error("Catalog returned an unsupported descriptor kind.")
         }
+    }
+
+    @Test
+    fun enrichesImportedCommonsMetadataFromPinnedDependencySources(): Unit {
+        val session = assertIs<EntioResult.Success<ExternalFiboCatalogSession>>(FiboCatalogLoader(packageRoot).load()).value
+        val descriptor = session.find(
+            Iri("https://www.omg.org/spec/Commons/ContextualIdentifiers/ContextualIdentifier"),
+            ExternalEntityKind.Class,
+        )?.descriptor?.descriptor?.common ?: error("Expected imported Commons class in the catalog.")
+
+        assertEquals("contextual identifier", descriptor.preferredLabel?.lexicalForm)
+        assertTrue(descriptor.definitions.any { it.lexicalForm.startsWith("sequence of characters uniquely identifying") })
     }
 
     @Test

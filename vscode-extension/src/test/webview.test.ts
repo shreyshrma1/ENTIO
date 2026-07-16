@@ -20,6 +20,7 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /renderReasoning/);
   assert.match(html, /renderShaclValidation/);
   assert.match(html, /renderShaclShapes/);
+  assert.match(html, /preferredSymbolLabel/);
   assert.match(html, /renderProposalImpact/);
   assert.match(html, /type: "phase4-refresh"/);
   assert.match(html, /id="external-workbench"/);
@@ -27,6 +28,11 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /id="external-search-form"/);
   assert.match(html, /type: "external-refresh"/);
   assert.match(html, /type: "external-browse"/);
+  assert.match(html, /Previous page/);
+  assert.match(html, /Next page/);
+  assert.match(html, /Back to curated modules/);
+  assert.match(html, /overflow-y:\s*auto/);
+  assert.match(html, /externalBrowseRequest/);
   assert.match(html, /type: "external-search"/);
   assert.match(html, /Load more results/);
   assert.match(html, /scoreBreakdown/);
@@ -37,6 +43,8 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /Inspect dependencies/);
   assert.doesNotMatch(html, /readFileSync|parse.*turtle|RDF\.DataFactory|writeFile/);
   assert.match(html, /renderSemanticDescriptor/);
+  assert.match(html, /semantic\.definitions/);
+  assert.match(html, /Definition/);
   assert.match(html, /formatSearchReason/);
   assert.match(html, /Technical details/);
   assert.match(html, /id="entity-search"/);
