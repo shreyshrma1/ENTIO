@@ -178,7 +178,7 @@ Implementation slices:
 6. Collaboration sessions, presence, and shared updates
 7. Asynchronous reasoning and SHACL jobs
 8. FIBO browser and shared-staging integration
-9. Mandatory core-web checkpoint
+9. Mandatory core-web checkpoint after Slice 8; verification and completion artifact only, with no implementation branch, commit, push, or merge
 10. AI provider boundary and credential safety
 11. AI assistant and typed edit integration
 12. UI hardening, accessibility, and activity integration
@@ -585,13 +585,31 @@ Module pagination, label/definition fallback, details, dependency display, exter
 
 Stop if closing the Phase 5 staging gap requires a breaking Phase 5 contract, a second proposal system, new retrieval infrastructure, or mutation of bundled FIBO assets.
 
-### Slice 9: Mandatory Core-Web Checkpoint
+## Mandatory Core-Web Checkpoint After Slice 8
 
-#### Goal
+### Goal
 
 Verify the complete non-AI collaborative web foundation before beginning native AI implementation.
 
-#### Required checks
+This checkpoint is not an implementation slice. It must run on the accumulated local `main` after Slice 8 has been merged and post-merge verified.
+
+The checkpoint requires:
+
+- the verification commands below;
+- a checkpoint completion artifact recording the results;
+- a clean working tree after the artifact is committed according to the repository documentation rules, if the approved workflow requires documentation commits.
+
+The checkpoint does not require:
+
+- a new implementation branch;
+- product-code changes;
+- a slice implementation commit;
+- a remote slice branch;
+- a non-fast-forward merge.
+
+If the checkpoint requires product-code changes to pass, stop and ask rather than treating those changes as checkpoint work.
+
+### Required checks
 
 - Project registry and filesystem allowlist.
 - Development identity and contributor/reviewer roles.
@@ -604,7 +622,7 @@ Verify the complete non-AI collaborative web foundation before beginning native 
 - FIBO external intent entering the common staged path.
 - Existing CLI and VS Code compatibility.
 
-#### Verification commands
+### Verification commands
 
 ```bash
 ./gradlew test
@@ -612,13 +630,13 @@ Verify the complete non-AI collaborative web foundation before beginning native 
 ./gradlew check
 (cd web-app && npm ci && npm test && npm run build)
 (cd web-app && npm run test:e2e)
-((cd vscode-extension && npm ci && npm test)
+(cd vscode-extension && npm ci && npm test)
 git diff --check
 ```
 
-#### Stop conditions
+### Stop conditions
 
-Do not begin Slice 10 if any required non-AI capability, compatibility check, two-client workflow, semantic-job lifecycle, or FIBO staging path is failing.
+Do not begin Slice 10 if any required non-AI capability, compatibility check, two-client workflow, semantic-job lifecycle, or FIBO staging path is failing. Do not create an implementation branch or modify product code to repair a failed checkpoint without approval.
 
 ### Slice 10: AI Provider Boundary And Credential Safety
 
@@ -898,7 +916,7 @@ Each slice must be committed and pushed on its own branch, then merged locally i
 
 Phase 6 is complete only when:
 
-- All thirteen approved slices and the mandatory core-web checkpoint have been completed in order, independently verified, committed where applicable, pushed, and merged locally.
+- All twelve implementation slices and the mandatory core-web checkpoint have been completed in order. Each implementation slice has been independently verified, committed, pushed, and merged locally; the checkpoint has its required completion artifact and verification record.
 - The web-server is an additive Ktor adapter over existing Kotlin semantic services.
 - The React workbench supports navigation, entity details, typed staging, proposal review/application, collaboration, reasoning/SHACL jobs, FIBO reuse, and bounded AI suggestions as specified.
 - Two browser sessions can observe shared activity and one shared staged set; disconnect/reconnect is safe, and concurrent baseline changes produce explicit stale/conflict states with discard and re-preparation paths.
