@@ -154,6 +154,27 @@ small {
   min-height: calc(100vh - 95px);
 }
 
+@media (max-width: 800px) {
+  .app-shell {
+    padding: 24px;
+  }
+
+  .global-header {
+    align-items: flex-start;
+    gap: 16px;
+    padding: 18px 20px;
+  }
+
+  .workbench-body {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-bottom: 1px solid #34414a;
+    border-right: 0;
+  }
+}
+
 .sidebar {
   border-right: 1px solid #34414a;
   padding: 24px;
@@ -220,6 +241,58 @@ button:hover {
   border-top: 1px solid #28333a;
   margin-top: 32px;
   padding-top: 24px;
+}
+
+.presence-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.activity-feed {
+  margin-top: 0.5rem;
+}
+
+.activity-feed ol {
+  color: #aebbc4;
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.entity-tabs[role="tablist"] {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.entity-tab {
+  align-items: center;
+  display: flex;
+}
+
+.entity-tab [role="tab"] {
+  background: #20262b;
+  border-bottom: 2px solid transparent;
+}
+
+.entity-tab [role="tab"][aria-selected="true"] {
+  border-bottom-color: #72b8d8;
+}
+
+.tab-close {
+  background: #303940;
+  padding-inline: 9px;
+}
+
+.proposal-summary[aria-live="polite"] {
+  border-left: 3px solid #72b8d8;
+  padding-left: 1rem;
+}
+
+.proposal-summary.proposal-applyfailed,
+.proposal-summary.proposal-verificationfailed {
+  border-left-color: #f1c75b;
 }
 
 .semantic-job-panel {

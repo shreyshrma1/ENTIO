@@ -40,6 +40,9 @@ describe("web workbench shell", () => {
     expect(await screen.findByRole("heading", { name: "Customer" })).toBeInTheDocument();
     expect(screen.getByText("A customer.")).toBeInTheDocument();
     expect(screen.getByText("Technical details")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Customer" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Close Customer" }));
+    expect(await screen.findByRole("heading", { name: "Select an entity" })).toBeInTheDocument();
   });
 
   it("renders a clear project loading error", async () => {

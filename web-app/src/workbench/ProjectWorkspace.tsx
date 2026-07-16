@@ -92,8 +92,10 @@ export default function ProjectWorkspace() {
             <span>{summary.data.graphTripleCount} graph statements</span>
             <CollaborationPresence projectId={projectId} activeEntityIri={activeIri} />
           </div>
-          {tabs.length ? <nav className="entity-tabs" aria-label="Open entities">{tabs.map((tab) => <div className={`entity-tab ${tab.iri === activeIri ? "active" : ""}`} key={tab.iri}><button type="button" onClick={() => openEntity(tab)}>{tab.label}</button><button type="button" className="tab-close" aria-label={`Close ${tab.label}`} onClick={() => closeTab(tab.iri)}>×</button></div>)}</nav> : null}
-          {activeTab ? <EntityDetails projectId={projectId} iri={activeTab.iri} /> : <EmptyWorkspace />}
+          {tabs.length ? <nav className="entity-tabs" aria-label="Open entities" role="tablist">{tabs.map((tab) => <div className="entity-tab" key={tab.iri} role="presentation"><button type="button" role="tab" aria-selected={tab.iri === activeIri} tabIndex={tab.iri === activeIri ? 0 : -1} onClick={() => openEntity(tab)}>{tab.label}</button><button type="button" className="tab-close" aria-label={`Close ${tab.label}`} onClick={() => closeTab(tab.iri)}>×</button></div>)}</nav> : null}
+          <div id="entity-workspace-panel" role="tabpanel" aria-label={activeTab ? `${activeTab.label} details` : "Entity details"} aria-live="polite">
+            {activeTab ? <EntityDetails projectId={projectId} iri={activeTab.iri} /> : <EmptyWorkspace />}
+          </div>
           {sourceId ? <StagingPanel projectId={projectId} sourceId={sourceId} /> : null}
           <SemanticJobPanel projectId={projectId} />
           {sourceId ? <ExternalOntologyPanel projectId={projectId} sourceId={sourceId} /> : null}
