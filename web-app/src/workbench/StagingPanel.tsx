@@ -30,20 +30,20 @@ export default function StagingPanel({ projectId, sourceId }: { projectId: strin
         <input id="new-class-iri" value={classIri} onChange={(event) => setClassIri(event.target.value)} placeholder="https://example.com/entio/simple#Account" required />
         <label htmlFor="new-class-label">Label</label>
         <input id="new-class-label" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Account" />
-        <button type="submit" disabled={busy || !classIri.trim()}>Stage class</button>
+        <button className="button primary" type="submit" disabled={busy || !classIri.trim()}>Stage class</button>
       </form>
       {actions.stage.isError ? <p role="alert">Could not stage change. {actions.stage.error.message}</p> : null}
       {actions.preview.isError ? <p role="alert">Could not prepare proposal. {actions.preview.error.message}</p> : null}
       {busy ? <p role="status">Updating staged changes...</p> : null}
       {entries.length ? <ul className="staged-list">{entries.map((entry) => <li key={entry.id}>
         <div><strong>{entry.summary}</strong><small>{entry.status} · {entry.authorId}{entry.comment ? ` · ${entry.comment}` : ""}</small></div>
-        <button type="button" onClick={() => actions.discard.mutate(entry.id)} disabled={busy}>Remove</button>
+        <button className="button small" type="button" onClick={() => actions.discard.mutate(entry.id)} disabled={busy}>Remove</button>
       </li>)}</ul> : <p className="muted">Drafts remain private until staged here.</p>}
       {entries.length ? <div className="proposal-actions">
-        {!proposal || proposal.status === "REJECTED" ? <button type="button" onClick={() => actions.preview.mutate()} disabled={busy}>Preview proposal</button> : null}
-        {proposal?.status === "READYFORREVIEW" ? <button type="button" onClick={() => actions.approve.mutate()} disabled={busy}>Approve</button> : null}
-        {proposal && proposal.status !== "APPLIED" ? <button type="button" onClick={() => actions.reject.mutate()} disabled={busy}>Reject</button> : null}
-        {proposal?.status === "APPROVED" ? <button type="button" onClick={() => actions.apply.mutate()} disabled={busy}>Apply</button> : null}
+        {!proposal || proposal.status === "REJECTED" ? <button className="button primary" type="button" onClick={() => actions.preview.mutate()} disabled={busy}>Preview proposal</button> : null}
+        {proposal?.status === "READYFORREVIEW" ? <button className="button primary" type="button" onClick={() => actions.approve.mutate()} disabled={busy}>Approve</button> : null}
+        {proposal && proposal.status !== "APPLIED" ? <button className="button danger" type="button" onClick={() => actions.reject.mutate()} disabled={busy}>Reject</button> : null}
+        {proposal?.status === "APPROVED" ? <button className="button primary" type="button" onClick={() => actions.apply.mutate()} disabled={busy}>Apply</button> : null}
       </div> : null}
       {proposal ? <div className={`proposal-summary proposal-${proposal.status.toLowerCase()}`} aria-live="polite"><strong>Proposal {proposal.status.toLowerCase()}</strong>{proposal.message ? <p>{proposal.message}</p> : null}{proposal.status.includes("CONFLICT") || proposal.status.includes("FAILED") ? <p role="alert">This proposal needs review before it can continue.</p> : null}{proposal.validationMessages.map((message) => <p key={message} role="alert">{message}</p>)}{proposal.diff.length ? <ul aria-label="Proposal semantic diff">{proposal.diff.map((entry) => <li key={`${entry.kind}-${entry.description}`}>{entry.description}</li>)}</ul> : null}</div> : null}
     </section>

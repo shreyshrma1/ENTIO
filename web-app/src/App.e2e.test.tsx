@@ -50,6 +50,7 @@ describe("application workbench journey", () => {
     expect(await screen.findByRole("heading", { name: "simple-ontology" })).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: /Customer/ }));
     expect(await screen.findByText("A customer.")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("tab", { name: "FIBO" }));
     expect(await screen.findByRole("heading", { name: "External ontology browser" })).toBeInTheDocument();
 
     fireEvent.click(await screen.findByRole("button", { name: /Agreements/ }));

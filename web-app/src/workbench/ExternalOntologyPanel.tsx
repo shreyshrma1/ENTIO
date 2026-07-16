@@ -54,7 +54,7 @@ export default function ExternalOntologyPanel({ projectId, sourceId }: { project
       <p className="muted">Pinned, read-only catalog. External IRIs are preserved and reusable items enter shared staging.</p>
       <form className="external-search" onSubmit={submitSearch} role="search">
         <label htmlFor="fibo-search">Search FIBO</label>
-        <div className="search-row"><input id="fibo-search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="agreement" /><button type="submit">Search</button></div>
+        <div className="search-row"><input id="fibo-search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="agreement" /><button className="button primary" type="submit">Search</button></div>
       </form>
       <div className="external-browser-grid">
         <div>
@@ -112,7 +112,7 @@ function ExternalDetails({ details, intentType, onIntentTypeChange, targetOntolo
         <label htmlFor="fibo-target-ontology">Target ontology IRI</label>
         <input id="fibo-target-ontology" value={targetOntologyIri} onChange={(event) => onTargetOntologyIriChange(event.target.value)} />
         {intentType === "create-local-subclass" ? <><label htmlFor="fibo-local-class">Local class IRI</label><input id="fibo-local-class" value={localClassIri} onChange={(event) => onLocalClassIriChange(event.target.value)} placeholder="https://example.com/entio/simple#LocalClass" /></> : null}
-        <button type="button" onClick={onStage} disabled={staging.isPending || (intentType === "create-local-subclass" && !localClassIri.trim())}>Stage external proposal</button>
+        <button className="button primary" type="button" onClick={onStage} disabled={staging.isPending || (intentType === "create-local-subclass" && !localClassIri.trim())}>Stage external proposal</button>
         {staging.isError ? <p role="alert">Could not stage external proposal. {staging.error.message}</p> : null}
         {staging.isSuccess ? <p role="status">External proposal added to shared staged changes.</p> : null}
       </div>

@@ -26,9 +26,9 @@ export default function AiCredentialSettings() {
       <label htmlFor="ai-api-key">Credential</label>
       <input id="ai-api-key" type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="Enter a provider credential" />
       <div className="button-row">
-        <button type="button" onClick={save} disabled={actions.save.isPending || !apiKey.trim()}>Save credential</button>
-        <button type="button" onClick={() => actions.test.mutate()} disabled={actions.test.isPending || !status.data?.configured}>Test credential</button>
-        <button type="button" onClick={() => actions.remove.mutate()} disabled={actions.remove.isPending || !status.data?.configured}>Remove credential</button>
+        <button className="button primary" type="button" onClick={save} disabled={actions.save.isPending || !apiKey.trim()}>Save credential</button>
+        <button className="button" type="button" onClick={() => actions.test.mutate()} disabled={actions.test.isPending || !status.data?.configured}>Test credential</button>
+        <button className="button danger" type="button" onClick={() => actions.remove.mutate()} disabled={actions.remove.isPending || !status.data?.configured}>Remove credential</button>
       </div>
       {actions.save.isError ? <p role="alert">Could not save credential. {actions.save.error.message}</p> : null}
       {actions.test.isError ? <p role="alert">Could not test credential. {actions.test.error.message}</p> : null}

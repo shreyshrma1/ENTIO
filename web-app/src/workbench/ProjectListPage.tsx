@@ -1,16 +1,16 @@
 import { Link } from "react-router-dom";
 import { useProjects } from "../web/queries";
-import AiCredentialSettings from "./AiCredentialSettings";
+import StatusBadge from "../components/ui/StatusBadge";
 
 export default function ProjectListPage() {
   const projects = useProjects();
 
   return (
-    <main className="app-shell">
+    <main className="app-shell project-landing">
       <header className="app-header">
-        <p className="eyebrow">Entio</p>
+        <div className="landing-brand"><span className="brand-mark">E</span><span className="eyebrow">Entio</span></div>
         <h1>Ontology workbench</h1>
-        <p className="muted">Choose an approved project to browse its semantic model.</p>
+        <p className="muted">Choose an approved project to browse its semantic model and review controlled changes.</p>
       </header>
       <section className="content-band" aria-labelledby="projects-heading">
         <div className="section-heading">
@@ -18,7 +18,7 @@ export default function ProjectListPage() {
             <p className="eyebrow">Projects</p>
             <h2 id="projects-heading">Approved projects</h2>
           </div>
-          {projects.isFetching && !projects.isPending ? <span className="status-text">Refreshing</span> : null}
+          {projects.isFetching && !projects.isPending ? <StatusBadge tone="neutral">Refreshing</StatusBadge> : null}
         </div>
         {projects.isPending ? <p role="status">Loading projects...</p> : null}
         {projects.isError ? <p role="alert">Could not load projects. {projects.error.message}</p> : null}
@@ -35,7 +35,6 @@ export default function ProjectListPage() {
           ))}
         </div>
       </section>
-      <AiCredentialSettings />
     </main>
   );
 }

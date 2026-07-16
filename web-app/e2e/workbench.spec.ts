@@ -46,6 +46,16 @@ test("completes the browser workbench journey through reviewable staging", async
   await page.getByRole("button", { name: /Customer/ }).click();
   await expect(page.getByRole("heading", { name: "Customer" })).toBeVisible();
   await expect(page.getByText("A customer.")).toBeVisible();
+  await expect(page).toHaveScreenshot("workbench-light.png", { fullPage: true, mask: [page.locator(".collaboration-presence")], maskColor: "#ffffff" });
+
+  await page.getByRole("button", { name: "Expand navigation" }).click();
+  await expect(page.getByRole("tab", { name: "Explore", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Account", exact: true }).click();
+  await expect(page.getByText("Provider credential", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Settings", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Settings", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Explore", exact: true }).click();
 
   await page.getByLabel("Class IRI").fill("https://example.com/entio/simple#Party");
   await page.getByRole("textbox", { name: "Label", exact: true }).fill("Party");
@@ -54,12 +64,15 @@ test("completes the browser workbench journey through reviewable staging", async
   await page.getByRole("button", { name: "Preview proposal" }).click();
   await expect(page.getByText(/Proposal ready for review/i)).toBeVisible();
 
+  await page.getByRole("tab", { name: "Assistant" }).click();
   await page.getByRole("combobox", { name: "Operation" }).selectOption("SUGGEST_SUPERCLASS");
   await page.getByLabel("Request or IRI").fill("https://example.com/entio/simple#Party");
   await page.getByRole("button", { name: "Ask assistant" }).click();
   await page.getByRole("button", { name: "Stage suggestion" }).click();
   await expect(page.getByRole("button", { name: "Staged for review" })).toBeVisible();
 
+  await page.getByRole("tab", { name: "FIBO" }).click();
+  await expect(page.getByRole("heading", { name: "External ontology browser" })).toBeVisible();
   await page.getByRole("button", { name: "Agreements" }).click();
   await page.locator(".external-browser-grid .external-scroll-list").nth(1).getByRole("button").click();
   await expect(page.getByText("a mutual understanding")).toBeVisible();

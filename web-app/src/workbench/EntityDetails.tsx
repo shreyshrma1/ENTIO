@@ -1,5 +1,6 @@
 import { useEntityDetails } from "../web/queries";
 import type { WebEntityReference, WebRdfValue, WebRelationship } from "../web/projectApi";
+import StatusBadge from "../components/ui/StatusBadge";
 
 interface EntityDetailsProps {
   projectId: string;
@@ -20,7 +21,10 @@ export default function EntityDetails({ projectId, iri }: EntityDetailsProps) {
           <p className="eyebrow">{entity.kind}</p>
           <h2>{entity.label}</h2>
         </div>
-        {details.isFetching ? <span className="status-text">Refreshing</span> : null}
+        <div className="entity-statuses">
+          <StatusBadge tone={entity.locality === "External" ? "external" : "asserted"}>{entity.locality}</StatusBadge>
+          {details.isFetching ? <StatusBadge tone="neutral">Refreshing</StatusBadge> : null}
+        </div>
       </div>
       <p className="entity-meta">Source: {entity.sourceId} · {entity.locality.toLowerCase()}</p>
       {entity.definitions.length ? (
