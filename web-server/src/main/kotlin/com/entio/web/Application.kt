@@ -33,6 +33,9 @@ import com.entio.core.SemanticSearchQuery
 import io.ktor.server.application.ApplicationCall
 import com.entio.web.ai.AiCredentialRequest
 import com.entio.web.ai.AiCredentialService
+import com.entio.web.ai.AiAssistantRequest
+import com.entio.web.ai.AiAssistantService
+import com.entio.web.ai.AiBoundedContextBuilder
 
 /**
  * Installs the smallest server boundary needed before semantic web contracts are added.
@@ -48,6 +51,11 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
     val collaboration = CollaborationHub(dependencies.projectRegistry, staging::snapshot)
     val fibo = FiboWebService(dependencies.projectRegistry, staging)
     val aiCredentials = AiCredentialService(dependencies.aiCredentials, dependencies.aiProvider)
+    val aiAssistant = AiAssistantService(
+        credentials = aiCredentials,
+        provider = dependencies.aiAssistant,
+        contextBuilder = AiBoundedContextBuilder(dependencies.projectRegistry, readOnly, staging),
+    )
     val jobs = SemanticJobManager(
         staging = staging,
         projectRegistry = dependencies.projectRegistry,
@@ -112,6 +120,17 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
                 val user = call.requireUser(dependencies)
                 aiCredentials.logout(user.id)
                 mapOf("apiVersion" to "v1", "status" to "LOGGED_OUT")
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/ai/assistant") {
+            call.respondAi {
+                val user = call.requireUser(dependencies)
+                aiAssistant.answer(
+                    userId = user.id,
+                    projectId = call.requiredProjectId(),
+                    request = call.receive<AiAssistantRequest>(),
+                )
             }
         }
 
@@ -438,6 +457,19 @@ private suspend fun ApplicationCall.respondAi(block: suspend () -> Any): Unit = 
             requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
             code = failure.code,
             message = failure.message ?: "The AI credential request could not be completed.",
+        ),
+    )
+} catch (failure: com.entio.web.ai.AiAssistantFailure) {
+    val status = when (failure.code) {
+        "unknown-project", "missing-context-entity" -> HttpStatusCode.NotFound
+        else -> HttpStatusCode.BadRequest
+    }
+    respond(
+        status,
+        WebErrorResponse(
+            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
+            code = failure.code,
+            message = failure.message ?: "The AI assistant request could not be completed.",
         ),
     )
 } catch (failure: WebWorkflowFailure) {

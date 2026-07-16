@@ -126,7 +126,21 @@ export interface WebStageChangeRequest {
   sourceId: string;
   editType: string;
   classIri?: string;
+  superclassIri?: string;
+  propertyIri?: string;
+  domainClassIri?: string;
+  rangeIri?: string;
+  individualIri?: string;
+  resourceIri?: string;
+  typeIri?: string;
+  subjectIri?: string;
+  objectIri?: string;
+  targetIri?: string;
+  targetLabel?: string;
   label?: string;
+  value?: string;
+  datatypeIri?: string;
+  languageTag?: string;
   comment?: string;
   aiGenerated?: boolean;
   idempotencyKey?: string;
@@ -270,6 +284,50 @@ export interface WebAiCredentialTestResponse {
   message: string;
 }
 
+export type WebAiOperation =
+  | "EXPLAIN_ENTITY"
+  | "EXPLAIN_INFERENCE"
+  | "EXPLAIN_SHACL_RESULT"
+  | "SEARCH_FIBO"
+  | "SUGGEST_DEFINITION"
+  | "SUGGEST_SUPERCLASS"
+  | "SUGGEST_PROPERTY"
+  | "SUGGEST_EXTERNAL_REUSE"
+  | "SUMMARIZE_PROPOSAL";
+
+export interface WebAiAssistantRequest {
+  operation: WebAiOperation;
+  entityIri?: string;
+  question?: string;
+  proposalId?: string;
+}
+
+export interface WebAiEvidence {
+  category: string;
+  label: string;
+  value: string;
+}
+
+export interface WebAiTypedSuggestion {
+  id: string;
+  suggestionType: string;
+  rationale: string;
+  edit: WebStageChangeRequest;
+}
+
+export interface WebAiAssistantResponse {
+  apiVersion: "v1";
+  operation: WebAiOperation;
+  answer: string;
+  evidence: WebAiEvidence[];
+  assertedFacts: string[];
+  inferredFacts: string[];
+  fiboResults: WebAiEvidence[];
+  suggestions: WebAiTypedSuggestion[];
+  uncertainty: string[];
+  warnings: string[];
+}
+
 export async function loadStagedChanges(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
   return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/staged`, fetcher);
 }
@@ -374,6 +432,14 @@ export async function saveAiCredential(providerId: string, apiKey: string, fetch
 
 export async function testAiCredential(fetcher: WebFetcher = defaultFetcher): Promise<WebAiCredentialTestResponse> {
   return sendJson("/api/v1/ai/credentials/test", "POST", undefined, fetcher);
+}
+
+export async function askAiAssistant(
+  projectId: string,
+  request: WebAiAssistantRequest,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebAiAssistantResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/assistant`, "POST", request, fetcher);
 }
 
 export async function removeAiCredential(fetcher: WebFetcher = defaultFetcher): Promise<WebAiCredentialStatus> {

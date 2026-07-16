@@ -159,6 +159,9 @@ public class AiCredentialService(
         store.clearAll()
         lastTests.clear()
     }
+
+    public fun <T> withCredential(userId: String, block: (providerId: String, apiKey: String) -> T): T? =
+        store.withCredential(userId, block)
 }
 
 public class AiCredentialFailure(

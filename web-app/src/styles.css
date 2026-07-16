@@ -228,6 +228,53 @@ button:hover {
   margin-top: 1.5rem;
 }
 
+.ai-assistant-panel {
+  border-top: 1px solid #28333a;
+}
+
+.ai-assistant-form {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 48rem;
+}
+
+.ai-assistant-form select {
+  background: #20262b;
+  border: 1px solid #53616b;
+  color: inherit;
+  padding: 9px 10px;
+}
+
+.assistant-response {
+  border-left: 3px solid #72b8d8;
+  margin-top: 1rem;
+  padding-left: 1rem;
+}
+
+.assistant-section {
+  border-top: 1px solid #28333a;
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.assistant-section h3 {
+  font-size: 1rem;
+}
+
+.assistant-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.assistant-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
 .semantic-job-controls {
   display: flex;
   flex-wrap: wrap;
