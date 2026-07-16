@@ -1,6 +1,6 @@
 :root {
-  color: #e8edf2;
-  background: #12161a;
+  color: #e9eef2;
+  background: #111417;
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -39,26 +39,395 @@ body {
 
 h1,
 h2,
+h3,
 p {
   margin-top: 0;
 }
 
 h1 {
-  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-size: clamp(2rem, 5vw, 3rem);
   margin-bottom: 0;
 }
 
-.welcome-panel {
+.app-shell {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.content-band {
   margin: 48px auto 0;
-  max-width: 960px;
+  border-top: 1px solid #34414a;
+  padding-top: 28px;
 }
 
-.welcome-panel h2 {
-  font-size: 1.5rem;
-  margin-bottom: 12px;
+.muted,
+.status-text,
+.entity-meta,
+.tree-status {
+  color: #aebbc4;
 }
 
-.welcome-panel p {
-  color: #adbac4;
-  font-size: 1.1rem;
+.section-heading {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.section-heading h2 {
+  margin-bottom: 6px;
+}
+
+.section-heading.compact h2 {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.project-list,
+.source-list,
+.search-results,
+.hierarchy-list,
+.reference-list,
+.relationship-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.project-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.project-row {
+  align-items: center;
+  border: 1px solid #35424b;
+  color: inherit;
+  display: flex;
+  justify-content: space-between;
+  padding: 16px;
+  text-decoration: none;
+}
+
+.project-row:hover,
+.project-row:focus-visible {
+  border-color: #75c4e8;
+  outline: none;
+}
+
+.project-row span:first-child,
+.source-list li,
+.search-results button {
+  display: grid;
+  gap: 5px;
+}
+
+small {
+  color: #aebbc4;
+  font-size: 0.8rem;
+}
+
+.workbench-shell {
+  min-height: 100vh;
+}
+
+.global-header {
+  align-items: center;
+  border-bottom: 1px solid #34414a;
+  display: flex;
+  justify-content: space-between;
+  padding: 24px 32px;
+}
+
+.global-header h1 {
+  font-size: 1.6rem;
+}
+
+.quiet-link {
+  color: #aee0f4;
+}
+
+.workbench-body {
+  display: grid;
+  grid-template-columns: minmax(250px, 300px) minmax(0, 1fr);
+  min-height: calc(100vh - 95px);
+}
+
+.sidebar {
+  border-right: 1px solid #34414a;
+  padding: 24px;
+}
+
+.sidebar-section {
+  border-bottom: 1px solid #28333a;
+  padding-bottom: 24px;
+  margin-bottom: 24px;
+}
+
+.sidebar-section h2 {
+  font-size: 1rem;
+}
+
+label {
+  color: #c6d0d6;
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 7px;
+}
+
+input,
+button {
+  font: inherit;
+}
+
+input {
+  background: #20262b;
+  border: 1px solid #53616b;
+  color: inherit;
+  min-width: 0;
+  padding: 9px 10px;
+  width: 100%;
+}
+
+input:focus-visible,
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible {
+  outline: 2px solid #f1c75b;
+  outline-offset: 2px;
+}
+
+button {
+  background: #1685cf;
+  border: 0;
+  color: white;
+  cursor: pointer;
+  padding: 9px 13px;
+}
+
+button:hover {
+  background: #35a3e8;
+}
+
+.search-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+}
+
+.search-results {
+  display: grid;
+  gap: 4px;
+  margin-top: 14px;
+}
+
+.search-results button {
+  background: transparent;
+  color: inherit;
+  padding: 7px 0;
+  text-align: start;
+  width: 100%;
+}
+
+.search-results button:hover {
+  color: #aee0f4;
+}
+
+.source-list {
+  display: grid;
+  gap: 11px;
+}
+
+.source-list small {
+  overflow-wrap: anywhere;
+}
+
+.hierarchy-list {
+  display: grid;
+  gap: 2px;
+}
+
+.hierarchy-list .hierarchy-list {
+  margin-top: 2px;
+}
+
+.hierarchy-row {
+  align-items: center;
+  display: flex;
+  min-height: 36px;
+}
+
+.icon-button {
+  align-items: center;
+  background: transparent;
+  color: #aee0f4;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  padding: 0;
+  width: 28px;
+}
+
+.hierarchy-spacer {
+  display: inline-block;
+  width: 28px;
+}
+
+.entity-link {
+  align-items: baseline;
+  background: transparent;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 5px 4px;
+  text-align: start;
+  width: 100%;
+}
+
+.entity-link span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-pane {
+  min-width: 0;
+  padding: 24px 32px 48px;
+}
+
+.workspace-toolbar,
+.entity-heading {
+  align-items: center;
+  color: #aebbc4;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.entity-tabs {
+  border-bottom: 1px solid #34414a;
+  display: flex;
+  gap: 4px;
+  margin: 20px 0 28px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.entity-tab {
+  align-items: center;
+  background: #20262b;
+  display: flex;
+  flex: 0 0 auto;
+}
+
+.entity-tab.active {
+  background: #28566c;
+}
+
+.entity-tab button {
+  background: transparent;
+  padding: 9px 11px;
+}
+
+.entity-tab .tab-close {
+  color: #c9d5db;
+  padding-inline: 8px;
+}
+
+.entity-details {
+  max-width: 920px;
+}
+
+.entity-heading h2,
+.empty-workspace h2 {
+  font-size: 2rem;
+  margin: 0;
+}
+
+.entity-meta {
+  border-bottom: 1px solid #34414a;
+  padding-bottom: 18px;
+}
+
+.detail-section {
+  border-bottom: 1px solid #28333a;
+  padding: 20px 0;
+}
+
+.detail-section h3 {
+  font-size: 1rem;
+  margin-bottom: 10px;
+}
+
+.reference-list,
+.relationship-list {
+  display: grid;
+  gap: 7px;
+}
+
+.relationship-list li {
+  display: flex;
+  gap: 10px;
+}
+
+.relationship-list li span {
+  color: #c4d0d6;
+}
+
+.technical-details {
+  margin-top: 24px;
+}
+
+.technical-details summary {
+  color: #aee0f4;
+  cursor: pointer;
+}
+
+.technical-details dl {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.technical-details dl div {
+  display: grid;
+  gap: 4px;
+}
+
+code {
+  overflow-wrap: anywhere;
+}
+
+.empty-workspace {
+  margin: 15vh auto;
+  max-width: 520px;
+  text-align: center;
+}
+
+.empty-workspace p:last-child {
+  color: #aebbc4;
+}
+
+@media (max-width: 760px) {
+  .app-shell,
+  .global-header,
+  .workspace-pane {
+    padding-inline: 18px;
+  }
+
+  .workbench-body {
+    display: block;
+  }
+
+  .sidebar {
+    border-bottom: 1px solid #34414a;
+    border-right: 0;
+  }
+
+  .global-header {
+    align-items: flex-start;
+    gap: 16px;
+  }
 }

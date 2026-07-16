@@ -1,4 +1,17 @@
-import { normalizePageRequest, type PageRequest, type WebPage } from "./contracts";
+import {
+  normalizePageRequest,
+  type PageRequest,
+  type WebPage,
+  type WebProjectListResponse,
+} from "./contracts";
+
+export type WebFetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+const defaultFetcher: WebFetcher = (input, init) => globalThis.fetch(input, init);
+
+export async function loadProjects(fetcher: WebFetcher = defaultFetcher): Promise<WebProjectListResponse> {
+  return getJson("/api/v1/projects", fetcher);
+}
 
 export interface WebProjectSummary {
   id: string;
@@ -109,11 +122,9 @@ export interface WebSemanticSearchResponse {
   page: WebPage<WebSemanticSearchHit>;
 }
 
-export type WebFetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-
 export async function loadProjectSummary(
   projectId: string,
-  fetcher: WebFetcher = fetch,
+  fetcher: WebFetcher = defaultFetcher,
 ): Promise<WebProjectSummaryResponse> {
   return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/summary`, fetcher);
 }
@@ -121,7 +132,7 @@ export async function loadProjectSummary(
 export async function loadProjectSources(
   projectId: string,
   request: PageRequest = {},
-  fetcher: WebFetcher = fetch,
+  fetcher: WebFetcher = defaultFetcher,
 ): Promise<WebPage<WebOntologySourceSummary>> {
   const page = normalizePageRequest(request);
   return getJson(
@@ -133,7 +144,7 @@ export async function loadProjectSources(
 export async function loadHierarchy(
   projectId: string,
   options: { sourceId?: string; parentIri?: string } & PageRequest = {},
-  fetcher: WebFetcher = fetch,
+  fetcher: WebFetcher = defaultFetcher,
 ): Promise<WebHierarchyResponse> {
   const page = normalizePageRequest(options);
   const params = new URLSearchParams({ offset: String(page.offset), limit: String(page.limit) });
@@ -149,7 +160,7 @@ export async function loadEntityDetails(
   projectId: string,
   iri: string,
   sourceId?: string,
-  fetcher: WebFetcher = fetch,
+  fetcher: WebFetcher = defaultFetcher,
 ): Promise<WebEntityDetailResponse> {
   const params = new URLSearchParams({ iri });
   if (sourceId) params.set("sourceId", sourceId);
@@ -163,7 +174,7 @@ export async function searchProject(
   projectId: string,
   text: string,
   options: { kind?: string; sourceId?: string; language?: string } & PageRequest = {},
-  fetcher: WebFetcher = fetch,
+  fetcher: WebFetcher = defaultFetcher,
 ): Promise<WebSemanticSearchResponse> {
   const page = normalizePageRequest(options);
   const params = new URLSearchParams({ q: text, offset: String(page.offset), limit: String(page.limit) });
