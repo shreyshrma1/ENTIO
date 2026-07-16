@@ -21,7 +21,7 @@ export default function SemanticJobPanel({ projectId }: { projectId: string }) {
   const terminal = status && ["Completed", "Failed", "Cancelled", "Incomplete", "Stale"].includes(status.status);
 
   return (
-    <section className="semantic-job-panel" aria-labelledby="semantic-jobs-heading">
+    <section className="semantic-job-panel" aria-labelledby="semantic-jobs-heading" aria-busy={busy || job.isPending}>
       <div className="section-heading">
         <h2 id="semantic-jobs-heading">Reasoning and SHACL</h2>
         {status ? <span className={`job-state job-${status.status.toLowerCase()}`}>{status.status}</span> : null}
@@ -36,6 +36,7 @@ export default function SemanticJobPanel({ projectId }: { projectId: string }) {
         <button type="button" onClick={() => start("shacl")} disabled={busy || (scope === "proposal" && !hasProposal)}>Validate SHACL</button>
       </div>
       {actions.submit.isError ? <p role="alert">Could not start semantic work. {actions.submit.error.message}</p> : null}
+      {actions.cancel.isError ? <p role="alert">Could not cancel semantic work. {actions.cancel.error.message}</p> : null}
       {job.isPending ? <p role="status">Loading semantic job...</p> : null}
       {job.isError ? <p role="alert">Could not load semantic job. {job.error.message}</p> : null}
       {status ? (
