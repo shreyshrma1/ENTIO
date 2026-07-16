@@ -48,7 +48,7 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
         </select>
         <label htmlFor="ai-question">Request or IRI</label>
         <input id="ai-question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask about this entity or provide a typed IRI" />
-        <button type="submit" disabled={assistant.isPending}>Ask assistant</button>
+        <button className="button primary" type="submit" disabled={assistant.isPending}>Ask assistant</button>
       </form>
       {assistant.isPending ? <p role="status">Consulting the bounded assistant...</p> : null}
       {assistant.isError ? <p role="alert">Assistant unavailable. {assistant.error.message}</p> : null}
@@ -84,7 +84,7 @@ function AssistantResponse({
       {response.suggestions.length ? <section className="assistant-section" aria-labelledby="assistant-suggestions-heading">
         <h3 id="assistant-suggestions-heading">Typed suggestions</h3>
         <ul className="assistant-list">
-          {response.suggestions.map((suggestion) => <li key={suggestion.id}><strong>{suggestion.suggestionType}</strong><span>{suggestion.rationale}</span><button type="button" onClick={() => onStage(suggestion)} disabled={stagingPending || stagedSuggestion === suggestion.id}>{stagedSuggestion === suggestion.id ? "Staged for review" : "Stage suggestion"}</button></li>)}
+          {response.suggestions.map((suggestion) => <li key={suggestion.id}><strong>{suggestion.suggestionType}</strong><span>{suggestion.rationale}</span><button className="button primary small" type="button" onClick={() => onStage(suggestion)} disabled={stagingPending || stagedSuggestion === suggestion.id}>{stagedSuggestion === suggestion.id ? "Staged for review" : "Stage suggestion"}</button></li>)}
         </ul>
       </section> : null}
       <AssistantList heading="Uncertainty" items={response.uncertainty} />
