@@ -15,6 +15,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.delete
+import io.ktor.server.routing.put
 import io.ktor.server.routing.routing
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.jackson.jackson
@@ -30,6 +31,8 @@ import com.entio.core.Iri
 import com.entio.core.SemanticDescriptorKind
 import com.entio.core.SemanticSearchQuery
 import io.ktor.server.application.ApplicationCall
+import com.entio.web.ai.AiCredentialRequest
+import com.entio.web.ai.AiCredentialService
 
 /**
  * Installs the smallest server boundary needed before semantic web contracts are added.
@@ -44,6 +47,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
     val staging = StagingWorkflowService(dependencies.projectRegistry)
     val collaboration = CollaborationHub(dependencies.projectRegistry, staging::snapshot)
     val fibo = FiboWebService(dependencies.projectRegistry, staging)
+    val aiCredentials = AiCredentialService(dependencies.aiCredentials, dependencies.aiProvider)
     val jobs = SemanticJobManager(
         staging = staging,
         projectRegistry = dependencies.projectRegistry,
@@ -81,6 +85,33 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
                         permissions = dependencies.authorization.permissionsFor(user.role),
                     ),
                 )
+            }
+        }
+
+        get("/api/v1/ai/credential-status") {
+            call.respondAi { aiCredentials.status(call.requireUser(dependencies).id) }
+        }
+
+        put("/api/v1/ai/credentials") {
+            call.respondAi {
+                val user = call.requireUser(dependencies)
+                aiCredentials.save(user.id, call.receive<AiCredentialRequest>())
+            }
+        }
+
+        post("/api/v1/ai/credentials/test") {
+            call.respondAi { aiCredentials.test(call.requireUser(dependencies).id) }
+        }
+
+        delete("/api/v1/ai/credentials") {
+            call.respondAi { aiCredentials.remove(call.requireUser(dependencies).id) }
+        }
+
+        post("/api/v1/session/logout") {
+            call.respondAi {
+                val user = call.requireUser(dependencies)
+                aiCredentials.logout(user.id)
+                mapOf("apiVersion" to "v1", "status" to "LOGGED_OUT")
             }
         }
 
@@ -394,6 +425,29 @@ private suspend fun ApplicationCall.respondExternal(block: () -> Any): Unit = tr
             requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
             code = failure.code,
             message = failure.message ?: "The external ontology request could not be completed.",
+        ),
+    )
+}
+
+private suspend fun ApplicationCall.respondAi(block: suspend () -> Any): Unit = try {
+    respond(block())
+} catch (failure: com.entio.web.ai.AiCredentialFailure) {
+    respond(
+        HttpStatusCode.BadRequest,
+        WebErrorResponse(
+            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
+            code = failure.code,
+            message = failure.message ?: "The AI credential request could not be completed.",
+        ),
+    )
+} catch (failure: WebWorkflowFailure) {
+    val status = if (failure.code == "unknown-development-user") HttpStatusCode.Unauthorized else HttpStatusCode.BadRequest
+    respond(
+        status,
+        WebErrorResponse(
+            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
+            code = failure.code,
+            message = failure.message ?: "The AI credential request could not be completed.",
         ),
     )
 }

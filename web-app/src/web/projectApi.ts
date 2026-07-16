@@ -255,6 +255,21 @@ export interface WebFiboProposalRequest {
   idempotencyKey?: string;
 }
 
+export type WebAiCredentialTestStatus = "NOT_CONFIGURED" | "NOT_TESTED" | "PASSED" | "FAILED";
+
+export interface WebAiCredentialStatus {
+  apiVersion: "v1";
+  configured: boolean;
+  providerId: string | null;
+  testStatus: WebAiCredentialTestStatus;
+}
+
+export interface WebAiCredentialTestResponse {
+  apiVersion: "v1";
+  status: WebAiCredentialTestStatus;
+  message: string;
+}
+
 export async function loadStagedChanges(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
   return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/staged`, fetcher);
 }
@@ -347,6 +362,22 @@ export async function loadFiboDetails(projectId: string, iri: string, fetcher: W
 
 export async function stageFiboProposal(projectId: string, request: WebFiboProposalRequest, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
   return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/external/fibo/proposals`, "POST", request, fetcher);
+}
+
+export async function loadAiCredentialStatus(fetcher: WebFetcher = defaultFetcher): Promise<WebAiCredentialStatus> {
+  return getJson("/api/v1/ai/credential-status", fetcher);
+}
+
+export async function saveAiCredential(providerId: string, apiKey: string, fetcher: WebFetcher = defaultFetcher): Promise<WebAiCredentialStatus> {
+  return sendJson("/api/v1/ai/credentials", "PUT", { providerId, apiKey }, fetcher);
+}
+
+export async function testAiCredential(fetcher: WebFetcher = defaultFetcher): Promise<WebAiCredentialTestResponse> {
+  return sendJson("/api/v1/ai/credentials/test", "POST", undefined, fetcher);
+}
+
+export async function removeAiCredential(fetcher: WebFetcher = defaultFetcher): Promise<WebAiCredentialStatus> {
+  return sendJson("/api/v1/ai/credentials", "DELETE", undefined, fetcher);
 }
 
 export async function loadProjectSummary(
