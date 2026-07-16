@@ -21,4 +21,5 @@ include(
     "graph-diff",
     "cli",
     "shared",
+    "web-server",
 )
