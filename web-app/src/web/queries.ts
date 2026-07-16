@@ -13,6 +13,11 @@ import {
   approveProposal,
   rejectProposal,
   applyProposal,
+  cancelSemanticJob,
+  loadSemanticJob,
+  submitSemanticJob,
+  type WebSemanticJobRequest,
+  type WebSemanticJobStatus,
   type WebEntityDetailResponse,
   type WebHierarchyResponse,
   type WebProjectSummaryResponse,
@@ -29,6 +34,7 @@ export const queryKeys = {
   entity: (projectId: string, iri: string) => ["project", projectId, "entity", iri] as const,
   search: (projectId: string, text: string) => ["project", projectId, "search", text] as const,
   staged: (projectId: string) => ["project", projectId, "staged"] as const,
+  semanticJob: (projectId: string, jobId: string) => ["project", projectId, "semantic-job", jobId] as const,
 };
 
 export function useProjects() {
@@ -92,5 +98,28 @@ export function useStagingActions(projectId: string) {
     approve: useMutation({ mutationFn: () => approveProposal(projectId), onSuccess: refresh }),
     reject: useMutation({ mutationFn: () => rejectProposal(projectId), onSuccess: refresh }),
     apply: useMutation({ mutationFn: () => applyProposal(projectId), onSuccess: refresh }),
+  };
+}
+
+export function useSemanticJob(projectId: string, jobId: string | null) {
+  return useQuery<WebSemanticJobStatus>({
+    queryKey: queryKeys.semanticJob(projectId, jobId ?? ""),
+    queryFn: () => loadSemanticJob(projectId, jobId!),
+    enabled: projectId.length > 0 && Boolean(jobId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status && ["Completed", "Failed", "Cancelled", "Incomplete", "Stale"].includes(status) ? false : 750;
+    },
+  });
+}
+
+export function useSemanticJobActions(projectId: string) {
+  const queryClient = useQueryClient();
+  const refresh = (status: WebSemanticJobStatus) => {
+    queryClient.setQueryData(queryKeys.semanticJob(projectId, status.id), status);
+  };
+  return {
+    submit: useMutation({ mutationFn: (request: WebSemanticJobRequest) => submitSemanticJob(projectId, request), onSuccess: refresh }),
+    cancel: useMutation({ mutationFn: (jobId: string) => cancelSemanticJob(projectId, jobId), onSuccess: refresh }),
   };
 }

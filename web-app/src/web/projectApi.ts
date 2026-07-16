@@ -174,6 +174,35 @@ export interface WebStagingResponse {
   proposal: WebProposalState | null;
 }
 
+export type WebJobKind = "reasoning" | "shacl";
+export type WebJobScope = "applied" | "proposal";
+export type WebJobMode = "asserted-only" | "asserted-and-inferred";
+export type WebSemanticJobState = "Queued" | "Running" | "Completed" | "Failed" | "Cancelled" | "Incomplete" | "Stale";
+
+export interface WebSemanticJobRequest {
+  kind: WebJobKind;
+  scope: WebJobScope;
+  mode?: WebJobMode;
+}
+
+export interface WebSemanticJobStatus {
+  apiVersion: "v1";
+  id: string;
+  projectId: string;
+  kind: "Reasoning" | "Shacl";
+  scope: "Applied" | "Proposal";
+  status: WebSemanticJobState;
+  phase: string;
+  message: string | null;
+  graphFingerprint: string;
+  proposalFingerprint: string | null;
+  queuedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  resultSummary: Record<string, unknown>;
+  error: string | null;
+}
+
 export async function loadStagedChanges(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
   return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/staged`, fetcher);
 }
@@ -200,6 +229,30 @@ export async function rejectProposal(projectId: string, fetcher: WebFetcher = de
 
 export async function applyProposal(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
   return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/proposal/apply`, "POST", undefined, fetcher);
+}
+
+export async function submitSemanticJob(
+  projectId: string,
+  request: WebSemanticJobRequest,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebSemanticJobStatus> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/semantic-jobs`, "POST", request, fetcher);
+}
+
+export async function loadSemanticJob(
+  projectId: string,
+  jobId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebSemanticJobStatus> {
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/semantic-jobs/${encodeURIComponent(jobId)}`, fetcher);
+}
+
+export async function cancelSemanticJob(
+  projectId: string,
+  jobId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebSemanticJobStatus> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/semantic-jobs/${encodeURIComponent(jobId)}`, "DELETE", undefined, fetcher);
 }
 
 export async function loadProjectSummary(

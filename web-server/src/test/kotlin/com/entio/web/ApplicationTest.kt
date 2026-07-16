@@ -2,6 +2,7 @@ package com.entio.web
 
 import com.entio.web.contract.InMemoryProjectRegistry
 import com.entio.web.contract.WebApplicationDependencies
+import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.delete
 import io.ktor.client.request.post
@@ -246,6 +247,46 @@ class ApplicationTest {
     }
 
     @Test
+    fun semanticJobsReturnImmediatelyAndExposeReasoningAndShaclLifecycle(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-semantic-jobs")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+
+        val reasoning = client.post("/api/v1/projects/simple/semantic-jobs") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"kind":"reasoning","scope":"applied"}""")
+        }
+        assertEquals(HttpStatusCode.OK, reasoning.status)
+        val reasoningStart = reasoning.bodyAsText()
+        assertContains(reasoningStart, "job-")
+        assertContains(reasoningStart, "graphFingerprint")
+        val reasoningJobId = Regex("\\\"id\\\":\\\"([^\\\"]+)\\\"").find(reasoningStart)?.groupValues?.get(1)
+            ?: error("A reasoning job id was not returned.")
+        val reasoningFinal = pollJob(client, reasoningJobId)
+        assertTrue(
+            reasoningFinal.lowercase().contains("completed") || reasoningFinal.lowercase().contains("incomplete"),
+            reasoningFinal,
+        )
+        assertContains(reasoningFinal, "consistency")
+
+        val shacl = client.post("/api/v1/projects/simple/semantic-jobs") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"kind":"shacl","scope":"applied","mode":"asserted-only"}""")
+        }
+        assertEquals(HttpStatusCode.OK, shacl.status)
+        val shaclStart = shacl.bodyAsText()
+        assertContains(shaclStart, "graphFingerprint")
+        val shaclJobId = Regex("\\\"id\\\":\\\"([^\\\"]+)\\\"").find(shaclStart)?.groupValues?.get(1)
+            ?: error("A SHACL job id was not returned.")
+        val shaclFinal = pollJob(client, shaclJobId)
+        assertTrue(shaclFinal.lowercase().contains("completed") || shaclFinal.lowercase().contains("failed"), shaclFinal)
+        assertContains(shaclFinal, "AssertedOnly")
+    }
+
+    @Test
     fun staleProposalApplicationReturnsAnExplicitConflictState(): Unit = testApplication {
         val allowedRoot = Files.createTempDirectory("entio-web-stale")
         val projectRoot = createReadOnlyFixture(allowedRoot)
@@ -298,6 +339,17 @@ class ApplicationTest {
         )
         assertTrue(Files.isRegularFile(ontologyDirectory.resolve("simple.ttl")))
         return projectRoot
+    }
+
+    private suspend fun pollJob(client: HttpClient, jobId: String): String {
+        repeat(30) {
+            val response = client.get("/api/v1/projects/simple/semantic-jobs/$jobId")
+            val body = response.bodyAsText()
+            val status = Regex("\\\"status\\\":\\\"([^\\\"]+)\\\"").find(body)?.groupValues?.get(1).orEmpty()
+            if (status.lowercase() in setOf("completed", "failed", "incomplete", "cancelled", "stale")) return body
+            Thread.sleep(50)
+        }
+        return client.get("/api/v1/projects/simple/semantic-jobs/$jobId").bodyAsText()
     }
 
     private fun nextEvent(frame: Frame): Map<String, Any?> {
