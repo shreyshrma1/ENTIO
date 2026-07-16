@@ -246,13 +246,21 @@ public class FiboCatalogLoader(
         val first = first()
         return ExternalOntologyModule(
             ontologyIri = ontologyIri,
-            label = first.descriptor.descriptor.common.preferredLabel?.lexicalForm ?: ontologyIri.value.substringAfterLast('/'),
+            label = moduleLabel(ontologyIri),
             domain = first.descriptor.domain,
             sourcePath = iriMap[ontologyIri].orEmpty(),
             maturity = first.descriptor.maturity,
             curated = first.descriptor.catalogStatus == ExternalElementCatalogStatus.Curated,
         )
     }
+
+    private fun moduleLabel(ontologyIri: Iri): String = ontologyIri.value
+        .trimEnd('/')
+        .substringAfterLast('/')
+        .replace(Regex("([a-z])([A-Z])"), "$1 $2")
+        .replace(Regex("([A-Z]+)([A-Z][a-z])"), "$1 $2")
+        .replace('_', ' ')
+        .replace('-', ' ')
 
     private fun Map<*, *>.string(key: String): String = get(key)?.toString()?.takeIf(String::isNotBlank)
         ?: error("Missing catalog field: $key")

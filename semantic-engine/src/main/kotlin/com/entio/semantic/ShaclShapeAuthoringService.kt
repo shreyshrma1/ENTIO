@@ -144,6 +144,7 @@ public class ShaclShapeAuthoringService {
             propertyFailures.first()
         } else ShaclNodeShape(
             id = shapeId,
+            label = graph.objects(resource, RDFS_LABEL).firstOrNull()?.asLiteral()?.lexicalForm,
             targets = targets,
             propertyShapes = propertyShapes.filterIsInstance<ShaclPropertyShape>(),
             constraints = parseConstraints(graph, resource),
@@ -203,6 +204,7 @@ public class ShaclShapeAuthoringService {
         fun add(subject: RdfResource, predicate: Iri, objectTerm: RdfTerm) { output += GraphTriple(subject, predicate, objectTerm) }
         val subject = shape.id.iri
         add(subject, SH_TYPE, SH_NODE_SHAPE)
+        shape.label?.let { add(subject, RDFS_LABEL, RdfLiteral(it, Iri(XSD_STRING))) }
         shape.targets.forEach { target ->
             when (target) {
                 is ShaclTarget.TargetClass -> add(subject, SH_TARGET_CLASS, target.classIri)
@@ -279,6 +281,7 @@ public class ShaclShapeAuthoringService {
         private const val XSD_BOOLEAN = "http://www.w3.org/2001/XMLSchema#boolean"
         private val SH_NODE_SHAPE = Iri("$SH" + "NodeShape")
         private val SH_TYPE = Iri("$RDF" + "type")
+        private val RDFS_LABEL = Iri("http://www.w3.org/2000/01/rdf-schema#label")
         private val SH_TARGET_CLASS = Iri("$SH" + "targetClass")
         private val SH_TARGET_NODE = Iri("$SH" + "targetNode")
         private val SH_TARGET_SUBJECTS_OF = Iri("$SH" + "targetSubjectsOf")

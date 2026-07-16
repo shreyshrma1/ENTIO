@@ -16,6 +16,7 @@ class LabelResolverTest {
         LoadedSymbol(Iri("https://example.com/CustomerRecord"), "Customer", SymbolKind.Individual, "simple"),
         LoadedSymbol(Iri("https://other.example/Customer"), "Customer", SymbolKind.Class, "other"),
         LoadedSymbol(Iri("https://example.com/name"), "Name", SymbolKind.Property, "simple"),
+        LoadedSymbol(Iri("https://example.com/shapes/CustomerShape"), null, SymbolKind.Shape, "shapes"),
     )
 
     @Test
@@ -72,5 +73,17 @@ class LabelResolverTest {
 
         val resolved = assertIs<EntityResolutionResult.Resolved>(result)
         assertEquals("Name", resolved.candidate.label)
+    }
+
+    @Test
+    fun resolvesAnUnlabeledShapeByItsLocalName(): Unit {
+        val result = resolver.resolve(
+            symbols,
+            EntitySelector(label = "CustomerShape", kind = SymbolKind.Shape, sourceId = "shapes"),
+        )
+
+        val resolved = assertIs<EntityResolutionResult.Resolved>(result)
+        assertEquals("https://example.com/shapes/CustomerShape", resolved.candidate.iri.value)
+        assertEquals(null, resolved.candidate.label)
     }
 }

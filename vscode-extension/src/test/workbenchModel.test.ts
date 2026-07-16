@@ -122,6 +122,13 @@ test("provides source and kind filtered display options without resolving labels
   const options = entitySelectorOptions(model, "Class", "simple");
   assert.equal(options.length, 1);
   assert.equal(labelDisplay(options[0]), "Customer · Class · simple");
+  assert.equal(labelDisplay({
+    iri: "https://example.com/CustomerShape",
+    label: null,
+    kind: "Shape",
+    sourceId: "shapes",
+    relationships: [],
+  }), "Customer Shape · Shape · shapes");
 });
 
 test("normalizes Kotlin semantic descriptors without interpreting RDF locally", () => {
@@ -240,6 +247,7 @@ test("normalizes Phase 4 reasoning, SHACL, and proposal impact results", () => {
     ok: true,
     shapes: [{
       iri: "https://example.com/AccountShape",
+      label: "Account shape",
       sourceId: "simple",
       targets: [{ kind: "target-class", iri: "https://example.com/Account" }],
       propertyShapes: [{ path: { kind: "direct-property", iri: "https://example.com/code" } }],
@@ -247,6 +255,7 @@ test("normalizes Phase 4 reasoning, SHACL, and proposal impact results", () => {
     }],
   });
   assert.ok(shapes);
+  assert.equal(shapes.shapes[0].label, "Account shape");
   assert.deepEqual(shapes.shapes[0].propertyShapes, ["https://example.com/code"]);
 
   const impact = createProposalImpactModel({

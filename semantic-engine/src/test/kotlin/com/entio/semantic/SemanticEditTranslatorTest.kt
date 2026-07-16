@@ -16,6 +16,7 @@ import kotlin.test.assertIs
 class SemanticEditTranslatorTest {
     private val translator = TypedOntologyEditTranslator()
     private val customer = Iri("https://example.com/Customer")
+    private val customerShape = Iri("https://example.com/CustomerShape")
     private val note = Iri("https://example.com/note")
     private val replacement = RdfLiteral("replacement", languageTag = "en")
 
@@ -57,6 +58,10 @@ class SemanticEditTranslatorTest {
         assertEquals(
             listOf(removed(customer, SKOS_ALT_LABEL, replacement)),
             translate(SemanticEditRequest.RemoveAlternateLabel(customer, replacement, "simple")).changes,
+        )
+        assertEquals(
+            listOf(added(customerShape, SKOS_ALT_LABEL, replacement)),
+            translate(SemanticEditRequest.AddAlternateLabel(customerShape, replacement, "shapes")).changes,
         )
         assertEquals(
             listOf(added(customer, note, replacement)),

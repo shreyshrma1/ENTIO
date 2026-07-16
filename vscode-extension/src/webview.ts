@@ -36,6 +36,8 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     #preview-diff, #preview-validation, #preview-impact { margin: 8px 0; }
     #external-workbench { margin-top: 20px; }
     #external-results, #external-details, #external-dependencies, #external-proposal { margin: 8px 0; }
+    #external-results { max-height: 520px; overflow-y: auto; }
+    .external-pagination { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
     .external-card { border: 1px solid var(--vscode-panel-border); padding: 8px; margin: 6px 0; }
     .external-card button { margin-right: 6px; }
     #approval-state { margin-left: 8px; }
@@ -392,6 +394,8 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     let selectedExternal;
     let selectedExternalDependencies = new Set();
     let externalTargetOntologyIri = "";
+    let externalBrowseRequest;
+    let externalBrowsePage = 0;
     let externalSearchRequest;
     let externalSearchPage = 0;
     let pendingIriGenerationKey;
@@ -608,7 +612,17 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     function labelForIri(iri) {
       if (!iri) return "";
       const symbol = currentModel?.symbolGroups.flatMap((group) => group.symbols).find((candidate) => candidate.iri === iri);
-      return symbol?.label || displayIri(iri);
+      return symbol ? preferredSymbolLabel(symbol) : readableLocalName(iri);
+    }
+
+    function preferredSymbolLabel(symbol) {
+      return symbol.label || readableLocalName(symbol.iri);
+    }
+
+    function readableLocalName(iri) {
+      const separator = Math.max(iri.lastIndexOf("#"), iri.lastIndexOf("/"));
+      const localName = separator >= 0 && separator < iri.length - 1 ? iri.slice(separator + 1) : iri;
+      return localName.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]/g, " ");
     }
 
     function setEntityPicker(labelInput, iriInput, iri, label) {
@@ -1106,7 +1120,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     function renderShaclShapes(result) {
       shaclShapes.replaceChildren();
       appendPhase4List(shaclShapes, "Supported SHACL shapes", result.shapes.map((shape) =>
-        displayIri(shape.iri) + " · targets: " + (shape.targets.map(displayIri).join(", ") || "none") +
+        (shape.label || displayIri(shape.iri)) + " · targets: " + (shape.targets.map(displayIri).join(", ") || "none") +
         " · paths: " + (shape.propertyShapes.map(displayIri).join(", ") || "none") +
         " · constraints: " + (shape.constraints.join(", ") || "none")), "No supported shapes found.");
     }
@@ -1394,7 +1408,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       selectedSemanticIri = symbol.iri;
       details.replaceChildren();
       const heading = document.createElement("strong");
-      heading.textContent = symbol.label || symbol.iri;
+      heading.textContent = preferredSymbolLabel(symbol);
       const metadata = document.createElement("div");
       metadata.textContent = symbol.kind + " · " + symbol.sourceId;
       const iri = document.createElement("div");
@@ -1571,7 +1585,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
 
     function displayEntity(iri) {
       const symbol = currentModel?.symbolGroups.flatMap((group) => group.symbols).find((candidate) => candidate.iri === iri);
-      return symbol?.label || displayIri(iri);
+      return symbol ? preferredSymbolLabel(symbol) : readableLocalName(iri);
     }
 
     function renderSemanticSearch(result) {
@@ -1619,7 +1633,40 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       return (element && element.kind) || "Unknown";
     }
 
+    function requestExternalBrowse(page) {
+      if (!externalBrowseRequest) return;
+      externalBrowsePage = page;
+      externalStatus.textContent = "Loading external catalog page " + (page + 1) + "...";
+      vscode.postMessage({
+        type: "external-browse",
+        payload: { ...externalBrowseRequest, page },
+      });
+    }
+
+    function renderExternalPagination(result) {
+      if (result.page <= 0 && !result.hasNext) return;
+      const pagination = document.createElement("nav");
+      pagination.className = "external-pagination";
+      pagination.setAttribute("aria-label", "External catalog pages");
+      const previous = document.createElement("button");
+      previous.type = "button";
+      previous.textContent = "Previous page";
+      previous.disabled = result.page <= 0;
+      previous.addEventListener("click", () => requestExternalBrowse(result.page - 1));
+      const pageStatus = document.createElement("span");
+      pageStatus.textContent = "Page " + (result.page + 1) + " · " + result.items.length + " shown";
+      const next = document.createElement("button");
+      next.type = "button";
+      next.textContent = "Next page";
+      next.disabled = !result.hasNext;
+      next.addEventListener("click", () => requestExternalBrowse(result.page + 1));
+      pagination.append(previous, pageStatus, next);
+      externalResults.append(pagination);
+    }
+
     function renderExternalState(state) {
+      externalBrowseRequest = { mode: "curated", pageSize: state.browse.pageSize };
+      externalBrowsePage = state.browse.page;
       externalStatus.textContent = "FIBO " + state.manifest.release + " · " + state.manifest.elementCount +
         " catalog element(s) · " + state.manifest.moduleCount + " module(s) · read-only";
       externalManifest.textContent = "Source: " + state.manifest.sourceId + " · catalog: " + state.manifest.catalogSchema +
@@ -1638,25 +1685,35 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         browse.type = "button";
         browse.textContent = "Browse module";
         browse.addEventListener("click", () => {
+          externalBrowseRequest = { mode: "module", moduleIri: module.ontologyIri, pageSize: 25 };
+          externalBrowsePage = 0;
           externalStatus.textContent = "Loading module contents...";
-          vscode.postMessage({
-            type: "external-browse",
-            payload: { mode: "module", moduleIri: module.ontologyIri, page: 0, pageSize: 25 },
-          });
+          requestExternalBrowse(0);
         });
         item.append(label, browse);
         list.append(item);
       });
       externalResults.append(list);
+      renderExternalPagination(state.browse);
     }
 
     function renderExternalBrowse(result) {
+      externalBrowsePage = result.page;
       externalResults.replaceChildren();
+      const back = document.createElement("button");
+      back.type = "button";
+      back.textContent = "Back to curated modules";
+      back.addEventListener("click", () => {
+        externalBrowseRequest = { mode: "curated", pageSize: 25 };
+        requestExternalBrowse(0);
+      });
+      externalResults.append(back);
       const heading = document.createElement("h3");
-      heading.textContent = "Module contents · showing " + result.items.length + " of " + result.totalCount;
+      heading.textContent = "Module contents · page " + (result.page + 1) + " · showing " + result.items.length + " of " + result.totalCount;
       externalResults.append(heading);
       if (result.items.length === 0) {
         externalResults.append(document.createTextNode("No catalog elements were found in this module."));
+        renderExternalPagination(result);
         return;
       }
       const list = document.createElement("ul");
@@ -1673,6 +1730,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         list.append(item);
       });
       externalResults.append(list);
+      renderExternalPagination(result);
     }
 
     function renderExternalSearch(result) {
@@ -1765,6 +1823,19 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         field.textContent = label + ": " + value;
         externalDetails.append(field);
       });
+      const definitions = Array.isArray(semantic.definitions)
+        ? semantic.definitions.map((definition) => definition && definition.value).filter(Boolean)
+        : [];
+      if (definitions.length > 0) {
+        const definitionHeading = document.createElement("h4");
+        definitionHeading.textContent = "Definition" + (definitions.length > 1 ? "s" : "");
+        externalDetails.append(definitionHeading);
+        definitions.forEach((definition) => {
+          const definitionField = document.createElement("p");
+          definitionField.textContent = definition;
+          externalDetails.append(definitionField);
+        });
+      }
       const inspectButton = document.createElement("button");
       inspectButton.type = "button";
       inspectButton.textContent = "Inspect dependencies";
@@ -1870,7 +1941,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
           const button = document.createElement("button");
           button.className = "symbol-button";
           button.type = "button";
-          button.textContent = symbol.label || symbol.iri;
+          button.textContent = preferredSymbolLabel(symbol);
           button.addEventListener("click", () => renderDetails(symbol));
           item.append(button);
           list.append(item);
