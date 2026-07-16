@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadEntityDetails, loadHierarchy, searchProject } from "./projectApi";
+import { loadEntityDetails, loadHierarchy, searchProject, stageChange, previewStagedChanges } from "./projectApi";
 
 function response(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -33,5 +33,21 @@ describe("read-only project API", () => {
 
     expect(paths[0]).toContain("entities?iri=https%3A%2F%2Fexample.com%2Fentio%2Fsimple%23Customer");
     expect(paths[1]).toContain("/search?q=customer");
+  });
+
+  it("keeps staging and proposal actions behind typed HTTP helpers", async () => {
+    const requests: RequestInit[] = [];
+    const fetcher = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push(init ?? {});
+      return response({ apiVersion: "v1", projectId: "simple", status: "READY", entries: [], proposal: null });
+    };
+
+    await stageChange("simple", { sourceId: "simple", editType: "create-class", classIri: "https://example.com/Account", idempotencyKey: "one" }, fetcher);
+    await previewStagedChanges("simple", fetcher);
+
+    expect(requests[0].method).toBe("POST");
+    expect(requests[0].headers).toEqual({ "Content-Type": "application/json" });
+    expect(requests[0].body).toContain("create-class");
+    expect(requests[1].method).toBe("POST");
   });
 });

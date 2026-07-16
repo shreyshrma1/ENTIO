@@ -3,8 +3,13 @@ package com.entio.web
 import com.entio.web.contract.InMemoryProjectRegistry
 import com.entio.web.contract.WebApplicationDependencies
 import io.ktor.client.request.get
+import io.ktor.client.request.delete
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import java.nio.file.Files
 import java.nio.file.Path
@@ -121,6 +126,72 @@ class ApplicationTest {
         assertContains(missing.bodyAsText(), "missing-entity")
         assertEquals(HttpStatusCode.BadRequest, invalidSearch.status)
         assertContains(invalidSearch.bodyAsText(), "invalid-search-query")
+    }
+
+    @Test
+    fun stagingWorkflowKeepsDraftsPrivateUntilPreviewAndAppliesOnlyAfterReview(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-staging")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+
+        val stage = client.post("/api/v1/projects/simple/staged") {
+            contentType(ContentType.Application.Json)
+            setBody("""
+                {"sourceId":"simple","editType":"create-class","classIri":"https://example.com/entio/simple#Account","label":"Account","idempotencyKey":"stage-account"}
+            """.trimIndent())
+        }
+        assertEquals(HttpStatusCode.OK, stage.status)
+        assertContains(stage.bodyAsText(), "stage-1")
+        assertContains(stage.bodyAsText(), "alice")
+
+        val preview = client.post("/api/v1/projects/simple/proposal/preview")
+        assertEquals(HttpStatusCode.OK, preview.status)
+        assertContains(preview.bodyAsText(), "READYFORREVIEW")
+        assertContains(preview.bodyAsText(), "Account")
+
+        val contributorApproval = client.post("/api/v1/projects/simple/proposal/approve") {
+            headers.append("X-Entio-User", "alice")
+        }
+        assertEquals(HttpStatusCode.Forbidden, contributorApproval.status)
+
+        val approval = client.post("/api/v1/projects/simple/proposal/approve") {
+            headers.append("X-Entio-User", "bob")
+        }
+        assertEquals(HttpStatusCode.OK, approval.status)
+        assertContains(approval.bodyAsText(), "APPROVED")
+
+        val applied = client.post("/api/v1/projects/simple/proposal/apply") {
+            headers.append("X-Entio-User", "bob")
+        }
+        assertEquals(HttpStatusCode.OK, applied.status)
+        assertContains(applied.bodyAsText(), "APPLIED")
+        assertContains(Files.readString(projectRoot.resolve("ontology/simple.ttl")), "Account")
+    }
+
+    @Test
+    fun rejectingAProposalLeavesItsStagedEntriesForCorrection(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-reject")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+
+        client.post("/api/v1/projects/simple/staged") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"sourceId":"simple","editType":"create-class","classIri":"https://example.com/entio/simple#Account","label":"Account"}""")
+        }
+        assertEquals(HttpStatusCode.OK, client.post("/api/v1/projects/simple/proposal/preview").status)
+        val rejected = client.post("/api/v1/projects/simple/proposal/reject") {
+            headers.append("X-Entio-User", "bob")
+        }
+        assertEquals(HttpStatusCode.OK, rejected.status)
+        assertContains(rejected.bodyAsText(), "stage-1")
+        assertContains(rejected.bodyAsText(), "READY")
+        assertFalse(Files.readString(projectRoot.resolve("ontology/simple.ttl")).contains("Account"))
     }
 
     private fun createReadOnlyFixture(allowedRoot: Path): Path {
