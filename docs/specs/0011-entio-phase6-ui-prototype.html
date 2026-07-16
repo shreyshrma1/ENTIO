@@ -1,0 +1,1385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Entio — Collaborative Ontology Workbench Prototype</title>
+  <style>
+    :root {
+      --bg-app: #f4f6f9;
+      --bg-sidebar: #f8f9fb;
+      --surface-1: #ffffff;
+      --surface-2: #fafbfc;
+      --surface-3: #f1f3f6;
+      --surface-hover: #f5f7fb;
+      --border-subtle: #e6e9ef;
+      --border-default: #d8dde6;
+      --border-strong: #b8c0cc;
+      --text-primary: #172033;
+      --text-secondary: #475467;
+      --text-muted: #667085;
+      --text-disabled: #98a2b3;
+      --primary-50: #eef2ff;
+      --primary-100: #e0e7ff;
+      --primary-500: #6366f1;
+      --primary-600: #4f46e5;
+      --primary-700: #4338ca;
+      --asserted: #2563eb;
+      --asserted-subtle: #eff6ff;
+      --inferred: #7c3aed;
+      --inferred-subtle: #f5f3ff;
+      --external: #0f766e;
+      --external-subtle: #f0fdfa;
+      --staged: #b45309;
+      --staged-subtle: #fffbeb;
+      --success: #15803d;
+      --success-subtle: #f0fdf4;
+      --warning: #b45309;
+      --warning-subtle: #fffbeb;
+      --danger: #b42318;
+      --danger-subtle: #fef3f2;
+      --stale: #667085;
+      --stale-subtle: #f2f4f7;
+      --focus-ring: #6366f1;
+      --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+      --shadow-md: 0 4px 8px -2px rgba(16, 24, 40, 0.08), 0 2px 4px -2px rgba(16, 24, 40, 0.04);
+      --shadow-overlay: 0 16px 32px -8px rgba(16, 24, 40, 0.18);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg-app);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button, input, textarea, select { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [tabindex]:focus-visible {
+      outline: 2px solid var(--focus-ring);
+      outline-offset: 2px;
+    }
+
+    svg.icon {
+      width: 17px;
+      height: 17px;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+      flex: 0 0 auto;
+    }
+    svg.icon.small { width: 14px; height: 14px; }
+    svg.icon.large { width: 22px; height: 22px; }
+
+    .app {
+      height: 100%;
+      display: grid;
+      grid-template-rows: 52px minmax(0, 1fr);
+    }
+
+    .global-header {
+      display: grid;
+      grid-template-columns: auto minmax(360px, 660px) auto;
+      align-items: center;
+      gap: 20px;
+      padding: 0 14px 0 10px;
+      background: var(--surface-1);
+      border-bottom: 1px solid var(--border-subtle);
+      z-index: 20;
+    }
+
+    .header-left, .header-right { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .header-right { justify-content: flex-end; }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      padding-right: 8px;
+    }
+    .brand-mark {
+      width: 29px;
+      height: 29px;
+      border-radius: 8px;
+      background: linear-gradient(145deg, #6366f1, #4338ca);
+      color: white;
+      display: grid;
+      place-items: center;
+      box-shadow: 0 5px 12px rgba(79, 70, 229, 0.22);
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .project-switcher {
+      height: 34px;
+      border: 1px solid var(--border-subtle);
+      background: var(--surface-2);
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 10px;
+      min-width: 180px;
+      max-width: 255px;
+      cursor: pointer;
+    }
+    .project-switcher:hover { background: var(--surface-3); }
+    .project-text { min-width: 0; }
+    .project-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .project-meta { font-size: 10px; color: var(--text-muted); margin-top: 1px; }
+
+    .global-search {
+      height: 34px;
+      border: 1px solid var(--border-default);
+      background: var(--surface-2);
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 9px;
+      color: var(--text-muted);
+      cursor: text;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.9);
+    }
+    .global-search:hover { border-color: var(--border-strong); background: var(--surface-1); }
+    .global-search .placeholder { flex: 1; font-size: 13px; }
+    .kbd {
+      border: 1px solid var(--border-default);
+      background: var(--surface-1);
+      border-radius: 5px;
+      padding: 1px 6px;
+      font-size: 10px;
+      color: var(--text-muted);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .status-chip {
+      height: 29px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 9px;
+      border: 1px solid var(--border-subtle);
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--text-secondary);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .chip-success { color: var(--success); background: var(--success-subtle); border-color: #cfead7; }
+    .chip-warning { color: var(--warning); background: var(--warning-subtle); border-color: #f6dfaf; }
+    .chip-primary { color: var(--primary-600); background: var(--primary-50); border-color: var(--primary-100); }
+
+    .avatar-group { display: flex; align-items: center; padding-left: 4px; }
+    .avatar {
+      width: 29px;
+      height: 29px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: white;
+      font-size: 10px;
+      font-weight: 700;
+      border: 2px solid var(--surface-1);
+      margin-left: -6px;
+      position: relative;
+    }
+    .avatar:first-child { margin-left: 0; }
+    .avatar.online::after {
+      content: "";
+      position: absolute;
+      width: 7px;
+      height: 7px;
+      right: -1px;
+      bottom: -1px;
+      border-radius: 50%;
+      background: #22c55e;
+      border: 2px solid white;
+    }
+    .a-purple { background: #7c3aed; }
+    .a-blue { background: #2563eb; }
+    .a-teal { background: #0f766e; }
+    .a-orange { background: #c2410c; }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 56px 312px minmax(0, 1fr) 368px;
+      background: var(--bg-app);
+    }
+
+    .app-rail {
+      background: #111827;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 8px 6px;
+      gap: 5px;
+      border-right: 1px solid #20293a;
+    }
+    .rail-spacer { flex: 1; }
+    .rail-button {
+      width: 42px;
+      height: 42px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: #aab4c6;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      position: relative;
+    }
+    .rail-button:hover { background: #1d2737; color: white; }
+    .rail-button.active { background: #252e56; color: #c7d2fe; }
+    .rail-button.active::before {
+      content: "";
+      position: absolute;
+      left: -6px;
+      top: 9px;
+      bottom: 9px;
+      width: 3px;
+      border-radius: 0 3px 3px 0;
+      background: #818cf8;
+    }
+    .rail-badge {
+      position: absolute;
+      right: 2px;
+      top: 2px;
+      min-width: 15px;
+      height: 15px;
+      padding: 0 4px;
+      border-radius: 8px;
+      background: #ef4444;
+      color: white;
+      font-size: 9px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #111827;
+    }
+
+    .context-sidebar {
+      min-width: 240px;
+      max-width: 480px;
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      resize: horizontal;
+    }
+    .sidebar-header {
+      padding: 13px 12px 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      background: rgba(255,255,255,.72);
+      backdrop-filter: blur(8px);
+    }
+    .sidebar-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .sidebar-title { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); font-weight: 700; }
+    .icon-button {
+      width: 28px;
+      height: 28px;
+      border: 0;
+      background: transparent;
+      border-radius: var(--radius-sm);
+      display: grid;
+      place-items: center;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .icon-button:hover { background: var(--surface-3); color: var(--text-primary); }
+
+    .search-input {
+      height: 33px;
+      border: 1px solid var(--border-default);
+      background: var(--surface-1);
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 9px;
+      color: var(--text-muted);
+    }
+    .search-input input {
+      border: 0;
+      background: transparent;
+      min-width: 0;
+      flex: 1;
+      outline: 0;
+      color: var(--text-primary);
+      font-size: 12px;
+    }
+
+    .segmented {
+      margin-top: 9px;
+      display: flex;
+      background: var(--surface-3);
+      padding: 3px;
+      border-radius: 8px;
+      gap: 2px;
+    }
+    .segmented button {
+      flex: 1;
+      height: 25px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .segmented button.active { background: var(--surface-1); color: var(--text-primary); font-weight: 600; box-shadow: var(--shadow-sm); }
+
+    .sidebar-content { min-height: 0; overflow: auto; padding: 8px 6px 18px; }
+    .section-label {
+      padding: 8px 8px 5px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--text-muted);
+    }
+
+    .tree { font-size: 12px; }
+    .tree-node { position: relative; }
+    .tree-row {
+      height: 29px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 6px 0 calc(6px + var(--depth, 0) * 17px);
+      cursor: pointer;
+      color: var(--text-secondary);
+      position: relative;
+      user-select: none;
+    }
+    .tree-row:hover { background: var(--surface-3); }
+    .tree-row.selected { background: var(--primary-50); color: var(--primary-700); font-weight: 600; }
+    .tree-chevron {
+      width: 18px;
+      height: 18px;
+      border: 0;
+      background: transparent;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    .tree-chevron:hover { background: rgba(99, 102, 241, .08); color: var(--primary-600); }
+    .tree-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tree-count { font-size: 9px; color: var(--text-muted); background: var(--surface-1); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 0 5px; }
+    .type-icon {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      display: grid;
+      place-items: center;
+      font-size: 9px;
+      font-weight: 800;
+      flex: 0 0 auto;
+      border: 1px solid currentColor;
+    }
+    .type-class { color: #2563eb; background: #eff6ff; }
+    .type-property { color: #0f766e; background: #f0fdfa; }
+    .type-individual { color: #9333ea; background: #faf5ff; border-radius: 50%; }
+    .type-shape { color: #b45309; background: #fffbeb; }
+    .mini-status { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+    .mini-inferred { background: var(--inferred); box-shadow: 0 0 0 2px var(--inferred-subtle); }
+    .mini-staged { background: var(--staged); box-shadow: 0 0 0 2px var(--staged-subtle); }
+
+    .main-column {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: 40px minmax(0, 1fr) auto;
+      background: var(--surface-1);
+    }
+    .tab-bar {
+      display: flex;
+      align-items: stretch;
+      gap: 1px;
+      padding: 0 6px;
+      background: var(--surface-2);
+      border-bottom: 1px solid var(--border-subtle);
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+    .workspace-tab {
+      min-width: 138px;
+      max-width: 230px;
+      height: 39px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 8px 0 10px;
+      border: 0;
+      border-right: 1px solid var(--border-subtle);
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      position: relative;
+      font-size: 12px;
+    }
+    .workspace-tab:hover { background: var(--surface-1); color: var(--text-primary); }
+    .workspace-tab.active { background: var(--surface-1); color: var(--text-primary); font-weight: 600; }
+    .workspace-tab.active::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: 0; height: 2px; background: var(--primary-600); }
+    .tab-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+    .tab-status { width: 7px; height: 7px; border-radius: 50%; }
+    .tab-close { width: 20px; height: 20px; border: 0; background: transparent; border-radius: 4px; display: grid; place-items: center; color: var(--text-muted); cursor: pointer; }
+    .tab-close:hover { background: var(--surface-3); color: var(--text-primary); }
+
+    .main-scroll { min-height: 0; overflow: auto; background: var(--surface-1); }
+    .content-wrap { max-width: 1060px; margin: 0 auto; padding: 18px 22px 40px; }
+    .breadcrumbs { display: flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 11px; margin-bottom: 13px; }
+    .breadcrumbs span.clickable:hover { color: var(--primary-600); cursor: pointer; }
+
+    .entity-header {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 13px;
+      align-items: start;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .entity-mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 11px;
+      display: grid;
+      place-items: center;
+      background: var(--asserted-subtle);
+      color: var(--asserted);
+      border: 1px solid #dbeafe;
+    }
+    .entity-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+    .entity-title { font-size: 22px; line-height: 1.25; letter-spacing: -.025em; font-weight: 700; }
+    .entity-summary { margin: 5px 0 0; max-width: 680px; color: var(--text-secondary); line-height: 1.5; }
+    .source-line { margin-top: 6px; color: var(--text-muted); font-size: 11px; display: flex; gap: 5px; align-items: center; }
+    .entity-actions { display: flex; align-items: center; gap: 7px; }
+
+    .button {
+      height: 34px;
+      padding: 0 12px;
+      border-radius: 7px;
+      border: 1px solid var(--border-default);
+      background: var(--surface-1);
+      color: var(--text-primary);
+      font-size: 12px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .button:hover { background: var(--surface-2); border-color: var(--border-strong); }
+    .button.primary { background: var(--primary-600); border-color: var(--primary-600); color: white; box-shadow: 0 1px 2px rgba(79,70,229,.18); }
+    .button.primary:hover { background: var(--primary-700); border-color: var(--primary-700); }
+    .button.danger { color: var(--danger); background: var(--danger-subtle); border-color: #fecdca; }
+    .button.ghost { border-color: transparent; background: transparent; color: var(--text-secondary); }
+    .button.small { height: 28px; padding: 0 9px; font-size: 11px; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 21px;
+      padding: 2px 7px;
+      border-radius: 6px;
+      border: 1px solid var(--border-subtle);
+      background: var(--surface-2);
+      color: var(--text-secondary);
+      font-size: 10px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .badge.asserted { background: var(--asserted-subtle); border-color: #dbeafe; color: var(--asserted); }
+    .badge.inferred { background: var(--inferred-subtle); border-color: #e9d5ff; color: var(--inferred); }
+    .badge.external { background: var(--external-subtle); border-color: #ccfbf1; color: var(--external); }
+    .badge.staged { background: var(--staged-subtle); border-color: #fde68a; color: var(--staged); }
+    .badge.success { background: var(--success-subtle); border-color: #bbf7d0; color: var(--success); }
+    .badge.danger { background: var(--danger-subtle); border-color: #fecaca; color: var(--danger); }
+    .badge.ai { background: #faf5ff; border-color: #e9d5ff; color: #7e22ce; }
+
+    .iri-row {
+      margin-top: 11px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 11px;
+      min-width: 0;
+    }
+    .iri-value { font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .section-tabs {
+      height: 42px;
+      display: flex;
+      align-items: end;
+      gap: 18px;
+      border-bottom: 1px solid var(--border-subtle);
+      margin-top: 4px;
+    }
+    .section-tab {
+      height: 40px;
+      border: 0;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      cursor: pointer;
+      position: relative;
+      padding: 0;
+    }
+    .section-tab.active { color: var(--text-primary); font-weight: 600; }
+    .section-tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--primary-600); }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(250px, .75fr);
+      gap: 22px;
+      margin-top: 18px;
+    }
+    .content-section { padding: 0 0 18px; margin-bottom: 18px; border-bottom: 1px solid var(--border-subtle); }
+    .content-section:last-child { border-bottom: 0; }
+    .section-heading-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+    .section-heading { font-size: 13px; font-weight: 700; color: var(--text-primary); }
+    .section-count { font-size: 10px; color: var(--text-muted); }
+    .body-text { color: var(--text-secondary); line-height: 1.55; }
+
+    .relationship-list { display: flex; flex-direction: column; gap: 6px; }
+    .relationship-row {
+      min-height: 38px;
+      border: 1px solid var(--border-subtle);
+      border-radius: 7px;
+      display: grid;
+      grid-template-columns: 104px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 7px 9px;
+      background: var(--surface-2);
+    }
+    .relationship-kind { color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; font-weight: 700; }
+    .relationship-target { display: flex; align-items: center; gap: 7px; font-weight: 600; min-width: 0; }
+    .relationship-target span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .property-table { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; }
+    .property-table th { text-align: left; height: 31px; background: var(--surface-3); color: var(--text-muted); font-size: 10px; font-weight: 700; padding: 0 9px; border-bottom: 1px solid var(--border-subtle); }
+    .property-table td { height: 38px; padding: 0 9px; border-bottom: 1px solid var(--border-subtle); font-size: 12px; }
+    .property-table tr:last-child td { border-bottom: 0; }
+    .property-name { display: flex; align-items: center; gap: 7px; font-weight: 600; }
+
+    .summary-panel {
+      border: 1px solid var(--border-subtle);
+      border-radius: 9px;
+      background: var(--surface-2);
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    .summary-panel-header { height: 36px; padding: 0 10px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); font-weight: 700; font-size: 11px; }
+    .summary-panel-body { padding: 10px; }
+    .metric-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; color: var(--text-secondary); font-size: 11px; }
+    .metric-value { color: var(--text-primary); font-weight: 600; }
+
+    .inline-alert { border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px; display: flex; gap: 9px; align-items: flex-start; font-size: 11px; line-height: 1.4; }
+    .inline-alert.warning { background: var(--warning-subtle); border-color: #fde68a; color: #854d0e; }
+    .inline-alert.success { background: var(--success-subtle); border-color: #bbf7d0; color: #166534; }
+    .inline-alert.danger { background: var(--danger-subtle); border-color: #fecaca; color: #991b1b; }
+
+    .inspector {
+      min-width: 320px;
+      max-width: 520px;
+      background: var(--surface-1);
+      border-left: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      resize: horizontal;
+      overflow: hidden;
+    }
+    .inspector.hidden { display: none; }
+    .inspector-header {
+      height: 48px;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--surface-2);
+    }
+    .inspector-title { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 12px; }
+    .inspector-body { min-height: 0; flex: 1; overflow: auto; padding: 13px; }
+    .inspector-footer { padding: 10px 12px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: flex-end; gap: 8px; background: var(--surface-2); }
+
+    .context-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .context-chip { height: 24px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border-subtle); border-radius: 12px; padding: 0 8px; background: var(--surface-2); color: var(--text-secondary); font-size: 10px; }
+
+    .chat-thread { display: flex; flex-direction: column; gap: 12px; }
+    .chat-message { font-size: 12px; line-height: 1.52; }
+    .chat-message.user { align-self: flex-end; max-width: 85%; background: var(--primary-50); border: 1px solid var(--primary-100); border-radius: 10px 10px 3px 10px; padding: 9px 10px; }
+    .chat-message.assistant { border-left: 2px solid var(--primary-500); padding-left: 10px; }
+    .chat-label { color: var(--text-muted); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; margin-bottom: 4px; }
+    .evidence-list { margin: 8px 0 0; display: flex; flex-direction: column; gap: 5px; }
+    .evidence-row { display: flex; align-items: flex-start; gap: 6px; font-size: 10px; color: var(--text-secondary); background: var(--surface-2); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 7px; }
+    .suggestion-card { border: 1px solid #e9d5ff; background: #faf5ff; border-radius: 9px; padding: 10px; margin-top: 9px; }
+    .suggestion-title { display: flex; align-items: center; gap: 7px; color: #6b21a8; font-weight: 700; font-size: 11px; margin-bottom: 5px; }
+    .suggestion-text { color: var(--text-secondary); font-size: 11px; margin-bottom: 9px; }
+    .chat-compose { margin-top: 14px; border: 1px solid var(--border-default); border-radius: 9px; background: var(--surface-1); padding: 8px; }
+    .chat-compose textarea { width: 100%; min-height: 52px; border: 0; resize: none; outline: 0; color: var(--text-primary); }
+    .compose-actions { display: flex; justify-content: space-between; align-items: center; }
+
+    .form-group { margin-bottom: 13px; }
+    .form-label { display: block; font-size: 11px; font-weight: 700; color: var(--text-secondary); margin-bottom: 5px; }
+    .form-input, .form-select, .form-textarea {
+      width: 100%; border: 1px solid var(--border-default); border-radius: 7px; background: var(--surface-1); color: var(--text-primary); padding: 8px 9px; font-size: 12px;
+    }
+    .form-textarea { min-height: 86px; resize: vertical; }
+    .field-help { color: var(--text-muted); font-size: 10px; margin-top: 4px; line-height: 1.4; }
+
+    .bottom-dock {
+      border-top: 1px solid var(--border-subtle);
+      background: var(--surface-1);
+      overflow: hidden;
+      transition: height 180ms ease;
+      height: 206px;
+    }
+    .bottom-dock.collapsed { height: 43px; }
+    .dock-header { height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px 0 12px; background: var(--surface-2); cursor: pointer; }
+    .dock-summary { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; }
+    .dock-tabs { display: flex; align-items: center; gap: 4px; }
+    .dock-tab { height: 27px; border: 0; background: transparent; border-radius: 6px; padding: 0 9px; color: var(--text-muted); font-size: 10px; cursor: pointer; }
+    .dock-tab.active { background: var(--surface-1); color: var(--text-primary); box-shadow: var(--shadow-sm); }
+    .dock-body { height: 163px; overflow: auto; padding: 7px 9px 12px; }
+    .staged-list { display: flex; flex-direction: column; gap: 6px; }
+    .staged-row {
+      min-height: 46px;
+      border: 1px solid var(--border-subtle);
+      background: var(--surface-1);
+      border-radius: 8px;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 9px;
+      align-items: center;
+      padding: 7px 8px;
+    }
+    .staged-title { font-size: 11px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+    .staged-meta { margin-top: 3px; font-size: 9px; color: var(--text-muted); }
+    .staged-actions { display: flex; align-items: center; gap: 3px; }
+
+    .module-page { padding: 18px 20px 40px; min-height: 100%; }
+    .page-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+    .page-title { font-size: 22px; font-weight: 700; letter-spacing: -.025em; }
+    .page-subtitle { margin-top: 4px; color: var(--text-muted); line-height: 1.5; max-width: 720px; }
+
+    .review-layout { display: grid; grid-template-columns: 310px minmax(0, 1fr); min-height: calc(100vh - 160px); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden; }
+    .review-list { background: var(--surface-2); border-right: 1px solid var(--border-subtle); padding: 9px; }
+    .review-item { border: 1px solid var(--border-subtle); background: var(--surface-1); border-radius: 8px; padding: 9px; margin-bottom: 7px; }
+    .review-impact { display: flex; flex-direction: column; min-width: 0; }
+    .impact-tabs { height: 42px; border-bottom: 1px solid var(--border-subtle); display: flex; gap: 16px; padding: 0 14px; }
+    .impact-tab { border: 0; background: transparent; color: var(--text-muted); font-size: 11px; position: relative; cursor: pointer; }
+    .impact-tab.active { color: var(--text-primary); font-weight: 700; }
+    .impact-tab.active::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--primary-600); }
+    .impact-content { padding: 14px; flex: 1; overflow: auto; }
+    .impact-row { min-height: 42px; border: 1px solid var(--border-subtle); border-radius: 8px; display: flex; align-items: center; gap: 9px; padding: 8px 10px; margin-bottom: 7px; background: var(--surface-2); }
+    .impact-icon { width: 25px; height: 25px; border-radius: 7px; display: grid; place-items: center; }
+    .impact-add { color: var(--success); background: var(--success-subtle); }
+    .impact-inferred { color: var(--inferred); background: var(--inferred-subtle); }
+    .review-footer { position: sticky; bottom: 0; min-height: 54px; border-top: 1px solid var(--border-subtle); background: rgba(255,255,255,.96); backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; }
+
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin-bottom: 16px; }
+    .metric-card { border: 1px solid var(--border-subtle); border-radius: 9px; background: var(--surface-1); padding: 11px; }
+    .metric-card-label { color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
+    .metric-card-value { margin-top: 5px; font-size: 19px; font-weight: 700; }
+    .metric-card-detail { margin-top: 2px; color: var(--text-muted); font-size: 10px; }
+
+    .result-table { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--border-subtle); border-radius: 9px; overflow: hidden; }
+    .result-table th { text-align: left; height: 34px; padding: 0 10px; background: var(--surface-3); color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border-subtle); }
+    .result-table td { min-height: 40px; padding: 9px 10px; border-bottom: 1px solid var(--border-subtle); font-size: 11px; vertical-align: middle; }
+    .result-table tr:last-child td { border-bottom: 0; }
+
+    .fibo-layout { display: grid; grid-template-columns: 225px minmax(340px, .85fr) minmax(320px, 1fr); min-height: calc(100vh - 175px); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden; }
+    .fibo-pane { min-width: 0; overflow: auto; background: var(--surface-1); }
+    .fibo-pane + .fibo-pane { border-left: 1px solid var(--border-subtle); }
+    .fibo-pane-header { height: 44px; padding: 0 11px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 700; background: var(--surface-2); position: sticky; top: 0; z-index: 1; }
+    .module-row, .candidate-row { padding: 9px 10px; border-bottom: 1px solid var(--border-subtle); cursor: pointer; }
+    .module-row:hover, .candidate-row:hover { background: var(--surface-hover); }
+    .module-row.active, .candidate-row.active { background: var(--primary-50); }
+    .candidate-label { font-weight: 700; font-size: 12px; display: flex; align-items: center; gap: 7px; }
+    .candidate-definition { color: var(--text-muted); font-size: 10px; line-height: 1.35; margin-top: 4px; }
+    .candidate-meta { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 6px; }
+    .detail-pane-content { padding: 13px; }
+    .score-bar { height: 6px; background: var(--surface-3); border-radius: 3px; overflow: hidden; margin-top: 5px; }
+    .score-bar span { display: block; height: 100%; background: var(--primary-500); border-radius: 3px; }
+    .reason-list { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+    .reason-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 7px; border: 1px solid var(--border-subtle); border-radius: 6px; font-size: 10px; }
+
+    .timeline { position: relative; margin-left: 11px; padding-left: 19px; }
+    .timeline::before { content: ""; position: absolute; left: 3px; top: 9px; bottom: 9px; width: 1px; background: var(--border-default); }
+    .timeline-item { position: relative; padding: 0 0 16px 10px; }
+    .timeline-dot { position: absolute; left: -20px; top: 4px; width: 9px; height: 9px; border-radius: 50%; background: var(--primary-500); border: 2px solid var(--surface-1); box-shadow: 0 0 0 1px var(--border-default); }
+    .timeline-title { font-weight: 600; font-size: 11px; }
+    .timeline-meta { color: var(--text-muted); font-size: 9px; margin-top: 2px; }
+
+    .toast-region { position: fixed; right: 18px; bottom: 18px; z-index: 100; display: flex; flex-direction: column; gap: 8px; }
+    .toast { width: 330px; border: 1px solid var(--border-default); border-radius: 9px; background: var(--surface-1); box-shadow: var(--shadow-overlay); padding: 10px; display: flex; align-items: flex-start; gap: 9px; animation: toast-in 160ms ease-out; }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .toast-title { font-weight: 700; font-size: 11px; }
+    .toast-message { color: var(--text-muted); font-size: 10px; margin-top: 2px; line-height: 1.4; }
+
+    .command-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.35); backdrop-filter: blur(3px); z-index: 90; display: none; align-items: flex-start; justify-content: center; padding-top: 90px; }
+    .command-overlay.open { display: flex; }
+    .command-palette { width: min(680px, calc(100vw - 40px)); max-height: 620px; background: var(--surface-1); border: 1px solid var(--border-default); border-radius: 12px; box-shadow: var(--shadow-overlay); overflow: hidden; }
+    .command-input { height: 52px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 9px; padding: 0 13px; }
+    .command-input input { flex: 1; border: 0; outline: 0; font-size: 14px; }
+    .command-results { padding: 8px; max-height: 520px; overflow: auto; }
+    .command-group-label { padding: 8px 8px 5px; color: var(--text-muted); font-size: 9px; text-transform: uppercase; letter-spacing: .07em; font-weight: 700; }
+    .command-result { min-height: 42px; border-radius: 7px; display: flex; align-items: center; gap: 9px; padding: 6px 8px; cursor: pointer; }
+    .command-result:hover, .command-result.active { background: var(--primary-50); }
+    .command-result-text { flex: 1; }
+    .command-result-title { font-size: 12px; font-weight: 600; }
+    .command-result-meta { font-size: 9px; color: var(--text-muted); margin-top: 2px; }
+
+    .prototype-note { color: var(--text-muted); font-size: 9px; border: 1px solid var(--border-subtle); padding: 3px 6px; border-radius: 6px; background: var(--surface-2); }
+
+    @media (max-width: 1199px) {
+      .workspace { grid-template-columns: 56px 284px minmax(0, 1fr); }
+      .inspector { position: fixed; right: 0; top: 52px; bottom: 0; width: 380px; z-index: 50; box-shadow: var(--shadow-overlay); }
+      .global-header { grid-template-columns: auto minmax(260px, 1fr) auto; }
+      .status-chip .chip-label { display: none; }
+    }
+
+    @media (max-width: 1023px) {
+      .workspace { grid-template-columns: 56px minmax(0, 1fr); }
+      .context-sidebar { position: fixed; left: 56px; top: 52px; bottom: 0; width: 300px; z-index: 45; box-shadow: var(--shadow-overlay); }
+      .global-search { min-width: 180px; }
+      .project-switcher { display: none; }
+      .header-right .status-chip:nth-of-type(2) { display: none; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true">
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"></path></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></symbol>
+    <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"></path></symbol>
+    <symbol id="i-chevron-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"></path></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></symbol>
+    <symbol id="i-changes" viewBox="0 0 24 24"><path d="M4 7h10"></path><path d="m11 4 3 3-3 3"></path><path d="M20 17H10"></path><path d="m13 14-3 3 3 3"></path></symbol>
+    <symbol id="i-reasoning" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"></circle><circle cx="18" cy="6" r="2.5"></circle><circle cx="12" cy="18" r="2.5"></circle><path d="M8.2 7.2 10.8 16"></path><path d="m15.8 7.2-2.6 8.8"></path><path d="M8.5 6h7"></path></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 7.7 7.5 9.5 4.4-1.8 7.5-4.9 7.5-9.5V6L12 3Z"></path><path d="m9 12 2 2 4-4"></path></symbol>
+    <symbol id="i-library" viewBox="0 0 24 24"><path d="M4 19V5"></path><path d="M8 19V5"></path><path d="M12 19V5"></path><path d="m16 5 4 14"></path><path d="M3 5h10"></path><path d="M3 19h18"></path></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l2.5-7 4.5 14 2.5-7H21"></path></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3-1.2 3.3L7.5 7.5l3.3 1.2L12 12l1.2-3.3 3.3-1.2-3.3-1.2L12 3Z"></path><path d="m18 13-.8 2.2L15 16l2.2.8L18 19l.8-2.2L21 16l-2.2-.8L18 13Z"></path><path d="m5 14-.6 1.6L3 16.2l1.4.6L5 18.5l.6-1.7 1.5-.6-1.5-.6L5 14Z"></path></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21h-4v-.1A1.7 1.7 0 0 0 9 19.3a1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1A1.7 1.7 0 0 0 4.7 9a1.7 1.7 0 0 0-.3-1.9L4.3 7l2.8-2.8.1.1A1.7 1.7 0 0 0 9 4.7 1.7 1.7 0 0 0 10 3V3h4v.1A1.7 1.7 0 0 0 15 4.7a1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9A1.7 1.7 0 0 0 21 10h.1v4H21a1.7 1.7 0 0 0-1.6 1Z"></path></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12"></path><path d="m18 6-12 12"></path></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9"></path><path d="m16.5 3.5 4 4L8 20l-5 1 1-5L16.5 3.5Z"></path></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"></path></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2.8 20h18.4L12 3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5"></path><path d="M4 18v-5h5"></path><path d="M18.5 9A7 7 0 0 0 6 6.5L4 11"></path><path d="M5.5 15A7 7 0 0 0 18 17.5L20 13"></path></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6"></path><path d="m10 14 10-10"></path><path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"></path></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16"></path><path d="M7 12h10"></path><path d="M10 19h4"></path></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14"></path><path d="M5 12h14"></path></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4 20-7Z"></path><path d="M22 2 11 13"></path></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></symbol>
+    <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"></circle><circle cx="18" cy="6" r="2"></circle><circle cx="6" cy="19" r="2"></circle><path d="M6 7v10"></path><path d="M8 7c5 0 3 8 8 8"></path></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"></path><circle cx="12" cy="12" r="2.5"></circle></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 21a8 8 0 0 1 16 0"></path></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"></circle><path d="m11 12 9-9"></path><path d="m16 4 4 4"></path><path d="m14 6 2 2"></path></symbol>
+  </svg>
+
+  <div class="app">
+    <header class="global-header">
+      <div class="header-left">
+        <div class="brand"><div class="brand-mark">E</div><span>Entio</span></div>
+        <button class="project-switcher" title="Switch project">
+          <span class="type-icon type-class">O</span>
+          <span class="project-text"><span class="project-name">Lending Ontology</span><span class="project-meta">Applied graph · 4 sources</span></span>
+          <svg class="icon small"><use href="#i-chevron-down"></use></svg>
+        </button>
+      </div>
+
+      <button class="global-search" id="openCommand" aria-label="Open global search">
+        <svg class="icon small"><use href="#i-search"></use></svg>
+        <span class="placeholder">Search ontology, FIBO, commands…</span>
+        <span class="kbd">⌘K</span>
+      </button>
+
+      <div class="header-right">
+        <span class="prototype-note">Interactive prototype</span>
+        <button class="status-chip chip-success" data-view="reasoning"><span class="status-dot"></span><span class="chip-label">Reasoning current</span></button>
+        <button class="status-chip chip-warning" data-view="constraints"><svg class="icon small"><use href="#i-alert"></use></svg><span class="chip-label">1 warning</span></button>
+        <button class="status-chip chip-primary" data-view="changes"><svg class="icon small"><use href="#i-changes"></use></svg><span id="headerStagedCount">3 staged</span></button>
+        <div class="avatar-group" title="3 users connected">
+          <div class="avatar a-purple online">MK</div>
+          <div class="avatar a-blue online">AR</div>
+          <div class="avatar a-teal online">PS</div>
+        </div>
+        <button class="icon-button" id="aiHeaderButton" title="Open Entio AI"><svg class="icon"><use href="#i-sparkles"></use></svg></button>
+        <div class="avatar a-orange online" title="You · Reviewer">JD</div>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <nav class="app-rail" aria-label="Primary navigation">
+        <button class="rail-button active" data-view="explore" title="Explore"><svg class="icon large"><use href="#i-grid"></use></svg></button>
+        <button class="rail-button" data-view="changes" title="Changes"><svg class="icon large"><use href="#i-changes"></use></svg><span class="rail-badge" id="railStagedCount">3</span></button>
+        <button class="rail-button" data-view="reasoning" title="Reasoning"><svg class="icon large"><use href="#i-reasoning"></use></svg></button>
+        <button class="rail-button" data-view="constraints" title="Constraints"><svg class="icon large"><use href="#i-shield"></use></svg></button>
+        <button class="rail-button" data-view="fibo" title="FIBO"><svg class="icon large"><use href="#i-library"></use></svg></button>
+        <button class="rail-button" data-view="activity" title="Activity"><svg class="icon large"><use href="#i-activity"></use></svg></button>
+        <button class="rail-button" data-view="ai" title="AI Assistant"><svg class="icon large"><use href="#i-sparkles"></use></svg></button>
+        <div class="rail-spacer"></div>
+        <button class="rail-button" data-view="settings" title="Settings"><svg class="icon large"><use href="#i-settings"></use></svg></button>
+      </nav>
+
+      <aside class="context-sidebar" id="contextSidebar">
+        <!-- rendered by JavaScript -->
+      </aside>
+
+      <main class="main-column">
+        <div class="tab-bar" id="tabBar"></div>
+        <div class="main-scroll" id="mainContent"></div>
+        <section class="bottom-dock" id="bottomDock">
+          <div class="dock-header" id="dockToggle">
+            <div class="dock-summary">
+              <svg class="icon small"><use href="#i-changes"></use></svg>
+              <span>Changes</span>
+              <span class="badge staged"><span id="dockStagedCount">3</span> staged</span>
+              <span class="badge danger">1 conflict</span>
+              <span style="color:var(--text-muted)">· 3 contributors</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="dock-tabs">
+                <button class="dock-tab active">Staged</button>
+                <button class="dock-tab">Jobs</button>
+                <button class="dock-tab">Activity</button>
+              </div>
+              <button class="button small" id="reviewButton">Review</button>
+              <button class="icon-button" aria-label="Collapse changes"><svg class="icon small" id="dockChevron"><use href="#i-chevron-down"></use></svg></button>
+            </div>
+          </div>
+          <div class="dock-body">
+            <div class="staged-list" id="stagedList"></div>
+          </div>
+        </section>
+      </main>
+
+      <aside class="inspector" id="inspector">
+        <!-- rendered by JavaScript -->
+      </aside>
+    </div>
+  </div>
+
+  <div class="command-overlay" id="commandOverlay" role="dialog" aria-modal="true" aria-label="Search and commands">
+    <div class="command-palette">
+      <div class="command-input">
+        <svg class="icon"><use href="#i-search"></use></svg>
+        <input id="commandInput" placeholder="Search ontology, FIBO, or run a command…" />
+        <span class="kbd">Esc</span>
+      </div>
+      <div class="command-results">
+        <div class="command-group-label">Current project</div>
+        <div class="command-result active" data-command="commercial-loan"><span class="type-icon type-class">C</span><div class="command-result-text"><div class="command-result-title">Commercial Loan</div><div class="command-result-meta">Class · Lending Ontology · staged changes</div></div><span class="badge staged">Staged</span></div>
+        <div class="command-result" data-command="loan"><span class="type-icon type-class">C</span><div class="command-result-text"><div class="command-result-title">Loan</div><div class="command-result-meta">Class · Lending Ontology</div></div></div>
+        <div class="command-result" data-command="borrower"><span class="type-icon type-property">P</span><div class="command-result-text"><div class="command-result-title">has borrower</div><div class="command-result-meta">Object property · Lending Ontology</div></div></div>
+        <div class="command-group-label">Commands</div>
+        <div class="command-result" data-command="new-class"><svg class="icon"><use href="#i-plus"></use></svg><div class="command-result-text"><div class="command-result-title">Create class</div><div class="command-result-meta">Open a typed class-creation draft</div></div></div>
+        <div class="command-result" data-command="review"><svg class="icon"><use href="#i-changes"></use></svg><div class="command-result-text"><div class="command-result-title">Review staged changes</div><div class="command-result-meta">3 staged changes · 1 conflict</div></div></div>
+        <div class="command-result" data-command="fibo"><svg class="icon"><use href="#i-library"></use></svg><div class="command-result-text"><div class="command-result-title">Search FIBO</div><div class="command-result-meta">Curated foundations and wider catalog</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+
+  <script>
+    const icon = (name, cls = '') => `<svg class="icon ${cls}"><use href="#i-${name}"></use></svg>`;
+
+    const state = {
+      currentView: 'explore',
+      activeEntity: 'commercial-loan',
+      section: 'overview',
+      inspectorMode: 'ai',
+      inspectorOpen: true,
+      dockOpen: true,
+      staged: [
+        { id: 1, title: 'Create class “Commercial Loan”', meta: 'Maya · 8 min ago · lending.ttl', initials: 'MK', avatar: 'a-purple', badges: ['Valid'] },
+        { id: 2, title: 'Add superclass “Loan”', meta: 'Alex · 6 min ago · lending.ttl', initials: 'AR', avatar: 'a-blue', badges: ['Valid'] },
+        { id: 3, title: 'Set range of “has borrower” to “Party”', meta: 'Priya · 2 min ago · lending.ttl', initials: 'PS', avatar: 'a-teal', badges: ['Conflict'] }
+      ],
+      treeExpanded: new Set(['root', 'financial-product', 'loan', 'party']),
+      tabs: [
+        { id: 'overview', label: 'Project overview', type: 'grid' },
+        { id: 'commercial-loan', label: 'Commercial Loan', type: 'class', status: 'staged' },
+        { id: 'loan-agreement', label: 'Loan Agreement', type: 'class', status: 'external' }
+      ],
+      activeTab: 'commercial-loan'
+    };
+
+    const treeData = [
+      { id: 'root', label: 'Lending Ontology', type: 'root', children: [
+        { id: 'financial-product', label: 'Financial Product', type: 'class', count: 3, children: [
+          { id: 'loan', label: 'Loan', type: 'class', count: 2, children: [
+            { id: 'commercial-loan', label: 'Commercial Loan', type: 'class', staged: true },
+            { id: 'revolving-facility', label: 'Revolving Credit Facility', type: 'class', inferred: true }
+          ]},
+          { id: 'deposit-account', label: 'Deposit Account', type: 'class' }
+        ]},
+        { id: 'agreement', label: 'Agreement', type: 'class', count: 2, children: [
+          { id: 'loan-agreement', label: 'Loan Agreement', type: 'class', external: true },
+          { id: 'guarantee', label: 'Guarantee', type: 'class' }
+        ]},
+        { id: 'party', label: 'Party', type: 'class', count: 3, children: [
+          { id: 'organization', label: 'Organization', type: 'class' },
+          { id: 'person', label: 'Person', type: 'class' },
+          { id: 'borrower-role', label: 'Borrower Role', type: 'class', external: true }
+        ]}
+      ]}
+    ];
+
+    const entityData = {
+      'commercial-loan': {
+        label: 'Commercial Loan', kind: 'Class', source: 'Lending Ontology', file: 'ontology/lending.ttl', iri: 'https://example.com/entio/lending#CommercialLoan',
+        definition: 'A loan issued to an organization for business or commercial purposes, including working capital, equipment, and real-estate financing.',
+        badges: ['Local', 'Staged'], parent: 'Loan', inferredParent: 'Financial Product', children: ['Revolving Credit Facility', 'Term Loan'],
+        properties: [
+          ['has borrower', 'Party', 'Object property'],
+          ['has lender', 'Financial Institution', 'Object property'],
+          ['has principal amount', 'Monetary Amount', 'Datatype property'],
+          ['has maturity date', 'xsd:date', 'Datatype property']
+        ]
+      },
+      'loan': {
+        label: 'Loan', kind: 'Class', source: 'Lending Ontology', file: 'ontology/lending.ttl', iri: 'https://example.com/entio/lending#Loan',
+        definition: 'A financial arrangement in which one party provides funds to another with an expectation of repayment.',
+        badges: ['Local'], parent: 'Financial Product', inferredParent: 'Contractual Commitment', children: ['Commercial Loan', 'Consumer Loan'],
+        properties: [['has borrower','Party','Object property'],['has principal amount','Monetary Amount','Datatype property']]
+      },
+      'loan-agreement': {
+        label: 'Loan Agreement', kind: 'Class', source: 'FIBO · Agreements', file: 'FND/Agreements/Contracts.rdf', iri: 'https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/LoanAgreement',
+        definition: 'A contract that formalizes the terms and obligations associated with a loan between parties.',
+        badges: ['FIBO', 'External'], parent: 'Contract', inferredParent: 'Agreement', children: [],
+        properties: [['has party role','Party Role','Object property'],['has effective date','Date','Datatype property']]
+      }
+    };
+
+    function renderContextSidebar() {
+      const el = document.getElementById('contextSidebar');
+      if (state.currentView === 'explore') {
+        el.innerHTML = `
+          <div class="sidebar-header">
+            <div class="sidebar-title-row"><div class="sidebar-title">Ontology</div><button class="icon-button" title="Collapse sidebar">${icon('chevron-left','small')}</button></div>
+            <div class="search-input">${icon('search','small')}<input placeholder="Filter classes and properties" /></div>
+            <div class="segmented"><button class="active">Hierarchy</button><button>Classes</button><button>Properties</button><button>Individuals</button></div>
+          </div>
+          <div class="sidebar-content">
+            <div class="section-label">Project</div>
+            <div class="tree" id="ontologyTree">${renderTree(treeData, 0)}</div>
+            <div class="section-label">Properties</div>
+            ${propertySidebarRows()}
+          </div>`;
+      } else if (state.currentView === 'changes') {
+        el.innerHTML = `
+          <div class="sidebar-header">
+            <div class="sidebar-title-row"><div class="sidebar-title">Changes</div><button class="icon-button">${icon('filter','small')}</button></div>
+            <div class="search-input">${icon('search','small')}<input placeholder="Filter staged changes" /></div>
+            <div class="segmented"><button class="active">All</button><button>Mine</button><button>AI</button><button>Conflicts</button></div>
+          </div>
+          <div class="sidebar-content">
+            <div class="section-label">Shared staged set</div>
+            ${state.staged.map(s => `<div class="review-item"><div style="display:flex;gap:8px"><div class="avatar ${s.avatar}" style="width:24px;height:24px;margin:0">${s.initials}</div><div><div style="font-weight:700;font-size:11px">${s.title}</div><div style="font-size:9px;color:var(--text-muted);margin-top:3px">${s.meta}</div></div></div></div>`).join('')}
+          </div>`;
+      } else if (state.currentView === 'reasoning') {
+        el.innerHTML = sidebarSimple('Reasoning', 'Search inferences', [
+          ['Current applied graph','Completed','success'], ['Proposal preview','Completed','inferred'], ['Unsatisfiable classes','0','success'], ['Unsupported features','2','warning']
+        ]);
+      } else if (state.currentView === 'constraints') {
+        el.innerHTML = sidebarSimple('Constraints', 'Search findings', [
+          ['All findings','4',''], ['Violations','0','success'], ['Warnings','1','warning'], ['Information','3','asserted']
+        ]);
+      } else if (state.currentView === 'fibo') {
+        el.innerHTML = `
+          <div class="sidebar-header">
+            <div class="sidebar-title-row"><div class="sidebar-title">FIBO Catalog</div><span class="badge external">2026 Q2</span></div>
+            <div class="search-input">${icon('search','small')}<input placeholder="Search the FIBO catalog" value="loan agreement" /></div>
+            <div class="segmented"><button class="active">All</button><button>Classes</button><button>Properties</button></div>
+          </div>
+          <div class="sidebar-content">
+            <div class="section-label">Curated foundations</div>
+            ${['Agreements & Contracts','Parties & Roles','Documents & Records','Dates & Schedules','Money & Currency','Ownership & Control','Products & Services','Payments'].map((x,i)=>`<div class="tree-row ${i===0?'selected':''}" style="--depth:0"><span class="type-icon type-class">M</span><span class="tree-label">${x}</span><span class="tree-count">${[42,31,18,26,39,24,34,21][i]}</span></div>`).join('')}
+          </div>`;
+      } else if (state.currentView === 'activity') {
+        el.innerHTML = sidebarSimple('Activity', 'Filter activity', [['All events','24',''],['Changes','7','staged'],['Jobs','6','inferred'],['Collaboration','11','asserted']]);
+      } else if (state.currentView === 'settings') {
+        el.innerHTML = `
+          <div class="sidebar-header"><div class="sidebar-title-row"><div class="sidebar-title">Settings</div></div></div>
+          <div class="sidebar-content">
+            ${['Profile','Appearance','AI credential','Workspace','Keyboard shortcuts','About'].map((x,i)=>`<div class="tree-row ${i===2?'selected':''}" style="--depth:0"><span class="tree-label">${x}</span></div>`).join('')}
+          </div>`;
+      } else if (state.currentView === 'ai') {
+        el.innerHTML = sidebarSimple('Entio AI', 'Search conversations', [['Current entity','Commercial Loan','ai'],['Proposal review','3 changes','staged'],['FIBO search','Loan Agreement','external']]);
+      }
+      attachTreeListeners();
+    }
+
+    function sidebarSimple(title, placeholder, rows) {
+      return `<div class="sidebar-header"><div class="sidebar-title-row"><div class="sidebar-title">${title}</div><button class="icon-button">${icon('filter','small')}</button></div><div class="search-input">${icon('search','small')}<input placeholder="${placeholder}" /></div></div><div class="sidebar-content">${rows.map((r,i)=>`<div class="tree-row ${i===0?'selected':''}" style="--depth:0"><span class="tree-label">${r[0]}</span>${r[2]?`<span class="badge ${r[2]}">${r[1]}</span>`:`<span class="tree-count">${r[1]}</span>`}</div>`).join('')}</div>`;
+    }
+
+    function propertySidebarRows() {
+      const props = [
+        ['has borrower','object'], ['has lender','object'], ['has principal amount','datatype'], ['has maturity date','datatype']
+      ];
+      return props.map(([label,type]) => `<div class="tree-row" style="--depth:0"><span class="type-icon type-property">${type==='object'?'O':'D'}</span><span class="tree-label">${label}</span></div>`).join('');
+    }
+
+    function renderTree(nodes, depth) {
+      return nodes.map(node => {
+        const hasChildren = node.children && node.children.length;
+        const expanded = state.treeExpanded.has(node.id);
+        const selected = state.activeEntity === node.id;
+        return `<div class="tree-node">
+          <div class="tree-row ${selected?'selected':''}" style="--depth:${depth}" data-tree-id="${node.id}">
+            ${hasChildren ? `<button class="tree-chevron" data-toggle-id="${node.id}" aria-label="${expanded?'Collapse':'Expand'} ${node.label}">${icon(expanded?'chevron-down':'chevron-right','small')}</button>` : '<span style="width:18px"></span>'}
+            <span class="type-icon ${node.type==='class'?'type-class':'type-class'}">${node.type==='root'?'O':'C'}</span>
+            <span class="tree-label">${node.label}</span>
+            ${node.staged?'<span class="mini-status mini-staged" title="Staged"></span>':''}
+            ${node.inferred?'<span class="mini-status mini-inferred" title="Inferred relationship"></span>':''}
+            ${node.external?'<span class="badge external">FIBO</span>':''}
+            ${node.count?`<span class="tree-count">${node.count}</span>`:''}
+            ${node.id==='commercial-loan'?'<div class="avatar a-blue online" style="width:18px;height:18px;font-size:7px;margin:0" title="Alex is viewing">AR</div>':''}
+          </div>
+          ${hasChildren && expanded ? renderTree(node.children, depth+1) : ''}
+        </div>`;
+      }).join('');
+    }
+
+    function attachTreeListeners() {
+      document.querySelectorAll('[data-toggle-id]').forEach(btn => btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const id = btn.dataset.toggleId;
+        state.treeExpanded.has(id) ? state.treeExpanded.delete(id) : state.treeExpanded.add(id);
+        renderContextSidebar();
+      }));
+      document.querySelectorAll('[data-tree-id]').forEach(row => row.addEventListener('click', e => {
+        const id = row.dataset.treeId;
+        if (entityData[id]) openEntity(id);
+      }));
+    }
+
+    function renderTabs() {
+      const bar = document.getElementById('tabBar');
+      const moduleTabs = {
+        changes: [{id:'changes',label:'Proposal review',type:'changes',status:'staged'}],
+        reasoning: [{id:'reasoning',label:'Reasoning results',type:'reasoning'}],
+        constraints: [{id:'constraints',label:'SHACL findings',type:'shield',status:'warning'}],
+        fibo: [{id:'fibo',label:'FIBO Catalog',type:'library',status:'external'}],
+        activity: [{id:'activity',label:'Project activity',type:'activity'}],
+        settings: [{id:'settings',label:'Settings',type:'settings'}],
+        ai: [{id:'ai',label:'Entio AI',type:'sparkles',status:'ai'}]
+      };
+      const tabs = state.currentView === 'explore' ? state.tabs : moduleTabs[state.currentView];
+      const activeId = state.currentView === 'explore' ? state.activeTab : state.currentView;
+      bar.innerHTML = tabs.map(t => `<button class="workspace-tab ${t.id===activeId?'active':''}" data-tab-id="${t.id}">
+        ${tabIcon(t.type)}<span class="tab-label">${t.label}</span>${t.status?`<span class="tab-status" style="background:${statusColor(t.status)}"></span>`:''}${state.currentView==='explore'&&t.id!=='overview'?`<span class="tab-close" data-close-tab="${t.id}">${icon('close','small')}</span>`:''}
+      </button>`).join('') + `<button class="workspace-tab" style="min-width:38px;max-width:38px;justify-content:center" title="New tab">${icon('plus','small')}</button>`;
+      bar.querySelectorAll('[data-tab-id]').forEach(tab => tab.addEventListener('click', e => {
+        if (e.target.closest('[data-close-tab]')) return;
+        const id = tab.dataset.tabId;
+        if (state.currentView === 'explore') {
+          state.activeTab = id;
+          if (entityData[id]) state.activeEntity = id;
+          renderAll();
+        }
+      }));
+      bar.querySelectorAll('[data-close-tab]').forEach(close => close.addEventListener('click', e => {
+        e.stopPropagation();
+        const id = close.dataset.closeTab;
+        state.tabs = state.tabs.filter(t => t.id !== id);
+        if (state.activeTab === id) state.activeTab = state.tabs[state.tabs.length-1]?.id || 'overview';
+        renderAll();
+      }));
+    }
+
+    function tabIcon(type) {
+      if (type === 'class') return '<span class="type-icon type-class">C</span>';
+      const map = {grid:'grid',changes:'changes',reasoning:'reasoning',shield:'shield',library:'library',activity:'activity',settings:'settings',sparkles:'sparkles'};
+      return icon(map[type] || 'grid','small');
+    }
+    function statusColor(status) {
+      return {staged:'var(--staged)',external:'var(--external)',warning:'var(--warning)',ai:'#7e22ce'}[status] || 'var(--primary-500)';
+    }
+
+    function renderMain() {
+      const content = document.getElementById('mainContent');
+      if (state.currentView === 'explore') {
+        if (state.activeTab === 'overview') content.innerHTML = renderProjectOverview();
+        else content.innerHTML = renderEntityDetail(entityData[state.activeEntity] || entityData['commercial-loan']);
+      } else if (state.currentView === 'changes') content.innerHTML = renderChangesPage();
+      else if (state.currentView === 'reasoning') content.innerHTML = renderReasoningPage();
+      else if (state.currentView === 'constraints') content.innerHTML = renderConstraintsPage();
+      else if (state.currentView === 'fibo') content.innerHTML = renderFiboPage();
+      else if (state.currentView === 'activity') content.innerHTML = renderActivityPage();
+      else if (state.currentView === 'settings') content.innerHTML = renderSettingsPage();
+      else if (state.currentView === 'ai') content.innerHTML = renderAiPage();
+      attachMainListeners();
+    }
+
+    function renderEntityDetail(entity) {
+      return `<div class="content-wrap">
+        <div class="breadcrumbs"><span class="clickable">Lending Ontology</span><span>/</span><span class="clickable">${entity.kind}s</span><span>/</span><span>${entity.label}</span></div>
+        <div class="entity-header">
+          <div class="entity-mark">${icon('branch','large')}</div>
+          <div>
+            <div class="entity-title-row"><div class="entity-title">${entity.label}</div><span class="badge asserted">${entity.kind}</span>${entity.badges.map(b=>`<span class="badge ${b==='FIBO'||b==='External'?'external':b==='Staged'?'staged':''}">${b}</span>`).join('')}</div>
+            <p class="entity-summary">${entity.definition}</p>
+            <div class="source-line">${icon(entity.badges.includes('FIBO')?'external':'grid','small')}<span>${entity.source}</span><span>›</span><span>${entity.file}</span></div>
+            <div class="iri-row"><span>IRI</span><span class="iri-value">${entity.iri}</span><button class="icon-button" title="Copy IRI" id="copyIri">${icon('copy','small')}</button></div>
+          </div>
+          <div class="entity-actions"><button class="button" id="editButton">${icon('edit','small')}Edit</button><button class="icon-button" title="More actions">${icon('more')}</button></div>
+        </div>
+        <div class="section-tabs">
+          ${['overview','relationships','usage','constraints','activity','rdf'].map(s=>`<button class="section-tab ${state.section===s?'active':''}" data-section="${s}">${capitalize(s)}</button>`).join('')}
+        </div>
+        ${renderEntitySection(entity)}
+      </div>`;
+    }
+
+    function renderEntitySection(entity) {
+      if (state.section === 'relationships') return `<div style="margin-top:18px"><div class="content-section"><div class="section-heading-row"><div class="section-heading">Class relationships</div><button class="button small">${icon('plus','small')}Add relationship</button></div>${relationshipRows(entity)}</div>${propertiesTable(entity.properties)}</div>`;
+      if (state.section === 'usage') return `<div style="margin-top:18px"><div class="content-section"><div class="section-heading-row"><div class="section-heading">Where this entity is used</div><span class="section-count">8 references</span></div>${['Superclass of Term Loan','Domain of has borrower','Domain of has lender','Target of LoanShape','Used by staged change #2'].map((x,i)=>`<div class="impact-row"><span class="impact-icon ${i===4?'impact-inferred':'impact-add'}">${icon(i===4?'changes':'external','small')}</span><div><div style="font-weight:600;font-size:11px">${x}</div><div style="font-size:9px;color:var(--text-muted);margin-top:2px">${i===4?'Shared staged set':'Lending Ontology'}</div></div></div>`).join('')}</div></div>`;
+      if (state.section === 'constraints') return `<div style="margin-top:18px"><div class="inline-alert warning">${icon('alert','small')}<div><strong>1 SHACL warning</strong><div style="margin-top:3px">Commercial loans should have a maturity date before they are approved.</div></div></div><div class="content-section" style="margin-top:16px"><div class="section-heading">Relevant shapes</div><table class="result-table" style="margin-top:9px"><tr><th>Shape</th><th>Path</th><th>Constraint</th><th>Status</th></tr><tr><td>CommercialLoanShape</td><td>has maturity date</td><td>minCount 1</td><td><span class="badge">Info</span></td></tr><tr><td>LoanBorrowerShape</td><td>has borrower</td><td>class Party</td><td><span class="badge success">Valid</span></td></tr></table></div></div>`;
+      if (state.section === 'activity') return `<div style="margin-top:18px" class="timeline">${activityItems().join('')}</div>`;
+      if (state.section === 'rdf') return `<div style="margin-top:18px"><div class="section-heading-row"><div class="section-heading">Asserted RDF statements</div><div><button class="button small">Inferred view</button> <button class="button small">${icon('copy','small')}Copy</button></div></div><pre style="background:#111827;color:#dbeafe;padding:14px;border-radius:9px;line-height:1.6;overflow:auto;font-family:var(--font-mono);font-size:11px">lending:CommercialLoan
+    a owl:Class ;
+    rdfs:label "Commercial Loan" ;
+    rdfs:subClassOf lending:Loan ;
+    skos:definition "A loan issued to an organization..." .</pre></div>`;
+      return `<div class="detail-grid">
+        <div>
+          <section class="content-section"><div class="section-heading-row"><div class="section-heading">Definition</div><button class="button ghost small" id="editDefinition">Edit</button></div><div class="body-text">${entity.definition}</div></section>
+          <section class="content-section"><div class="section-heading-row"><div class="section-heading">Relationships</div><span class="section-count">4 visible</span></div>${relationshipRows(entity)}</section>
+          <section class="content-section"><div class="section-heading-row"><div class="section-heading">Key properties</div><button class="button ghost small">View all</button></div>${propertiesTable(entity.properties)}</section>
+        </div>
+        <div>
+          <div class="summary-panel"><div class="summary-panel-header"><span>Reasoning</span><span class="badge success">Current</span></div><div class="summary-panel-body"><div class="metric-row"><span>Consistency</span><span class="metric-value" style="color:var(--success)">Consistent</span></div><div class="metric-row"><span>Inferred parents</span><span class="metric-value">1</span></div><div class="metric-row"><span>Inferred types</span><span class="metric-value">0</span></div><button class="button ghost small" data-view="reasoning">Open reasoning ${icon('chevron-right','small')}</button></div></div>
+          <div class="summary-panel"><div class="summary-panel-header"><span>SHACL</span><span class="badge staged">1 warning</span></div><div class="summary-panel-body"><div class="metric-row"><span>Violations</span><span class="metric-value">0</span></div><div class="metric-row"><span>Warnings</span><span class="metric-value" style="color:var(--warning)">1</span></div><div class="metric-row"><span>Mode</span><span class="metric-value">Asserted</span></div><button class="button ghost small" data-view="constraints">Open findings ${icon('chevron-right','small')}</button></div></div>
+          <div class="inline-alert success">${icon('check','small')}<div><strong>Latest preview is valid</strong><div style="margin-top:3px">The staged changes preserve semantic equivalence.</div></div></div>
+        </div>
+      </div>`;
+    }
+
+    function relationshipRows(entity) {
+      return `<div class="relationship-list">
+        <div class="relationship-row"><div class="relationship-kind">Direct parent</div><div class="relationship-target"><span class="type-icon type-class">C</span><span>${entity.parent}</span></div><span class="badge asserted">Asserted</span></div>
+        <div class="relationship-row"><div class="relationship-kind">Broader parent</div><div class="relationship-target"><span class="type-icon type-class">C</span><span>${entity.inferredParent}</span></div><span class="badge inferred">Inferred</span></div>
+        ${(entity.children||[]).slice(0,2).map(c=>`<div class="relationship-row"><div class="relationship-kind">Direct child</div><div class="relationship-target"><span class="type-icon type-class">C</span><span>${c}</span></div><span class="badge asserted">Asserted</span></div>`).join('')}
+      </div>`;
+    }
+
+    function propertiesTable(properties=[]) {
+      return `<table class="property-table"><thead><tr><th>Property</th><th>Expected value</th><th>Kind</th></tr></thead><tbody>${properties.map(p=>`<tr><td><div class="property-name"><span class="type-icon type-property">P</span>${p[0]}</div></td><td>${p[1]}</td><td><span class="badge">${p[2]}</span></td></tr>`).join('')}</tbody></table>`;
+    }
+
+    function renderProjectOverview() {
+      return `<div class="module-page"><div class="page-heading"><div><div class="page-title">Lending Ontology</div><div class="page-subtitle">A collaborative ontology project for lending products, parties, agreements, and financial relationships.</div></div><button class="button primary" id="newClassButton">${icon('plus','small')}Create class</button></div><div class="metrics"><div class="metric-card"><div class="metric-card-label">Classes</div><div class="metric-card-value">42</div><div class="metric-card-detail">4 staged changes</div></div><div class="metric-card"><div class="metric-card-label">Properties</div><div class="metric-card-value">27</div><div class="metric-card-detail">18 object · 9 datatype</div></div><div class="metric-card"><div class="metric-card-label">Individuals</div><div class="metric-card-value">16</div><div class="metric-card-detail">3 active loan records</div></div><div class="metric-card"><div class="metric-card-label">Semantic health</div><div class="metric-card-value" style="color:var(--success)">Good</div><div class="metric-card-detail">0 violations · 1 warning</div></div></div><div class="detail-grid"><div><div class="content-section"><div class="section-heading-row"><div class="section-heading">Recently opened</div></div>${['Commercial Loan','Loan Agreement','has borrower','Acme Corporation'].map((x,i)=>`<div class="impact-row"><span class="type-icon ${i===2?'type-property':i===3?'type-individual':'type-class'}">${i===2?'P':i===3?'I':'C'}</span><div style="flex:1"><div style="font-weight:600;font-size:11px">${x}</div><div style="font-size:9px;color:var(--text-muted);margin-top:2px">${i===1?'FIBO · Agreements':'Lending Ontology'}</div></div>${i===1?'<span class="badge external">FIBO</span>':''}</div>`).join('')}</div></div><div><div class="summary-panel"><div class="summary-panel-header">Connected users<span class="badge success">3 online</span></div><div class="summary-panel-body"><div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><div class="avatar a-purple online" style="margin:0">MK</div><div><strong>Maya Kim</strong><div style="font-size:9px;color:var(--text-muted)">Editing Commercial Loan</div></div></div><div style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><div class="avatar a-blue online" style="margin:0">AR</div><div><strong>Alex Rivera</strong><div style="font-size:9px;color:var(--text-muted)">Viewing Loan</div></div></div><div style="display:flex;gap:8px;align-items:center"><div class="avatar a-teal online" style="margin:0">PS</div><div><strong>Priya Shah</strong><div style="font-size:9px;color:var(--text-muted)">Reviewing staged changes</div></div></div></div></div></div></div>`;
+    }
+
+    function renderChangesPage() {
+      return `<div class="module-page"><div class="page-heading"><div><div class="page-title">Proposal review</div><div class="page-subtitle">Review explicit changes, reasoning impact, and SHACL impact before anything is written to the ontology.</div></div><span class="badge staged">3 staged changes</span></div><div class="review-layout"><div class="review-list"><div class="section-heading-row" style="padding:4px 3px 8px"><div class="section-heading">Staged changes</div><span class="section-count">3 contributors</span></div>${state.staged.map((s,i)=>`<div class="review-item"><div style="display:flex;gap:8px"><div class="avatar ${s.avatar}" style="width:25px;height:25px;margin:0">${s.initials}</div><div style="min-width:0"><div style="font-weight:700;font-size:11px">${i+1}. ${s.title}</div><div style="font-size:9px;color:var(--text-muted);margin-top:3px">${s.meta}</div><div style="margin-top:6px">${s.badges.includes('Conflict')?'<span class="badge danger">Conflict</span>':'<span class="badge success">Valid</span>'}</div></div></div></div>`).join('')}</div><div class="review-impact"><div class="impact-tabs"><button class="impact-tab active">Explicit changes</button><button class="impact-tab">Reasoning impact</button><button class="impact-tab">SHACL impact</button><button class="impact-tab">Files</button></div><div class="impact-content"><div class="inline-alert danger" style="margin-bottom:12px">${icon('alert','small')}<div><strong>One staged change needs attention</strong><div style="margin-top:3px">The range change was prepared against an older graph. Re-prepare or remove it before approval.</div></div></div>${['Add class “Commercial Loan”','Add superclass “Loan”','Add definition “A loan issued to an organization…”'].map(x=>`<div class="impact-row"><span class="impact-icon impact-add">${icon('plus','small')}</span><div><div style="font-weight:700;font-size:11px">${x}</div><div style="font-size:9px;color:var(--text-muted);margin-top:2px">ontology/lending.ttl</div></div></div>`).join('')}<div class="impact-row"><span class="impact-icon impact-inferred">${icon('sparkles','small')}</span><div><div style="font-weight:700;font-size:11px">New inferred parent “Financial Product”</div><div style="font-size:9px;color:var(--text-muted);margin-top:2px">Commercial Loan → Loan → Financial Product</div></div><span class="badge inferred">Inferred</span></div></div><div class="review-footer"><div><strong>3 changes</strong><span style="color:var(--text-muted);font-size:10px"> · 1 conflict · 1 file</span></div><div style="display:flex;gap:8px"><button class="button">Reject</button><button class="button primary" title="Resolve conflicts before approval" style="opacity:.55;cursor:not-allowed">Approve & apply</button></div></div></div></div></div>`;
+    }
+
+    function renderReasoningPage() {
+      return `<div class="module-page"><div class="page-heading"><div><div class="page-title">Reasoning</div><div class="page-subtitle">HermiT reasoning for the applied graph. The latest result matches the current graph fingerprint.</div></div><div style="display:flex;gap:8px"><button class="button">${icon('refresh','small')}Run again</button><span class="badge success">Completed</span></div></div><div class="metrics"><div class="metric-card"><div class="metric-card-label">Consistency</div><div class="metric-card-value" style="color:var(--success)">Consistent</div><div class="metric-card-detail">No contradictions found</div></div><div class="metric-card"><div class="metric-card-label">Inferred links</div><div class="metric-card-value">18</div><div class="metric-card-detail">7 new in this graph</div></div><div class="metric-card"><div class="metric-card-label">Inferred types</div><div class="metric-card-value">9</div><div class="metric-card-detail">Across 6 individuals</div></div><div class="metric-card"><div class="metric-card-label">Unsatisfiable</div><div class="metric-card-value">0</div><div class="metric-card-detail">All named classes usable</div></div></div><table class="result-table"><thead><tr><th>Subject</th><th>Inferred relationship</th><th>Object</th><th>Explanation</th></tr></thead><tbody>${[['Commercial Loan','subclass of','Financial Product','Through Loan'],['Loan Agreement','subclass of','Agreement','Equivalent class axiom'],['Acme Facility 2026','type','Commercial Loan','Type propagation'],['Northstar Bank','type','Financial Institution','Hierarchy propagation']].map(r=>`<tr><td><strong>${r[0]}</strong></td><td><span class="badge inferred">${r[1]}</span></td><td><strong>${r[2]}</strong></td><td>${r[3]} <button class="button ghost small" id="explainButton">Explain</button></td></tr>`).join('')}</tbody></table></div>`;
+    }
+
+    function renderConstraintsPage() {
+      return `<div class="module-page"><div class="page-heading"><div><div class="page-title">SHACL validation</div><div class="page-subtitle">Asserted-only validation for the applied graph. Shape views are inspection-focused in this prototype.</div></div><div style="display:flex;gap:8px"><span class="badge">Asserted only</span><button class="button">${icon('refresh','small')}Validate</button></div></div><div class="metrics"><div class="metric-card"><div class="metric-card-label">Violations</div><div class="metric-card-value">0</div><div class="metric-card-detail">No blocking issues</div></div><div class="metric-card"><div class="metric-card-label">Warnings</div><div class="metric-card-value" style="color:var(--warning)">1</div><div class="metric-card-detail">Needs review</div></div><div class="metric-card"><div class="metric-card-label">Information</div><div class="metric-card-value">3</div><div class="metric-card-detail">Non-blocking guidance</div></div><div class="metric-card"><div class="metric-card-label">Shapes</div><div class="metric-card-value">6</div><div class="metric-card-detail">Across 2 source files</div></div></div><table class="result-table"><thead><tr><th>Severity</th><th>Entity</th><th>Property</th><th>Message</th><th>State</th></tr></thead><tbody><tr><td><span class="badge staged">Warning</span></td><td><strong>Commercial Loan</strong></td><td>has maturity date</td><td>Commercial loans should declare a maturity date.</td><td><span class="badge">Current</span></td></tr><tr><td><span class="badge asserted">Info</span></td><td><strong>Acme Facility 2026</strong></td><td>has lender</td><td>A lender is recommended for traceability.</td><td><span class="badge">Current</span></td></tr><tr><td><span class="badge success">Resolved</span></td><td><strong>Loan</strong></td><td>has borrower</td><td>Expected class Party is now satisfied.</td><td><span class="badge success">Resolved</span></td></tr></tbody></table></div>`;
+    }
+
+    function renderFiboPage() {
+      return `<div class="module-page"><div class="page-heading"><div><div class="page-title">FIBO Catalog</div><div class="page-subtitle">Browse the immutable bundled catalog, inspect deterministic match reasons, and stage approved external reuse into the local project.</div></div><span class="badge external">master_2026Q2</span></div><div class="fibo-layout"><div class="fibo-pane"><div class="fibo-pane-header">Modules <span class="section-count">8 curated</span></div>${['Agreements & Contracts','Parties & Roles','Documents & Records','Dates & Schedules','Money & Currency','Ownership & Control','Products & Services','Payments'].map((x,i)=>`<div class="module-row ${i===0?'active':''}"><div style="font-weight:700;font-size:11px">${x}</div><div style="font-size:9px;color:var(--text-muted);margin-top:3px">${[42,31,18,26,39,24,34,21][i]} catalog elements</div></div>`).join('')}</div><div class="fibo-pane"><div class="fibo-pane-header"><span>Search results</span><span class="section-count">6 matches</span></div>${[['Loan Agreement','Class','Strong','An agreement that formalizes the terms of a loan.'],['Credit Agreement','Class','Strong','A contract governing the provision of credit.'],['has borrower','Object property','Possible','Relates a lending arrangement to a borrower role.'],['Loan Contract','Class','Possible','A formal contract associated with a loan.'],['has lender','Object property','Possible','Relates a lending arrangement to a lending party.']].map((r,i)=>`<div class="candidate-row ${i===0?'active':''}"><div class="candidate-label"><span class="type-icon ${r[1]==='Class'?'type-class':'type-property'}">${r[1]==='Class'?'C':'P'}</span>${r[0]}</div><div class="candidate-definition">${r[3]}</div><div class="candidate-meta"><span class="badge external">FIBO</span><span class="badge">${r[1]}</span><span class="badge ${r[2]==='Strong'?'success':''}">${r[2]}</span></div></div>`).join('')}</div><div class="fibo-pane"><div class="fibo-pane-header">Candidate detail <button class="icon-button">${icon('external','small')}</button></div><div class="detail-pane-content"><div class="entity-title-row"><div style="font-size:18px;font-weight:700">Loan Agreement</div><span class="badge external">FIBO</span><span class="badge">Class</span></div><p class="body-text" style="margin-top:8px">A contract that formalizes the terms, rights, and obligations associated with a loan between parties.</p><div class="iri-row"><span>IRI</span><span class="iri-value">https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/LoanAgreement</span>${icon('copy','small')}</div><div class="content-section" style="margin-top:16px"><div class="section-heading">Match quality</div><div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px"><strong>Strong match</strong><span>58 / 100</span></div><div class="score-bar"><span style="width:58%"></span></div><div class="reason-list"><div class="reason-row"><span>Exact normalized label match</span><strong>+50</strong></div><div class="reason-row"><span>Definition token overlap</span><strong>+4</strong></div><div class="reason-row"><span>Curated Foundations module</span><strong>+5</strong></div></div></div><div class="content-section"><div class="section-heading">Dependencies</div><div class="metric-row"><span>Source ontology</span><span class="badge external">Required</span></div><div class="metric-row"><span>Contract</span><span class="badge">Parent</span></div><div class="metric-row"><span>Party Role</span><span class="badge">Range context</span></div></div><div style="display:flex;gap:8px"><button class="button primary" id="useFiboButton">Use directly</button><button class="button">Create local subclass</button></div></div></div></div></div>`;
+    }
+
+    function renderActivityPage() {
+      return `<div class="module-page"><div class="page-heading"><div><div class="page-title">Project activity</div><div class="page-subtitle">A compact view of collaboration events and semantic jobs for the current project session.</div></div><button class="button">${icon('filter','small')}Filter</button></div><div class="timeline">${activityItems().join('')}</div></div>`;
+    }
+
+    function activityItems() {
+      return [
+        ['Maya staged “Create class Commercial Loan”','2 minutes ago · Change'],
+        ['Reasoning completed for proposal preview','3 minutes ago · 18 inferred relationships'],
+        ['Priya started reviewing the shared staged set','5 minutes ago · Collaboration'],
+        ['Alex opened “Loan”','6 minutes ago · Entity activity'],
+        ['SHACL validation completed','8 minutes ago · 1 warning'],
+        ['Maya joined the project session','12 minutes ago · Collaboration']
+      ].map((x,i)=>`<div class="timeline-item"><div class="timeline-dot" style="background:${i===1?'var(--inferred)':i===4?'var(--warning)':'var(--primary-500)'}"></div><div class="timeline-title">${x[0]}</div><div class="timeline-meta">${x[1]}</div></div>`);
+    }
+
+    function renderSettingsPage() {
+      return `<div class="module-page"><div class="page-heading"><div><div class="page-title">AI credential</div><div class="page-subtitle">Your OpenAI API key is held only in server-side session memory and is never shared with collaborators or written to project files.</div></div><span class="badge success">Configured</span></div><div style="max-width:640px"><div class="summary-panel"><div class="summary-panel-header"><span>OpenAI API key</span><span class="badge success">Session active</span></div><div class="summary-panel-body"><div class="form-group"><label class="form-label">Credential status</label><div class="form-input" style="display:flex;align-items:center;gap:8px;color:var(--text-muted)">${icon('lock','small')}••••••••••••••••••••••••••••••••</div><div class="field-help">The key will be removed on logout, session expiration, explicit removal, or server restart.</div></div><div style="display:flex;gap:8px"><button class="button">Test key</button><button class="button">Replace</button><button class="button danger">Remove</button></div></div></div><div class="inline-alert success">${icon('check','small')}<div><strong>Non-AI features do not require a key.</strong><div style="margin-top:3px">Ontology editing, reasoning, SHACL, FIBO, and collaboration remain fully available.</div></div></div></div></div>`;
+    }
+
+    function renderAiPage() {
+      return `<div class="module-page"><div class="page-heading"><div><div class="page-title">Entio AI</div><div class="page-subtitle">Context-aware assistance grounded in Entio's asserted facts, inferences, SHACL findings, and FIBO results.</div></div><span class="badge ai">OpenAI key configured</span></div><div style="max-width:820px;margin:0 auto"><div class="summary-panel"><div class="summary-panel-header"><span>Current context</span><span class="badge">Commercial Loan</span></div><div class="summary-panel-body">${renderAiThread()}</div></div></div></div>`;
+    }
+
+    function renderAiThread() {
+      return `<div class="context-chips"><span class="context-chip"><span class="type-icon type-class" style="width:13px;height:13px;font-size:7px">C</span>Commercial Loan ${icon('close','small')}</span><span class="context-chip">${icon('reasoning','small')}Current reasoning ${icon('close','small')}</span></div><div class="chat-thread"><div class="chat-message user">Explain this class and suggest anything that would make it easier to find in documents.</div><div class="chat-message assistant"><div class="chat-label">Entio AI</div><div>Commercial Loan is a specialized form of Loan used for business financing. It inherits Financial Product through its asserted parent Loan.</div><div class="evidence-list"><div class="evidence-row"><span class="badge asserted">Asserted</span><span>Commercial Loan is a subclass of Loan.</span></div><div class="evidence-row"><span class="badge inferred">Inferred</span><span>Commercial Loan is a subclass of Financial Product.</span></div></div><div class="suggestion-card"><div class="suggestion-title">${icon('sparkles','small')}Suggested typed change</div><div class="suggestion-text">Add alternate label <strong>“Business Loan”</strong> to improve document matching and user search.</div><button class="button primary small" id="aiStageButton">Preview & stage</button></div></div></div><div class="chat-compose"><textarea placeholder="Ask about this ontology context…"></textarea><div class="compose-actions"><span style="color:var(--text-muted);font-size:9px">Structured project context only</span><button class="icon-button" title="Send">${icon('send')}</button></div></div>`;
+    }
+
+    function renderInspector() {
+      const inspector = document.getElementById('inspector');
+      inspector.classList.toggle('hidden', !state.inspectorOpen);
+      if (!state.inspectorOpen) return;
+      if (state.inspectorMode === 'edit') {
+        inspector.innerHTML = `<div class="inspector-header"><div class="inspector-title">${icon('edit','small')}Edit class</div><button class="icon-button" id="closeInspector">${icon('close','small')}</button></div><div class="inspector-body"><div class="context-chips"><span class="context-chip"><span class="type-icon type-class" style="width:13px;height:13px;font-size:7px">C</span>Commercial Loan</span></div><div class="form-group"><label class="form-label">Edit operation</label><select class="form-select"><option>Add alternate label</option><option>Edit definition</option><option>Add superclass</option><option>Create subclass</option></select></div><div class="form-group"><label class="form-label">Alternate label</label><input class="form-input" id="editValue" value="Business Loan" /><div class="field-help">This value will be added with skos:altLabel after review.</div></div><div class="form-group"><label class="form-label">Source</label><select class="form-select"><option>lending.ttl</option></select></div><div class="inline-alert success">${icon('check','small')}<div><strong>Draft is valid</strong><div style="margin-top:3px">No source file has been changed.</div></div></div></div><div class="inspector-footer"><button class="button" id="cancelEdit">Cancel</button><button class="button primary" id="stageEditButton">Preview & stage</button></div>`;
+      } else if (state.inspectorMode === 'explanation') {
+        inspector.innerHTML = `<div class="inspector-header"><div class="inspector-title">${icon('reasoning','small')}Inference explanation</div><button class="icon-button" id="closeInspector">${icon('close','small')}</button></div><div class="inspector-body"><div class="chat-label">Conclusion</div><div style="font-weight:700;margin-bottom:12px">Commercial Loan is a subclass of Financial Product.</div><div class="chat-label">Supporting asserted facts</div><div class="evidence-list"><div class="evidence-row"><span class="badge asserted">Asserted</span><span>Commercial Loan is a subclass of Loan.</span></div><div class="evidence-row"><span class="badge asserted">Asserted</span><span>Loan is a subclass of Financial Product.</span></div></div><div class="inline-alert" style="margin-top:14px">${icon('branch','small')}<div><strong>Rule</strong><div style="margin-top:3px">Transitive subclass hierarchy.</div></div></div></div>`;
+      } else {
+        inspector.innerHTML = `<div class="inspector-header"><div class="inspector-title">${icon('sparkles','small')}Entio AI</div><div style="display:flex;align-items:center;gap:5px"><span class="badge success">Key configured</span><button class="icon-button" id="closeInspector">${icon('close','small')}</button></div></div><div class="inspector-body">${renderAiThread()}</div>`;
+      }
+      attachInspectorListeners();
+    }
+
+    function renderStagedList() {
+      const list = document.getElementById('stagedList');
+      list.innerHTML = state.staged.map(s => `<div class="staged-row"><div class="avatar ${s.avatar}" style="width:27px;height:27px;margin:0">${s.initials}</div><div><div class="staged-title">${s.title}${s.badges.includes('AI')?'<span class="badge ai">AI suggestion</span>':''}${s.badges.includes('Conflict')?'<span class="badge danger">Conflict</span>':'<span class="badge success">Valid</span>'}</div><div class="staged-meta">${s.meta}</div></div><div class="staged-actions">${s.badges.includes('Conflict')?'<button class="button small">Re-prepare</button>':''}<button class="icon-button" title="Edit">${icon('edit','small')}</button><button class="icon-button" title="Remove">${icon('close','small')}</button></div></div>`).join('');
+      updateCounts();
+    }
+
+    function attachMainListeners() {
+      document.querySelectorAll('[data-section]').forEach(btn => btn.addEventListener('click', () => { state.section = btn.dataset.section; renderMain(); }));
+      document.querySelectorAll('[data-view]').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.view)));
+      const edit = document.getElementById('editButton'); if (edit) edit.addEventListener('click', () => openInspector('edit'));
+      const editDef = document.getElementById('editDefinition'); if (editDef) editDef.addEventListener('click', () => openInspector('edit'));
+      const newClass = document.getElementById('newClassButton'); if (newClass) newClass.addEventListener('click', () => openInspector('edit'));
+      const fibo = document.getElementById('useFiboButton'); if (fibo) fibo.addEventListener('click', () => addStage('Reuse FIBO class “Loan Agreement”','JD','a-orange',['Valid']));
+      document.querySelectorAll('#explainButton').forEach(btn => btn.addEventListener('click', () => openInspector('explanation')));
+      const copy = document.getElementById('copyIri'); if (copy) copy.addEventListener('click', () => showToast('IRI copied','The technical identifier was copied to the clipboard.'));
+    }
+
+    function attachInspectorListeners() {
+      const close = document.getElementById('closeInspector'); if (close) close.addEventListener('click', () => { state.inspectorOpen = false; renderInspector(); });
+      const cancel = document.getElementById('cancelEdit'); if (cancel) cancel.addEventListener('click', () => openInspector('ai'));
+      const stage = document.getElementById('stageEditButton'); if (stage) stage.addEventListener('click', () => addStage('Add alternate label “Business Loan”','JD','a-orange',['Valid']));
+      const aiStage = document.getElementById('aiStageButton'); if (aiStage) aiStage.addEventListener('click', () => addStage('Add alternate label “Business Loan”','JD','a-orange',['Valid','AI']));
+    }
+
+    function addStage(title, initials, avatar, badges) {
+      state.staged.push({id:Date.now(), title, meta:'You · just now · lending.ttl', initials, avatar, badges});
+      state.inspectorMode = 'ai';
+      state.inspectorOpen = true;
+      renderStagedList();
+      renderInspector();
+      showToast('Change staged', `${title} was added to the shared staged set. No source file was changed.`);
+    }
+
+    function openInspector(mode) {
+      state.inspectorMode = mode;
+      state.inspectorOpen = true;
+      renderInspector();
+    }
+
+    function openEntity(id) {
+      state.currentView = 'explore';
+      state.activeEntity = id;
+      state.activeTab = id;
+      if (!state.tabs.some(t => t.id === id)) state.tabs.push({id, label:entityData[id].label, type:'class', status:entityData[id].badges.includes('FIBO')?'external':undefined});
+      renderAll();
+    }
+
+    function switchView(view) {
+      state.currentView = view;
+      document.querySelectorAll('.rail-button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+      if (view === 'ai') { state.inspectorOpen = true; state.inspectorMode = 'ai'; }
+      renderAll();
+    }
+
+    function updateCounts() {
+      document.getElementById('headerStagedCount').textContent = `${state.staged.length} staged`;
+      document.getElementById('railStagedCount').textContent = state.staged.length;
+      document.getElementById('dockStagedCount').textContent = state.staged.length;
+    }
+
+    function showToast(title, message) {
+      const region = document.getElementById('toastRegion');
+      const el = document.createElement('div');
+      el.className = 'toast';
+      el.innerHTML = `<span class="impact-icon impact-add">${icon('check','small')}</span><div><div class="toast-title">${title}</div><div class="toast-message">${message}</div></div>`;
+      region.appendChild(el);
+      setTimeout(() => el.remove(), 4300);
+    }
+
+    function capitalize(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
+
+    function renderAll() {
+      renderContextSidebar();
+      renderTabs();
+      renderMain();
+      renderInspector();
+      renderStagedList();
+      document.getElementById('bottomDock').classList.toggle('collapsed', !state.dockOpen);
+      document.querySelectorAll('.rail-button').forEach(b => b.classList.toggle('active', b.dataset.view === state.currentView));
+    }
+
+    document.querySelectorAll('.rail-button').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.view)));
+    document.querySelectorAll('.status-chip[data-view]').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.view)));
+    document.getElementById('aiHeaderButton').addEventListener('click', () => { state.inspectorMode='ai'; state.inspectorOpen=true; renderInspector(); });
+    document.getElementById('dockToggle').addEventListener('click', e => {
+      if (e.target.closest('#reviewButton') || e.target.closest('.dock-tab')) return;
+      state.dockOpen = !state.dockOpen;
+      document.getElementById('bottomDock').classList.toggle('collapsed', !state.dockOpen);
+      document.getElementById('dockChevron').innerHTML = `<use href="#i-${state.dockOpen?'chevron-down':'chevron-up'}"></use>`;
+    });
+    document.getElementById('reviewButton').addEventListener('click', e => { e.stopPropagation(); switchView('changes'); });
+
+    const commandOverlay = document.getElementById('commandOverlay');
+    const openCommand = () => { commandOverlay.classList.add('open'); setTimeout(()=>document.getElementById('commandInput').focus(),0); };
+    const closeCommand = () => commandOverlay.classList.remove('open');
+    document.getElementById('openCommand').addEventListener('click', openCommand);
+    commandOverlay.addEventListener('click', e => { if (e.target === commandOverlay) closeCommand(); });
+    document.addEventListener('keydown', e => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openCommand(); }
+      if (e.key === 'Escape') closeCommand();
+    });
+    document.querySelectorAll('[data-command]').forEach(r => r.addEventListener('click', () => {
+      const cmd = r.dataset.command;
+      closeCommand();
+      if (cmd === 'commercial-loan') openEntity('commercial-loan');
+      else if (cmd === 'loan') openEntity('loan');
+      else if (cmd === 'new-class') openInspector('edit');
+      else if (cmd === 'review') switchView('changes');
+      else if (cmd === 'fibo') switchView('fibo');
+      else showToast('Command selected', 'This prototype demonstrates the intended interaction model.');
+    }));
+
+    renderAll();
+  </script>
+</body>
+</html>
