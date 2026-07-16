@@ -18,6 +18,15 @@ import {
   submitSemanticJob,
   type WebSemanticJobRequest,
   type WebSemanticJobStatus,
+  loadFiboDetails,
+  loadFiboModuleElements,
+  loadFiboModules,
+  searchFibo,
+  stageFiboProposal,
+  type WebFiboDetailsResponse,
+  type WebFiboElement,
+  type WebFiboModule,
+  type WebFiboProposalRequest,
   type WebEntityDetailResponse,
   type WebHierarchyResponse,
   type WebProjectSummaryResponse,
@@ -35,6 +44,10 @@ export const queryKeys = {
   search: (projectId: string, text: string) => ["project", projectId, "search", text] as const,
   staged: (projectId: string) => ["project", projectId, "staged"] as const,
   semanticJob: (projectId: string, jobId: string) => ["project", projectId, "semantic-job", jobId] as const,
+  fiboModules: (projectId: string) => ["project", projectId, "fibo", "modules"] as const,
+  fiboElements: (projectId: string, moduleIri: string) => ["project", projectId, "fibo", "elements", moduleIri] as const,
+  fiboSearch: (projectId: string, text: string) => ["project", projectId, "fibo", "search", text] as const,
+  fiboDetails: (projectId: string, iri: string) => ["project", projectId, "fibo", "details", iri] as const,
 };
 
 export function useProjects() {
@@ -122,4 +135,44 @@ export function useSemanticJobActions(projectId: string) {
     submit: useMutation({ mutationFn: (request: WebSemanticJobRequest) => submitSemanticJob(projectId, request), onSuccess: refresh }),
     cancel: useMutation({ mutationFn: (jobId: string) => cancelSemanticJob(projectId, jobId), onSuccess: refresh }),
   };
+}
+
+export function useFiboModules(projectId: string) {
+  return useQuery<{ sourceId: string; release: string; page: WebPage<WebFiboModule> }>({
+    queryKey: queryKeys.fiboModules(projectId),
+    queryFn: () => loadFiboModules(projectId),
+    enabled: projectId.length > 0,
+  });
+}
+
+export function useFiboModuleElements(projectId: string, moduleIri: string | null) {
+  return useQuery<{ moduleIri: string; page: WebPage<WebFiboElement> }>({
+    queryKey: queryKeys.fiboElements(projectId, moduleIri ?? ""),
+    queryFn: () => loadFiboModuleElements(projectId, moduleIri!),
+    enabled: projectId.length > 0 && Boolean(moduleIri),
+  });
+}
+
+export function useFiboSearch(projectId: string, text: string) {
+  return useQuery<{ query: string; page: WebPage<WebFiboElement> }>({
+    queryKey: queryKeys.fiboSearch(projectId, text),
+    queryFn: () => searchFibo(projectId, text),
+    enabled: projectId.length > 0 && text.trim().length > 0,
+  });
+}
+
+export function useFiboDetails(projectId: string, iri: string | null) {
+  return useQuery<WebFiboDetailsResponse>({
+    queryKey: queryKeys.fiboDetails(projectId, iri ?? ""),
+    queryFn: () => loadFiboDetails(projectId, iri!),
+    enabled: projectId.length > 0 && Boolean(iri),
+  });
+}
+
+export function useFiboActions(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: WebFiboProposalRequest) => stageFiboProposal(projectId, request),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.staged(projectId) }),
+  });
 }

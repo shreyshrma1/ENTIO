@@ -5,6 +5,7 @@ import HierarchyNode from "./HierarchyNode";
 import StagingPanel from "./StagingPanel";
 import CollaborationPresence from "./CollaborationPresence";
 import SemanticJobPanel from "./SemanticJobPanel";
+import ExternalOntologyPanel from "./ExternalOntologyPanel";
 import { useHierarchy, useProjectSearch, useProjectSummary } from "../web/queries";
 import type { WebEntityReference } from "../web/projectApi";
 
@@ -94,6 +95,7 @@ export default function ProjectWorkspace() {
           {activeTab ? <EntityDetails projectId={projectId} iri={activeTab.iri} /> : <EmptyWorkspace />}
           {sourceId ? <StagingPanel projectId={projectId} sourceId={sourceId} /> : null}
           <SemanticJobPanel projectId={projectId} />
+          {sourceId ? <ExternalOntologyPanel projectId={projectId} sourceId={sourceId} /> : null}
         </section>
       </div>
     </main>

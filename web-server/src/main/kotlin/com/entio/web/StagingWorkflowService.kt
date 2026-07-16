@@ -6,6 +6,7 @@ import com.entio.core.AddSuperclassEdit
 import com.entio.core.AssignTypeEdit
 import com.entio.core.ChangeProposal
 import com.entio.core.ChangeProposalStatus
+import com.entio.core.ExternalProposalIntent
 import com.entio.core.CreateClassEdit
 import com.entio.core.CreateDatatypePropertyEdit
 import com.entio.core.CreateIndividualEdit
@@ -27,6 +28,7 @@ import com.entio.core.StagedChangeSetStatus
 import com.entio.core.TypedOntologyEdit
 import com.entio.diff.GraphDiffer
 import com.entio.semantic.DeletionDependencyAnalyzer
+import com.entio.semantic.ExternalProposalIntentTranslator
 import com.entio.semantic.ProjectLoader
 import com.entio.semantic.ProposalApplier
 import com.entio.semantic.ProposalCreator
@@ -77,6 +79,7 @@ public class StagingWorkflowService(
     private val graphDiffer: GraphDiffer = GraphDiffer(),
     private val proposalApplier: ProposalApplier = ProposalApplier(),
     private val deletionAnalyzer: DeletionDependencyAnalyzer = DeletionDependencyAnalyzer(),
+    private val externalIntentTranslator: ExternalProposalIntentTranslator = ExternalProposalIntentTranslator(),
 ) {
     private val sessions: MutableMap<String, ProjectSession> = linkedMapOf()
 
@@ -130,6 +133,51 @@ public class StagingWorkflowService(
             generatedIris = request.generatedIris(),
         )
         session.entries += StoredEntry(staged, userId, userId, request.comment, request.aiGenerated)
+        session.proposal = null
+        return response(projectId, session)
+    }
+
+    @Synchronized
+    public fun stageExternal(
+        projectId: String,
+        sourceId: String,
+        targetOntologyIri: Iri,
+        intent: ExternalProposalIntent,
+        summary: String,
+        userId: String,
+        idempotencyKey: String? = null,
+    ): WebStagingResponse {
+        val session = session(projectId)
+        if (idempotencyKey != null) {
+            when (val decision = session.idempotency.begin(idempotencyKey, intent.toString())) {
+                is IdempotencyDecision.Replay -> return response(projectId, session)
+                is IdempotencyDecision.Conflict -> throw WebWorkflowFailure("idempotency-conflict", "The idempotency key was already used for another stage request.")
+                is IdempotencyDecision.Accepted -> Unit
+            }
+        }
+        val project = load(projectId)
+        if (project.ontologies.none { it.source.id == sourceId }) {
+            throw WebWorkflowFailure("unknown-source", "Ontology source '$sourceId' was not found.")
+        }
+        val changeSet = when (val translated = externalIntentTranslator.translate(intent, targetOntologyIri)) {
+            is EntioResult.Failure -> throw WebWorkflowFailure("external-proposal-invalid", translated.issues.joinToString { it.message })
+            is EntioResult.Success -> translated.value
+        }
+        val id = "stage-${session.nextOrder++}"
+        session.entries += StoredEntry(
+            staged = StagedChange(
+                id = id,
+                order = session.nextOrder - 1,
+                targetSourceId = sourceId,
+                summary = summary,
+                operation = StagedChangeOperation.GraphChanges(changeSet),
+                normalizedValues = mapOf("externalSource" to intent.sourceId, "targetOntologyIri" to targetOntologyIri.value),
+            ),
+            authorId = userId,
+            latestEditorId = userId,
+            comment = "External ontology reuse staged for review.",
+            aiGenerated = false,
+        )
         session.proposal = null
         return response(projectId, session)
     }

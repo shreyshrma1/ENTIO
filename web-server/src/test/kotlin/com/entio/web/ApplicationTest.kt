@@ -134,6 +134,56 @@ class ApplicationTest {
     }
 
     @Test
+    fun fiboRoutesExposePagedModulesSearchAndLabelledDetailsWithoutMutatingAssets(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-fibo")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+
+        val modules = client.get("/api/v1/projects/simple/external/fibo/modules?curated=true&limit=2")
+        val moduleBody = modules.bodyAsText()
+        assertEquals(HttpStatusCode.OK, modules.status)
+        assertContains(moduleBody, "sourceId")
+        assertContains(moduleBody, "ontologyIri")
+        assertContains(moduleBody, "nextOffset")
+
+        val elements = client.get(
+            "/api/v1/projects/simple/external/fibo/module-elements?moduleIri=" +
+                encoded("https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/") +
+                "&limit=2",
+        )
+        val elementBody = elements.bodyAsText()
+        assertEquals(HttpStatusCode.OK, elements.status)
+        assertContains(elementBody, "iri")
+        assertContains(elementBody, "label")
+        assertContains(elementBody, "definitions")
+
+        val search = client.get("/api/v1/projects/simple/external/fibo/search?q=agreement&curated=true&limit=2")
+        assertEquals(HttpStatusCode.OK, search.status)
+        assertContains(search.bodyAsText(), "agreement")
+        assertContains(search.bodyAsText(), "page")
+
+        val details = client.get(
+            "/api/v1/projects/simple/external/fibo/details?iri=" +
+                encoded("https://www.omg.org/spec/Commons/ContextualIdentifiers/ContextualIdentifier"),
+        )
+        val detailBody = details.bodyAsText()
+        assertEquals(HttpStatusCode.OK, details.status)
+        assertContains(detailBody, "contextual identifier")
+        assertContains(detailBody, "sequence of characters uniquely identifying")
+        assertContains(detailBody, "https://www.omg.org/spec/Commons/ContextualIdentifiers/ContextualIdentifier")
+        assertContains(detailBody, "dependencies")
+
+        val asset = listOf(
+            Path.of("external-ontologies/fibo/indexes/catalog-v1.jsonl"),
+            Path.of("..", "external-ontologies/fibo/indexes/catalog-v1.jsonl"),
+        ).firstOrNull(Files::isRegularFile)
+        assertTrue(asset != null)
+    }
+
+    @Test
     fun stagingWorkflowKeepsDraftsPrivateUntilPreviewAndAppliesOnlyAfterReview(): Unit = testApplication {
         val allowedRoot = Files.createTempDirectory("entio-web-staging")
         val projectRoot = createReadOnlyFixture(allowedRoot)
@@ -351,6 +401,8 @@ class ApplicationTest {
         }
         return client.get("/api/v1/projects/simple/semantic-jobs/$jobId").bodyAsText()
     }
+
+    private fun encoded(value: String): String = java.net.URLEncoder.encode(value, Charsets.UTF_8)
 
     private fun nextEvent(frame: Frame): Map<String, Any?> {
         require(frame is Frame.Text)
