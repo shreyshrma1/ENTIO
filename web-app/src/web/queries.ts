@@ -27,6 +27,12 @@ import {
   type WebFiboElement,
   type WebFiboModule,
   type WebFiboProposalRequest,
+  loadAiCredentialStatus,
+  removeAiCredential,
+  saveAiCredential,
+  testAiCredential,
+  type WebAiCredentialStatus,
+  type WebAiCredentialTestResponse,
   type WebEntityDetailResponse,
   type WebHierarchyResponse,
   type WebProjectSummaryResponse,
@@ -48,6 +54,7 @@ export const queryKeys = {
   fiboElements: (projectId: string, moduleIri: string) => ["project", projectId, "fibo", "elements", moduleIri] as const,
   fiboSearch: (projectId: string, text: string) => ["project", projectId, "fibo", "search", text] as const,
   fiboDetails: (projectId: string, iri: string) => ["project", projectId, "fibo", "details", iri] as const,
+  aiCredentialStatus: ["ai", "credential-status"] as const,
 };
 
 export function useProjects() {
@@ -175,4 +182,21 @@ export function useFiboActions(projectId: string) {
     mutationFn: (request: WebFiboProposalRequest) => stageFiboProposal(projectId, request),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.staged(projectId) }),
   });
+}
+
+export function useAiCredentialStatus() {
+  return useQuery<WebAiCredentialStatus>({
+    queryKey: queryKeys.aiCredentialStatus,
+    queryFn: () => loadAiCredentialStatus(),
+  });
+}
+
+export function useAiCredentialActions() {
+  const queryClient = useQueryClient();
+  const refresh = (status: WebAiCredentialStatus) => queryClient.setQueryData(queryKeys.aiCredentialStatus, status);
+  return {
+    save: useMutation({ mutationFn: ({ providerId, apiKey }: { providerId: string; apiKey: string }) => saveAiCredential(providerId, apiKey), onSuccess: refresh }),
+    test: useMutation<WebAiCredentialTestResponse, Error, void>({ mutationFn: () => testAiCredential() }),
+    remove: useMutation({ mutationFn: () => removeAiCredential(), onSuccess: refresh }),
+  };
 }

@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useProjects } from "../web/queries";
+import AiCredentialSettings from "./AiCredentialSettings";
 
 export default function ProjectListPage() {
   const projects = useProjects();
@@ -34,6 +35,7 @@ export default function ProjectListPage() {
           ))}
         </div>
       </section>
+      <AiCredentialSettings />
     </main>
   );
 }
