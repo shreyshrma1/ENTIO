@@ -176,7 +176,7 @@ public class StagingWorkflowService(
             }
             is com.entio.core.ApplyProposalResult.Failed -> {
                 session.proposal = proposal.copy(status = ChangeProposalStatus.ApplyFailed)
-                throw WebWorkflowFailure("proposal-apply-failed", result.reason)
+                response(projectId, session, result.reason)
             }
         }
     }

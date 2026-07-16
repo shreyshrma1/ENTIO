@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import EntityDetails from "./EntityDetails";
 import HierarchyNode from "./HierarchyNode";
 import StagingPanel from "./StagingPanel";
+import CollaborationPresence from "./CollaborationPresence";
 import { useHierarchy, useProjectSearch, useProjectSummary } from "../web/queries";
 import type { WebEntityReference } from "../web/projectApi";
 
@@ -86,6 +87,7 @@ export default function ProjectWorkspace() {
           <div className="workspace-toolbar">
             <span>{summary.data.symbolCount} symbols</span>
             <span>{summary.data.graphTripleCount} graph statements</span>
+            <CollaborationPresence projectId={projectId} activeEntityIri={activeIri} />
           </div>
           {tabs.length ? <nav className="entity-tabs" aria-label="Open entities">{tabs.map((tab) => <div className={`entity-tab ${tab.iri === activeIri ? "active" : ""}`} key={tab.iri}><button type="button" onClick={() => openEntity(tab)}>{tab.label}</button><button type="button" className="tab-close" aria-label={`Close ${tab.label}`} onClick={() => closeTab(tab.iri)}>×</button></div>)}</nav> : null}
           {activeTab ? <EntityDetails projectId={projectId} iri={activeTab.iri} /> : <EmptyWorkspace />}

@@ -7,9 +7,13 @@ import io.ktor.client.request.delete
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.client.plugins.websocket.WebSockets
+import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.websocket.Frame
+import io.ktor.websocket.send
 import io.ktor.server.testing.testApplication
 import java.nio.file.Files
 import java.nio.file.Path
@@ -194,6 +198,75 @@ class ApplicationTest {
         assertFalse(Files.readString(projectRoot.resolve("ontology/simple.ttl")).contains("Account"))
     }
 
+    @Test
+    fun collaborationClientsReceiveOrderedPresenceActivityAndMutationEvents(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-collaboration")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+        val clientA = createClient { install(WebSockets) }
+        val clientB = createClient { install(WebSockets) }
+
+        clientA.webSocket("/api/v1/projects/simple/collaboration?userId=alice") {
+            val snapshotA = nextEvent(incoming.receive())
+            val joinedA = nextEvent(incoming.receive())
+            val incomingA = incoming
+            assertEquals("collaboration.snapshot", snapshotA["eventType"])
+            assertEquals("presence.joined", joinedA["eventType"])
+            assertEquals(2, joinedA["sequence"])
+
+            clientB.webSocket("/api/v1/projects/simple/collaboration?userId=bob") {
+                val snapshotB = nextEvent(incoming.receive())
+                val joinedB = nextEvent(incoming.receive())
+                assertEquals("collaboration.snapshot", snapshotB["eventType"])
+                assertEquals("presence.joined", joinedB["eventType"])
+                assertEquals(3, snapshotB["sequence"])
+                assertEquals(4, joinedB["sequence"])
+
+                val joinedForA = nextEvent(incomingA.receive())
+                assertEquals("presence.joined", joinedForA["eventType"])
+
+                send(Frame.Text("""{"type":"entity-opened","entityIri":"https://example.com/Customer"}"""))
+                val activityB = nextEvent(incoming.receive())
+                val activityA = nextEvent(incomingA.receive())
+                assertEquals("entity.activity", activityB["eventType"])
+                assertEquals("https://example.com/Customer", activityB["entityIri"])
+                assertEquals(activityB["sequence"], activityA["sequence"])
+
+                send(Frame.Text("""{"type":"stage-change"}"""))
+                assertEquals("mutation.rejected", nextEvent(incoming.receive())["eventType"])
+                assertEquals("mutation.rejected", nextEvent(incomingA.receive())["eventType"])
+            }
+
+            val leftA = nextEvent(incomingA.receive())
+            assertEquals("presence.left", leftA["eventType"])
+        }
+    }
+
+    @Test
+    fun staleProposalApplicationReturnsAnExplicitConflictState(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-stale")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+        client.post("/api/v1/projects/simple/staged") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"sourceId":"simple","editType":"create-class","classIri":"https://example.com/entio/simple#Account","label":"Account"}""")
+        }
+        assertEquals(HttpStatusCode.OK, client.post("/api/v1/projects/simple/proposal/preview").status)
+        assertEquals(HttpStatusCode.OK, client.post("/api/v1/projects/simple/proposal/approve") { headers.append("X-Entio-User", "bob") }.status)
+        Files.writeString(projectRoot.resolve("ontology/simple.ttl"), Files.readString(projectRoot.resolve("ontology/simple.ttl")) + "\n")
+
+        val applied = client.post("/api/v1/projects/simple/proposal/apply") { headers.append("X-Entio-User", "bob") }
+        assertEquals(HttpStatusCode.OK, applied.status)
+        assertContains(applied.bodyAsText(), "APPLYFAILED")
+        assertContains(applied.bodyAsText(), "stale")
+    }
+
     private fun createReadOnlyFixture(allowedRoot: Path): Path {
         val projectRoot = Files.createDirectory(allowedRoot.resolve("simple"))
         val ontologyDirectory = Files.createDirectories(projectRoot.resolve("ontology"))
@@ -225,5 +298,11 @@ class ApplicationTest {
         )
         assertTrue(Files.isRegularFile(ontologyDirectory.resolve("simple.ttl")))
         return projectRoot
+    }
+
+    private fun nextEvent(frame: Frame): Map<String, Any?> {
+        require(frame is Frame.Text)
+        val text = frame.data.decodeToString()
+        return com.fasterxml.jackson.databind.ObjectMapper().readValue(text, Map::class.java) as Map<String, Any?>
     }
 }

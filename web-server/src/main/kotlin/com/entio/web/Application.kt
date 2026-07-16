@@ -5,6 +5,9 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.application.call
+import io.ktor.server.websocket.WebSockets
+import io.ktor.server.websocket.webSocket
+import io.ktor.websocket.close
 import io.ktor.server.request.header
 import io.ktor.server.request.receive
 import io.ktor.server.response.respondText
@@ -22,6 +25,7 @@ import com.entio.web.contract.WebSessionResponse
 import com.entio.web.contract.WebPageRequest
 import com.entio.web.contract.WebStageChangeRequest
 import com.entio.web.contract.WebStagingResponse
+import com.entio.web.contract.WebPresenceUser
 import com.entio.core.Iri
 import com.entio.core.SemanticDescriptorKind
 import com.entio.core.SemanticSearchQuery
@@ -34,9 +38,11 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
     install(ContentNegotiation) {
         jackson()
     }
+    install(WebSockets)
 
     val readOnly = ReadOnlyProjectAdapter(dependencies.projectRegistry)
     val staging = StagingWorkflowService(dependencies.projectRegistry)
+    val collaboration = CollaborationHub(dependencies.projectRegistry, staging::snapshot)
 
     routing {
         get("/health") {
@@ -156,28 +162,75 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
                 if (!dependencies.authorization.isAllowed(user.role, com.entio.web.contract.WebAction.STAGE_OWN_CHANGE)) {
                     throw WebWorkflowFailure("forbidden", "The current user cannot stage changes.")
                 }
-                staging.stage(call.requiredProjectId(), call.receive<WebStageChangeRequest>(), user.id)
+                val projectId = call.requiredProjectId()
+                val result = staging.stage(projectId, call.receive<WebStageChangeRequest>(), user.id)
+                collaboration.stagedChange(projectId, result.entries.lastOrNull()?.id)
+                result
             }
         }
 
         delete("/api/v1/projects/{projectId}/staged/{stagedId}") {
-            call.respondWorkflow { staging.discard(call.requiredProjectId(), call.requiredStagedId()) }
+            call.respondWorkflow {
+                val projectId = call.requiredProjectId()
+                val result = staging.discard(projectId, call.requiredStagedId())
+                collaboration.stagedChange(projectId)
+                result
+            }
         }
 
         post("/api/v1/projects/{projectId}/proposal/preview") {
-            call.respondWorkflow { staging.preview(call.requiredProjectId(), call.requireUser(dependencies).id) }
+            call.respondWorkflow {
+                val projectId = call.requiredProjectId()
+                val result = staging.preview(projectId, call.requireUser(dependencies).id)
+                collaboration.proposal(projectId, "proposal.previewed", result.proposal?.id)
+                result
+            }
         }
 
         post("/api/v1/projects/{projectId}/proposal/approve") {
-            call.respondWorkflow { staging.approve(call.requiredProjectId(), call.requireReviewer(dependencies).id) }
+            call.respondWorkflow {
+                val projectId = call.requiredProjectId()
+                val result = staging.approve(projectId, call.requireReviewer(dependencies).id)
+                collaboration.proposal(projectId, "proposal.approved", result.proposal?.id)
+                result
+            }
         }
 
         post("/api/v1/projects/{projectId}/proposal/reject") {
-            call.respondWorkflow { staging.reject(call.requiredProjectId(), call.requireReviewer(dependencies).id) }
+            call.respondWorkflow {
+                val projectId = call.requiredProjectId()
+                val result = staging.reject(projectId, call.requireReviewer(dependencies).id)
+                collaboration.proposal(projectId, "proposal.rejected")
+                result
+            }
         }
 
         post("/api/v1/projects/{projectId}/proposal/apply") {
-            call.respondWorkflow { staging.apply(call.requiredProjectId(), call.requireReviewer(dependencies).id) }
+            call.respondWorkflow {
+                val projectId = call.requiredProjectId()
+                val result = staging.apply(projectId, call.requireReviewer(dependencies).id)
+                collaboration.proposal(
+                    projectId,
+                    if (result.proposal?.status == "APPLYFAILED") "proposal.conflicted" else "proposal.applied",
+                    result.proposal?.id,
+                )
+                result
+            }
+        }
+
+        webSocket("/api/v1/projects/{projectId}/collaboration") {
+            val projectId = call.requiredProjectId()
+            val requestedUser = call.request.queryParameters["userId"]
+            val user = dependencies.identityProvider.find(requestedUser)
+            if (user == null) {
+                close(io.ktor.websocket.CloseReason(io.ktor.websocket.CloseReason.Codes.VIOLATED_POLICY, "unknown-development-user"))
+            } else {
+                collaboration.join(
+                    projectId = projectId,
+                    user = WebPresenceUser(user.id, user.displayName, user.avatar, user.role.name),
+                    socket = this,
+                )
+            }
         }
     }
 }
