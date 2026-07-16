@@ -33,6 +33,9 @@ import {
   testAiCredential,
   type WebAiCredentialStatus,
   type WebAiCredentialTestResponse,
+  askAiAssistant,
+  type WebAiAssistantRequest,
+  type WebAiAssistantResponse,
   type WebEntityDetailResponse,
   type WebHierarchyResponse,
   type WebProjectSummaryResponse,
@@ -55,6 +58,7 @@ export const queryKeys = {
   fiboSearch: (projectId: string, text: string) => ["project", projectId, "fibo", "search", text] as const,
   fiboDetails: (projectId: string, iri: string) => ["project", projectId, "fibo", "details", iri] as const,
   aiCredentialStatus: ["ai", "credential-status"] as const,
+  aiAssistant: (projectId: string) => ["project", projectId, "ai", "assistant"] as const,
 };
 
 export function useProjects() {
@@ -199,4 +203,10 @@ export function useAiCredentialActions() {
     test: useMutation<WebAiCredentialTestResponse, Error, void>({ mutationFn: () => testAiCredential() }),
     remove: useMutation({ mutationFn: () => removeAiCredential(), onSuccess: refresh }),
   };
+}
+
+export function useAiAssistant(projectId: string) {
+  return useMutation<WebAiAssistantResponse, Error, WebAiAssistantRequest>({
+    mutationFn: (request) => askAiAssistant(projectId, request),
+  });
 }

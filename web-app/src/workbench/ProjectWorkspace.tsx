@@ -6,6 +6,7 @@ import StagingPanel from "./StagingPanel";
 import CollaborationPresence from "./CollaborationPresence";
 import SemanticJobPanel from "./SemanticJobPanel";
 import ExternalOntologyPanel from "./ExternalOntologyPanel";
+import AiAssistantPanel from "./AiAssistantPanel";
 import { useHierarchy, useProjectSearch, useProjectSummary } from "../web/queries";
 import type { WebEntityReference } from "../web/projectApi";
 
@@ -96,6 +97,7 @@ export default function ProjectWorkspace() {
           {sourceId ? <StagingPanel projectId={projectId} sourceId={sourceId} /> : null}
           <SemanticJobPanel projectId={projectId} />
           {sourceId ? <ExternalOntologyPanel projectId={projectId} sourceId={sourceId} /> : null}
+          <AiAssistantPanel projectId={projectId} entity={activeTab ?? null} />
         </section>
       </div>
     </main>
