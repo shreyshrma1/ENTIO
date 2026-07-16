@@ -260,6 +260,72 @@ button:hover {
   text-transform: uppercase;
 }
 
+.external-ontology-panel {
+  border-top: 1px solid var(--border);
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+}
+
+.external-browser-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.external-scroll-list {
+  max-height: 18rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+}
+
+.list-item,
+.selected-list-item {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 0.75rem;
+  text-align: left;
+}
+
+.list-item small,
+.selected-list-item small {
+  display: block;
+  color: var(--muted);
+}
+
+.selected-list-item {
+  background: var(--accent-muted);
+}
+
+.external-details {
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.external-details code {
+  overflow-wrap: anywhere;
+}
+
+.dependency-list {
+  padding-left: 1.25rem;
+}
+
+.external-proposal-form {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 48rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 800px) {
+  .external-browser-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .staging-form {
   display: grid;
   gap: 8px;

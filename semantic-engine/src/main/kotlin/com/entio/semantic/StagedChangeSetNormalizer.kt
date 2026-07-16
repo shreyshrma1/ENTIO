@@ -27,6 +27,7 @@ public class StagedChangeSetNormalizer(
         val translated = entries.map { entry ->
             when (val operation = entry.operation) {
                 is StagedChangeOperation.TypedEdit -> editTranslator.translate(operation.edit)
+                is StagedChangeOperation.GraphChanges -> EntioResult.Success(operation.changeSet)
                 is StagedChangeOperation.Delete -> deletionChangeGenerator.generate(operation.plan)
             }
         }

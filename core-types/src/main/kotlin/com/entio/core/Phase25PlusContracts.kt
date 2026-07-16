@@ -122,6 +122,11 @@ public sealed interface StagedChangeOperation {
         public val edit: TypedOntologyEdit,
     ) : StagedChangeOperation
 
+    /** Graph changes produced by an already validated external reuse intent. */
+    public data class GraphChanges(
+        public val changeSet: ChangeSet,
+    ) : StagedChangeOperation
+
     public data class Delete(
         public val plan: DeletionPlan,
     ) : StagedChangeOperation

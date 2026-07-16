@@ -203,6 +203,58 @@ export interface WebSemanticJobStatus {
   error: string | null;
 }
 
+export interface WebFiboModule {
+  ontologyIri: string;
+  label: string;
+  domain: string;
+  sourcePath: string;
+  maturity: string;
+  curated: boolean;
+  elementCount: number;
+}
+
+export interface WebFiboElement {
+  iri: string;
+  label: string;
+  kind: string;
+  moduleIri: string;
+  domain: string;
+  maturity: string;
+  catalogStatus: string;
+  sourcePath: string;
+  alternateLabels: string[];
+  definitions: string[];
+  parents: string[];
+  domains: string[];
+  ranges: string[];
+}
+
+export interface WebFiboDependency {
+  category: string;
+  requirement: string;
+  visibility: string;
+  selection: string;
+  reason: string;
+  externalIri: string | null;
+  label: string | null;
+}
+
+export interface WebFiboDetailsResponse {
+  apiVersion: "v1";
+  element: WebFiboElement;
+  dependencies: WebFiboDependency[];
+}
+
+export interface WebFiboProposalRequest {
+  intentType: "reuse-class" | "reuse-object-property" | "reuse-datatype-property" | "create-local-subclass";
+  sourceId: string;
+  targetOntologyIri: string;
+  externalIri: string;
+  localClassIri?: string;
+  selectedDependencyIris: string[];
+  idempotencyKey?: string;
+}
+
 export async function loadStagedChanges(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
   return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/staged`, fetcher);
 }
@@ -253,6 +305,48 @@ export async function cancelSemanticJob(
   fetcher: WebFetcher = defaultFetcher,
 ): Promise<WebSemanticJobStatus> {
   return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/semantic-jobs/${encodeURIComponent(jobId)}`, "DELETE", undefined, fetcher);
+}
+
+export async function loadFiboModules(
+  projectId: string,
+  options: { curated?: boolean; offset?: number; limit?: number } = {},
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<{ sourceId: string; release: string; page: WebPage<WebFiboModule> }> {
+  const params = new URLSearchParams({
+    curated: String(options.curated ?? true),
+    offset: String(options.offset ?? 0),
+    limit: String(options.limit ?? 15),
+  });
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/external/fibo/modules?${params.toString()}`, fetcher);
+}
+
+export async function loadFiboModuleElements(
+  projectId: string,
+  moduleIri: string,
+  options: { offset?: number; limit?: number } = {},
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<{ moduleIri: string; page: WebPage<WebFiboElement> }> {
+  const params = new URLSearchParams({ moduleIri, offset: String(options.offset ?? 0), limit: String(options.limit ?? 15) });
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/external/fibo/module-elements?${params.toString()}`, fetcher);
+}
+
+export async function searchFibo(
+  projectId: string,
+  text: string,
+  options: { curated?: boolean; offset?: number; limit?: number } = {},
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<{ query: string; page: WebPage<WebFiboElement> }> {
+  const params = new URLSearchParams({ q: text, curated: String(options.curated ?? false), offset: String(options.offset ?? 0), limit: String(options.limit ?? 15) });
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/external/fibo/search?${params.toString()}`, fetcher);
+}
+
+export async function loadFiboDetails(projectId: string, iri: string, fetcher: WebFetcher = defaultFetcher): Promise<WebFiboDetailsResponse> {
+  const params = new URLSearchParams({ iri });
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/external/fibo/details?${params.toString()}`, fetcher);
+}
+
+export async function stageFiboProposal(projectId: string, request: WebFiboProposalRequest, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/external/fibo/proposals`, "POST", request, fetcher);
 }
 
 export async function loadProjectSummary(

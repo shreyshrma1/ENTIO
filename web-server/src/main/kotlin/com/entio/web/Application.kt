@@ -43,6 +43,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
     val readOnly = ReadOnlyProjectAdapter(dependencies.projectRegistry)
     val staging = StagingWorkflowService(dependencies.projectRegistry)
     val collaboration = CollaborationHub(dependencies.projectRegistry, staging::snapshot)
+    val fibo = FiboWebService(dependencies.projectRegistry, staging)
     val jobs = SemanticJobManager(
         staging = staging,
         projectRegistry = dependencies.projectRegistry,
@@ -156,6 +157,59 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
                     ),
                     request = call.pageRequest(),
                 )
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/external/fibo/modules") {
+            call.respondExternal {
+                fibo.modules(
+                    projectId = call.requiredProjectId(),
+                    curatedOnly = call.request.queryParameters["curated"]?.toBoolean() ?: true,
+                    request = call.pageRequest(),
+                )
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/external/fibo/module-elements") {
+            call.respondExternal {
+                val moduleIri = call.request.queryParameters["moduleIri"]
+                    ?.takeIf(String::isNotBlank)
+                    ?.let(::Iri)
+                    ?: throw WebWorkflowFailure("missing-external-module-iri", "An external module IRI is required.")
+                fibo.moduleElements(call.requiredProjectId(), moduleIri, call.pageRequest())
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/external/fibo/search") {
+            call.respondExternal {
+                val text = call.request.queryParameters["q"]
+                    ?.takeIf(String::isNotBlank)
+                    ?: throw WebWorkflowFailure("invalid-external-search", "External search text is required.")
+                fibo.search(
+                    projectId = call.requiredProjectId(),
+                    text = text,
+                    kind = call.request.queryParameters["kind"]?.let(::externalKind),
+                    moduleIri = call.request.queryParameters["moduleIri"]?.takeIf(String::isNotBlank)?.let(::Iri),
+                    curatedOnly = call.request.queryParameters["curated"]?.toBoolean() ?: false,
+                    request = call.pageRequest(),
+                )
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/external/fibo/details") {
+            call.respondExternal {
+                val iri = call.request.queryParameters["iri"]
+                    ?.takeIf(String::isNotBlank)
+                    ?.let(::Iri)
+                    ?: throw WebWorkflowFailure("missing-external-iri", "An external element IRI is required.")
+                fibo.details(call.requiredProjectId(), iri)
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/external/fibo/proposals") {
+            call.respondWorkflow {
+                val user = call.requireUser(dependencies)
+                fibo.stageProposal(call.requiredProjectId(), call.receive<WebFiboProposalRequest>(), user.id)
             }
         }
 
@@ -305,6 +359,10 @@ private fun descriptorKind(value: String): SemanticDescriptorKind =
     SemanticDescriptorKind.entries.firstOrNull { it.name.equals(value, ignoreCase = true) }
         ?: throw ProjectReadFailure("invalid-kind", "Unknown semantic entity kind '$value'.")
 
+private fun externalKind(value: String): com.entio.core.ExternalEntityKind =
+    com.entio.core.ExternalEntityKind.entries.firstOrNull { it.name.equals(value, ignoreCase = true) }
+        ?: throw WebWorkflowFailure("invalid-external-kind", "Unknown external entity kind '$value'.")
+
 private suspend fun ApplicationCall.respondReadOnly(block: () -> Any): Unit = try {
     respond(block())
 } catch (failure: ProjectReadFailure) {
@@ -319,6 +377,23 @@ private suspend fun ApplicationCall.respondReadOnly(block: () -> Any): Unit = tr
             requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
             code = failure.code,
             message = failure.message ?: "The read request could not be completed.",
+        ),
+    )
+}
+
+private suspend fun ApplicationCall.respondExternal(block: () -> Any): Unit = try {
+    respond(block())
+} catch (failure: WebWorkflowFailure) {
+    val status = when (failure.code) {
+        "unknown-project", "external-element-not-found" -> HttpStatusCode.NotFound
+        else -> HttpStatusCode.BadRequest
+    }
+    respond(
+        status,
+        WebErrorResponse(
+            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
+            code = failure.code,
+            message = failure.message ?: "The external ontology request could not be completed.",
         ),
     )
 }
