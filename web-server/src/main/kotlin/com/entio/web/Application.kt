@@ -6,9 +6,12 @@ import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.application.call
 import io.ktor.server.request.header
+import io.ktor.server.request.receive
 import io.ktor.server.response.respondText
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
+import io.ktor.server.routing.post
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.routing
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.jackson.jackson
@@ -17,6 +20,8 @@ import com.entio.web.contract.WebErrorResponse
 import com.entio.web.contract.WebProjectListResponse
 import com.entio.web.contract.WebSessionResponse
 import com.entio.web.contract.WebPageRequest
+import com.entio.web.contract.WebStageChangeRequest
+import com.entio.web.contract.WebStagingResponse
 import com.entio.core.Iri
 import com.entio.core.SemanticDescriptorKind
 import com.entio.core.SemanticSearchQuery
@@ -31,6 +36,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
     }
 
     val readOnly = ReadOnlyProjectAdapter(dependencies.projectRegistry)
+    val staging = StagingWorkflowService(dependencies.projectRegistry)
 
     routing {
         get("/health") {
@@ -139,6 +145,40 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
                 )
             }
         }
+
+        get("/api/v1/projects/{projectId}/staged") {
+            call.respondWorkflow { staging.snapshot(call.requiredProjectId()) }
+        }
+
+        post("/api/v1/projects/{projectId}/staged") {
+            call.respondWorkflow {
+                val user = call.requireUser(dependencies)
+                if (!dependencies.authorization.isAllowed(user.role, com.entio.web.contract.WebAction.STAGE_OWN_CHANGE)) {
+                    throw WebWorkflowFailure("forbidden", "The current user cannot stage changes.")
+                }
+                staging.stage(call.requiredProjectId(), call.receive<WebStageChangeRequest>(), user.id)
+            }
+        }
+
+        delete("/api/v1/projects/{projectId}/staged/{stagedId}") {
+            call.respondWorkflow { staging.discard(call.requiredProjectId(), call.requiredStagedId()) }
+        }
+
+        post("/api/v1/projects/{projectId}/proposal/preview") {
+            call.respondWorkflow { staging.preview(call.requiredProjectId(), call.requireUser(dependencies).id) }
+        }
+
+        post("/api/v1/projects/{projectId}/proposal/approve") {
+            call.respondWorkflow { staging.approve(call.requiredProjectId(), call.requireReviewer(dependencies).id) }
+        }
+
+        post("/api/v1/projects/{projectId}/proposal/reject") {
+            call.respondWorkflow { staging.reject(call.requiredProjectId(), call.requireReviewer(dependencies).id) }
+        }
+
+        post("/api/v1/projects/{projectId}/proposal/apply") {
+            call.respondWorkflow { staging.apply(call.requiredProjectId(), call.requireReviewer(dependencies).id) }
+        }
     }
 }
 
@@ -153,6 +193,24 @@ private fun ApplicationCall.pageRequest(): WebPageRequest = try {
     )
 } catch (exception: IllegalArgumentException) {
     throw ProjectReadFailure("invalid-pagination", exception.message ?: "Invalid pagination.")
+}
+
+private fun ApplicationCall.requiredStagedId(): String = parameters["stagedId"]
+    ?.takeIf(String::isNotBlank)
+    ?: throw WebWorkflowFailure("missing-staged-id", "A staged change id is required.")
+
+private fun ApplicationCall.requireUser(dependencies: WebApplicationDependencies): com.entio.web.contract.WebSessionUser {
+    val user = dependencies.identityProvider.find(request.headers["X-Entio-User"])
+        ?: throw WebWorkflowFailure("unknown-development-user", "The requested development user is not configured.")
+    return user
+}
+
+private fun ApplicationCall.requireReviewer(dependencies: WebApplicationDependencies): com.entio.web.contract.WebSessionUser {
+    val user = requireUser(dependencies)
+    if (user.role != com.entio.web.contract.WebRole.REVIEWER) {
+        throw WebWorkflowFailure("forbidden", "Reviewer permission is required for this proposal action.")
+    }
+    return user
 }
 
 private fun descriptorKind(value: String): SemanticDescriptorKind =
@@ -173,6 +231,25 @@ private suspend fun ApplicationCall.respondReadOnly(block: () -> Any): Unit = tr
             requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
             code = failure.code,
             message = failure.message ?: "The read request could not be completed.",
+        ),
+    )
+}
+
+private suspend fun ApplicationCall.respondWorkflow(block: suspend () -> WebStagingResponse): Unit = try {
+    respond(block())
+} catch (failure: WebWorkflowFailure) {
+    val status = when (failure.code) {
+        "unknown-project", "unknown-staged-change" -> HttpStatusCode.NotFound
+        "forbidden" -> HttpStatusCode.Forbidden
+        "project-load-failed" -> HttpStatusCode.UnprocessableEntity
+        else -> HttpStatusCode.BadRequest
+    }
+    respond(
+        status,
+        WebErrorResponse(
+            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
+            code = failure.code,
+            message = failure.message ?: "The workflow request could not be completed.",
         ),
     )
 }

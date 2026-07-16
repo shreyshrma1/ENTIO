@@ -122,6 +122,86 @@ export interface WebSemanticSearchResponse {
   page: WebPage<WebSemanticSearchHit>;
 }
 
+export interface WebStageChangeRequest {
+  sourceId: string;
+  editType: string;
+  classIri?: string;
+  label?: string;
+  comment?: string;
+  aiGenerated?: boolean;
+  idempotencyKey?: string;
+}
+
+export interface WebStagedEntry {
+  id: string;
+  order: number;
+  sourceId: string;
+  summary: string;
+  editType: string;
+  status: string;
+  authorId: string;
+  latestEditorId: string;
+  comment: string | null;
+  aiGenerated: boolean;
+  normalizedValues: Record<string, string>;
+  generatedIris: string[];
+  validationMessages: string[];
+}
+
+export interface WebDiffEntry {
+  kind: string;
+  subject: string;
+  predicate: string | null;
+  objectValue: string | null;
+  description: string;
+}
+
+export interface WebProposalState {
+  id: string;
+  status: string;
+  stagedChangeIds: string[];
+  baselineProjectFingerprint: string | null;
+  validationMessages: string[];
+  diff: WebDiffEntry[];
+  message: string | null;
+}
+
+export interface WebStagingResponse {
+  apiVersion: "v1";
+  projectId: string;
+  status: string;
+  entries: WebStagedEntry[];
+  proposal: WebProposalState | null;
+}
+
+export async function loadStagedChanges(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/staged`, fetcher);
+}
+
+export async function stageChange(projectId: string, request: WebStageChangeRequest, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/staged`, "POST", request, fetcher);
+}
+
+export async function discardStagedChange(projectId: string, stagedId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/staged/${encodeURIComponent(stagedId)}`, "DELETE", undefined, fetcher);
+}
+
+export async function previewStagedChanges(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/proposal/preview`, "POST", undefined, fetcher);
+}
+
+export async function approveProposal(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/proposal/approve`, "POST", undefined, fetcher);
+}
+
+export async function rejectProposal(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/proposal/reject`, "POST", undefined, fetcher);
+}
+
+export async function applyProposal(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/proposal/apply`, "POST", undefined, fetcher);
+}
+
 export async function loadProjectSummary(
   projectId: string,
   fetcher: WebFetcher = defaultFetcher,
@@ -188,6 +268,19 @@ async function getJson<T>(path: string, fetcher: WebFetcher): Promise<T> {
   const response = await fetcher(path);
   if (!response.ok) {
     throw new Error(`Entio web request failed with status ${response.status}.`);
+  }
+  return response.json() as Promise<T>;
+}
+
+async function sendJson<T>(path: string, method: string, body: unknown, fetcher: WebFetcher): Promise<T> {
+  const response = await fetcher(path, {
+    method,
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => null) as { message?: string } | null;
+    throw new Error(error?.message ?? `Entio web request failed with status ${response.status}.`);
   }
   return response.json() as Promise<T>;
 }

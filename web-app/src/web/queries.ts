@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   loadEntityDetails,
   loadHierarchy,
@@ -6,6 +6,13 @@ import {
   loadProjectSummary,
   loadProjects,
   searchProject,
+  loadStagedChanges,
+  stageChange,
+  discardStagedChange,
+  previewStagedChanges,
+  approveProposal,
+  rejectProposal,
+  applyProposal,
   type WebEntityDetailResponse,
   type WebHierarchyResponse,
   type WebProjectSummaryResponse,
@@ -21,6 +28,7 @@ export const queryKeys = {
     ["project", projectId, "hierarchy", sourceId ?? null, parentIri ?? null] as const,
   entity: (projectId: string, iri: string) => ["project", projectId, "entity", iri] as const,
   search: (projectId: string, text: string) => ["project", projectId, "search", text] as const,
+  staged: (projectId: string) => ["project", projectId, "staged"] as const,
 };
 
 export function useProjects() {
@@ -65,4 +73,24 @@ export function useProjectSearch(projectId: string, text: string) {
     queryFn: () => searchProject(projectId, text),
     enabled: projectId.length > 0 && text.trim().length > 0,
   });
+}
+
+export function useStagedChanges(projectId: string) {
+  return useQuery({ queryKey: queryKeys.staged(projectId), queryFn: () => loadStagedChanges(projectId), enabled: projectId.length > 0 });
+}
+
+export function useStagingActions(projectId: string) {
+  const queryClient = useQueryClient();
+  const refresh = (data: Awaited<ReturnType<typeof loadStagedChanges>>) => {
+    queryClient.setQueryData(queryKeys.staged(projectId), data);
+    queryClient.invalidateQueries({ queryKey: queryKeys.summary(projectId) });
+  };
+  return {
+    stage: useMutation({ mutationFn: (request: Parameters<typeof stageChange>[1]) => stageChange(projectId, request), onSuccess: refresh }),
+    discard: useMutation({ mutationFn: (id: string) => discardStagedChange(projectId, id), onSuccess: refresh }),
+    preview: useMutation({ mutationFn: () => previewStagedChanges(projectId), onSuccess: refresh }),
+    approve: useMutation({ mutationFn: () => approveProposal(projectId), onSuccess: refresh }),
+    reject: useMutation({ mutationFn: () => rejectProposal(projectId), onSuccess: refresh }),
+    apply: useMutation({ mutationFn: () => applyProposal(projectId), onSuccess: refresh }),
+  };
 }
