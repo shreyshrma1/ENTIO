@@ -264,6 +264,18 @@ button:hover {
   padding: 8px 12px;
 }
 
+.collaboration-presence {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.collaboration-presence span {
+  color: #aab8c0;
+  font-size: 0.85rem;
+}
+
 .search-results {
   display: grid;
   gap: 4px;
