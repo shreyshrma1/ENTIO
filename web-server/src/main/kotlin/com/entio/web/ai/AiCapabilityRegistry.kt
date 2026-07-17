@@ -155,7 +155,7 @@ public fun defaultAiCapabilityDefinitions(): List<AiCapabilityDefinition> = list
     activityReadDefinition(),
     fiboSearchDefinition(),
     fiboEntityDefinition(),
-)
+) + typedEditCapabilityDefinitions()
 
 private fun projectSummaryDefinition(): AiCapabilityDefinition = AiCapabilityDefinition(
     name = "entio_project_summary",

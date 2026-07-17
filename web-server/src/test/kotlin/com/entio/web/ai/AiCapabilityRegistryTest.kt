@@ -57,6 +57,53 @@ class AiCapabilityRegistryTest {
     }
 
     @Test
+    fun privateDraftSchemasExposeOnlyApprovedTypedEditsAndRejectRawFallbacks(): Unit {
+        val privateScope = scope(
+            features = scope().availableFeatures + AiCapabilityFeatures.PRIVATE_DRAFT,
+            permissions = scope().permissions + WebPermission.PREPARE_EDIT.name,
+        )
+        val snapshot = registry.snapshot(privateScope)
+        val decoded = registry.decode(
+            invocation(
+                snapshot,
+                AiTypedEditCapabilityAdapter.ADD_SHACL_CAPABILITY,
+                """{"sourceId":"shapes","editType":"shacl-create-node-shape","shapeLabel":"Customer shape","targetClassLabel":"Customer","rationale":"Require a reviewed customer shape."}""",
+            ),
+            snapshot,
+            privateScope,
+        )
+
+        val arguments = assertIs<AiAddDraftItemArguments>(decoded.arguments)
+        assertEquals("shacl-create-node-shape", arguments.request.editType)
+        assertEquals("Customer", arguments.request.targetClassLabel)
+        assertTrue(arguments.request.aiGenerated)
+        assertTrue(decoded.definition.inputSchema.additionalProperties.not())
+
+        assertFailureCode("invalid-enum-value") {
+            registry.decode(
+                invocation(
+                    snapshot,
+                    AiTypedEditCapabilityAdapter.ADD_SHACL_CAPABILITY,
+                    """{"sourceId":"shapes","editType":"raw-shacl","value":"raw graph","rationale":"Bypass typed tools."}""",
+                ),
+                snapshot,
+                privateScope,
+            )
+        }
+        assertFailureCode("unknown-argument") {
+            registry.decode(
+                invocation(
+                    snapshot,
+                    AiTypedEditCapabilityAdapter.ADD_ONTOLOGY_CAPABILITY,
+                    """{"sourceId":"simple","editType":"create-class","label":"Account","rationale":"Create it.","turtle":"raw"}""",
+                ),
+                snapshot,
+                privateScope,
+            )
+        }
+    }
+
+    @Test
     fun scopeFactoryUsesRegisteredProjectIdentitySourcesPermissionsAndFeatures(): Unit {
         val projectRoot = Files.createTempDirectory("entio-ai-scope")
         val projects = InMemoryProjectRegistry(setOf(projectRoot.parent))

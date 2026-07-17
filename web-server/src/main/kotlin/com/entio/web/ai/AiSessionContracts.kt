@@ -1,5 +1,7 @@
 package com.entio.web.ai
 
+import com.entio.core.StagedChangeOperation
+import com.entio.web.contract.WebStageChangeRequest
 import java.time.Instant
 
 public enum class AiMessageRole {
@@ -136,12 +138,31 @@ public data class AiDraftOperationReference(
     val typedRequestId: String,
 ) : AiDraftOperation
 
+/** A side-effect-free typed operation prepared through the ordinary staging adapter. */
+public data class AiTypedDraftOperation(
+    override val capabilityName: String,
+    override val targetSourceId: String,
+    override val summary: String,
+    val request: WebStageChangeRequest,
+    val preparedOperation: StagedChangeOperation,
+    val normalizedValues: Map<String, String>,
+    val generatedIris: List<String> = emptyList(),
+) : AiDraftOperation
+
+public data class AiDraftAttribution(
+    val aiGenerated: Boolean = true,
+    val acceptingUserId: String,
+    val conversationId: String,
+    val runId: String? = null,
+)
+
 public data class AiDraftItem(
     val id: String,
     val order: Int,
     val operation: AiDraftOperation,
     val rationale: String,
     val dependencyItemIds: List<String> = emptyList(),
+    val attribution: AiDraftAttribution? = null,
     val createdAt: Instant,
     val updatedAt: Instant,
 )
@@ -152,6 +173,9 @@ public data class AiDraftRevision(
     val explanation: String,
     val itemIds: List<String>,
     val createdAt: Instant,
+    val beforeItems: List<AiDraftItem> = emptyList(),
+    val afterItems: List<AiDraftItem> = emptyList(),
+    val undoneRevision: Int? = null,
 )
 
 public data class AiDraft(
