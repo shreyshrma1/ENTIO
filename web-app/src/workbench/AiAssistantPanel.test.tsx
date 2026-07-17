@@ -1,57 +1,206 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import AiAssistantPanel from "./AiAssistantPanel";
 
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
 describe("AI assistant panel", () => {
-  it("keeps suggestions separate until the user stages one", async () => {
-    let stagedCalls = 0;
-    let stagedBody = "";
+  it("renders conversation history, sends a follow-up, and orders safe run activity", async () => {
+    const initial = conversation([message("message-1", "ASSISTANT", "Customer is an asserted class.")]);
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
-      if (path.includes("/ai/assistant")) {
-        return json({
-          apiVersion: "v1",
-          operation: "SUGGEST_SUPERCLASS",
-          answer: "A possible superclass is available for review.",
-          evidence: [{ category: "ontology", label: "entity", value: "Customer" }],
-          assertedFacts: ["type: Customer"],
-          inferredFacts: [],
-          fiboResults: [],
-          suggestions: [{
-            id: "suggest-superclass",
-            suggestionType: "add-superclass",
-            rationale: "Review this typed edit before staging it.",
-            edit: { sourceId: "simple", editType: "add-superclass", classIri: "https://example.com/Customer", superclassIri: "https://example.com/Party", aiGenerated: true },
-          }],
-          uncertainty: ["Deterministic development response."],
-          warnings: [],
-        });
-      }
-      if (path.includes("/staged") && init?.method === "POST") {
-        stagedCalls += 1;
-        stagedBody = String(init.body);
-        return json({ apiVersion: "v1", projectId: "simple", status: "READY", entries: [], proposal: null });
-      }
+      if (path.endsWith("/ai/credential-status")) return json(credential(true));
+      if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [initial] });
+      if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) return json({ apiVersion: "v1", conversation: initial });
+      if (path.endsWith("/messages") && init?.method === "POST") return json(turn({
+        messages: [...initial.messages, { ...message("message-2", "USER", "What uses it?"), operation: null }, message("message-3", "ASSISTANT", "Invoice uses Customer.")],
+        answer: "Invoice uses Customer.",
+      }));
+      if (path.endsWith("/events")) return eventStream([
+        event("run-1", 2, "TEXT_COMPLETED", "Answer completed."),
+        event("run-1", 1, "RUN_STARTED", "Run started."),
+      ]);
       throw new Error(`Unexpected request: ${path}`);
     }));
 
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={client}><AiAssistantPanel projectId="simple" entity={{ iri: "https://example.com/Customer", label: "Customer", kind: "Class", sourceId: "simple" }} /></QueryClientProvider>);
+    renderPanel();
+    expect(await screen.findByText("Customer is an asserted class.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Ask about this ontology context"), { target: { value: "What uses it?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
-    fireEvent.change(screen.getByLabelText("Operation"), { target: { value: "SUGGEST_SUPERCLASS" } });
-    fireEvent.change(screen.getByLabelText("Request or IRI"), { target: { value: "https://example.com/Party" } });
-    fireEvent.click(screen.getByRole("button", { name: "Ask assistant" }));
+    expect(await screen.findByText("Invoice uses Customer.")).toBeInTheDocument();
+    expect(await screen.findByText("Run started.")).toBeInTheDocument();
+    const activity = screen.getByRole("region", { name: "Capability activity" }).querySelectorAll("li");
+    expect(activity[0]).toHaveTextContent("Run started");
+    expect(activity[1]).toHaveTextContent("Answer completed");
+  });
 
-    expect(await screen.findByText("Review this typed edit before staging it.")).toBeInTheDocument();
-    expect(stagedCalls).toBe(0);
-    fireEvent.click(screen.getByRole("button", { name: "Stage suggestion" }));
-    expect(await screen.findByRole("button", { name: "Staged for review" })).toBeInTheDocument();
-    expect(stagedCalls).toBe(1);
-    expect(stagedBody).toContain('"aiGenerated":true');
+  it("supports plan confirmation and sends the explicit decision", async () => {
+    const decisions: string[] = [];
+    const initial = conversation([]);
+    let messageCall = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/ai/credential-status")) return json(credential(true));
+      if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [initial] });
+      if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) return json({ apiVersion: "v1", conversation: initial });
+      if (path.endsWith("/messages") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as { decision: string };
+        decisions.push(body.decision);
+        messageCall += 1;
+        if (messageCall === 1) return json(turn({
+          status: "AWAITING_PLAN_CONFIRMATION",
+          plan: { request: "Design accounting concepts.", steps: ["Inspect existing classes", "Prepare typed edits"], openDecisions: [], estimatedEditCount: 2 },
+          answer: "Please confirm the plan.",
+        }));
+        return json(turn({ answer: "The confirmed plan is complete.", messages: [message("message-4", "ASSISTANT", "The confirmed plan is complete.")] }));
+      }
+      if (path.endsWith("/events")) return eventStream([event("run-1", messageCall, "STATUS_CHANGED", "Status changed.")]);
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    renderPanel();
+    await screen.findByText("Ready when you are");
+    fireEvent.change(screen.getByLabelText("Ask about this ontology context"), { target: { value: "Design accounting concepts." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByRole("heading", { name: "Confirm the plan" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm plan" }));
+    expect(await screen.findByText("The confirmed plan is complete.")).toBeInTheDocument();
+    expect(decisions).toEqual(["MESSAGE", "CONFIRM_PLAN"]);
+  });
+
+  it("asks for clarification and preserves the explicit answer decision", async () => {
+    const initial = conversation([]);
+    const decisions: string[] = [];
+    let messageCall = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/ai/credential-status")) return json(credential(true));
+      if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [initial] });
+      if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) return json({ apiVersion: "v1", conversation: initial });
+      if (path.endsWith("/messages")) {
+        const body = JSON.parse(String(init?.body)) as { decision: string };
+        decisions.push(body.decision);
+        messageCall += 1;
+        const response = turn({ status: messageCall === 1 ? "AWAITING_CLARIFICATION" : "READY_FOR_REVIEW", answer: messageCall === 1 ? "I need one detail." : "Thanks, the class is local." });
+        return json({ ...response, clarificationQuestion: messageCall === 1 ? "Should this be a local class?" : null });
+      }
+      if (path.endsWith("/events")) return eventStream([event("run-1", messageCall, "STATUS_CHANGED", "Status changed.")]);
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    renderPanel();
+    await screen.findByText("Ready when you are");
+    fireEvent.change(screen.getByLabelText("Ask about this ontology context"), { target: { value: "Create an account concept." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByText("Should this be a local class?")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Your answer"), { target: { value: "Yes, local." } });
+    fireEvent.click(screen.getByRole("button", { name: "Answer clarification" }));
+    expect(await screen.findByText("Thanks, the class is local.")).toBeInTheDocument();
+    expect(decisions).toEqual(["MESSAGE", "ANSWER_CLARIFICATION"]);
+  });
+
+  it("shows conflicted drafts and submits analyzed drafts to review without applying", async () => {
+    const paths: string[] = [];
+    const initial = conversation([], "draft-1");
+    let conflicted = true;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      paths.push(`${init?.method ?? "GET"} ${path}`);
+      if (path.endsWith("/ai/credential-status")) return json(credential(true));
+      if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [initial] });
+      if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) return json({ apiVersion: "v1", conversation: initial });
+      if (path.endsWith("/ai/drafts/draft-1") && !init?.method) return json({ apiVersion: "v1", draft: draft(conflicted ? "CONFLICTED" : "READY_FOR_REVIEW") });
+      if (path.endsWith("/analysis") && init?.method === "POST") {
+        conflicted = false;
+        return json({ apiVersion: "v1", analysis: analysis() });
+      }
+      if (path.endsWith("/submit") && init?.method === "POST") return json({
+        apiVersion: "v1", submissionId: "submission-1", proposalId: "proposal-1", reviewState: "READYFORREVIEW", projectId: "simple", draftId: "draft-1", draftRevision: 1, submittingUserId: "alice", conversationId: "conversation-1", runId: "run-1", rationale: "review", diff: [], analysisReferenceIds: ["analysis-ref"], reviewRoute: "/projects/simple/changes?proposalId=proposal-1",
+      });
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    const client = renderPanel();
+    expect(await screen.findByText(/This draft is conflicted/i)).toBeInTheDocument();
+    conflicted = false;
+    client.invalidateQueries({ queryKey: queryKey("draft") });
+    await waitFor(() => expect(screen.queryByText(/This draft is conflicted/i)).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Run deterministic analysis" }));
+    expect(await screen.findByText(/Ready for human review/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Submit for human review" }));
+    const review = await screen.findByRole("link", { name: "Open proposal review" });
+    expect(review).toHaveAttribute("href", "/projects/simple/changes?proposalId=proposal-1");
+    expect(paths.some((path) => path.includes("/apply"))).toBe(false);
+  });
+
+  it("recovers authoritative conversation state after an event resynchronization signal", async () => {
+    const initial = conversation([]);
+    let conversationLoads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/ai/credential-status")) return json(credential(true));
+      if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [initial] });
+      if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) { conversationLoads += 1; return json({ apiVersion: "v1", conversation: initial }); }
+      if (path.endsWith("/messages")) return json(turn({ answer: "Recovered answer." }));
+      if (path.endsWith("/events")) return sse("event: resynchronization-required\ndata: {\"apiVersion\":\"v1\",\"runId\":\"run-1\",\"reason\":\"cursor expired\",\"authoritativeRunRoute\":\"/run\",\"authoritativeConversationRoute\":\"/conversation\"}\n\n");
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    renderPanel();
+    await screen.findByText("Ready when you are");
+    fireEvent.change(screen.getByLabelText("Ask about this ontology context"), { target: { value: "Explain Customer." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(conversationLoads).toBeGreaterThan(1));
+  });
+
+  it("keeps the non-AI workbench available when no credential is configured", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith("/ai/credential-status")) return json(credential(false));
+      if (path.endsWith("/ai/conversations")) return json({ apiVersion: "v1", conversations: [] });
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+    renderPanel();
+    expect(await screen.findByText(/Add an OpenAI credential/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New conversation" })).toBeDisabled();
+    expect(screen.getByText(/rest of the workbench remains available/i)).toBeInTheDocument();
   });
 });
 
-function json(body: unknown): Response {
-  return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+function renderPanel(): QueryClient {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 0 } } });
+  render(<QueryClientProvider client={client}><AiAssistantPanel projectId="simple" entity={{ iri: "https://example.com/Customer", label: "Customer", kind: "Class", sourceId: "simple" }} /></QueryClientProvider>);
+  return client;
 }
+
+function queryKey(resource: string): string[] {
+  return ["project", "simple", "ai", resource, resource === "draft" ? "draft-1" : "conversation-1"];
+}
+
+function credential(configured: boolean) { return { apiVersion: "v1", configured, providerId: configured ? "openai" : null, testStatus: configured ? "PASSED" : "NOT_CONFIGURED" }; }
+
+function message(id: string, role: "USER" | "ASSISTANT" | "TOOL", content: string) { return { id, role, content, operation: null, evidenceReferenceIds: [], createdAt: "2026-07-17T12:00:00Z" }; }
+
+function conversation(messages: ReturnType<typeof message>[], currentDraftId: string | null = null) {
+  return { id: "conversation-1", projectId: "simple", messages, currentDraftId, modelId: "gpt-5.2", status: "ACTIVE", createdAt: "2026-07-17T12:00:00Z", updatedAt: "2026-07-17T12:00:01Z" };
+}
+
+function turn(overrides: { status?: string; answer?: string; plan?: unknown; messages?: ReturnType<typeof message>[] } = {}) {
+  return { apiVersion: "v1", conversation: conversation(overrides.messages ?? [message("message-answer", "ASSISTANT", overrides.answer ?? "Answer")]), run: { id: "run-1", conversationId: "conversation-1", projectId: "simple", status: overrides.status ?? "READY_FOR_REVIEW", capabilityCallCount: 1, draftEditCount: 0, correctionCycleCount: 0, cancellationRequested: false, createdAt: "2026-07-17T12:00:00Z", updatedAt: `${Date.now()}` }, intent: "EXPLANATION", answer: overrides.answer ?? "Answer", plan: overrides.plan ?? null, clarificationQuestion: null, draftId: null, limits: [] };
+}
+
+function draft(status: string) { return { id: "draft-1", conversationId: "conversation-1", projectId: "simple", baselineFingerprint: "baseline", allowedSourceIds: ["simple"], status, draftFingerprint: "draft-fingerprint", analysisReferenceIds: [], items: [{ id: "item-1", order: 1, capabilityName: "add-ontology-edit", targetSourceId: "simple", summary: "Create Receivable Account", rationale: "Represent the reviewed concept.", dependencyItemIds: [], aiGenerated: true, acceptingUserId: "alice", runId: "run-1" }], revisions: [{ revision: 1, action: "ADD", explanation: "Created the draft.", itemIds: ["item-1"], undoneRevision: null, createdAt: "2026-07-17T12:00:00Z" }], createdAt: "2026-07-17T12:00:00Z", updatedAt: "2026-07-17T12:00:01Z" }; }
+
+function analysis() { return { id: "analysis-1", draftId: "draft-1", revision: 1, status: "COMPLETED", baselineFingerprint: "baseline", draftFingerprint: "draft-fingerprint", previewGraphFingerprint: "preview", readyForReview: true, validationOk: true, findings: [], diff: [{ kind: "ADDED", subject: "ReceivableAccount", predicate: "type", objectValue: "Class", description: "Added class Receivable Account." }], references: [{ stage: "VALIDATION", id: "analysis-ref" }], createdAt: "2026-07-17T12:00:00Z" }; }
+
+function event(runId: string, sequence: number, type: string, content: string) { return { sequence, runId, type, message: content, referenceIds: [], createdAt: "2026-07-17T12:00:00Z" }; }
+
+function eventStream(events: ReturnType<typeof event>[]): Response { return sse(events.map((item) => `id: ${item.runId}:${item.sequence}\nevent: ${item.type.toLowerCase().replaceAll("_", "-")}\ndata: ${JSON.stringify(item)}\n\n`).join("")); }
+
+function sse(body: string): Response { return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } }); }
+function json(body: unknown): Response { return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } }); }

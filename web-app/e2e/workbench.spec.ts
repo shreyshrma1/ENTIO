@@ -30,12 +30,19 @@ test("completes the browser workbench journey through reviewable staging", async
       apiVersion: "v1", iri: "https://example.com/entio/simple#Customer", label: "Customer", kind: "Class", sourceId: "simple", sourceOntologyId: "simple", locality: "Local", preferredLabelSource: "RdfsLabel",
       alternateLabels: [], definitions: [{ value: "A customer.", language: null, datatype: null }], annotations: [], directSuperclasses: [], directSubclasses: [], directlyTypedIndividuals: [], assertedTypes: [], domains: [], ranges: [], outgoingRelationships: [], incomingRelationships: [],
     });
-    if (path.endsWith("/ai/credential-status")) return json(route, { apiVersion: "v1", configured: true, providerId: "provider-neutral", testStatus: "PASSED" });
-    if (path.endsWith("/ai/assistant") && request.method() === "POST") return json(route, {
-      apiVersion: "v1", operation: "SUGGEST_SUPERCLASS", answer: "A typed suggestion is ready for review.", evidence: [], assertedFacts: ["type: Customer"], inferredFacts: [], fiboResults: [],
-      suggestions: [{ id: "suggest-superclass", suggestionType: "add-superclass", rationale: "Review before staging.", edit: { sourceId: "simple", editType: "add-superclass", classIri: "https://example.com/entio/simple#Customer", superclassIri: "https://example.com/entio/simple#Party", aiGenerated: true } }],
-      uncertainty: ["Development response"], warnings: [],
+    if (path.endsWith("/ai/credential-status")) return json(route, { apiVersion: "v1", configured: true, providerId: "openai", testStatus: "PASSED" });
+    if (path.endsWith("/ai/conversations") && request.method() === "GET") return json(route, { apiVersion: "v1", conversations: [aiConversation([])] });
+    if (path.endsWith("/ai/conversations/conversation-1") && request.method() === "GET") return json(route, { apiVersion: "v1", conversation: aiConversation([]) });
+    if (path.endsWith("/ai/conversations/conversation-1/messages") && request.method() === "POST") return json(route, {
+      apiVersion: "v1",
+      conversation: aiConversation([
+        { id: "message-1", role: "USER", content: "Explain Customer.", operation: null, evidenceReferenceIds: [], createdAt: "2026-07-17T12:00:00Z" },
+        { id: "message-2", role: "ASSISTANT", content: "Customer is an asserted class in the selected project.", operation: "EXPLAIN_ENTITY", evidenceReferenceIds: ["entity:Customer"], createdAt: "2026-07-17T12:00:01Z" },
+      ]),
+      run: { id: "run-1", conversationId: "conversation-1", projectId: "simple", status: "READY_FOR_REVIEW", capabilityCallCount: 1, draftEditCount: 0, correctionCycleCount: 0, cancellationRequested: false, createdAt: "2026-07-17T12:00:00Z", updatedAt: "2026-07-17T12:00:01Z" },
+      intent: "EXPLANATION", answer: "Customer is an asserted class in the selected project.", plan: null, clarificationQuestion: null, draftId: null, limits: [],
     });
+    if (path.endsWith("/ai/runs/run-1/events")) return route.fulfill({ status: 200, contentType: "text/event-stream", body: "id: run-1:1\nevent: run-started\ndata: {\"sequence\":1,\"runId\":\"run-1\",\"type\":\"RUN_STARTED\",\"message\":\"Run started.\",\"referenceIds\":[],\"createdAt\":\"2026-07-17T12:00:00Z\"}\n\nid: run-1:2\nevent: capability-completed\ndata: {\"sequence\":2,\"runId\":\"run-1\",\"type\":\"CAPABILITY_COMPLETED\",\"message\":\"Entity inspection completed.\",\"referenceIds\":[\"entity:Customer\"],\"createdAt\":\"2026-07-17T12:00:01Z\"}\n\n" });
     if (path.endsWith("/staged") && request.method() === "GET") return json(route, { apiVersion: "v1", projectId: "simple", status: "READY", entries: [], proposal: null });
     if (path.endsWith("/staged") && request.method() === "POST") {
       stagedEditType = (request.postDataJSON() as { editType?: string }).editType;
@@ -90,11 +97,11 @@ test("completes the browser workbench journey through reviewable staging", async
   await page.getByRole("button", { name: "Assistant" }).click();
   await expect(page.getByRole("complementary", { name: "Entio AI assistant" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Explore", exact: true })).toHaveAttribute("aria-selected", "true");
-  await page.getByRole("combobox", { name: "Operation" }).selectOption("SUGGEST_SUPERCLASS");
-  await page.getByLabel("Request or IRI").fill("https://example.com/entio/simple#Party");
-  await page.getByRole("button", { name: "Ask assistant" }).click();
-  await page.getByRole("button", { name: "Stage suggestion" }).click();
-  await expect(page.getByRole("button", { name: "Staged for review" })).toBeVisible();
+  await expect(page.getByText("Ready when you are")).toBeVisible();
+  await page.getByLabel("Ask about this ontology context").fill("Explain Customer.");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText("Customer is an asserted class in the selected project.")).toBeVisible();
+  await expect(page.getByText("Entity inspection completed.")).toBeVisible();
 
   await page.getByRole("tab", { name: "FIBO" }).click();
   await expect(page.getByRole("heading", { name: "External ontology browser" })).toBeVisible();
@@ -106,4 +113,8 @@ test("completes the browser workbench journey through reviewable staging", async
 
 async function json(route: import("@playwright/test").Route, body: unknown) {
   await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+}
+
+function aiConversation(messages: unknown[]) {
+  return { id: "conversation-1", projectId: "simple", messages, currentDraftId: null, modelId: "gpt-5.2", status: "ACTIVE", createdAt: "2026-07-17T12:00:00Z", updatedAt: "2026-07-17T12:00:01Z" };
 }
