@@ -79,6 +79,24 @@ public class CollaborationHub(
         proposalId = proposalId,
     )
 
+    public suspend fun aiProposalSubmitted(
+        projectId: String,
+        proposalId: String,
+        submittingUserId: String,
+        runId: String,
+        rationale: String,
+    ): Unit = publishByProject(
+        projectId,
+        "proposal.ai-submitted",
+        proposalId = proposalId,
+        data = mapOf(
+            "aiGenerated" to true,
+            "submittingUserId" to submittingUserId,
+            "runId" to runId,
+            "rationale" to rationale,
+        ),
+    )
+
     public suspend fun job(projectId: String, eventType: String, jobId: String): Unit = publishByProject(
         projectId,
         eventType,
@@ -91,10 +109,11 @@ public class CollaborationHub(
         stagedChangeId: String? = null,
         proposalId: String? = null,
         jobId: String? = null,
+        data: Map<String, Any?> = emptyMap(),
     ): Unit {
         projectRegistry.find(projectId) ?: throw WebWorkflowFailure("unknown-project", "The requested project is not registered.")
         val room = rooms.getOrPut(projectId) { CollaborationRoom(projectId) }
-        publish(room, eventType, stagedChangeId = stagedChangeId, proposalId = proposalId, jobId = jobId)
+        publish(room, eventType, stagedChangeId = stagedChangeId, proposalId = proposalId, jobId = jobId, data = data)
     }
 
     private suspend fun handleClientEvent(room: CollaborationRoom, socket: WebSocketServerSession, userId: String, raw: String): Unit {

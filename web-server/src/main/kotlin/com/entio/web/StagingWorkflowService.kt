@@ -93,6 +93,11 @@ internal data class PreparedPrivateDraftChange(
     val generatedIris: List<GeneratedIri>,
 )
 
+internal data class AtomicReviewSubmissionEntry(
+    val request: WebStageChangeRequest,
+    val rationale: String,
+)
+
 /** Server-owned single-client staging state that delegates semantic work to Kotlin services. */
 public class StagingWorkflowService(
     private val projectRegistry: ProjectRegistry,
@@ -184,6 +189,63 @@ public class StagingWorkflowService(
             throw WebWorkflowFailure("immutable-source", "Ontology source '${request.sourceId}' is not writable.")
         }
         return prepareChange(project, request)
+    }
+
+    /** Imports one isolated private draft and creates its ordinary review proposal as one in-memory transaction. */
+    @Synchronized
+    internal fun submitForReview(
+        projectId: String,
+        entries: List<AtomicReviewSubmissionEntry>,
+        userId: String,
+    ): WebStagingResponse {
+        if (entries.isEmpty()) throw WebWorkflowFailure("empty-review-submission", "A review submission must contain at least one typed change.")
+        val session = session(projectId)
+        if (session.entries.isNotEmpty() || session.proposal != null || session.preparedProposal != null) {
+            throw WebWorkflowFailure(
+                "shared-staging-conflict",
+                "The shared review queue already contains work; submit the AI draft after the current proposal is resolved.",
+            )
+        }
+
+        val project = load(projectId)
+        val firstOrder = session.nextOrder
+        val preparedEntries = entries.mapIndexed { index, entry ->
+            val request = entry.request.copy(
+                comment = entry.rationale,
+                aiGenerated = true,
+                idempotencyKey = null,
+            )
+            val prepared = prepareChange(project, request)
+            val order = firstOrder + index
+            StoredEntry(
+                staged = StagedChange(
+                    id = "stage-$order",
+                    order = order,
+                    targetSourceId = request.sourceId,
+                    summary = prepared.summary,
+                    operation = prepared.operation,
+                    normalizedValues = prepared.normalizedValues,
+                    resolvedCandidates = prepared.resolvedCandidates,
+                    generatedIris = prepared.generatedIris,
+                ),
+                authorId = userId,
+                latestEditorId = userId,
+                comment = entry.rationale,
+                aiGenerated = true,
+            )
+        }
+        val preparedProposal = proposalPlanner.prepare(project, preparedEntries.map(StoredEntry::staged))
+        if (preparedProposal.proposal.validationReport?.ok != true ||
+            preparedProposal.proposal.status != ChangeProposalStatus.ReadyForReview
+        ) {
+            throw WebWorkflowFailure("review-submission-invalid", "The imported draft did not produce a valid review proposal.")
+        }
+
+        session.entries += preparedEntries
+        session.nextOrder = firstOrder + preparedEntries.size
+        session.preparedProposal = preparedProposal
+        session.proposal = preparedProposal.proposal
+        return response(projectId, session, "AI-assisted draft submitted by $userId for human review.")
     }
 
     @Synchronized
