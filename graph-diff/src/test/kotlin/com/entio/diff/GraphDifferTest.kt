@@ -192,6 +192,22 @@ class GraphDifferTest {
     }
 
     @Test
+    fun describesShaclChangesWithReviewableVocabulary(): Unit {
+        val added = triple(
+            subject = BlankNodeResource("property-shape"),
+            predicate = "http://www.w3.org/ns/shacl#minCount",
+            objectTerm = RdfLiteral("1", Iri("http://www.w3.org/2001/XMLSchema#integer")),
+        )
+
+        val diff = differ.diff(graph(), graph(added))
+
+        assertEquals(
+            "Added SHACL minimum count for property shape with value \"1\"^^http://www.w3.org/2001/XMLSchema#integer.",
+            diff.entries.single().description,
+        )
+    }
+
+    @Test
     fun returnsEntriesInStableOrder(): Unit {
         val diff = differ.diff(
             before = graph(

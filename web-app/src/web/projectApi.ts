@@ -160,6 +160,16 @@ export interface WebStageChangeRequest {
   objectLabel?: string;
   targetIri?: string;
   targetLabel?: string;
+  shapeIri?: string;
+  shapeLabel?: string;
+  targetClassIri?: string;
+  targetClassLabel?: string;
+  pathIri?: string;
+  pathLabel?: string;
+  constraintKind?: string;
+  constraintValue?: string;
+  severity?: string;
+  validationMessage?: string;
   label?: string;
   value?: string;
   datatypeIri?: string;
@@ -200,7 +210,27 @@ export interface WebProposalState {
   baselineProjectFingerprint: string | null;
   validationMessages: string[];
   diff: WebDiffEntry[];
+  targetSourceIds: string[];
+  shaclImpact: WebShaclImpact | null;
   message: string | null;
+}
+
+export interface WebShaclFindingSummary {
+  resultId: string;
+  severity: string;
+  message: string;
+  focusNode: string;
+  path: string | null;
+  shapeIri: string;
+}
+
+export interface WebShaclImpact {
+  currentGraphFingerprint: string;
+  previewGraphFingerprint: string;
+  newFindings: WebShaclFindingSummary[];
+  worsenedFindings: WebShaclFindingSummary[];
+  unchangedFindings: WebShaclFindingSummary[];
+  resolvedFindings: WebShaclFindingSummary[];
 }
 
 export interface WebStagingResponse {

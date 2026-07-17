@@ -12,7 +12,12 @@ export type WebStagingEditType =
   | "create-individual"
   | "assign-type"
   | "add-object-property-assertion"
-  | "add-datatype-property-assertion";
+  | "add-datatype-property-assertion"
+  | "shacl-create-node-shape"
+  | "shacl-create-property-shape"
+  | "shacl-update-constraint"
+  | "shacl-remove-constraint"
+  | "shacl-delete-shape";
 
 export type StagingField =
   | "classLabel"
@@ -25,6 +30,13 @@ export type StagingField =
   | "typeLabel"
   | "subjectLabel"
   | "objectLabel"
+  | "shapeLabel"
+  | "targetClassLabel"
+  | "pathLabel"
+  | "constraintKind"
+  | "constraintValue"
+  | "severity"
+  | "validationMessage"
   | "label"
   | "value";
 
@@ -131,6 +143,58 @@ export const STAGING_EDIT_DEFINITIONS: readonly StagingEditDefinition[] = [
       text("propertyLabel", "Datatype property label", "account number"),
       text("value", "Value", "20874"),
     ],
+  },
+  {
+    type: "shacl-create-node-shape",
+    label: "Create node shape",
+    description: "Create a typed SHACL node shape in a registered shapes source.",
+    fields: [
+      text("shapeLabel", "Shape label", "Customer shape"),
+      text("targetClassLabel", "Target class label", "Customer"),
+      text("severity", "Severity", "Violation", false),
+      text("validationMessage", "Validation message", "Customer data must satisfy this shape.", false),
+    ],
+  },
+  {
+    type: "shacl-create-property-shape",
+    label: "Create property shape",
+    description: "Create a direct-property SHACL constraint and preview its finding impact before approval.",
+    fields: [
+      text("shapeLabel", "Shape label", "Customer account shape"),
+      text("targetClassLabel", "Target class label", "Customer"),
+      text("pathLabel", "Property path label", "owns account"),
+      text("constraintKind", "Constraint", "min-count"),
+      text("constraintValue", "Constraint value", "1"),
+      text("severity", "Severity", "Violation", false),
+      text("validationMessage", "Validation message", "Each customer must own an account.", false),
+    ],
+  },
+  {
+    type: "shacl-update-constraint",
+    label: "Update SHACL constraint",
+    description: "Replace one supported constraint on an existing direct property shape.",
+    fields: [
+      text("shapeLabel", "Shape label", "Customer account shape"),
+      text("pathLabel", "Property path label", "owns account"),
+      text("constraintKind", "Constraint", "min-count"),
+      text("constraintValue", "New value", "1"),
+    ],
+  },
+  {
+    type: "shacl-remove-constraint",
+    label: "Remove SHACL constraint",
+    description: "Remove one supported constraint from an existing direct property shape.",
+    fields: [
+      text("shapeLabel", "Shape label", "Customer account shape"),
+      text("pathLabel", "Property path label", "owns account"),
+      text("constraintKind", "Constraint", "min-count"),
+    ],
+  },
+  {
+    type: "shacl-delete-shape",
+    label: "Delete SHACL shape",
+    description: "Delete a supported shape only after its dependencies and finding impact are reviewed.",
+    fields: [text("shapeLabel", "Shape label", "Customer account shape")],
   },
 ];
 

@@ -16,7 +16,31 @@ describe("web staging edit definitions", () => {
       "assign-type",
       "add-object-property-assertion",
       "add-datatype-property-assertion",
+      "shacl-create-node-shape",
+      "shacl-create-property-shape",
+      "shacl-update-constraint",
+      "shacl-remove-constraint",
+      "shacl-delete-shape",
     ]);
+  });
+
+  it("builds a typed SHACL request without exposing raw RDF", () => {
+    expect(buildStageChangeRequest("shapes", "shacl-create-property-shape", {
+      shapeLabel: "Customer account shape",
+      targetClassLabel: "Customer",
+      pathLabel: "owns account",
+      constraintKind: "min-count",
+      constraintValue: "1",
+    }, "request-shacl")).toEqual({
+      sourceId: "shapes",
+      editType: "shacl-create-property-shape",
+      shapeLabel: "Customer account shape",
+      targetClassLabel: "Customer",
+      pathLabel: "owns account",
+      constraintKind: "min-count",
+      constraintValue: "1",
+      idempotencyKey: "request-shacl",
+    });
   });
 
   it("builds an object relationship request without changing semantic meaning", () => {

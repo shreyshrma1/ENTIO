@@ -27,6 +27,9 @@ public class StagedChangeSetNormalizer(
         val translated = entries.map { entry ->
             when (val operation = entry.operation) {
                 is StagedChangeOperation.TypedEdit -> editTranslator.translate(operation.edit)
+                is StagedChangeOperation.ShaclEdit -> EntioResult.Failure(
+                    "Typed SHACL edits require the current shapes graph during proposal preparation.",
+                )
                 is StagedChangeOperation.GraphChanges -> EntioResult.Success(operation.changeSet)
                 is StagedChangeOperation.Delete -> deletionChangeGenerator.generate(operation.plan)
             }
