@@ -104,7 +104,19 @@ class AiCapabilityRegistryTest {
             .definitions.map(AiCapabilityDefinition::name)
 
         assertEquals(
-            listOf("entio_entity_detail", "entio_help", "entio_project_summary", "entio_search_local_entities"),
+            listOf(
+                "entio_available_actions",
+                "entio_compare_entities",
+                "entio_entity_detail",
+                "entio_entity_usage",
+                "entio_error_help",
+                "entio_help",
+                "entio_hierarchy_neighborhood",
+                "entio_project_summary",
+                "entio_screen_context",
+                "entio_search_local_entities",
+                "entio_workflow_state",
+            ),
             all,
         )
         assertFalse("entio_help" in noHelp)

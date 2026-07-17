@@ -13,8 +13,15 @@ public enum class AiCapabilityCategory {
 public enum class AiCapabilityOperationType {
     READ_PROJECT_SUMMARY,
     READ_ENTITY,
+    COMPARE_ENTITIES,
     SEARCH_LOCAL_ENTITIES,
+    READ_HIERARCHY,
+    READ_ENTITY_USAGE,
+    READ_SCREEN_CONTEXT,
+    READ_AVAILABLE_ACTIONS,
+    READ_WORKFLOW_STATE,
     READ_ENTIO_HELP,
+    EXPLAIN_ERROR_CODE,
 }
 
 public enum class AiCapabilityAccess {
@@ -125,6 +132,11 @@ public data class AiEntityDetailArguments(
     override val sourceId: String?,
 ) : AiSourceScopedArguments
 
+public data class AiEntityComparisonArguments(
+    val entityIris: List<String>,
+    override val sourceId: String?,
+) : AiSourceScopedArguments
+
 public enum class AiEntityKindFilter {
     CLASS,
     OBJECT_PROPERTY,
@@ -140,6 +152,24 @@ public data class AiLocalSearchArguments(
     override val sourceId: String?,
     val limit: Int,
 ) : AiSourceScopedArguments
+
+public data class AiHierarchyArguments(
+    val parentIri: String?,
+    override val sourceId: String?,
+    val limit: Int,
+) : AiSourceScopedArguments
+
+public data class AiEntityUsageArguments(
+    val entityIri: String,
+    override val sourceId: String?,
+    val limit: Int,
+) : AiSourceScopedArguments
+
+public data object AiScreenContextArguments : AiCapabilityArguments
+
+public data object AiAvailableActionsArguments : AiCapabilityArguments
+
+public data object AiWorkflowStateArguments : AiCapabilityArguments
 
 public enum class AiHelpTopic {
     NAVIGATION,
@@ -160,6 +190,10 @@ public enum class AiHelpTopic {
 
 public data class AiHelpArguments(
     val topic: AiHelpTopic,
+) : AiCapabilityArguments
+
+public data class AiErrorCodeArguments(
+    val code: String,
 ) : AiCapabilityArguments
 
 public fun interface AiCapabilityArgumentDecoder {
