@@ -86,14 +86,14 @@ public sealed interface AiProviderCompletion {
 public interface AiAssistantProvider {
     public val providerId: String
 
-    public fun complete(apiKey: String, request: AiProviderRequest): AiProviderCompletion
+    public suspend fun complete(apiKey: String, request: AiProviderRequest): AiProviderCompletion
 }
 
 /** Deterministic provider adapter used until a real provider is explicitly approved. */
 public class DevelopmentAiAssistantProvider(
     override val providerId: String = "provider-neutral",
 ) : AiAssistantProvider {
-    override fun complete(apiKey: String, request: AiProviderRequest): AiProviderCompletion {
+    override suspend fun complete(apiKey: String, request: AiProviderRequest): AiProviderCompletion {
         if (apiKey.contains("fail", ignoreCase = true)) {
             return AiProviderCompletion.Failed("The development AI provider failed safely.")
         }
@@ -250,9 +250,9 @@ public class AiAssistantService(
     private val contextBuilder: AiBoundedContextBuilder,
     private val validator: AiTypedSuggestionValidator = AiTypedSuggestionValidator(),
 ) {
-    public fun answer(userId: String, projectId: String, request: AiAssistantRequest): AiAssistantResponse {
+    public suspend fun answer(userId: String, projectId: String, request: AiAssistantRequest): AiAssistantResponse {
         val context = contextBuilder.build(projectId, request)
-        val completion = credentials.withCredential(userId) { providerId, apiKey ->
+        val completion = credentials.withCredentialSuspending(userId) { providerId, apiKey ->
             if (providerId != provider.providerId) AiProviderCompletion.Failed("The configured provider is not available.")
             else provider.complete(apiKey, AiProviderRequest(request.operation, context))
         } ?: throw AiAssistantFailure("missing-credential", "Configure and test an AI credential before using the assistant.")
