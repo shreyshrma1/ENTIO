@@ -55,6 +55,7 @@ public class InMemoryAiConversationStore : AiConversationStore {
 public interface AiRunStore {
     public fun create(run: AiRun): AiRun
     public fun get(userId: String, projectId: String, runId: String): AiRun
+    public fun update(run: AiRun): AiRun
     public fun transition(userId: String, projectId: String, runId: String, status: AiRunStatus): AiRun
     public fun cancel(userId: String, projectId: String, runId: String): AiRun
     public fun list(userId: String, projectId: String): List<AiRun>
@@ -78,6 +79,22 @@ public class InMemoryAiRunStore : AiRunStore {
     @Synchronized
     override fun get(userId: String, projectId: String, runId: String): AiRun =
         owned(runs[runId], userId, projectId, "run", runId)
+
+    @Synchronized
+    override fun update(run: AiRun): AiRun {
+        val current = get(run.userId, run.projectId, run.id)
+        if (current.conversationId != run.conversationId || current.scope != run.scope) {
+            throw AiStateAccessFailure("run-scope-violation", "A run cannot move across conversation or capability scope.")
+        }
+        if (!current.status.canTransitionTo(run.status)) {
+            throw AiStateAccessFailure(
+                "invalid-run-transition",
+                "Run '${run.id}' cannot transition from ${current.status} to ${run.status}.",
+            )
+        }
+        runs[run.id] = run
+        return run
+    }
 
     @Synchronized
     override fun transition(userId: String, projectId: String, runId: String, status: AiRunStatus): AiRun {

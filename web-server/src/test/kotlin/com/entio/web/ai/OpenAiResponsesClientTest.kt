@@ -68,6 +68,30 @@ class OpenAiResponsesClientTest {
     }
 
     @Test
+    fun requestSerializesSequentialToolOutputsWithoutMakingResponseIdsAuthoritative(): Unit = runBlocking {
+        var capturedBody: String? = null
+        val engine = MockEngine { request ->
+            capturedBody = (request.body as TextContent).text
+            respond(completedStream("resp-next", "Done"), headers = eventStreamHeaders())
+        }
+        val request = request().copy(
+            previousResponseId = "resp-previous",
+            toolOutputs = listOf(
+                OpenAiToolOutput("call-1", "{\"status\":\"ok\"}"),
+                OpenAiToolOutput("call-2", "{\"status\":\"safe\"}"),
+            ),
+        )
+
+        client(engine).use { provider -> assertIs<OpenAiResponsesResult.Completed>(provider.respond("key", request)) }
+
+        val body = mapper.readTree(capturedBody)
+        assertEquals("resp-previous", body.path("previous_response_id").asText())
+        val outputs = body.path("input").filter { it.path("type").asText() == "function_call_output" }
+        assertEquals(listOf("call-1", "call-2"), outputs.map { it.path("call_id").asText() })
+        assertEquals(listOf("{\"status\":\"ok\"}", "{\"status\":\"safe\"}"), outputs.map { it.path("output").asText() })
+    }
+
+    @Test
     fun configurationRejectsAliasesUnapprovedEndpointsAndStoredResponses(): Unit {
         assertFailsWith<IllegalArgumentException> { configuration(modelId = "gpt-5.2-latest") }
         assertFailsWith<IllegalArgumentException> { configuration(endpoint = "https://example.com/v1/responses") }
