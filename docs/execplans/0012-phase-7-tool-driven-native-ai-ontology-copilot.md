@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft for review. This plan is implementation-ready after the boundary prerequisites and open configuration decisions below are approved. It does not activate Phase 7 implementation by itself.
+Approved and implementation-ready, subject only to the base-branch and clean-working-tree checks in the Planning Boundary Prerequisite. It does not activate Phase 7 implementation by itself.
 
 ## Source Spec
 
@@ -112,16 +112,25 @@ This plan must not implement:
 - Embeddings, vector search, document ingestion, entity-resolution agents, or autonomous multi-agent workflows.
 - A new semantic or AI Gradle module.
 - Semantic policy in React or provider DTOs in semantic core modules.
-- AI SHACL mutation unless an existing typed shape mutation is proven to traverse the approved proposal lifecycle.
+- AI SHACL mutation outside the bounded operations completed and proven by the Phase 7 typed SHACL proposal-integration slice.
 - Changes to CLI or VS Code behavior.
 
 ## Fixed Implementation Decisions
 
 ### Provider transport
 
-- `OpenAiResponsesClient` uses HTTPS from `web-server` to the configured OpenAI Responses API endpoint.
-- The model identifier is a required explicit server configuration value and must not use an unapproved moving alias.
-- Provider response storage is an explicit configuration defaulting to disabled until a retention policy is approved.
+- `OpenAiResponsesClient` uses HTTPS from `web-server` to `https://api.openai.com/v1/responses`.
+- The only permitted production provider host is `api.openai.com`; redirects to another host are rejected.
+- The initial approved model identifier is `gpt-5.2`.
+- The server configuration must expose `ENTIO_OPENAI_MODEL`, but Phase 7 accepts only the fixed allowlist `gpt-5.2`. Adding or replacing a model requires a separately approved configuration change and provider-contract regression run.
+- Moving aliases such as `latest` are rejected.
+- Provider response storage is disabled by default and Phase 7 requests must send `store: false`.
+- Phase 7 does not use provider background mode.
+- The provider connect timeout is 10 seconds.
+- The provider request timeout is 120 seconds.
+- A provider request may be retried at most twice for connection failure, HTTP 408, HTTP 429, or HTTP 5xx responses.
+- Retries use exponential backoff with jitter and must preserve the Entio request ID and idempotency boundary.
+- Authentication, authorization, malformed request, refusal, and semantic tool-validation failures are not retried automatically.
 - OpenAI custom function tools come only from the current `AiCapabilityRegistry` snapshot.
 - Automated tests use a fake provider or Ktor `MockEngine`; they never use a real API key or network.
 
@@ -146,6 +155,116 @@ This plan must not implement:
 - Assistant claims about ontology state must reference Entio evidence.
 - Tool summaries may be shown; hidden model reasoning and raw provider payloads must not be exposed.
 
+### Typed-edit capability inventory
+
+Before Slice 6 implementation begins, Slice 6 must create and approve:
+
+```text
+docs/decisions/phase-7-slice-7-typed-edit-capability-inventory.md
+```
+
+The inventory must list every proposed AI mutation capability and prove the corresponding existing Entio path:
+
+```text
+AI capability
+→ existing typed request or intent
+→ deterministic validation
+→ in-memory preview
+→ semantic diff
+→ proposal review
+→ human apply
+→ reload
+→ rollback
+```
+
+For every capability, record:
+
+- AI capability name;
+- existing Kotlin typed request or intent;
+- translator/service used;
+- supported target entity kinds;
+- supported target source roles;
+- dependency-review requirements;
+- preview support;
+- validation support;
+- reasoning/SHACL impact support;
+- application support;
+- rollback support;
+- tests proving parity with the non-AI path;
+- final status: `APPROVED`, `READ_ONLY`, `DEFERRED`, or `UNSUPPORTED`.
+
+Only capabilities marked `APPROVED` may enter the AI registry.
+
+The inventory must not infer support from the existence of a Kotlin class alone.
+
+### SHACL mutation decision
+
+Phase 7 will complete a bounded typed SHACL proposal pathway before exposing any model-callable SHACL mutation capability.
+
+The new typed SHACL proposal-integration slice must prove that each supported operation travels through:
+
+```text
+typed SHACL request
+→ deterministic request validation
+→ ordinary Entio staging
+→ preview shapes graph
+→ current and preview SHACL validation
+→ human-readable semantic diff
+→ new/worsened/unchanged/resolved finding impact
+→ human review
+→ atomic application
+→ reload verification
+→ rollback on failure
+```
+
+Only SHACL operations proven by this path and marked `APPROVED` in the typed-edit capability inventory may enter the AI capability registry.
+
+The initial bounded SHACL mutation set may include:
+
+- create node shape;
+- create property shape;
+- set target class;
+- set property path;
+- set minimum count;
+- set maximum count;
+- set datatype;
+- set expected class;
+- set minimum inclusive value;
+- set maximum inclusive value;
+- set pattern;
+- set severity;
+- set validation message;
+- update a supported constraint;
+- remove a supported constraint;
+- delete a shape.
+
+The following remain excluded:
+
+- arbitrary SHACL RDF mutation;
+- raw Turtle or SPARQL updates;
+- SHACL-SPARQL constraints;
+- JavaScript constraints;
+- custom constraint components;
+- arbitrary or recursive property paths;
+- complex logical combinations without a safe typed contract;
+- any shape operation that cannot complete the full preview, review, application, reload, and rollback lifecycle.
+
+The AI may still inspect and explain all available SHACL results. It may mutate SHACL only through inventory-approved typed capabilities after the non-AI pathway passes its end-to-end tests.
+
+### Private SSE retention and reconnect policy
+
+The private AI SSE boundary uses in-memory, per-user event retention.
+
+- Retain the latest 250 safe events per AI run.
+- Retain events only for the server lifetime.
+- Retain terminal-run events until the owning conversation is removed, the user session ends, or the server restarts.
+- Each event has a monotonically increasing per-run sequence and SSE event ID.
+- A reconnect may supply the last received event ID.
+- If the requested event is still retained, stream subsequent events.
+- If the event is no longer retained or a sequence gap is detected, return a structured resynchronization signal and require authoritative HTTP refetch.
+- SSE events never contain credentials, raw provider payloads, hidden reasoning, private data from another user, or unrestricted ontology content.
+- No durable replay log is introduced.
+
 ## Dependency Order And Multi-Agent Safety
 
 All slices are serial because they evolve shared AI contracts, server routes, and the same assistant UI. Do not implement slices in parallel.
@@ -158,14 +277,15 @@ Dependency order:
 3. OpenAI provider and credential hardening
 4. Local read and help capabilities
 5. Reasoning, SHACL, proposal, and FIBO read capabilities
-6. Private draft and typed edit capabilities
-7. Draft analysis and bounded self-correction
-8. Conversation service and bounded tool loop
-9. Human review submission, attribution, and audit
-10. Versioned HTTP and private SSE contracts
-11. React conversation and draft-review experience
-12. Security, limits, and failure hardening
-13. End-to-end regression and Phase 7 summary
+6. Typed SHACL proposal integration
+7. Private draft and inventory-approved typed edit capabilities
+8. Draft analysis and bounded self-correction
+9. Conversation service and bounded tool loop
+10. Human review submission, attribution, and audit
+11. Versioned HTTP and private SSE contracts
+12. React conversation and draft-review experience
+13. Security, limits, and failure hardening
+14. End-to-end regression and Phase 7 summary
 ```
 
 Do not allow parallel work on:
@@ -311,7 +431,7 @@ Implement the initial real OpenAI provider adapter, explicit model/provider conf
 
 - Slices 1 and 2.
 - Existing in-memory credential service.
-- Approved explicit model configuration and storage policy.
+- The fixed provider, model, storage, timeout, retry, and endpoint decisions in this ExecPlan.
 
 #### Forbidden actions/modules
 
@@ -352,7 +472,7 @@ git diff --check
 
 #### Stop conditions
 
-- Stop if an explicit model ID and storage policy have not been approved.
+- Stop if the configured model is not `gpt-5.2`, the provider endpoint is not the approved OpenAI endpoint, or `store: false` cannot be enforced.
 - Stop if provider errors can leak request headers or credentials.
 - Stop if automated tests require a live API key or external network.
 
@@ -467,37 +587,190 @@ git diff --check
 - Stop if FIBO or semantic job results cannot be tied to stable fingerprints.
 - Stop if private collaboration data would be exposed.
 
-### Slice 6: Private AI Draft And Typed Edit Capabilities
+### Slice 6: Typed SHACL Proposal Integration
 
 #### Goal
 
-Implement the private AI draft workspace and capability adapters for every approved typed ontology, semantic metadata, deletion, and external reuse edit that can traverse the existing proposal lifecycle.
+Complete the non-AI typed SHACL editing workflow by connecting the existing `ShaclShapeAuthoringService` and SHACL impact machinery to the ordinary Entio staging, preview, diff, human review, atomic application, reload verification, and rollback path.
+
+This slice must finish and prove the public typed SHACL proposal boundary before any SHACL mutation capability is exposed to the AI.
+
+#### Allowed files/modules
+
+- `core-types` only for additive typed SHACL request and result contracts when a genuinely cross-client contract is required.
+- `semantic-engine` only for narrow reusable typed SHACL translation, source-targeting, and validation adapters.
+- `graph-diff` only for human-readable SHACL change descriptions or missing impact metadata.
+- `web-server` staging, proposal mapping, source validation, review DTOs, and focused tests.
+- `cli` structured proposal mapping and focused tests when CLI parity is part of the existing public proposal contract.
+- `web-app` only for the minimum SHACL proposal form or review rendering needed to prove the ordinary non-AI workflow.
+- `docs/decisions/phase-7-slice-6-typed-shacl-proposal-integration.md`.
+
+#### Dependencies
+
+- Slices 1 through 5.
+- Existing `ShaclShapeAuthoringService`.
+- Existing SHACL parsing and validation.
+- Existing proposal-impact comparison of new, worsened, unchanged, and resolved findings.
+- Existing staged-change, preview, atomic multi-source application, reload-verification, and rollback services.
+- Existing source-role, mutability, and project-scope protections.
+
+#### Initial supported operations
+
+The bounded initial operation set may include:
+
+- create node shape;
+- create property shape;
+- set target class;
+- set property path;
+- set minimum count;
+- set maximum count;
+- set datatype;
+- set expected class;
+- set minimum inclusive value;
+- set maximum inclusive value;
+- set pattern;
+- set severity;
+- set validation message;
+- update one supported constraint;
+- remove one supported constraint;
+- delete a shape.
+
+Only operations that can be represented by strict typed contracts and complete the full lifecycle may be marked supported.
+
+#### Explicitly deferred operations
+
+- SHACL-SPARQL constraints.
+- JavaScript constraints.
+- Custom constraint components.
+- Arbitrary RDF shape mutation.
+- Raw Turtle or SPARQL updates.
+- Arbitrary or recursive property paths.
+- Complex logical combinations without an existing safe typed representation.
+- Any operation that cannot complete preview, impact, review, atomic application, reload verification, and rollback.
+
+#### Forbidden actions/modules
+
+- No AI or OpenAI tool exposure in this slice.
+- No raw Turtle, raw RDF triple, SPARQL update, or arbitrary predicate staging.
+- No direct source-file mutation from HTTP, CLI mapping, or React.
+- No bypass of ordinary staged-change, proposal, approval, application, or rollback boundaries.
+- No new SHACL engine.
+- No weakening of existing source-role, baseline, validation, or permission checks.
+- No claim of support based only on the existence of a lower-level authoring class.
+
+#### Required workflow
+
+Every supported SHACL edit must pass through:
+
+```text
+typed SHACL request
+→ request and source validation
+→ ordinary staged change
+→ preview shapes graph
+→ validate current data against current shapes
+→ validate preview data against preview shapes
+→ classify new, worsened, unchanged, and resolved findings
+→ human-readable SHACL semantic diff
+→ human review
+→ atomic application across all affected sources
+→ reload
+→ post-apply verification
+→ rollback on failure
+```
+
+#### Expected output
+
+- Stable typed SHACL edit contracts.
+- Structured CLI mapping where required by the existing public proposal contract.
+- Web staging support in the same proposal system used by ontology edits.
+- Shape-source targeting, role, mutability, and baseline validation.
+- Human-readable descriptions of supported SHACL changes.
+- Preview behavior that distinguishes the current and preview shapes graphs.
+- Proposal impact that identifies affected entities and finding-state changes.
+- Atomic combined ontology-and-SHACL application when one proposal affects both graph families.
+- Reload verification and rollback across all affected sources.
+- End-to-end tests proving the complete ordinary non-AI lifecycle.
+- No raw SHACL fallback path.
+
+#### Tests
+
+At minimum:
+
+1. Create a property shape requiring one borrower.
+2. Preview displays the shape addition.
+3. SHACL impact reports newly invalid entities.
+4. Rejection leaves all source files unchanged.
+5. Human approval updates the correct shape source.
+6. Reload reproduces the previewed findings.
+7. A forced post-save verification failure rolls back every affected source.
+8. Edit an existing supported constraint.
+9. Remove a supported constraint.
+10. Delete a shape with dependency review.
+11. Reject an unsupported property path.
+12. Reject immutable, incorrect-role, unregistered, or out-of-scope source targets.
+13. Reject a stale baseline.
+14. Apply a combined ontology-and-SHACL proposal atomically.
+15. Preserve existing ontology-only proposal behavior.
+
+#### Verification commands
+
+```bash
+./gradlew :semantic-engine:test
+./gradlew :graph-diff:test
+./gradlew :web-server:test
+./gradlew :cli:test
+./gradlew test
+(cd web-app && npm ci && npm test && npm run build)
+git diff --check
+```
+
+If the slice does not change `web-app`, the frontend command may be omitted and the completion artifact must state that no frontend file was changed.
+
+#### Stop conditions
+
+- Stop if a proposed operation cannot be represented through a typed contract.
+- Stop if preview requires direct source-file mutation.
+- Stop if current and preview shape graphs cannot be distinguished.
+- Stop if impact cannot be tied to exact graph, shape, and proposal fingerprints.
+- Stop if application cannot be atomic across all affected sources.
+- Stop if rollback cannot restore every affected source.
+- Stop if public staging would require raw Turtle, raw triples, or arbitrary SPARQL.
+- Stop if ordinary non-AI SHACL staging and review cannot be proven before AI exposure.
+
+### Slice 7: Private AI Draft And Typed Edit Capabilities
+
+#### Goal
+
+Create the approved typed-edit capability inventory, then implement the private AI draft workspace and capability adapters only for ontology, metadata, deletion, external reuse, and SHACL entries marked `APPROVED`.
 
 #### Allowed files/modules
 
 - `web-server/src/main/kotlin/com/entio/web/ai/`
 - `web-server/src/main/kotlin/com/entio/web/StagingWorkflowService.kt` only for a narrowly approved reusable typed-request adapter when unavoidable.
 - `web-server/src/test/kotlin/com/entio/web/ai/`
-- `docs/decisions/phase-7-slice-6-private-draft-typed-edits.md`
+- `docs/decisions/phase-7-slice-7-private-draft-typed-edits.md`
 
 #### Dependencies
 
-- Slices 1 and 2.
+- Slices 1 through 6.
+- The completed typed SHACL proposal pathway from Slice 6.
 - Existing typed ontology edits, semantic edit requests, deletion review, FIBO intents, translators, and proposal services.
 
 #### Forbidden actions/modules
 
 - No source-file writes or shared staging mutation.
 - No raw triples, Turtle, SPARQL, or arbitrary predicates.
-- No unsupported SHACL mutation fallback.
+- No SHACL mutation outside the operations proven by Slice 6 and marked `APPROVED` in the inventory; no raw SHACL fallback.
 - No approval, rejection, application, or rollback operation.
 - No new semantic behavior in `web-server`.
 - No edits to semantic core modules without stopping and revising the plan.
 
 #### Expected output
 
+- `docs/decisions/phase-7-slice-7-typed-edit-capability-inventory.md` proving the complete Entio lifecycle for every candidate AI edit.
 - Private draft create/read/add/update/remove/reorder/undo/clear behavior with revision history.
-- Stable capability adapters for approved class, property, individual, type, hierarchy, domain/range, assertion, label, definition, alternate-label, annotation, deletion, external reuse, and local-subclass intents.
+- Stable capability adapters only for class, property, individual, type, hierarchy, domain/range, assertion, label, definition, alternate-label, annotation, deletion, external reuse, local-subclass, and bounded SHACL intents marked `APPROVED` by the inventory.
+- Model-callable SHACL tools for the bounded operation set proven by Slice 6, with strict schemas and no raw RDF representation.
 - Deterministic label/IRI resolution through existing services.
 - Source mutability, source role, dependency, duplicate, and conflict checks.
 - Explicit report of unsupported operations rather than raw RDF fallback.
@@ -510,7 +783,8 @@ Implement the private AI draft workspace and capability adapters for every appro
 - Cross-user and cross-conversation mutation fails.
 - Immutable FIBO and out-of-scope sources cannot be targeted.
 - Deletion requires explicit dependency selection.
-- Unsupported SHACL and arbitrary graph requests fail without draft mutation.
+- Unsupported SHACL, deferred advanced SHACL, and arbitrary graph requests fail without draft mutation.
+- Every approved SHACL capability produces the same typed request and proposal behavior as the corresponding non-AI path from Slice 6.
 - Shared staged state remains unchanged.
 
 #### Verification commands
@@ -525,9 +799,11 @@ git diff --check
 
 - Stop if any advertised edit lacks an existing typed translator and proposal path.
 - Stop if private draft mutation requires shared staging side effects.
-- Stop if the SHACL authoring audit does not prove full proposal lifecycle support; keep those tools absent.
+- Stop if the inventory cannot prove the complete existing lifecycle for an advertised capability.
+- Stop if a SHACL tool cannot reuse the typed public pathway completed in Slice 6.
+- Keep every unproven or deferred SHACL operation absent.
 
-### Slice 7: Draft Validation, Preview, Semantic Analysis, And Self-Correction
+### Slice 8: Draft Validation, Preview, Semantic Analysis, And Self-Correction
 
 #### Goal
 
@@ -538,11 +814,11 @@ Connect private drafts to existing deterministic validation, in-memory preview, 
 - `web-server/src/main/kotlin/com/entio/web/ai/`
 - `web-server/src/test/kotlin/com/entio/web/ai/`
 - Existing semantic services as dependencies.
-- `docs/decisions/phase-7-slice-7-draft-analysis-self-correction.md`
+- `docs/decisions/phase-7-slice-8-draft-analysis-self-correction.md`
 
 #### Dependencies
 
-- Slices 5 and 6.
+- Slices 5 through 7.
 - Existing proposal preview, validation, diff, reasoning, SHACL, and impact services.
 
 #### Forbidden actions/modules
@@ -587,7 +863,7 @@ git diff --check
 - Stop if a result cannot be associated with baseline and draft fingerprints.
 - Stop if self-correction would modify shared or applied state.
 
-### Slice 8: Conversation Service, Planning, Clarification, And Bounded Tool Loop
+### Slice 9: Conversation Service, Planning, Clarification, And Bounded Tool Loop
 
 #### Goal
 
@@ -597,11 +873,11 @@ Implement reciprocal conversations and the bounded OpenAI tool loop over the com
 
 - `web-server/src/main/kotlin/com/entio/web/ai/`
 - `web-server/src/test/kotlin/com/entio/web/ai/`
-- `docs/decisions/phase-7-slice-8-conversation-tool-loop.md`
+- `docs/decisions/phase-7-slice-9-conversation-tool-loop.md`
 
 #### Dependencies
 
-- Slices 1 through 7.
+- Slices 1 through 8.
 - OpenAI adapter and deterministic fake provider.
 
 #### Forbidden actions/modules
@@ -648,7 +924,7 @@ git diff --check
 - Stop if cancellation cannot terminate provider and draft mutation work.
 - Stop if large requests mutate a draft before required plan confirmation.
 
-### Slice 9: Human Review Submission, AI Attribution, And Audit
+### Slice 10: Human Review Submission, AI Attribution, And Audit
 
 #### Goal
 
@@ -660,11 +936,11 @@ Submit a current, fully analyzed private AI draft into the existing human propos
 - `web-server/src/main/kotlin/com/entio/web/StagingWorkflowService.kt` for a narrow atomic import/proposal method.
 - `web-server/src/main/kotlin/com/entio/web/CollaborationHub.kt` for submitted-proposal events only.
 - Related server tests.
-- `docs/decisions/phase-7-slice-9-human-review-submission.md`
+- `docs/decisions/phase-7-slice-10-human-review-submission.md`
 
 #### Dependencies
 
-- Slices 6 through 8.
+- Slices 7 through 9.
 - Existing shared staging, proposal, permission, collaboration, apply, and rollback behavior.
 
 #### Forbidden actions/modules
@@ -707,7 +983,7 @@ git diff --check
 - Stop if existing review controls cannot consume the resulting proposal.
 - Stop if any path implicitly approves or applies the proposal.
 
-### Slice 10: Versioned AI HTTP And Private SSE Boundary
+### Slice 11: Versioned AI HTTP And Private SSE Boundary
 
 #### Goal
 
@@ -720,12 +996,13 @@ Expose conversations, messages, runs, cancellation, drafts, analysis, submission
 - `web-server/src/main/kotlin/com/entio/web/contract/`
 - `web-server/src/main/kotlin/com/entio/web/ai/`
 - `web-server/src/test/kotlin/com/entio/web/`
-- `docs/decisions/phase-7-slice-10-ai-web-contracts.md`
+- `docs/decisions/phase-7-slice-11-ai-web-contracts.md`
 
 #### Dependencies
 
-- Slices 1 through 9.
+- Slices 1 through 10.
 - Existing `/api/v1` structured error and identity boundaries.
+- The fixed private SSE retention and reconnect policy in this ExecPlan.
 
 #### Forbidden actions/modules
 
@@ -738,7 +1015,7 @@ Expose conversations, messages, runs, cancellation, drafts, analysis, submission
 #### Expected output
 
 - Versioned conversation/run/draft/help DTOs and routes.
-- Private authenticated SSE stream with ordered safe events and reconnection cursor.
+- Private authenticated SSE stream implementing the fixed 250-event per-run in-memory retention, ordered event IDs, reconnection cursor, resynchronization signal, and authoritative HTTP recovery policy.
 - Idempotency for message submission, draft mutation, and review submission where retries could duplicate effects.
 - Structured status/error mapping and authoritative GET recovery after disconnect.
 - Deprecation or compatibility handling for the Phase 6 single-request assistant route.
@@ -766,7 +1043,7 @@ git diff --check
 - Stop if route DTOs expose provider or semantic library types.
 - Stop if retries can duplicate draft or proposal mutations.
 
-### Slice 11: React Conversation, Draft Review, And Human Handoff
+### Slice 12: React Conversation, Draft Review, And Human Handoff
 
 #### Goal
 
@@ -782,11 +1059,11 @@ Replace the Phase 6 operation dropdown assistant with a conversational panel tha
 - `web-app/src/web/queries.ts`
 - `web-app/src/styles.css`
 - Related web-app unit/component/e2e tests.
-- `docs/decisions/phase-7-slice-11-ai-conversation-ui.md`
+- `docs/decisions/phase-7-slice-12-ai-conversation-ui.md`
 
 #### Dependencies
 
-- Slice 10.
+- Slice 11.
 - Existing Phase 6 light workbench, settings tab, assistant drawer, proposal review, staging, and accessibility patterns.
 
 #### Forbidden actions/modules
@@ -821,14 +1098,7 @@ Replace the Phase 6 operation dropdown assistant with a conversational panel tha
 #### Verification commands
 
 ```bash
-cd web-app
-npm ci
-npm test
-npm run build
-npm run test:e2e
-```
-
-```bash
+(cd web-app && npm ci && npm test && npm run build && npm run test:e2e)
 git diff --check
 ```
 
@@ -839,7 +1109,7 @@ git diff --check
 - Stop if the API key remains in React state after a successful save.
 - Stop if private AI activity can appear in another user's session.
 
-### Slice 12: Prompt-Injection, Limits, Redaction, And Failure Hardening
+### Slice 13: Prompt-Injection, Limits, Redaction, And Failure Hardening
 
 #### Goal
 
@@ -849,11 +1119,11 @@ Perform a focused adversarial pass across provider requests, capability executio
 
 - Phase 7 files in `web-server` and `web-app`.
 - Security and failure-focused tests.
-- `docs/decisions/phase-7-slice-12-security-hardening.md`
+- `docs/decisions/phase-7-slice-13-security-hardening.md`
 
 #### Dependencies
 
-- Slices 1 through 11.
+- Slices 1 through 13.
 
 #### Forbidden actions/modules
 
@@ -885,14 +1155,7 @@ Perform a focused adversarial pass across provider requests, capability executio
 ```bash
 ./gradlew :web-server:test
 ./gradlew test
-cd web-app
-npm ci
-npm test
-npm run build
-npm run test:e2e
-```
-
-```bash
+(cd web-app && npm ci && npm test && npm run build && npm run test:e2e)
 git diff --check
 ```
 
@@ -902,7 +1165,7 @@ git diff --check
 - Stop if a limit or cancellation leaves uncontrolled work running.
 - Stop if a provider failure is rendered as a completed or submitted change.
 
-### Slice 13: End-To-End Phase 7 Regression And Documentation Summary
+### Slice 14: End-To-End Phase 7 Regression And Documentation Summary
 
 #### Goal
 
@@ -912,7 +1175,7 @@ Verify the complete Phase 7 journey with deterministic fake-provider fixtures, p
 
 - Focused regression tests in `web-server` and `web-app`.
 - Existing tests only when fixture expectations must reflect approved Phase 7 additive fields.
-- `docs/decisions/phase-7-slice-13-e2e-regression.md`
+- `docs/decisions/phase-7-slice-14-e2e-regression.md`
 - `docs/phase-summaries/phase-7-summary.md`
 
 #### Dependencies
@@ -925,7 +1188,7 @@ Verify the complete Phase 7 journey with deterministic fake-provider fixtures, p
 - No live OpenAI key or external network in CI.
 - No mutation of committed examples or FIBO assets.
 - No weakening or deletion of existing regression coverage to obtain a pass.
-- No claim that durable storage, production identity, autonomous application, or unsupported SHACL mutation exists.
+- No claim that durable storage, production identity, autonomous application, or deferred/unsupported SHACL mutation exists.
 
 #### Expected output
 
@@ -950,23 +1213,8 @@ Verify the complete Phase 7 journey with deterministic fake-provider fixtures, p
 ./gradlew test
 ./gradlew build
 ./gradlew check
-```
-
-```bash
-cd web-app
-npm ci
-npm test
-npm run build
-npm run test:e2e
-```
-
-```bash
-cd vscode-extension
-npm ci
-npm test
-```
-
-```bash
+(cd web-app && npm ci && npm test && npm run build && npm run test:e2e)
+(cd vscode-extension && npm ci && npm test)
 git diff --check
 git status --short
 ```
@@ -988,7 +1236,7 @@ git status --short
 - Provider request/response/event mapping with Ktor `MockEngine`.
 - Credential isolation and redaction.
 - Bounded context construction and help lookup.
-- Every read-only and typed-edit capability adapter.
+- Every read-only and typed-edit capability adapter, including inventory-approved SHACL tools.
 - Draft analysis, stale invalidation, self-correction, and submission.
 - Prompt injection, replay, cancellation, timeout, and limits.
 
@@ -1009,7 +1257,7 @@ git status --short
 ### End-to-end tests
 
 - Use a deterministic fake provider and copied Entio fixture.
-- Cover explanation-only, focused edit, broad plan, correction, stale/conflict, cancellation, submission, and human review journeys.
+- Cover explanation-only, focused ontology edit, focused SHACL edit, combined ontology-and-SHACL edit, broad plan, correction, stale/conflict, cancellation, submission, and human review journeys.
 - Verify AI never applies and source files remain unchanged until the existing human apply operation.
 - Verify applied changes reload and forced failures roll back through existing behavior.
 
@@ -1027,23 +1275,8 @@ git status --short
 ./gradlew test
 ./gradlew build
 ./gradlew check
-```
-
-```bash
-cd web-app
-npm ci
-npm test
-npm run build
-npm run test:e2e
-```
-
-```bash
-cd vscode-extension
-npm ci
-npm test
-```
-
-```bash
+(cd web-app && npm ci && npm test && npm run build && npm run test:e2e)
+(cd vscode-extension && npm ci && npm test)
 git diff --check
 git status --short
 ```
@@ -1053,40 +1286,44 @@ A real-provider smoke test is manual and optional because it requires the user's
 ## Risks And Assumptions
 
 - Phase 7 implementation assumes the approved base continues to contain the completed Phase 5 and Phase 6 foundations documented by their implementation summaries.
-- The exact OpenAI model identifier can change over time. Product contracts therefore require an explicit approved server configuration rather than embedding a moving alias.
+- OpenAI model availability can change over time. Phase 7 pins `gpt-5.2`; changing that allowlist requires a separately approved configuration revision and provider regression run.
 - Responses API event shapes can evolve. Provider DTOs must remain isolated behind `OpenAiResponsesClient` and contract-tested.
 - The existing Phase 6 development identity does not provide a production session-expiration event. Phase 7 can clear credentials on logout, removal, restart, and any existing expiration hook, but must not claim production session security.
 - In-memory state is lost on restart. The UI and help must state this clearly.
 - Private SSE streams add per-user transport complexity; incorrect filtering could leak private activity, so Slice 12 treats any leak as a hard stop.
 - Existing typed edit families are split across ontology edits, semantic metadata edits, external intents, deletion behavior, and shape authoring. Slice 6 must inventory the approved proposal path rather than infer support from class existence alone.
-- SHACL authoring services exist, but an AI mutation tool is allowed only if the full typed proposal/application/rollback path is present and tested.
+- Model-callable SHACL mutation is allowed only for operations completed by Slice 6 and marked `APPROVED` in the Slice 7 capability inventory; advanced and raw SHACL mutation remains excluded.
 - A non-empty shared staged queue can make AI submission ambiguous. The Phase 7 conservative behavior is an atomic conflict, not automatic merging.
 - Provider usage metadata may not expose exact cost. Limits should use available token/request measurements and conservative configured budgets without claiming precise billing.
 - Prompt injection cannot be solved by prompting alone. The primary controls are absent forbidden tools, immutable Kotlin scope, strict schemas, per-call authorization, bounded context, and deterministic validation.
 
-## Open Decisions Required Before Relevant Slices
+## Resolved Implementation Decisions
 
-Before Slice 3:
+The following decisions are fixed for Phase 7:
 
-- Approve the explicit OpenAI model identifier or fixed allowlist.
-- Approve provider response storage policy; default is disabled.
-- Approve provider endpoint allowlist and timeout/retry values.
+- OpenAI Responses endpoint: `https://api.openai.com/v1/responses`.
+- Allowed provider host: `api.openai.com`.
+- Initial and only approved model: `gpt-5.2`.
+- Moving model aliases are rejected.
+- Provider response storage: disabled with `store: false`.
+- Provider background mode: disabled.
+- Connect timeout: 10 seconds.
+- Request timeout: 120 seconds.
+- Automatic retry count: at most two retries.
+- Retryable failures: connection failure, HTTP 408, HTTP 429, and HTTP 5xx.
+- AI SHACL mutation: enabled only for the bounded typed operations proven by Slice 6 and marked `APPROVED` in the Slice 7 capability inventory.
+- Typed edit exposure: only entries marked `APPROVED` in the Slice 7 capability inventory.
+- Private SSE retention: latest 250 safe events per AI run, in memory for the server lifetime.
+- SSE reconnect: resume from retained event ID or require authoritative HTTP resynchronization.
 
-Before Slice 6:
-
-- Complete and record the typed-edit capability inventory.
-- Decide whether SHACL mutation has a complete approved proposal path; default is no AI SHACL mutation.
-
-Before Slice 10:
-
-- Approve in-memory SSE event retention and reconnection window.
+No product or architecture decision remains open before implementation. A later change to any fixed value requires a separately approved revision.
 
 ## Rollback Notes
 
 - Each slice must be committed independently and remain revertible without removing prior slices.
 - The Phase 6 deterministic provider should remain available as a test fake throughout implementation, so provider slices can be reverted without breaking non-AI workbench tests.
 - The OpenAI adapter is isolated behind provider interfaces; reverting Slice 3 removes outbound provider behavior without affecting semantic modules.
-- Capability adapters mutate only private in-memory drafts until Slice 9, so Slices 1 through 8 can be reverted without source-file migration.
+- Capability adapters mutate only private in-memory drafts until Slice 10, so Slices 1 through 9 can be reverted without source-file migration.
 - The new HTTP boundary is additive. Preserve the Phase 6 route until compatibility or deprecation behavior is verified.
 - No database or persistent schema migration is introduced.
 - If UI work must be reverted, the versioned server contracts and tests can remain; the existing Phase 6 assistant panel can be restored without semantic rollback.
@@ -1097,17 +1334,17 @@ Before Slice 10:
 Phase 7 is complete only when:
 
 - Repository phase status is aligned and the approved base includes Phase 5 and Phase 6.
-- All 13 slices are implemented serially with their completion artifacts.
+- All 14 slices are implemented serially with their completion artifacts.
 - A real OpenAI Responses API adapter exists behind the provider-neutral Kotlin boundary.
 - Credentials remain server-only, per-user, in-memory, redacted, and removable.
 - Conversation, run, draft, scope, audit, limit, and response state is Entio-owned and bounded.
 - Every provider tool is an allowlisted strict Entio capability with per-call Kotlin authorization and validation.
 - Read capabilities cover local ontology, reasoning, SHACL, proposals, FIBO, workflow, permissions, activity, and help.
-- Every approved typed edit/proposal operation is available through the private draft boundary, with unsupported operations rejected explicitly.
+- Every typed edit marked `APPROVED` in `docs/decisions/phase-7-slice-7-typed-edit-capability-inventory.md`, including the bounded SHACL operations proven by Slice 6, is available through the private draft boundary, with read-only, deferred, and unsupported operations rejected explicitly.
 - Draft validation, preview, diff, reasoning, SHACL, and impact use existing deterministic services and matching fingerprints.
 - Planning, clarification, cancellation, limits, and bounded self-correction work as specified.
 - Explicit user submission creates a normal human-review proposal with AI attribution and no approval/application side effect.
-- No AI capability can access arbitrary files, shell, environment, unrestricted network, secrets, configuration, permissions, approval, rejection, application, rollback, or immutable FIBO mutation.
+- No AI capability can access arbitrary files, shell, environment, unrestricted network, secrets, configuration, permissions, approval, rejection, application, rollback, immutable FIBO mutation, raw Turtle, raw triples, or arbitrary SHACL/SPARQL mutation.
 - React uses only versioned Entio contracts, stores no credential after save, and contains no semantic policy.
 - Security, prompt-injection, cross-scope, provider, limit, cancellation, stale/conflict, and failure tests pass.
 - Full Gradle, web-app, Playwright, VS Code, and diff checks pass.
@@ -1116,7 +1353,7 @@ Phase 7 is complete only when:
 
 ## Boundary Check
 
-- The plan fits the explicitly requested Phase 7 scope, subject to status-document alignment before implementation.
+- The plan fits the explicitly requested Phase 7 scope and is ready after the base-branch and clean-working-tree checks.
 - It adds no speculative semantic framework, database, vector store, production identity, unrestricted agent tooling, or durable persistence.
 - It preserves dependency direction: `web-server` delegates to existing engine modules, and `web-app` delegates to versioned server contracts.
 - It keeps `core-types`, `semantic-engine`, `validation-engine`, `graph-diff`, `cli`, `shared`, and `vscode-extension` unchanged unless a missing approved prerequisite triggers a stop and plan revision.
