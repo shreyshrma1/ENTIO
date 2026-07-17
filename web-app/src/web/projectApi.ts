@@ -1,6 +1,17 @@
 import {
   normalizePageRequest,
   type PageRequest,
+  type WebAiConversationListResponse,
+  type WebAiConversationResponse,
+  type WebAiConversationTurnResponse,
+  type WebAiDraftAnalysisResponse,
+  type WebAiDraftResponse,
+  type WebAiMessageRequest,
+  type WebAiResynchronization,
+  type WebAiReviewSubmissionRequest,
+  type WebAiReviewSubmissionResponse,
+  type WebAiRunEvent,
+  type WebAiRunResponse,
   type WebPage,
   type WebProjectListResponse,
 } from "./contracts";
@@ -495,6 +506,154 @@ export async function askAiAssistant(
   return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/assistant`, "POST", request, fetcher);
 }
 
+export async function loadAiConversations(
+  projectId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebAiConversationListResponse> {
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/conversations`, fetcher);
+}
+
+export async function createAiConversation(
+  projectId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebAiConversationResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/conversations`, "POST", undefined, fetcher);
+}
+
+export async function loadAiConversation(
+  projectId: string,
+  conversationId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebAiConversationResponse> {
+  return getJson(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/ai/conversations/${encodeURIComponent(conversationId)}`,
+    fetcher,
+  );
+}
+
+export async function deleteAiConversation(
+  projectId: string,
+  conversationId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<{ apiVersion: "v1"; status: string }> {
+  return sendJson(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/ai/conversations/${encodeURIComponent(conversationId)}`,
+    "DELETE",
+    undefined,
+    fetcher,
+  );
+}
+
+export async function sendAiConversationMessage(
+  projectId: string,
+  conversationId: string,
+  request: WebAiMessageRequest,
+  idempotencyKey: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebAiConversationTurnResponse> {
+  return sendJson(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/ai/conversations/${encodeURIComponent(conversationId)}/messages`,
+    "POST",
+    request,
+    fetcher,
+    { "Idempotency-Key": idempotencyKey },
+  );
+}
+
+export async function loadAiRun(
+  projectId: string,
+  runId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebAiRunResponse> {
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/runs/${encodeURIComponent(runId)}`, fetcher);
+}
+
+export async function cancelAiRun(
+  projectId: string,
+  runId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebAiRunResponse> {
+  return sendJson(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/ai/runs/${encodeURIComponent(runId)}/cancel`,
+    "POST",
+    undefined,
+    fetcher,
+  );
+}
+
+export interface AiRunStreamOptions {
+  lastEventId?: string;
+  signal?: AbortSignal;
+  onEvent: (event: WebAiRunEvent, eventId: string | null) => void;
+  onResynchronization: (signal: WebAiResynchronization) => void;
+}
+
+export async function streamAiRunEvents(
+  projectId: string,
+  runId: string,
+  options: AiRunStreamOptions,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<void> {
+  const headers: Record<string, string> = { Accept: "text/event-stream" };
+  if (options.lastEventId) headers["Last-Event-ID"] = options.lastEventId;
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/ai/runs/${encodeURIComponent(runId)}/events`,
+    { headers, signal: options.signal },
+  );
+  if (!response.ok) throw await webRequestError(response);
+  if (!response.body) throw new Error("The AI event stream returned no response body.");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const chunk = await reader.read();
+    buffer += decoder.decode(chunk.value, { stream: !chunk.done });
+    const blocks = buffer.split(/\r?\n\r?\n/);
+    buffer = blocks.pop() ?? "";
+    blocks.forEach((block) => dispatchAiEventBlock(block, options));
+    if (chunk.done) break;
+  }
+  if (buffer.trim()) dispatchAiEventBlock(buffer, options);
+}
+
+export async function loadAiDraft(
+  projectId: string,
+  draftId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebAiDraftResponse> {
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/drafts/${encodeURIComponent(draftId)}`, fetcher);
+}
+
+export async function analyzeAiDraft(
+  projectId: string,
+  draftId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebAiDraftAnalysisResponse> {
+  return sendJson(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/ai/drafts/${encodeURIComponent(draftId)}/analysis`,
+    "POST",
+    undefined,
+    fetcher,
+  );
+}
+
+export async function submitAiDraftForReview(
+  projectId: string,
+  draftId: string,
+  request: WebAiReviewSubmissionRequest,
+  idempotencyKey: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebAiReviewSubmissionResponse> {
+  return sendJson(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/ai/drafts/${encodeURIComponent(draftId)}/submit`,
+    "POST",
+    request,
+    fetcher,
+    { "Idempotency-Key": idempotencyKey },
+  );
+}
+
 export async function removeAiCredential(fetcher: WebFetcher = defaultFetcher): Promise<WebAiCredentialStatus> {
   return sendJson("/api/v1/ai/credentials", "DELETE", undefined, fetcher);
 }
@@ -578,20 +737,50 @@ export async function searchProject(
 async function getJson<T>(path: string, fetcher: WebFetcher): Promise<T> {
   const response = await fetcher(path);
   if (!response.ok) {
-    throw new Error(`Entio web request failed with status ${response.status}.`);
+    throw await webRequestError(response);
   }
   return response.json() as Promise<T>;
 }
 
-async function sendJson<T>(path: string, method: string, body: unknown, fetcher: WebFetcher): Promise<T> {
+async function sendJson<T>(
+  path: string,
+  method: string,
+  body: unknown,
+  fetcher: WebFetcher,
+  extraHeaders: Record<string, string> = {},
+): Promise<T> {
   const response = await fetcher(path, {
     method,
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    headers: body === undefined ? extraHeaders : { "Content-Type": "application/json", ...extraHeaders },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => null) as { message?: string } | null;
-    throw new Error(error?.message ?? `Entio web request failed with status ${response.status}.`);
+    throw await webRequestError(response);
   }
   return response.json() as Promise<T>;
+}
+
+function dispatchAiEventBlock(block: string, options: AiRunStreamOptions) {
+  let eventName = "message";
+  let eventId: string | null = null;
+  const data: string[] = [];
+  block.split(/\r?\n/).forEach((line) => {
+    if (line.startsWith("event:")) eventName = line.slice(6).trim();
+    if (line.startsWith("id:")) eventId = line.slice(3).trim();
+    if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+  });
+  if (!data.length) return;
+  const parsed = JSON.parse(data.join("\n")) as WebAiRunEvent | WebAiResynchronization | { message?: string };
+  if (eventName === "resynchronization-required") {
+    options.onResynchronization(parsed as WebAiResynchronization);
+  } else if (eventName === "error") {
+    throw new Error((parsed as { message?: string }).message ?? "The AI event stream failed.");
+  } else {
+    options.onEvent(parsed as WebAiRunEvent, eventId);
+  }
+}
+
+async function webRequestError(response: Response): Promise<Error> {
+  const error = await response.json().catch(() => null) as { message?: string } | null;
+  return new Error(error?.message ?? `Entio web request failed with status ${response.status}.`);
 }

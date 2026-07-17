@@ -4,7 +4,7 @@ import { useAiCredentialActions, useAiCredentialStatus } from "../web/queries";
 export default function AiCredentialSettings() {
   const status = useAiCredentialStatus();
   const actions = useAiCredentialActions();
-  const [providerId, setProviderId] = useState("provider-neutral");
+  const providerId = "openai";
   const [apiKey, setApiKey] = useState("");
 
   function save() {
@@ -21,8 +21,9 @@ export default function AiCredentialSettings() {
         <span>{status.data?.testStatus ?? "Loading"}</span>
       </div>
       <p className="muted">Credentials stay in server memory and are never returned to the browser after submission.</p>
-      <label htmlFor="ai-provider-id">Provider ID</label>
-      <input id="ai-provider-id" value={providerId} onChange={(event) => setProviderId(event.target.value)} />
+      <label htmlFor="ai-provider-id">Provider</label>
+      <input id="ai-provider-id" value="OpenAI" readOnly aria-describedby="ai-provider-description" />
+      <small id="ai-provider-description">The server owns the approved provider and model configuration.</small>
       <label htmlFor="ai-api-key">Credential</label>
       <input id="ai-api-key" type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="Enter a provider credential" />
       <div className="button-row">

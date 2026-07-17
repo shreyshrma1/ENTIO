@@ -35,6 +35,15 @@ import {
   type WebAiCredentialStatus,
   type WebAiCredentialTestResponse,
   askAiAssistant,
+  analyzeAiDraft,
+  cancelAiRun,
+  createAiConversation,
+  deleteAiConversation,
+  loadAiConversation,
+  loadAiConversations,
+  loadAiDraft,
+  sendAiConversationMessage,
+  submitAiDraftForReview,
   type WebAiAssistantRequest,
   type WebAiAssistantResponse,
   type WebEntityDetailResponse,
@@ -43,7 +52,18 @@ import {
   type WebProjectSummaryResponse,
   type WebSemanticSearchResponse,
 } from "./projectApi";
-import type { WebPage } from "./contracts";
+import type {
+  WebAiConversationListResponse,
+  WebAiConversationResponse,
+  WebAiConversationTurnResponse,
+  WebAiDraftAnalysisResponse,
+  WebAiDraftResponse,
+  WebAiMessageRequest,
+  WebAiReviewSubmissionRequest,
+  WebAiReviewSubmissionResponse,
+  WebAiRunResponse,
+  WebPage,
+} from "./contracts";
 
 export const queryKeys = {
   projects: ["projects"] as const,
@@ -63,6 +83,11 @@ export const queryKeys = {
   fiboDetails: (projectId: string, iri: string) => ["project", projectId, "fibo", "details", iri] as const,
   aiCredentialStatus: ["ai", "credential-status"] as const,
   aiAssistant: (projectId: string) => ["project", projectId, "ai", "assistant"] as const,
+  aiConversations: (projectId: string) => ["project", projectId, "ai", "conversations"] as const,
+  aiConversation: (projectId: string, conversationId: string) => ["project", projectId, "ai", "conversation", conversationId] as const,
+  aiDraft: (projectId: string, draftId: string) => ["project", projectId, "ai", "draft", draftId] as const,
+  aiAnalysis: (projectId: string, draftId: string) => ["project", projectId, "ai", "analysis", draftId] as const,
+  aiRun: (projectId: string, runId: string) => ["project", projectId, "ai", "run", runId] as const,
 };
 
 export function useProjects() {
@@ -221,4 +246,77 @@ export function useAiAssistant(projectId: string) {
   return useMutation<WebAiAssistantResponse, Error, WebAiAssistantRequest>({
     mutationFn: (request) => askAiAssistant(projectId, request),
   });
+}
+
+export function useAiConversations(projectId: string) {
+  return useQuery<WebAiConversationListResponse>({
+    queryKey: queryKeys.aiConversations(projectId),
+    queryFn: () => loadAiConversations(projectId),
+    enabled: projectId.length > 0,
+  });
+}
+
+export function useAiConversation(projectId: string, conversationId: string | null) {
+  return useQuery<WebAiConversationResponse>({
+    queryKey: queryKeys.aiConversation(projectId, conversationId ?? ""),
+    queryFn: () => loadAiConversation(projectId, conversationId!),
+    enabled: projectId.length > 0 && Boolean(conversationId),
+  });
+}
+
+export function useAiDraft(projectId: string, draftId: string | null) {
+  return useQuery<WebAiDraftResponse>({
+    queryKey: queryKeys.aiDraft(projectId, draftId ?? ""),
+    queryFn: () => loadAiDraft(projectId, draftId!),
+    enabled: projectId.length > 0 && Boolean(draftId),
+  });
+}
+
+export function useAiConversationActions(projectId: string) {
+  const queryClient = useQueryClient();
+  const cacheConversation = (response: WebAiConversationResponse) => {
+    queryClient.setQueryData(queryKeys.aiConversation(projectId, response.conversation.id), response);
+    queryClient.setQueryData<WebAiConversationListResponse>(queryKeys.aiConversations(projectId), (current) => {
+      const conversations = current?.conversations.filter((item) => item.id !== response.conversation.id) ?? [];
+      return { apiVersion: "v1", conversations: [response.conversation, ...conversations] };
+    });
+  };
+  return {
+    create: useMutation<WebAiConversationResponse, Error, void>({
+      mutationFn: () => createAiConversation(projectId),
+      onSuccess: cacheConversation,
+    }),
+    send: useMutation<WebAiConversationTurnResponse, Error, { conversationId: string; request: WebAiMessageRequest; idempotencyKey: string }>({
+      mutationFn: ({ conversationId, request, idempotencyKey }) => sendAiConversationMessage(projectId, conversationId, request, idempotencyKey),
+      onSuccess: (response) => cacheConversation({ apiVersion: "v1", conversation: response.conversation }),
+    }),
+    cancel: useMutation<WebAiRunResponse, Error, string>({
+      mutationFn: (runId) => cancelAiRun(projectId, runId),
+      onSuccess: (response) => queryClient.setQueryData(queryKeys.aiRun(projectId, response.run.id), response),
+    }),
+    remove: useMutation<{ apiVersion: "v1"; status: string }, Error, string>({
+      mutationFn: (conversationId) => deleteAiConversation(projectId, conversationId),
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.aiConversations(projectId) }),
+    }),
+  };
+}
+
+export function useAiDraftActions(projectId: string) {
+  const queryClient = useQueryClient();
+  return {
+    analyze: useMutation<WebAiDraftAnalysisResponse, Error, string>({
+      mutationFn: (draftId) => analyzeAiDraft(projectId, draftId),
+      onSuccess: (response) => {
+        queryClient.setQueryData(queryKeys.aiAnalysis(projectId, response.analysis.draftId), response);
+        queryClient.invalidateQueries({ queryKey: queryKeys.aiDraft(projectId, response.analysis.draftId) });
+      },
+    }),
+    submit: useMutation<WebAiReviewSubmissionResponse, Error, { draftId: string; request: WebAiReviewSubmissionRequest; idempotencyKey: string }>({
+      mutationFn: ({ draftId, request, idempotencyKey }) => submitAiDraftForReview(projectId, draftId, request, idempotencyKey),
+      onSuccess: (_response, variables) => {
+        queryClient.invalidateQueries({ queryKey: queryKeys.aiDraft(projectId, variables.draftId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.staged(projectId) });
+      },
+    }),
+  };
 }
