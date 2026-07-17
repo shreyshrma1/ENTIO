@@ -20,6 +20,11 @@ class AiSessionContractsTest {
         assertEquals(1, policy.maxActiveRunsPerUserProject)
         assertEquals(20, policy.maxLocalEntitiesInContext)
         assertEquals(10, policy.maxFiboCandidatesPerSearch)
+        assertEquals(8, policy.maxProviderRequestsPerTurn)
+        assertEquals(20, policy.maxConversationMessagesInContext)
+        assertEquals(120_000, policy.maxElapsedMillis)
+        assertEquals(100_000, policy.maxInputTokens)
+        assertEquals(20_000, policy.maxOutputTokens)
     }
 
     @Test

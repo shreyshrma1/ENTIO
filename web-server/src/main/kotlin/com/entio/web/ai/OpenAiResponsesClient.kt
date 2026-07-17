@@ -58,7 +58,25 @@ public data class OpenAiResponsesRequest(
     val userInput: String,
     val capabilities: AiCapabilityRegistrySnapshot,
     val previousResponseId: String? = null,
+    val toolOutputs: List<OpenAiToolOutput> = emptyList(),
 )
+
+public data class OpenAiToolOutput(
+    val callId: String,
+    val output: String,
+)
+
+public interface AiToolLoopProvider {
+    public val providerId: String
+    public val modelId: String
+    public val promptVersion: String
+
+    public suspend fun respond(
+        apiKey: String,
+        request: OpenAiResponsesRequest,
+        onEvent: suspend (OpenAiProviderEvent) -> Unit,
+    ): OpenAiResponsesResult
+}
 
 public data class OpenAiFunctionCall(
     val callId: String,
@@ -119,8 +137,10 @@ public class OpenAiResponsesClient(
     private val configuration: OpenAiProviderConfiguration,
     private val httpClient: HttpClient = createOpenAiHttpClient(configuration),
     private val objectMapper: ObjectMapper = ObjectMapper(),
-) : AiProviderClient, AiAssistantProvider, AutoCloseable {
+) : AiProviderClient, AiAssistantProvider, AiToolLoopProvider, AutoCloseable {
     override val providerId: String = configuration.providerId
+    override val modelId: String = configuration.modelId
+    override val promptVersion: String = configuration.promptVersion
 
     override suspend fun test(apiKey: String): AiProviderTestResult {
         val result = respond(
@@ -157,10 +177,13 @@ public class OpenAiResponsesClient(
         }
     }
 
-    public suspend fun respond(
+    public suspend fun respond(apiKey: String, request: OpenAiResponsesRequest): OpenAiResponsesResult =
+        respond(apiKey, request) {}
+
+    override suspend fun respond(
         apiKey: String,
         request: OpenAiResponsesRequest,
-        onEvent: suspend (OpenAiProviderEvent) -> Unit = {},
+        onEvent: suspend (OpenAiProviderEvent) -> Unit,
     ): OpenAiResponsesResult {
         if (apiKey.isBlank()) return failure(OpenAiFailureCode.INVALID_CREDENTIAL, false)
         val payload = serializeRequest(request)
@@ -205,6 +228,13 @@ public class OpenAiResponsesClient(
         root.set<ArrayNode>("input", objectMapper.createArrayNode().apply {
             add(inputMessage("developer", request.trustedPolicy))
             add(inputMessage("user", request.userInput))
+            request.toolOutputs.forEach { output ->
+                add(objectMapper.createObjectNode().apply {
+                    put("type", "function_call_output")
+                    put("call_id", output.callId)
+                    put("output", output.output)
+                })
+            }
         })
         root.set<ArrayNode>("tools", objectMapper.createArrayNode().apply {
             request.capabilities.definitions.forEach { add(serializeTool(it)) }

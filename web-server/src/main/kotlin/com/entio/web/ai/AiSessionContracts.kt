@@ -61,7 +61,15 @@ public enum class AiRunStatus {
     public fun canTransitionTo(next: AiRunStatus): Boolean = when {
         this == next -> true
         terminal -> false
-        this == QUEUED -> next in setOf(RUNNING, CANCELLED, FAILED, LIMIT_REACHED, STALE)
+        this == QUEUED -> next in setOf(
+            RUNNING,
+            AWAITING_CLARIFICATION,
+            AWAITING_PLAN_CONFIRMATION,
+            CANCELLED,
+            FAILED,
+            LIMIT_REACHED,
+            STALE,
+        )
         else -> next != QUEUED
     }
 }
@@ -73,6 +81,11 @@ public data class AiRunPolicy(
     val maxActiveRunsPerUserProject: Int = 1,
     val maxLocalEntitiesInContext: Int = 20,
     val maxFiboCandidatesPerSearch: Int = 10,
+    val maxProviderRequestsPerTurn: Int = 8,
+    val maxConversationMessagesInContext: Int = 20,
+    val maxElapsedMillis: Long = 120_000,
+    val maxInputTokens: Long = 100_000,
+    val maxOutputTokens: Long = 20_000,
 ) {
     init {
         require(maxCapabilityCallsPerTurn > 0)
@@ -81,6 +94,11 @@ public data class AiRunPolicy(
         require(maxActiveRunsPerUserProject > 0)
         require(maxLocalEntitiesInContext > 0)
         require(maxFiboCandidatesPerSearch > 0)
+        require(maxProviderRequestsPerTurn > 0)
+        require(maxConversationMessagesInContext > 0)
+        require(maxElapsedMillis > 0)
+        require(maxInputTokens > 0)
+        require(maxOutputTokens > 0)
     }
 }
 
