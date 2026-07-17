@@ -1,5 +1,5 @@
-import { FormEvent, useMemo, useState } from "react";
-import { useStagedChanges, useStagingActions } from "../web/queries";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useProjectSummary, useStagedChanges, useStagingActions } from "../web/queries";
 import {
   buildStageChangeRequest,
   STAGING_EDIT_DEFINITIONS,
@@ -10,17 +10,27 @@ import {
 
 export default function StagingPanel({ projectId, sourceId }: { projectId: string; sourceId: string }) {
   const staged = useStagedChanges(projectId);
+  const summary = useProjectSummary(projectId);
   const actions = useStagingActions(projectId);
   const [editType, setEditType] = useState<WebStagingEditType>("create-class");
   const [values, setValues] = useState<StagingFormValues>({});
+  const [selectedSourceId, setSelectedSourceId] = useState(sourceId);
   const [formError, setFormError] = useState<string | null>(null);
   const definition = useMemo(() => stagingEditDefinition(editType), [editType]);
+  const shaclEdit = editType.startsWith("shacl-");
+  const targetSources = (summary.data?.sources ?? []).filter((source) =>
+    shaclEdit ? source.roles.map((role) => role.toLowerCase()).includes("shapes") : !source.roles.map((role) => role.toLowerCase()).includes("shapes"),
+  );
+  const targetSourceId = targetSources.some((source) => source.id === selectedSourceId) ? selectedSourceId : targetSources[0]?.id ?? sourceId;
+  useEffect(() => {
+    if (!targetSources.some((source) => source.id === selectedSourceId)) setSelectedSourceId(targetSources[0]?.id ?? sourceId);
+  }, [selectedSourceId, sourceId, targetSources]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
       setFormError(null);
-      const request = buildStageChangeRequest(sourceId, editType, values, `web-${Date.now()}`);
+      const request = buildStageChangeRequest(targetSourceId, editType, values, `web-${Date.now()}`);
       actions.stage.mutate(request, { onSuccess: () => setValues({}) });
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "The change could not be staged.");
@@ -44,6 +54,11 @@ export default function StagingPanel({ projectId, sourceId }: { projectId: strin
         <label htmlFor="staging-edit-type">Change type
           <select id="staging-edit-type" value={editType} onChange={(event) => changeEditType(event.target.value as WebStagingEditType)}>
             {STAGING_EDIT_DEFINITIONS.map((item) => <option key={item.type} value={item.type}>{item.label}</option>)}
+          </select>
+        </label>
+        <label htmlFor="staging-source">Target source
+          <select id="staging-source" value={targetSourceId} onChange={(event) => setSelectedSourceId(event.target.value)} disabled={targetSources.length <= 1}>
+            {targetSources.map((source) => <option key={source.id} value={source.id}>{source.id} · {source.path}</option>)}
           </select>
         </label>
         <p className="staging-edit-description" id="staging-edit-description">{definition.description}</p>
@@ -75,7 +90,7 @@ export default function StagingPanel({ projectId, sourceId }: { projectId: strin
         {proposal && proposal.status !== "APPLIED" ? <button className="button danger" type="button" onClick={() => actions.reject.mutate()} disabled={busy}>Reject</button> : null}
         {proposal?.status === "APPROVED" ? <button className="button primary" type="button" onClick={() => actions.apply.mutate()} disabled={busy}>Apply</button> : null}
       </div> : null}
-      {proposal ? <div className={`proposal-summary proposal-${proposal.status.toLowerCase()}`} aria-live="polite"><strong>Proposal {proposal.status.toLowerCase()}</strong>{proposal.message ? <p>{proposal.message}</p> : null}{proposal.status.includes("CONFLICT") || proposal.status.includes("FAILED") ? <p role="alert">This proposal needs review before it can continue.</p> : null}{proposal.validationMessages.map((message) => <p key={message} role="alert">{message}</p>)}{proposal.diff.length ? <ul aria-label="Proposal semantic diff">{proposal.diff.map((entry) => <li key={`${entry.kind}-${entry.description}`}>{entry.description}</li>)}</ul> : null}</div> : null}
+      {proposal ? <div className={`proposal-summary proposal-${proposal.status.toLowerCase()}`} aria-live="polite"><strong>Proposal {proposal.status.toLowerCase()}</strong>{proposal.message ? <p>{proposal.message}</p> : null}{proposal.status.includes("CONFLICT") || proposal.status.includes("FAILED") ? <p role="alert">This proposal needs review before it can continue.</p> : null}{proposal.validationMessages.map((message) => <p key={message} role="alert">{message}</p>)}{proposal.shaclImpact ? <div><h3>SHACL finding impact</h3><p>{proposal.shaclImpact.newFindings.length} new · {proposal.shaclImpact.worsenedFindings.length} worsened · {proposal.shaclImpact.resolvedFindings.length} resolved</p>{proposal.shaclImpact.newFindings.length ? <ul aria-label="New SHACL findings">{proposal.shaclImpact.newFindings.map((finding) => <li key={finding.resultId}><strong>{finding.severity}</strong> · {finding.message}</li>)}</ul> : null}</div> : null}{proposal.diff.length ? <ul aria-label="Proposal semantic diff">{proposal.diff.map((entry) => <li key={`${entry.kind}-${entry.description}`}>{entry.description}</li>)}</ul> : null}</div> : null}
     </section>
   );
 }

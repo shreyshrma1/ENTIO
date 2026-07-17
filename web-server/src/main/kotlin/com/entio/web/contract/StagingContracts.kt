@@ -25,6 +25,16 @@ public data class WebStageChangeRequest(
     val objectLabel: String? = null,
     val targetIri: String? = null,
     val targetLabel: String? = null,
+    val shapeIri: String? = null,
+    val shapeLabel: String? = null,
+    val targetClassIri: String? = null,
+    val targetClassLabel: String? = null,
+    val pathIri: String? = null,
+    val pathLabel: String? = null,
+    val constraintKind: String? = null,
+    val constraintValue: String? = null,
+    val severity: String? = null,
+    val validationMessage: String? = null,
     val dependencyKeys: Set<String> = emptySet(),
     val label: String? = null,
     val value: String? = null,
@@ -66,7 +76,27 @@ public data class WebProposalState(
     val baselineProjectFingerprint: String?,
     val validationMessages: List<String>,
     val diff: List<WebDiffEntry>,
+    val targetSourceIds: List<String> = emptyList(),
+    val shaclImpact: WebShaclImpact? = null,
     val message: String? = null,
+)
+
+public data class WebShaclFindingSummary(
+    val resultId: String,
+    val severity: String,
+    val message: String,
+    val focusNode: String,
+    val path: String? = null,
+    val shapeIri: String,
+)
+
+public data class WebShaclImpact(
+    val currentGraphFingerprint: String,
+    val previewGraphFingerprint: String,
+    val newFindings: List<WebShaclFindingSummary>,
+    val worsenedFindings: List<WebShaclFindingSummary>,
+    val unchangedFindings: List<WebShaclFindingSummary>,
+    val resolvedFindings: List<WebShaclFindingSummary>,
 )
 
 public data class WebStagingResponse(

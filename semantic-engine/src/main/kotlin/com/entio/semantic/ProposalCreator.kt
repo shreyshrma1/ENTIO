@@ -170,7 +170,10 @@ public class ProposalCreator(
         }
 
     private fun resourceKey(resource: RdfResource): String =
-        "${resource::class.qualifiedName}:${resource.value}"
+        when (resource) {
+            is com.entio.core.BlankNodeResource -> "blank-node"
+            is Iri -> iriKey(resource)
+        }
 
     private fun iriKey(iri: Iri): String = "iri:${iri.value}"
 

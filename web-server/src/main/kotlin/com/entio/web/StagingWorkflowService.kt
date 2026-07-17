@@ -18,14 +18,15 @@ import com.entio.core.EntioProject
 import com.entio.core.EntioResult
 import com.entio.core.GeneratedIri
 import com.entio.core.Iri
+import com.entio.core.MultiSourceApplyStatus
 import com.entio.core.RdfLiteral
 import com.entio.core.RdfResource
+import com.entio.core.ShaclPath
 import com.entio.core.SetEntityLabelEdit
 import com.entio.core.SetPropertyDomainEdit
 import com.entio.core.SetPropertyRangeEdit
 import com.entio.core.StagedChange
 import com.entio.core.StagedChangeOperation
-import com.entio.core.StagedChangeSet
 import com.entio.core.StagedChangeSetStatus
 import com.entio.core.SymbolKind
 import com.entio.core.TypedOntologyEdit
@@ -34,19 +35,20 @@ import com.entio.semantic.DeletionDependencyAnalyzer
 import com.entio.semantic.DeterministicIriGenerator
 import com.entio.semantic.ExternalProposalIntentTranslator
 import com.entio.semantic.LabelResolver
+import com.entio.semantic.MultiSourceAtomicApplier
 import com.entio.semantic.ProjectLoader
-import com.entio.semantic.ProposalApplier
 import com.entio.semantic.ProposalCreator
 import com.entio.semantic.StagedChangeSetNormalizer
 import com.entio.web.contract.IdempotencyDecision
 import com.entio.web.contract.InMemoryIdempotencyStore
 import com.entio.web.contract.ProjectRegistry
 import com.entio.web.contract.WebProposalState
+import com.entio.web.contract.WebShaclFindingSummary
+import com.entio.web.contract.WebShaclImpact
 import com.entio.web.contract.WebStageChangeRequest
 import com.entio.web.contract.WebStagedEntry
 import com.entio.web.contract.WebStagingResponse
 import com.entio.web.contract.WebDiffEntry
-import java.util.UUID
 
 public class WebWorkflowFailure(
     public val code: String,
@@ -70,6 +72,7 @@ private data class StoredEntry(
 private data class ProjectSession(
     val entries: MutableList<StoredEntry> = mutableListOf(),
     var proposal: ChangeProposal? = null,
+    var preparedProposal: PreparedWebProposal? = null,
     val idempotency: InMemoryIdempotencyStore = InMemoryIdempotencyStore(),
     var nextOrder: Int = 1,
 )
@@ -88,13 +91,23 @@ public class StagingWorkflowService(
     private val proposalCreator: ProposalCreator = ProposalCreator(),
     private val proposalValidator: com.entio.validation.ProposalValidator = com.entio.validation.ProposalValidator(),
     private val graphDiffer: GraphDiffer = GraphDiffer(),
-    private val proposalApplier: ProposalApplier = ProposalApplier(),
     private val deletionAnalyzer: DeletionDependencyAnalyzer = DeletionDependencyAnalyzer(),
     private val externalIntentTranslator: ExternalProposalIntentTranslator = ExternalProposalIntentTranslator(),
     private val labelResolver: LabelResolver = LabelResolver(),
     private val iriGenerator: DeterministicIriGenerator = DeterministicIriGenerator(),
+    private val additionalPostApplyVerification: (String, EntioProject) -> EntioResult<Unit> = { _, _ -> EntioResult.Success(Unit) },
 ) {
     private val sessions: MutableMap<String, ProjectSession> = linkedMapOf()
+    private val proposalPlanner: WebProposalPlanner = WebProposalPlanner(
+        normalizer = normalizer,
+        proposalCreator = proposalCreator,
+        proposalValidator = proposalValidator,
+        graphDiffer = graphDiffer,
+    )
+    private val shaclStagePreparer: WebShaclStagePreparer = WebShaclStagePreparer(
+        labelResolver = labelResolver,
+        iriGenerator = iriGenerator,
+    )
 
     @Synchronized
     public fun snapshot(projectId: String): WebStagingResponse = response(projectId, session(projectId))
@@ -134,21 +147,39 @@ public class StagingWorkflowService(
         }
 
         val project = load(projectId)
-        val prepared = request.prepare(project)
-        val operation = prepared.request.toOperation(project)
+        val requestedSource = project.resolvedSources.firstOrNull { it.id == request.sourceId }
+            ?: throw WebWorkflowFailure("unknown-source", "Ontology source '${request.sourceId}' was not found.")
+        if (!request.isShaclEdit() && com.entio.core.ShaclGraphRole.Ontology !in requestedSource.roles) {
+            throw WebWorkflowFailure("invalid-ontology-source-role", "Ontology edits require a source with the ontology role.")
+        }
         val id = "stage-${session.nextOrder++}"
-        val staged = StagedChange(
-            id = id,
-            order = session.nextOrder - 1,
-            targetSourceId = request.sourceId,
-            summary = request.summary(),
-            operation = operation,
-            normalizedValues = prepared.request.normalizedValues(),
-            resolvedCandidates = prepared.resolvedCandidates,
-            generatedIris = prepared.generatedIris,
-        )
+        val staged = if (request.isShaclEdit()) {
+            val prepared = shaclStagePreparer.prepare(project, request)
+            StagedChange(
+                id = id,
+                order = session.nextOrder - 1,
+                targetSourceId = request.sourceId,
+                summary = prepared.summary,
+                operation = StagedChangeOperation.ShaclEdit(prepared.edit),
+                normalizedValues = prepared.normalizedValues,
+                resolvedCandidates = prepared.resolvedCandidates,
+                generatedIris = prepared.generatedIris,
+            )
+        } else {
+            val prepared = request.prepare(project)
+            StagedChange(
+                id = id,
+                order = session.nextOrder - 1,
+                targetSourceId = request.sourceId,
+                summary = request.summary(),
+                operation = prepared.request.toOperation(project),
+                normalizedValues = prepared.request.normalizedValues(),
+                resolvedCandidates = prepared.resolvedCandidates,
+                generatedIris = prepared.generatedIris,
+            )
+        }
         session.entries += StoredEntry(staged, userId, userId, request.comment, request.aiGenerated)
-        session.proposal = null
+        session.clearPreparedProposal()
         return response(projectId, session)
     }
 
@@ -193,7 +224,7 @@ public class StagingWorkflowService(
             comment = "External ontology reuse staged for review.",
             aiGenerated = false,
         )
-        session.proposal = null
+        session.clearPreparedProposal()
         return response(projectId, session)
     }
 
@@ -203,7 +234,7 @@ public class StagingWorkflowService(
         if (session.entries.removeIf { it.staged.id == stagedId }.not()) {
             throw WebWorkflowFailure("unknown-staged-change", "Staged change '$stagedId' was not found.")
         }
-        session.proposal = null
+        session.clearPreparedProposal()
         return response(projectId, session)
     }
 
@@ -211,26 +242,12 @@ public class StagingWorkflowService(
     public fun preview(projectId: String, userId: String): WebStagingResponse {
         val session = session(projectId)
         val project = load(projectId)
-        val normalized = when (val result = normalizer.normalize(StagedChangeSet(session.entries.map { it.staged }))) {
-            is EntioResult.Failure -> throw WebWorkflowFailure("staging-invalid", result.message)
-            is EntioResult.Success -> result.value
+        val prepared = proposalPlanner.prepare(project, session.entries.map(StoredEntry::staged))
+        session.preparedProposal = prepared
+        session.proposal = prepared.proposal
+        if (prepared.proposal.validationReport?.ok != true) {
+            return response(projectId, session, "Proposal preview is invalid and cannot be approved until its findings are resolved.")
         }
-        val changeSet = normalized.changeSet ?: throw WebWorkflowFailure("empty-staged-set", "At least one staged change is required.")
-        if (normalized.conflicts.isNotEmpty()) {
-            throw WebWorkflowFailure("staging-conflict", normalized.conflicts.joinToString { it.message })
-        }
-        val targetSourceId = normalized.entries.map(StagedChange::targetSourceId).distinct().singleOrNull()
-            ?: throw WebWorkflowFailure("multiple-sources-unsupported", "Single-client staging currently targets one ontology source per proposal.")
-        val proposal = when (val result = proposalCreator.createProposal(project, targetSourceId, changeSet, "proposal-${UUID.randomUUID()}", "Web staged ontology changes")) {
-            is EntioResult.Failure -> throw WebWorkflowFailure("proposal-preview-failed", result.message)
-            is EntioResult.Success -> result.value
-        }
-        val validation = proposalValidator.validateProposal(proposal, project)
-        if (!validation.ok) {
-            session.proposal = proposal.copy(status = ChangeProposalStatus.VerificationFailed, validationReport = validation)
-            throw WebWorkflowFailure("proposal-invalid", validation.issues.joinToString { it.message })
-        }
-        session.proposal = proposal.copy(status = ChangeProposalStatus.ReadyForReview, validationReport = validation, diff = graphDiffer.diff(project.graph, proposal.preview!!.graph))
         return response(projectId, session, "Proposal prepared by $userId and is ready for review.")
     }
 
@@ -241,6 +258,12 @@ public class StagingWorkflowService(
         if (proposal.validationReport?.ok != true || proposal.status != ChangeProposalStatus.ReadyForReview) {
             throw WebWorkflowFailure("proposal-not-approvable", "Only a current, valid proposal can be approved.")
         }
+        val currentProject = load(projectId)
+        val isCurrent = when (val result = proposalCreator.isCurrent(proposal, currentProject)) {
+            is EntioResult.Failure -> throw WebWorkflowFailure("proposal-current-check-failed", result.message)
+            is EntioResult.Success -> result.value
+        }
+        if (!isCurrent) throw WebWorkflowFailure("stale-proposal-baseline", "The proposal baseline no longer matches the current project.")
         session.proposal = proposal.copy(status = ChangeProposalStatus.Approved, review = com.entio.core.ProposalReview(userId, "Approved through the web workbench."))
         return response(projectId, session, "Proposal approved by $userId.")
     }
@@ -249,7 +272,7 @@ public class StagingWorkflowService(
     public fun reject(projectId: String, userId: String): WebStagingResponse {
         val session = session(projectId)
         if (session.proposal == null) throw WebWorkflowFailure("missing-proposal", "There is no proposal to reject.")
-        session.proposal = null
+        session.clearPreparedProposal()
         return response(projectId, session, "Proposal rejected by $userId; staged changes remain available for correction.")
     }
 
@@ -258,21 +281,47 @@ public class StagingWorkflowService(
         val session = session(projectId)
         val proposal = session.proposal ?: throw WebWorkflowFailure("missing-proposal", "There is no proposal to apply.")
         if (proposal.status != ChangeProposalStatus.Approved) throw WebWorkflowFailure("proposal-not-approved", "Only an approved proposal can be applied.")
-        val result = proposalApplier.applyProposal(projectRegistry.rootFor(projectId), proposal)
-        return when (result) {
-            is com.entio.core.ApplyProposalResult.Applied -> {
+        val prepared = session.preparedProposal
+            ?: throw WebWorkflowFailure("missing-prepared-application", "Preview the staged changes again before applying.")
+        val result = MultiSourceAtomicApplier(
+            postSaveVerification = {
+                val reloaded = try {
+                    load(projectId)
+                } catch (failure: WebWorkflowFailure) {
+                    return@MultiSourceAtomicApplier EntioResult.Failure(failure.message ?: "The applied project could not be reloaded.")
+                }
+                when (val verification = proposalPlanner.verifyAppliedProject(reloaded, prepared.expectedShaclResults)) {
+                    is EntioResult.Failure -> verification
+                    is EntioResult.Success -> additionalPostApplyVerification(projectId, reloaded)
+                }
+            },
+        ).apply(prepared.targets)
+        return when (result.status) {
+            MultiSourceApplyStatus.Applied -> {
                 session.entries.clear()
                 session.proposal = proposal.copy(status = ChangeProposalStatus.Applied)
+                session.preparedProposal = null
                 response(projectId, session, "Proposal applied by $userId; source was reloaded.")
             }
-            is com.entio.core.ApplyProposalResult.Failed -> {
+            MultiSourceApplyStatus.RolledBack,
+            MultiSourceApplyStatus.RollbackFailed,
+            -> {
+                session.proposal = proposal.copy(status = ChangeProposalStatus.RolledBack)
+                response(projectId, session, result.reason ?: "Proposal application failed and source files were restored.")
+            }
+            MultiSourceApplyStatus.Failed -> {
                 session.proposal = proposal.copy(status = ChangeProposalStatus.ApplyFailed)
-                response(projectId, session, result.reason)
+                response(projectId, session, result.reason ?: "Proposal application failed.")
             }
         }
     }
 
     private fun session(projectId: String): ProjectSession = sessions.getOrPut(projectId) { ProjectSession() }
+
+    private fun ProjectSession.clearPreparedProposal(): Unit {
+        proposal = null
+        preparedProposal = null
+    }
 
     private fun load(projectId: String): EntioProject {
         val result = projectLoader.loadProject(projectRegistry.rootFor(projectId))
@@ -317,11 +366,31 @@ public class StagingWorkflowService(
                     baselineProjectFingerprint = current.baseline.projectFingerprint,
                     validationMessages = current.validationReport?.issues?.map { it.message }.orEmpty(),
                     diff = current.diff?.entries?.map { entry -> WebDiffEntry(entry.kind.name, entry.subject.value, entry.predicate?.value, entry.objectValue, entry.description) }.orEmpty(),
+                    targetSourceIds = session.preparedProposal?.targets?.map { it.sourceId }.orEmpty(),
+                    shaclImpact = session.preparedProposal?.toWebShaclImpact(),
                     message = message,
                 )
             },
         )
     }
+
+    private fun PreparedWebProposal.toWebShaclImpact(): WebShaclImpact = WebShaclImpact(
+        currentGraphFingerprint = currentShaclFingerprint,
+        previewGraphFingerprint = previewShaclFingerprint,
+        newFindings = impact.shaclImpact.newResults.map(::webFinding),
+        worsenedFindings = impact.shaclImpact.worsenedResults.map(::webFinding),
+        unchangedFindings = impact.shaclImpact.unchangedResults.map(::webFinding),
+        resolvedFindings = impact.shaclImpact.resolvedResults.map(::webFinding),
+    )
+
+    private fun webFinding(result: com.entio.core.ShaclValidationResult): WebShaclFindingSummary = WebShaclFindingSummary(
+        resultId = result.resultId,
+        severity = result.severity.name,
+        message = result.message,
+        focusNode = result.focusNode.value,
+        path = (result.path as? ShaclPath.DirectProperty)?.propertyIri?.value,
+        shapeIri = result.shape.iri.value,
+    )
 
     private fun WebStageChangeRequest.toOperation(project: EntioProject): StagedChangeOperation {
         if (editType == "delete") {

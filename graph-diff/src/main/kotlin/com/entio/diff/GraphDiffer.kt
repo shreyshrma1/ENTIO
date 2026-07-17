@@ -75,12 +75,24 @@ public class GraphDiffer {
             subject = subject,
             predicate = predicate,
             objectValue = objectValue,
-            description = when (kind) {
+            description = shaclDescription(kind) ?: when (kind) {
                 SemanticDiffKind.Added -> "Added triple ${formatTriple()}."
                 SemanticDiffKind.Removed -> "Removed triple ${formatTriple()}."
                 SemanticDiffKind.Changed -> "Changed triple ${formatTriple()}."
             },
         )
+
+    private fun GraphTriple.shaclDescription(kind: SemanticDiffKind): String? {
+        val predicateLabel = SHACL_PREDICATE_LABELS[predicate.value]
+            ?: if (predicate.value == RDF_TYPE && (objectTerm as? Iri)?.value == SH_NODE_SHAPE) "shape type" else null
+            ?: return null
+        val action = when (kind) {
+            SemanticDiffKind.Added -> "Added"
+            SemanticDiffKind.Removed -> "Removed"
+            SemanticDiffKind.Changed -> "Changed"
+        }
+        return "$action SHACL $predicateLabel for ${subjectResource.reviewLabel()} with value ${objectTerm.reviewLabel()}."
+    }
 
     private fun LabelChange.toDiffEntry(): SemanticDiffEntry =
         SemanticDiffEntry(
@@ -99,6 +111,16 @@ public class GraphDiffer {
             is Iri -> value
             is BlankNodeResource -> "blank node ($value)"
         }
+
+    private fun RdfResource.reviewLabel(): String = when (this) {
+        is Iri -> value.substringAfterLast('#').substringAfterLast('/').ifBlank { value }
+        is BlankNodeResource -> "property shape"
+    }
+
+    private fun RdfTerm.reviewLabel(): String = when (this) {
+        is RdfLiteral -> formatLiteral()
+        is RdfResource -> reviewLabel()
+    }
 
     private fun RdfTerm.formatTerm(): String =
         when (this) {
@@ -131,6 +153,22 @@ public class GraphDiffer {
 
     private companion object {
         private const val RDFS_LABEL: String = "http://www.w3.org/2000/01/rdf-schema#label"
+        private const val RDF_TYPE: String = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+        private const val SH_NODE_SHAPE: String = "http://www.w3.org/ns/shacl#NodeShape"
+        private val SHACL_PREDICATE_LABELS: Map<String, String> = mapOf(
+            "http://www.w3.org/ns/shacl#targetClass" to "target class",
+            "http://www.w3.org/ns/shacl#property" to "property constraint",
+            "http://www.w3.org/ns/shacl#path" to "property path",
+            "http://www.w3.org/ns/shacl#minCount" to "minimum count",
+            "http://www.w3.org/ns/shacl#maxCount" to "maximum count",
+            "http://www.w3.org/ns/shacl#datatype" to "datatype",
+            "http://www.w3.org/ns/shacl#class" to "expected class",
+            "http://www.w3.org/ns/shacl#minInclusive" to "minimum inclusive value",
+            "http://www.w3.org/ns/shacl#maxInclusive" to "maximum inclusive value",
+            "http://www.w3.org/ns/shacl#pattern" to "pattern",
+            "http://www.w3.org/ns/shacl#severity" to "severity",
+            "http://www.w3.org/ns/shacl#message" to "validation message",
+        )
 
         private val diffEntryComparator: Comparator<SemanticDiffEntry> =
             compareBy<SemanticDiffEntry> { it.subject.value }

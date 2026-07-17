@@ -122,6 +122,11 @@ public sealed interface StagedChangeOperation {
         public val edit: TypedOntologyEdit,
     ) : StagedChangeOperation
 
+    /** Typed SHACL intent translated against the current shapes graph during proposal preparation. */
+    public data class ShaclEdit(
+        public val edit: TypedShaclEdit,
+    ) : StagedChangeOperation
+
     /** Graph changes produced by an already validated external reuse intent. */
     public data class GraphChanges(
         public val changeSet: ChangeSet,
