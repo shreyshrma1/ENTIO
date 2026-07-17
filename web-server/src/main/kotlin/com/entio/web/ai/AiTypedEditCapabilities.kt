@@ -367,6 +367,28 @@ public class AiPrivateDraftWorkspace(
         return saveMutation(draft, emptyList(), "clear", requiredExplanation(arguments.explanation), clock.instant())
     }
 
+    /** Holds the private-draft mutation lock while one exact revision enters the shared review workflow. */
+    @Synchronized
+    internal fun <T> submitForReview(
+        scope: AiCapabilityScope,
+        draftId: String,
+        expectedRevision: Int,
+        expectedFingerprint: String,
+        import: (AiDraft) -> T,
+    ): Pair<AiDraft, T> {
+        val draft = read(scope, draftId)
+        val revision = draft.revisions.maxOfOrNull(AiDraftRevision::revision) ?: 0
+        if (draft.status != AiDraftStatus.READY_FOR_REVIEW ||
+            revision != expectedRevision ||
+            draft.draftFingerprint != expectedFingerprint
+        ) {
+            throw AiDraftFailure("concurrent-draft-mutation", "The private draft changed before review submission completed.")
+        }
+        val imported = import(draft)
+        val submitted = store.update(draft.copy(status = AiDraftStatus.SUBMITTED, updatedAt = clock.instant()))
+        return submitted to imported
+    }
+
     private fun mutableDraft(scope: AiCapabilityScope, draftId: String): AiDraft {
         val draft = read(scope, draftId)
         if (draft.baselineFingerprint != scope.baselineFingerprint) {
