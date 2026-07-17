@@ -1,6 +1,8 @@
 package com.entio.web
 
 import com.entio.web.ai.AiAssistantFailure
+import com.entio.web.ai.DevelopmentAiAssistantProvider
+import com.entio.web.ai.DevelopmentAiProviderClient
 import com.entio.web.ai.AiTypedSuggestion
 import com.entio.web.ai.AiTypedSuggestionValidator
 import com.entio.web.contract.InMemoryProjectRegistry
@@ -28,7 +30,7 @@ class AiAssistantTest {
         val projectRoot = createFixture(allowedRoot)
         val registry = InMemoryProjectRegistry(setOf(allowedRoot))
         registry.register("simple", "Simple ontology", projectRoot)
-        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+        application { module(developmentDependencies(registry)) }
 
         client.saveCredential()
         val response = client.post("/api/v1/projects/simple/ai/assistant") {
@@ -54,7 +56,7 @@ class AiAssistantTest {
         val projectRoot = createFixture(allowedRoot)
         val registry = InMemoryProjectRegistry(setOf(allowedRoot))
         registry.register("simple", "Simple ontology", projectRoot)
-        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+        application { module(developmentDependencies(registry)) }
         client.saveCredential()
 
         val suggestion = client.post("/api/v1/projects/simple/ai/assistant") {
@@ -82,7 +84,7 @@ class AiAssistantTest {
         val projectRoot = createFixture(allowedRoot)
         val registry = InMemoryProjectRegistry(setOf(allowedRoot))
         registry.register("simple", "Simple ontology", projectRoot)
-        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+        application { module(developmentDependencies(registry)) }
 
         val missing = client.post("/api/v1/projects/simple/ai/assistant") {
             contentType(ContentType.Application.Json)
@@ -125,6 +127,13 @@ class AiAssistantTest {
             setBody("""{"providerId":"provider-neutral","apiKey":"secret-key"}""")
         }
     }
+
+    private fun developmentDependencies(registry: InMemoryProjectRegistry): WebApplicationDependencies =
+        WebApplicationDependencies(
+            projectRegistry = registry,
+            aiProvider = DevelopmentAiProviderClient(),
+            aiAssistant = DevelopmentAiAssistantProvider(),
+        )
 
     private fun createFixture(allowedRoot: Path): Path {
         val root = Files.createDirectory(allowedRoot.resolve("simple"))

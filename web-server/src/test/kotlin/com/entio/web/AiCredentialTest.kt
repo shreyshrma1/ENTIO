@@ -1,6 +1,7 @@
 package com.entio.web
 
 import com.entio.web.ai.InMemoryAiCredentialStore
+import com.entio.web.ai.DevelopmentAiProviderClient
 import com.entio.web.contract.WebApplicationDependencies
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -20,7 +21,7 @@ import kotlin.test.assertEquals
 class AiCredentialTest {
     @Test
     fun credentialLifecycleIsServerOnlyAndExplicitlyTested(): Unit = testApplication {
-        application { module() }
+        application { module(developmentDependencies()) }
 
         val initial = client.get("/api/v1/ai/credential-status")
         assertEquals(HttpStatusCode.OK, initial.status)
@@ -52,7 +53,7 @@ class AiCredentialTest {
 
     @Test
     fun providerFailuresAreRedactedAndLogoutRemovesTheCredential(): Unit = testApplication {
-        application { module() }
+        application { module(developmentDependencies()) }
 
         val rejectedSecret = "reject-this-secret"
         client.put("/api/v1/ai/credentials") {
@@ -79,4 +80,8 @@ class AiCredentialTest {
         store.clearAll()
         assertEquals(null, store.providerFor("alice"))
     }
+
+    private fun developmentDependencies(): WebApplicationDependencies = WebApplicationDependencies(
+        aiProvider = DevelopmentAiProviderClient(),
+    )
 }

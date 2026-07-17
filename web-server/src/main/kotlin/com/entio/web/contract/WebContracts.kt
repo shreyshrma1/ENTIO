@@ -3,10 +3,12 @@ package com.entio.web.contract
 import java.nio.file.Path
 import java.util.UUID
 import com.entio.web.ai.AiCredentialStore
-import com.entio.web.ai.DevelopmentAiProviderClient
 import com.entio.web.ai.AiProviderClient
 import com.entio.web.ai.AiAssistantProvider
 import com.entio.web.ai.DevelopmentAiAssistantProvider
+import com.entio.web.ai.AiToolLoopProvider
+import com.entio.web.ai.DevelopmentAiToolLoopProvider
+import com.entio.web.ai.defaultOpenAiResponsesClient
 
 public const val WEB_API_VERSION: String = "v1"
 
@@ -103,8 +105,9 @@ public data class WebApplicationDependencies(
     val authorization: DevelopmentAuthorization = DevelopmentAuthorization(),
     val requestIdFactory: () -> String = { UUID.randomUUID().toString() },
     val aiCredentials: AiCredentialStore = com.entio.web.ai.InMemoryAiCredentialStore(),
-    val aiProvider: AiProviderClient = DevelopmentAiProviderClient(),
-    val aiAssistant: AiAssistantProvider = DevelopmentAiAssistantProvider(),
+    val aiProvider: AiProviderClient = defaultOpenAiResponsesClient(),
+    val aiAssistant: AiAssistantProvider = aiProvider as? AiAssistantProvider ?: DevelopmentAiAssistantProvider(),
+    val aiToolLoopProvider: AiToolLoopProvider = aiProvider as? AiToolLoopProvider ?: DevelopmentAiToolLoopProvider(),
 )
 
 public fun normalizeProjectRoot(path: Path): Path = path.toAbsolutePath().normalize()
