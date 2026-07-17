@@ -78,6 +78,27 @@ public interface AiToolLoopProvider {
     ): OpenAiResponsesResult
 }
 
+/** Deterministic fallback for tests that do not opt into the production OpenAI boundary. */
+public class DevelopmentAiToolLoopProvider(
+    override val providerId: String = "provider-neutral",
+    override val modelId: String = "development-ai",
+    override val promptVersion: String = "phase-7-development-v1",
+) : AiToolLoopProvider {
+    override suspend fun respond(
+        apiKey: String,
+        request: OpenAiResponsesRequest,
+        onEvent: suspend (OpenAiProviderEvent) -> Unit,
+    ): OpenAiResponsesResult = OpenAiResponsesResult.Completed(
+        OpenAiCompletedResponse(
+            responseId = null,
+            text = "The development AI boundary received the request. Configure the approved OpenAI provider for tool-driven assistance.",
+            functionCalls = emptyList(),
+            usage = OpenAiUsage(inputTokens = 0, outputTokens = 0, totalTokens = 0),
+            events = emptyList(),
+        ),
+    )
+}
+
 public data class OpenAiFunctionCall(
     val callId: String,
     val name: String,
@@ -387,6 +408,18 @@ public class OpenAiResponsesClient(
 }
 
 public fun createOpenAiHttpClient(configuration: OpenAiProviderConfiguration): HttpClient = createOpenAiHttpClient(configuration, CIO.create())
+
+/** Creates the production Phase 7 provider with the fixed endpoint, storage policy, and model allowlist. */
+public fun defaultOpenAiResponsesClient(): OpenAiResponsesClient {
+    val modelId = System.getenv("ENTIO_OPENAI_MODEL")?.takeIf(String::isNotBlank)
+        ?: OpenAiProviderConfiguration.MODEL_ID
+    return OpenAiResponsesClient(
+        OpenAiProviderConfiguration(
+            modelId = modelId,
+            promptVersion = "phase-7-v1",
+        ),
+    )
+}
 
 public fun createOpenAiHttpClient(configuration: OpenAiProviderConfiguration, engine: HttpClientEngine): HttpClient = HttpClient(engine) {
     expectSuccess = false

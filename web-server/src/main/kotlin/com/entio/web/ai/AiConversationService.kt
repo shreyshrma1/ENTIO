@@ -64,6 +64,14 @@ public data class AiRunEvent(
     val createdAt: Instant,
 )
 
+public data class AiRunEventWindow(
+    val run: AiRun,
+    val events: List<AiRunEvent>,
+    val earliestRetainedSequence: Int?,
+    val latestRetainedSequence: Int?,
+    val resynchronizationRequired: Boolean,
+)
+
 public data class AiConversationTurnResult(
     val conversation: AiConversation,
     val run: AiRun,
@@ -172,6 +180,7 @@ public class AiConversationService(
     private val idFactory: (String) -> String = { prefix -> "$prefix-${UUID.randomUUID()}" },
 ) {
     private val eventsByRun: MutableMap<String, MutableList<AiRunEvent>> = linkedMapOf()
+    private val lastSequenceByRun: MutableMap<String, Int> = linkedMapOf()
     private val activeJobs: MutableMap<String, Job> = linkedMapOf()
     private val consumedCallIds: MutableSet<String> = linkedSetOf()
 
@@ -193,9 +202,51 @@ public class AiConversationService(
     public fun getConversation(userId: String, projectId: String, conversationId: String): AiConversation =
         conversations.get(userId, projectId, conversationId)
 
+    public fun listConversations(userId: String, projectId: String): List<AiConversation> =
+        conversations.list(userId, projectId)
+
+    public fun deleteConversation(userId: String, projectId: String, conversationId: String): Unit {
+        conversations.get(userId, projectId, conversationId)
+        val conversationRuns = runs.list(userId, projectId).filter { it.conversationId == conversationId }
+        conversationRuns.filterNot { it.status.terminal }.forEach { cancel(userId, projectId, it.id) }
+        draftStore.list(userId, projectId, conversationId).forEach { draft ->
+            draftStore.delete(userId, projectId, conversationId, draft.id)
+        }
+        conversations.delete(userId, projectId, conversationId)
+        synchronized(this) {
+            conversationRuns.forEach { run ->
+                eventsByRun.remove(run.id)
+                lastSequenceByRun.remove(run.id)
+                activeJobs.remove(run.id)?.cancel(CancellationException("AI conversation removed"))
+            }
+        }
+    }
+
+    public fun getRun(userId: String, projectId: String, runId: String): AiRun = runs.get(userId, projectId, runId)
+
     public fun events(userId: String, projectId: String, runId: String): List<AiRunEvent> {
         runs.get(userId, projectId, runId)
         return synchronized(this) { eventsByRun[runId].orEmpty().toList() }
+    }
+
+    public fun eventWindow(userId: String, projectId: String, runId: String, afterSequence: Int?): AiRunEventWindow {
+        val run = runs.get(userId, projectId, runId)
+        val retained = synchronized(this) { eventsByRun[runId].orEmpty().toList() }
+        val earliest = retained.firstOrNull()?.sequence
+        val latest = retained.lastOrNull()?.sequence
+        val resynchronizationRequired = afterSequence != null && when {
+            earliest == null || latest == null -> afterSequence != 0
+            afterSequence < earliest - 1 -> true
+            afterSequence > latest -> true
+            else -> false
+        }
+        return AiRunEventWindow(
+            run = run,
+            events = if (resynchronizationRequired) emptyList() else retained.filter { afterSequence == null || it.sequence > afterSequence },
+            earliestRetainedSequence = earliest,
+            latestRetainedSequence = latest,
+            resynchronizationRequired = resynchronizationRequired,
+        )
     }
 
     public suspend fun send(
@@ -618,7 +669,12 @@ public class AiConversationService(
     private fun event(run: AiRun, type: AiRunEventType, message: String, references: List<String> = emptyList()) {
         synchronized(this) {
             val events = eventsByRun.getOrPut(run.id) { mutableListOf() }
-            events += AiRunEvent(events.size + 1, run.id, type, message, references, clock.instant())
+            val sequence = (lastSequenceByRun[run.id] ?: 0) + 1
+            lastSequenceByRun[run.id] = sequence
+            events += AiRunEvent(sequence, run.id, type, message, references, clock.instant())
+            if (events.size > MAX_RETAINED_EVENTS_PER_RUN) {
+                events.subList(0, events.size - MAX_RETAINED_EVENTS_PER_RUN).clear()
+            }
         }
     }
 
@@ -638,6 +694,10 @@ public class AiConversationService(
         intent: AiConversationIntent,
         answer: String,
     ): AiConversationTurnResult = AiConversationTurnResult(conversation, run, intent, answer, draftId = conversation.currentDraftId)
+
+    private companion object {
+        const val MAX_RETAINED_EVENTS_PER_RUN: Int = 250
+    }
 }
 
 public class AiConversationFailure(
