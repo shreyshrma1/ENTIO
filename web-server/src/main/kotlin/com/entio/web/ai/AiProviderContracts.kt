@@ -59,6 +59,11 @@ public interface AiCredentialStore {
 
     public fun <T> withCredential(userId: String, block: (providerId: String, apiKey: String) -> T): T?
 
+    public suspend fun <T> withCredentialSuspending(
+        userId: String,
+        block: suspend (providerId: String, apiKey: String) -> T,
+    ): T?
+
     public fun clearAll()
 }
 
@@ -83,6 +88,14 @@ public class InMemoryAiCredentialStore : AiCredentialStore {
     @Synchronized
     override fun <T> withCredential(userId: String, block: (providerId: String, apiKey: String) -> T): T? {
         return credentials[userId]?.let { block(it.providerId, it.apiKey) }
+    }
+
+    override suspend fun <T> withCredentialSuspending(
+        userId: String,
+        block: suspend (providerId: String, apiKey: String) -> T,
+    ): T? {
+        val credential = synchronized(this) { credentials[userId] }
+        return credential?.let { block(it.providerId, it.apiKey) }
     }
 
     @Synchronized
@@ -162,6 +175,11 @@ public class AiCredentialService(
 
     public fun <T> withCredential(userId: String, block: (providerId: String, apiKey: String) -> T): T? =
         store.withCredential(userId, block)
+
+    public suspend fun <T> withCredentialSuspending(
+        userId: String,
+        block: suspend (providerId: String, apiKey: String) -> T,
+    ): T? = store.withCredentialSuspending(userId, block)
 }
 
 public class AiCredentialFailure(
