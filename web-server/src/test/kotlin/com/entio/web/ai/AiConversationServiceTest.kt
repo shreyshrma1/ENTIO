@@ -14,6 +14,7 @@ import java.util.ArrayDeque
 import kotlin.io.path.isRegularFile
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -313,6 +314,70 @@ class AiConversationServiceTest {
         assertEquals(AiRunStatus.CANCELLED, fixture.runs.get("alice", "simple", run.id).status)
         assertTrue(provider.cancelled)
         assertTrue(fixture.service.events("alice", "simple", run.id).any { it.type == AiRunEventType.CANCELLED })
+    }
+
+    @Test
+    fun concurrentTurnIsRejectedBeforeItCanAppendOrMutateThePrivateDraft(): Unit = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
+        val provider = FakeToolProvider(blockStarted = started, blockGate = gate)
+        val fixture = fixture(provider)
+        val first = async {
+            fixture.service.send(fixture.scope, fixture.conversation.id, AiConversationTurnRequest("Explain Customer."))
+        }
+        started.await()
+
+        val failure = assertFailsWith<AiConversationFailure> {
+            fixture.service.send(fixture.scope, fixture.conversation.id, AiConversationTurnRequest("Create class Unsafe Concurrent Edit."))
+        }
+
+        assertEquals("active-run-in-progress", failure.code)
+        assertEquals(1, fixture.conversations.get("alice", "simple", fixture.conversation.id).messages.size)
+        assertTrue(fixture.drafts.list("alice", "simple", fixture.conversation.id).isEmpty())
+        fixture.service.cancel("alice", "simple", fixture.runs.list("alice", "simple").single().id)
+        first.join()
+    }
+
+    @Test
+    fun providerAuthorityClaimsAndSensitiveFailuresNeverRenderAsSuccessOrLeakSecrets(): Unit = runBlocking {
+        val authorityClaim = fixture(FakeToolProvider(completed(text = "I successfully applied the ontology change.")))
+
+        val blocked = authorityClaim.service.send(
+            authorityClaim.scope,
+            authorityClaim.conversation.id,
+            AiConversationTurnRequest("Explain the current proposal."),
+        )
+
+        assertEquals(AiRunStatus.FAILED, blocked.run.status)
+        assertTrue(blocked.answer.contains("withheld"))
+        assertFalse(blocked.answer.contains("successfully applied"))
+
+        val leakedFailure = fixture(
+            FakeToolProvider(
+                OpenAiResponsesResult.Failed(
+                    OpenAiProviderFailure(
+                        OpenAiFailureCode.PROVIDER_ERROR,
+                        "Authorization: Bearer server-only-secret",
+                        false,
+                    ),
+                ),
+            ),
+        )
+        val failed = leakedFailure.service.send(
+            leakedFailure.scope,
+            leakedFailure.conversation.id,
+            AiConversationTurnRequest("Explain Customer."),
+        )
+        val serializedState = buildString {
+            append(failed.answer)
+            append(leakedFailure.service.events("alice", "simple", failed.run.id))
+            append(leakedFailure.audits.list("alice", "simple"))
+        }
+
+        assertEquals(AiRunStatus.FAILED, failed.run.status)
+        assertFalse(serializedState.contains("server-only-secret"))
+        assertFalse(serializedState.contains("Bearer"))
+        assertTrue(serializedState.contains("[REDACTED]"))
     }
 
     private fun fixture(

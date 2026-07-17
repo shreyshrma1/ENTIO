@@ -170,6 +170,29 @@ describe("AI assistant panel", () => {
     expect(screen.getByRole("button", { name: "New conversation" })).toBeDisabled();
     expect(screen.getByText(/rest of the workbench remains available/i)).toBeInTheDocument();
   });
+
+  it("renders a failed provider run as an error state without review or apply controls", async () => {
+    const initial = conversation([]);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/ai/credential-status")) return json(credential(true));
+      if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [initial] });
+      if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) return json({ apiVersion: "v1", conversation: initial });
+      if (path.endsWith("/messages") && init?.method === "POST") return json(turn({ status: "FAILED", answer: "The provider timed out; no ontology source changed." }));
+      if (path.endsWith("/events")) return eventStream([event("run-1", 1, "FAILED", "The provider request failed safely.")]);
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    renderPanel();
+    await screen.findByText("Ready when you are");
+    fireEvent.change(screen.getByLabelText("Ask about this ontology context"), { target: { value: "Explain Customer." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText("FAILED")).toBeInTheDocument();
+    expect(await screen.findByText(/no ontology source changed/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Submit for human review/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Apply/i })).not.toBeInTheDocument();
+  });
 });
 
 function renderPanel(): QueryClient {
