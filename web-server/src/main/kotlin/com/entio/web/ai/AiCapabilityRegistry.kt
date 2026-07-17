@@ -141,8 +141,15 @@ private fun AiCapabilityDefinition.isAllowed(scope: AiCapabilityScope): Boolean 
 public fun defaultAiCapabilityDefinitions(): List<AiCapabilityDefinition> = listOf(
     projectSummaryDefinition(),
     entityDetailDefinition(),
+    entityComparisonDefinition(),
     localSearchDefinition(),
+    hierarchyDefinition(),
+    entityUsageDefinition(),
+    screenContextDefinition(),
+    availableActionsDefinition(),
+    workflowStateDefinition(),
     helpDefinition(),
+    errorCodeDefinition(),
 )
 
 private fun projectSummaryDefinition(): AiCapabilityDefinition = AiCapabilityDefinition(
@@ -194,6 +201,35 @@ private fun entityDetailDefinition(): AiCapabilityDefinition {
     )
 }
 
+private fun entityComparisonDefinition(): AiCapabilityDefinition {
+    val fields = setOf("entityIris", "sourceId")
+    return localReadDefinition(
+        name = "entio_compare_entities",
+        operationType = AiCapabilityOperationType.COMPARE_ENTITIES,
+        description = "Compare two to five local entity descriptors in the current project scope.",
+        inputSchema = objectSchema(
+            listOf(
+                property(
+                    "entityIris",
+                    AiArraySchema(AiStringSchema(maxLength = 2_048, format = AiStringFormat.HTTP_IRI), minItems = 2, maxItems = 5),
+                    "Two to five unique entity HTTP IRIs.",
+                ),
+                property("sourceId", AiStringSchema(maxLength = 128, format = AiStringFormat.SOURCE_ID), "Optional allowed source ID.", nullable = true),
+            ),
+            setOf("entityIris"),
+        ),
+        sourceScope = AiSourceScopeRule.OPTIONAL_ALLOWED_SOURCE,
+        resultLimit = 5,
+        decoder = AiCapabilityArgumentDecoder { input ->
+            val objectInput = StrictObject(input, fields, setOf("entityIris"))
+            AiEntityComparisonArguments(
+                entityIris = objectInput.httpIriArray("entityIris", 2, 5),
+                sourceId = objectInput.optionalSourceId("sourceId"),
+            )
+        },
+    )
+}
+
 private fun localSearchDefinition(): AiCapabilityDefinition {
     val fields = setOf("query", "kinds", "sourceId", "limit")
     return AiCapabilityDefinition(
@@ -237,6 +273,90 @@ private fun localSearchDefinition(): AiCapabilityDefinition {
     )
 }
 
+private fun hierarchyDefinition(): AiCapabilityDefinition {
+    val fields = setOf("parentIri", "sourceId", "limit")
+    return localReadDefinition(
+        name = "entio_hierarchy_neighborhood",
+        operationType = AiCapabilityOperationType.READ_HIERARCHY,
+        description = "Read one bounded level of the local class hierarchy.",
+        inputSchema = objectSchema(
+            listOf(
+                property("parentIri", AiStringSchema(maxLength = 2_048, format = AiStringFormat.HTTP_IRI), "Optional parent class HTTP IRI.", nullable = true),
+                property("sourceId", AiStringSchema(maxLength = 128, format = AiStringFormat.SOURCE_ID), "Optional allowed source ID.", nullable = true),
+                property("limit", AiIntegerSchema(1, 20), "Maximum result count."),
+            ),
+            setOf("limit"),
+        ),
+        sourceScope = AiSourceScopeRule.OPTIONAL_ALLOWED_SOURCE,
+        resultLimit = 20,
+        decoder = AiCapabilityArgumentDecoder { input ->
+            val objectInput = StrictObject(input, fields, setOf("limit"))
+            AiHierarchyArguments(
+                parentIri = objectInput.optionalHttpIri("parentIri"),
+                sourceId = objectInput.optionalSourceId("sourceId"),
+                limit = objectInput.integer("limit", 1, 20),
+            )
+        },
+    )
+}
+
+private fun entityUsageDefinition(): AiCapabilityDefinition {
+    val fields = setOf("entityIri", "sourceId", "limit")
+    return localReadDefinition(
+        name = "entio_entity_usage",
+        operationType = AiCapabilityOperationType.READ_ENTITY_USAGE,
+        description = "Read bounded incoming and outgoing usage for one local entity.",
+        inputSchema = objectSchema(
+            listOf(
+                property("entityIri", AiStringSchema(maxLength = 2_048, format = AiStringFormat.HTTP_IRI), "Entity HTTP IRI."),
+                property("sourceId", AiStringSchema(maxLength = 128, format = AiStringFormat.SOURCE_ID), "Optional allowed source ID.", nullable = true),
+                property("limit", AiIntegerSchema(1, 20), "Maximum relationship count per direction."),
+            ),
+            setOf("entityIri", "limit"),
+        ),
+        sourceScope = AiSourceScopeRule.OPTIONAL_ALLOWED_SOURCE,
+        resultLimit = 40,
+        decoder = AiCapabilityArgumentDecoder { input ->
+            val objectInput = StrictObject(input, fields, setOf("entityIri", "limit"))
+            AiEntityUsageArguments(
+                entityIri = objectInput.httpIri("entityIri"),
+                sourceId = objectInput.optionalSourceId("sourceId"),
+                limit = objectInput.integer("limit", 1, 20),
+            )
+        },
+    )
+}
+
+private fun screenContextDefinition(): AiCapabilityDefinition = localReadDefinition(
+    name = "entio_screen_context",
+    operationType = AiCapabilityOperationType.READ_SCREEN_CONTEXT,
+    description = "Read the current server-supplied Entio screen and selected resource context.",
+    inputSchema = objectSchema(emptyList(), emptySet()),
+    sourceScope = AiSourceScopeRule.NONE,
+    resultLimit = 1,
+    decoder = emptyArguments(AiScreenContextArguments),
+)
+
+private fun availableActionsDefinition(): AiCapabilityDefinition = localReadDefinition(
+    name = "entio_available_actions",
+    operationType = AiCapabilityOperationType.READ_AVAILABLE_ACTIONS,
+    description = "Read actions currently available from Entio permission and screen metadata.",
+    inputSchema = objectSchema(emptyList(), emptySet()),
+    sourceScope = AiSourceScopeRule.NONE,
+    resultLimit = 20,
+    decoder = emptyArguments(AiAvailableActionsArguments),
+)
+
+private fun workflowStateDefinition(): AiCapabilityDefinition = localReadDefinition(
+    name = "entio_workflow_state",
+    operationType = AiCapabilityOperationType.READ_WORKFLOW_STATE,
+    description = "Read the current shared staged-change and proposal workflow state.",
+    inputSchema = objectSchema(emptyList(), emptySet()),
+    sourceScope = AiSourceScopeRule.NONE,
+    resultLimit = 20,
+    decoder = emptyArguments(AiWorkflowStateArguments),
+)
+
 private fun helpDefinition(): AiCapabilityDefinition {
     val fields = setOf("topic")
     return AiCapabilityDefinition(
@@ -261,6 +381,59 @@ private fun helpDefinition(): AiCapabilityDefinition {
             AiHelpArguments(objectInput.enum("topic", AiHelpTopic.entries.associateBy(Enum<*>::name)))
         },
     )
+}
+
+private fun errorCodeDefinition(): AiCapabilityDefinition {
+    val fields = setOf("code")
+    return AiCapabilityDefinition(
+        name = "entio_error_help",
+        operationType = AiCapabilityOperationType.EXPLAIN_ERROR_CODE,
+        category = AiCapabilityCategory.HELP,
+        description = "Read the versioned explanation for a known Entio error code.",
+        inputSchema = objectSchema(listOf(property("code", AiStringSchema(maxLength = 96), "Known Entio error code.")), fields),
+        access = AiCapabilityAccess.READ_ONLY,
+        requiredRole = AiRequiredRole.CONTRIBUTOR,
+        requiredPermissions = setOf(WebPermission.USE_AI.name),
+        requiredFeature = AiCapabilityFeatures.ENTIO_HELP,
+        sourceScope = AiSourceScopeRule.NONE,
+        resultLimit = 1,
+        timeoutMillis = 2_000,
+        auditClassification = AiCapabilityAuditClassification.HELP_READ,
+        decoder = AiCapabilityArgumentDecoder { input ->
+            val objectInput = StrictObject(input, fields, fields)
+            AiErrorCodeArguments(objectInput.string("code", 1, 96))
+        },
+    )
+}
+
+private fun localReadDefinition(
+    name: String,
+    operationType: AiCapabilityOperationType,
+    description: String,
+    inputSchema: AiObjectSchema,
+    sourceScope: AiSourceScopeRule,
+    resultLimit: Int,
+    decoder: AiCapabilityArgumentDecoder,
+): AiCapabilityDefinition = AiCapabilityDefinition(
+    name = name,
+    operationType = operationType,
+    category = AiCapabilityCategory.LOCAL_READ,
+    description = description,
+    inputSchema = inputSchema,
+    access = AiCapabilityAccess.READ_ONLY,
+    requiredRole = AiRequiredRole.CONTRIBUTOR,
+    requiredPermissions = setOf(WebPermission.BROWSE.name, WebPermission.USE_AI.name),
+    requiredFeature = AiCapabilityFeatures.LOCAL_SEMANTIC_READ,
+    sourceScope = sourceScope,
+    resultLimit = resultLimit,
+    timeoutMillis = 5_000,
+    auditClassification = AiCapabilityAuditClassification.PROJECT_READ,
+    decoder = decoder,
+)
+
+private fun emptyArguments(arguments: AiCapabilityArguments): AiCapabilityArgumentDecoder = AiCapabilityArgumentDecoder { input ->
+    StrictObject(input, emptySet(), emptySet())
+    arguments
 }
 
 private class StrictObject(
@@ -297,6 +470,29 @@ private class StrictObject(
 
     fun httpIri(name: String): String {
         val candidate = string(name, 1, 2_048)
+        return validateHttpIri(name, candidate)
+    }
+
+    fun optionalHttpIri(name: String): String? {
+        val node = value.get(name) ?: return null
+        if (node.isNull) return null
+        return httpIri(name)
+    }
+
+    fun httpIriArray(name: String, minimum: Int, maximum: Int): List<String> {
+        val node = value.get(name)
+        if (node == null || !node.isArray) throw AiCapabilityFailure("malformed-argument", "$name must be an array.")
+        if (node.size() !in minimum..maximum) throw AiCapabilityFailure("array-limit", "$name has an invalid number of values.")
+        val values = node.mapIndexed { index, item ->
+            if (!item.isTextual) throw AiCapabilityFailure("malformed-argument", "$name entries must be strings.")
+            validateHttpIri("$name[$index]", item.textValue())
+        }
+        if (values.distinct().size != values.size) throw AiCapabilityFailure("duplicate-array-value", "$name values must be unique.")
+        return values
+    }
+
+    private fun validateHttpIri(name: String, candidate: String): String {
+        if (candidate.length !in 1..2_048) throw AiCapabilityFailure("argument-out-of-range", "$name has an invalid length.")
         val parsed = runCatching { URI(candidate) }.getOrNull()
         if (parsed == null || !parsed.isAbsolute || parsed.scheme !in setOf("http", "https") || parsed.host.isNullOrBlank() || parsed.userInfo != null) {
             throw AiCapabilityFailure("invalid-iri", "$name must be an absolute HTTP or HTTPS IRI without user information.")

@@ -1,0 +1,116 @@
+{
+  "version": "v1",
+  "topics": [
+    {
+      "id": "NAVIGATION",
+      "title": "Navigation",
+      "content": "Use Explore to browse project sources and entities. Labels are primary; technical IRIs remain available in entity details.",
+      "relatedActions": ["BROWSE"],
+      "relatedPermissions": ["BROWSE"]
+    },
+    {
+      "id": "ENTITY_TYPES",
+      "title": "Entity types",
+      "content": "Entio describes classes, object properties, datatype properties, annotation properties, individuals, and supported SHACL shapes.",
+      "relatedActions": ["BROWSE"],
+      "relatedPermissions": ["BROWSE"]
+    },
+    {
+      "id": "EDITING",
+      "title": "Editing",
+      "content": "Supported edits use typed forms and deterministic Kotlin translators. Editing does not write source files directly.",
+      "relatedActions": ["PREPARE_EDIT"],
+      "relatedPermissions": ["PREPARE_EDIT"]
+    },
+    {
+      "id": "STAGING",
+      "title": "Staging",
+      "content": "Staged changes are a shared review queue. They remain unapplied until preview, review, approval, and atomic application complete.",
+      "relatedActions": ["STAGE_OWN_CHANGE", "REMOVE_OWN_CHANGE"],
+      "relatedPermissions": ["STAGE_OWN_CHANGE", "REMOVE_OWN_CHANGE"]
+    },
+    {
+      "id": "PROPOSALS",
+      "title": "Proposals",
+      "content": "A proposal contains the normalized staged set, deterministic validation, and a semantic diff for human review.",
+      "relatedActions": ["REVIEW_ANY_CHANGE", "APPROVE", "REJECT", "APPLY"],
+      "relatedPermissions": ["REVIEW_ANY_CHANGE", "APPROVE", "REJECT", "APPLY"]
+    },
+    {
+      "id": "REASONING",
+      "title": "Reasoning",
+      "content": "Reasoning reports asserted and inferred facts separately, consistency, unsatisfiable classes, and supported explanations.",
+      "relatedActions": ["BROWSE", "CANCEL_SEMANTIC_JOB"],
+      "relatedPermissions": ["BROWSE", "CANCEL_SEMANTIC_JOB"]
+    },
+    {
+      "id": "SHACL",
+      "title": "SHACL",
+      "content": "SHACL validation reports deterministic findings against an applied or preview graph. A finding is not overridden by an AI explanation.",
+      "relatedActions": ["BROWSE", "CANCEL_SEMANTIC_JOB"],
+      "relatedPermissions": ["BROWSE", "CANCEL_SEMANTIC_JOB"]
+    },
+    {
+      "id": "FIBO",
+      "title": "FIBO",
+      "content": "The curated external ontology browser returns deterministic FIBO modules and descriptors. Reuse preserves original external IRIs.",
+      "relatedActions": ["BROWSE", "PREPARE_EDIT"],
+      "relatedPermissions": ["BROWSE", "PREPARE_EDIT"]
+    },
+    {
+      "id": "COLLABORATION",
+      "title": "Collaboration",
+      "content": "Shared staging and proposal events are visible to collaborators. Private AI conversations and drafts are not broadcast.",
+      "relatedActions": ["BROWSE"],
+      "relatedPermissions": ["BROWSE"]
+    },
+    {
+      "id": "CONFLICTS",
+      "title": "Conflicts",
+      "content": "A conflict means the proposed operation no longer has a safe current baseline or overlaps another incompatible change. Refresh and review before continuing.",
+      "relatedActions": ["BROWSE", "REMOVE_OWN_CHANGE"],
+      "relatedPermissions": ["BROWSE", "REMOVE_OWN_CHANGE"]
+    },
+    {
+      "id": "PERMISSIONS",
+      "title": "Permissions",
+      "content": "Contributors may browse and prepare their own changes. Reviewer-only actions include reviewing, approving, rejecting, applying, rollback, and semantic-job cancellation.",
+      "relatedActions": ["BROWSE"],
+      "relatedPermissions": ["BROWSE"]
+    },
+    {
+      "id": "CREDENTIALS",
+      "title": "AI credentials",
+      "content": "Provider credentials stay in server memory, are never returned to the browser, and must be tested before assistant use.",
+      "relatedActions": ["USE_AI"],
+      "relatedPermissions": ["USE_AI"]
+    },
+    {
+      "id": "AI_LIMITS",
+      "title": "AI limits",
+      "content": "The assistant receives bounded structured context and allowlisted capabilities. It cannot access files, secrets, raw SPARQL, approval, application, or rollback tools.",
+      "relatedActions": ["USE_AI"],
+      "relatedPermissions": ["USE_AI"]
+    },
+    {
+      "id": "ERRORS",
+      "title": "Errors",
+      "content": "Entio error codes identify deterministic boundary failures. Resolve the reported scope, input, permission, baseline, or validation condition before retrying.",
+      "relatedActions": ["BROWSE"],
+      "relatedPermissions": ["BROWSE"]
+    }
+  ],
+  "errorCodes": {
+    "assistant-provider-failed": "The configured assistant provider failed without changing ontology state.",
+    "forbidden": "The current user does not have the permission required for this action.",
+    "invalid-search-query": "The local semantic search text is missing or invalid.",
+    "missing-credential": "Configure and test a provider credential before starting an assistant run.",
+    "missing-entity": "The requested entity is not present in the selected project and source scope.",
+    "project-load-failed": "The registered Entio project could not be loaded or parsed.",
+    "proposal-invalid": "Deterministic proposal validation found blocking issues.",
+    "source-scope-violation": "The requested source is outside the current project run scope.",
+    "staging-conflict": "The staged changes cannot be normalized into one safe proposal.",
+    "stale-capability-registry": "The run capability set changed; start or refresh the run before retrying.",
+    "unknown-project": "The requested project is not registered in the web server allowlist."
+  }
+}

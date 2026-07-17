@@ -51,7 +51,7 @@ class OpenAiResponsesClientTest {
         assertEquals("Bearer secret-key", capturedAuthorization)
         assertFalse(capturedBody.orEmpty().contains("secret-key"))
         val tools = body.path("tools")
-        assertTrue(tools.isArray && tools.size() == 4)
+        assertTrue(tools.isArray && tools.size() == 11)
         tools.forEach { tool ->
             assertEquals("function", tool.path("type").asText())
             assertTrue(tool.path("strict").asBoolean())
