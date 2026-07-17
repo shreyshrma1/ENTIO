@@ -2,6 +2,7 @@ package com.entio.web
 
 import com.entio.web.contract.ProjectRegistry
 import com.entio.web.contract.WebCollaborationEvent
+import com.entio.web.contract.WebActivitySnapshot
 import com.entio.web.contract.WebPresenceUser
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.ktor.server.websocket.WebSocketServerSession
@@ -19,6 +20,7 @@ private class CollaborationRoom(
     val projectId: String,
     val sessionId: String = "collaboration-$projectId",
     val clients: MutableMap<WebSocketServerSession, ConnectedUser> = linkedMapOf(),
+    val sharedActivity: MutableList<WebCollaborationEvent> = mutableListOf(),
     var sequence: Long = 0,
 )
 
@@ -49,8 +51,19 @@ public class CollaborationHub(
         } finally {
             synchronized(room) { room.clients.remove(socket) }
             publish(room, "presence.left", userId = user.id)
-            if (synchronized(room) { room.clients.isEmpty() }) rooms.remove(projectId, room)
+            if (synchronized(room) { room.clients.isEmpty() && room.sharedActivity.isEmpty() }) rooms.remove(projectId, room)
         }
+    }
+
+    public fun recentSharedActivity(projectId: String, limit: Int = 20): WebActivitySnapshot {
+        require(limit in 1..100) { "activity-limit-must-be-between-1-and-100" }
+        projectRegistry.find(projectId) ?: throw WebWorkflowFailure("unknown-project", "The requested project is not registered.")
+        val activity = rooms[projectId]?.let { room -> synchronized(room) { room.sharedActivity.toList() } }.orEmpty()
+        return WebActivitySnapshot(
+            projectId = projectId,
+            events = activity.takeLast(limit).reversed(),
+            truncated = activity.size > limit,
+        )
     }
 
     public suspend fun stagedChange(projectId: String, stagedChangeId: String? = null, proposalId: String? = null): Unit = publishByProject(
@@ -79,7 +92,8 @@ public class CollaborationHub(
         proposalId: String? = null,
         jobId: String? = null,
     ): Unit {
-        val room = rooms[projectId] ?: return
+        projectRegistry.find(projectId) ?: throw WebWorkflowFailure("unknown-project", "The requested project is not registered.")
+        val room = rooms.getOrPut(projectId) { CollaborationRoom(projectId) }
         publish(room, eventType, stagedChangeId = stagedChangeId, proposalId = proposalId, jobId = jobId)
     }
 
@@ -119,7 +133,13 @@ public class CollaborationHub(
         data: Map<String, Any?> = emptyMap(),
     ): Unit {
         val event = nextEvent(room, eventType, userId, entityIri, stagedChangeId, proposalId, jobId, data)
-        val sockets = synchronized(room) { room.clients.keys.toList() }
+        val sockets = synchronized(room) {
+            if (event.isSharedWorkflowActivity()) {
+                room.sharedActivity += event
+                while (room.sharedActivity.size > MAX_SHARED_ACTIVITY) room.sharedActivity.removeFirst()
+            }
+            room.clients.keys.toList()
+        }
         sockets.forEach { socket -> send(socket, event) }
     }
 
@@ -159,5 +179,15 @@ public class CollaborationHub(
 
     private suspend fun send(socket: WebSocketServerSession, event: WebCollaborationEvent): Unit {
         socket.send(Frame.Text(objectMapper.writeValueAsString(event)))
+    }
+
+    private fun WebCollaborationEvent.isSharedWorkflowActivity(): Boolean = userId == null && (
+        eventType.startsWith("staged-change.") ||
+            eventType.startsWith("proposal.") ||
+            eventType.startsWith("semantic-job.")
+        )
+
+    private companion object {
+        const val MAX_SHARED_ACTIVITY: Int = 100
     }
 }

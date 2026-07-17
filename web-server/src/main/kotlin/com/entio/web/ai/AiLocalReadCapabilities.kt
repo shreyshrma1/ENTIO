@@ -17,7 +17,9 @@ public enum class AiFactProvenance {
     ASSERTED,
     INFERRED,
     EXTERNAL,
+    SHACL,
     STAGED,
+    PROPOSAL,
     APPLICATION,
 }
 
@@ -240,6 +242,12 @@ public class AiLocalReadCapabilityService(
             AiWorkflowStateArguments -> workflow(scope)
             is AiHelpArguments -> help(scope, context, arguments)
             is AiErrorCodeArguments -> errorHelp(arguments)
+            is AiSemanticJobArguments,
+            is AiProposalReadArguments,
+            is AiActivityReadArguments,
+            is AiFiboSearchArguments,
+            is AiFiboEntityArguments,
+            -> throw AiCapabilityFailure("capability-service-mismatch", "This capability requires the semantic read service.")
         }
         return AiCapabilityExecution(
             result = AiCapabilityResult(
@@ -589,7 +597,7 @@ private fun AiEntityKindFilter.webKind(): String = when (this) {
     AiEntityKindFilter.SHAPE -> "Shape"
 }
 
-private fun AiCapabilityPayload.summary(): String = when (this) {
+internal fun AiCapabilityPayload.summary(): String = when (this) {
     is AiProjectSummaryPayload -> "Project summary returned with ${sources.size} allowed source(s)."
     is AiEntityPayload -> "Entity descriptor returned for ${entity.label}."
     is AiEntityComparisonPayload -> "Compared ${entities.size} entities."
@@ -601,9 +609,14 @@ private fun AiCapabilityPayload.summary(): String = when (this) {
     is AiWorkflowStatePayload -> "Workflow state returned with $stagedChangeCount staged change(s)."
     is AiHelpPayload -> "Entio help returned for $id."
     is AiErrorHelpPayload -> "Entio error help returned for $code."
+    is AiSemanticJobPayload -> "Semantic job ${jobId} returned with ${facts.size + shaclFindings.size} bounded result(s)."
+    is AiProposalReadPayload -> "Proposal ${proposalId} returned with ${diff.size} diff entr${if (diff.size == 1) "y" else "ies"}."
+    is AiActivityPayload -> "Returned ${events.size} shared workflow event(s)."
+    is AiFiboSearchPayload -> "FIBO search returned ${hits.size} result(s)."
+    is AiFiboEntityPayload -> "FIBO descriptor returned for ${entity.label}."
 }
 
-private fun stableReferenceId(vararg components: String): String {
+internal fun stableReferenceId(vararg components: String): String {
     val digest = MessageDigest.getInstance("SHA-256")
         .digest(components.joinToString("\u0000").toByteArray(StandardCharsets.UTF_8))
     return digest.joinToString("") { "%02x".format(it) }
