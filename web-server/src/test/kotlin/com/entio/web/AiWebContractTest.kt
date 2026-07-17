@@ -43,7 +43,7 @@ class AiWebContractTest {
     private val mapper: ObjectMapper = ObjectMapper().findAndRegisterModules()
 
     @Test
-    fun conversationDraftAnalysisAndSubmissionAreVersionedScopedAndIdempotent(): Unit = testApplication {
+    fun conversationDraftAnalysisSubmissionAndHumanApplicationAreVersionedScopedAndIdempotent(): Unit = testApplication {
         val provider = FakeAiProvider(
             completed(
                 calls = listOf(
@@ -133,6 +133,25 @@ class AiWebContractTest {
         assertEquals(proposalId, submitReplay.json().path("proposalId").asText())
         assertEquals(1, client.get("/api/v1/projects/simple/staged").json().path("entries").size())
         assertEquals(setup.sourceBefore, Files.readString(setup.projectRoot.resolve("ontology/simple.ttl")))
+
+        val contributorApproval = client.post("/api/v1/projects/simple/proposal/approve") {
+            header("X-Entio-User", "alice")
+        }
+        assertEquals(HttpStatusCode.Forbidden, contributorApproval.status)
+        assertEquals(setup.sourceBefore, Files.readString(setup.projectRoot.resolve("ontology/simple.ttl")))
+
+        val reviewerApproval = client.post("/api/v1/projects/simple/proposal/approve") {
+            header("X-Entio-User", "bob")
+        }
+        assertEquals(HttpStatusCode.OK, reviewerApproval.status)
+        assertContains(reviewerApproval.bodyAsText(), "APPROVED")
+        val applied = client.post("/api/v1/projects/simple/proposal/apply") {
+            header("X-Entio-User", "bob")
+        }
+        assertEquals(HttpStatusCode.OK, applied.status)
+        assertContains(applied.bodyAsText(), "APPLIED")
+        assertContains(Files.readString(setup.projectRoot.resolve("ontology/simple.ttl")), "ReceivableAccount")
+        assertTrue(client.get("/api/v1/projects/simple/summary").json().path("symbolCount").asInt() >= 3)
 
         val crossUser = client.get("/api/v1/projects/simple/ai/conversations/$conversationId") {
             header("X-Entio-User", "bob")
