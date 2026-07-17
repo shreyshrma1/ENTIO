@@ -48,6 +48,7 @@ public enum class WebRole {
 
 public enum class WebPermission {
     BROWSE,
+    USE_AI,
     PREPARE_EDIT,
     STAGE_OWN_CHANGE,
     REMOVE_OWN_CHANGE,
