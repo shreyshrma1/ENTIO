@@ -22,6 +22,11 @@ public enum class AiCapabilityOperationType {
     READ_WORKFLOW_STATE,
     READ_ENTIO_HELP,
     EXPLAIN_ERROR_CODE,
+    READ_SEMANTIC_JOB,
+    READ_PROPOSAL,
+    READ_ACTIVITY,
+    SEARCH_FIBO,
+    READ_FIBO_ENTITY,
 }
 
 public enum class AiCapabilityAccess {
@@ -196,6 +201,37 @@ public data class AiErrorCodeArguments(
     val code: String,
 ) : AiCapabilityArguments
 
+public data class AiSemanticJobArguments(
+    val jobId: String,
+    val limit: Int,
+) : AiCapabilityArguments
+
+public data class AiProposalReadArguments(
+    val proposalId: String?,
+    val limit: Int,
+) : AiCapabilityArguments
+
+public data class AiActivityReadArguments(
+    val limit: Int,
+) : AiCapabilityArguments
+
+public enum class AiFiboEntityKind {
+    CLASS,
+    OBJECT_PROPERTY,
+    DATATYPE_PROPERTY,
+}
+
+public data class AiFiboSearchArguments(
+    val query: String,
+    val kind: AiFiboEntityKind?,
+    val moduleIri: String?,
+    val limit: Int,
+) : AiCapabilityArguments
+
+public data class AiFiboEntityArguments(
+    val entityIri: String,
+) : AiCapabilityArguments
+
 public fun interface AiCapabilityArgumentDecoder {
     public fun decode(input: JsonNode): AiCapabilityArguments
 }
@@ -271,4 +307,8 @@ public class AiCapabilityFailure(
 public object AiCapabilityFeatures {
     public const val LOCAL_SEMANTIC_READ: String = "local-semantic-read"
     public const val ENTIO_HELP: String = "entio-help"
+    public const val SEMANTIC_RESULTS: String = "semantic-results"
+    public const val PROPOSAL_READ: String = "proposal-read"
+    public const val ACTIVITY_READ: String = "activity-read"
+    public const val FIBO_READ: String = "fibo-read"
 }

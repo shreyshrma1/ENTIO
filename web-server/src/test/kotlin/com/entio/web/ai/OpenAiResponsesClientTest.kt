@@ -51,7 +51,7 @@ class OpenAiResponsesClientTest {
         assertEquals("Bearer secret-key", capturedAuthorization)
         assertFalse(capturedBody.orEmpty().contains("secret-key"))
         val tools = body.path("tools")
-        assertTrue(tools.isArray && tools.size() == 11)
+        assertTrue(tools.isArray && tools.size() == 16)
         tools.forEach { tool ->
             assertEquals("function", tool.path("type").asText())
             assertTrue(tool.path("strict").asBoolean())
@@ -186,7 +186,14 @@ class OpenAiResponsesClientTest {
             baselineFingerprint = "baseline",
             role = "CONTRIBUTOR",
             permissions = setOf(WebPermission.BROWSE.name, WebPermission.USE_AI.name),
-            availableFeatures = setOf(AiCapabilityFeatures.LOCAL_SEMANTIC_READ, AiCapabilityFeatures.ENTIO_HELP),
+            availableFeatures = setOf(
+                AiCapabilityFeatures.LOCAL_SEMANTIC_READ,
+                AiCapabilityFeatures.ENTIO_HELP,
+                AiCapabilityFeatures.SEMANTIC_RESULTS,
+                AiCapabilityFeatures.PROPOSAL_READ,
+                AiCapabilityFeatures.ACTIVITY_READ,
+                AiCapabilityFeatures.FIBO_READ,
+            ),
             createdAt = Instant.parse("2026-07-17T12:00:00Z"),
         )
         return OpenAiResponsesRequest(

@@ -47,6 +47,42 @@ public data class WebSemanticJobStatus(
     val error: String? = null,
 )
 
+public data class WebReasoningFact(
+    val kind: String,
+    val subject: String,
+    val predicate: String? = null,
+    val objectValue: String,
+    val origin: String,
+    val sourceId: String? = null,
+)
+
+public data class WebShaclFinding(
+    val resultId: String,
+    val severity: String,
+    val message: String,
+    val focusNode: String,
+    val path: String? = null,
+    val shapeIri: String,
+    val shapeSourceId: String,
+    val constraint: String,
+    val value: String? = null,
+    val sourceId: String? = null,
+)
+
+/** Bounded semantic details retained with a job; raw result graphs are never exposed. */
+public data class WebSemanticJobDetails(
+    val apiVersion: String = "v1",
+    val job: WebSemanticJobStatus,
+    val facts: List<WebReasoningFact> = emptyList(),
+    val unsatisfiableClasses: List<String> = emptyList(),
+    val shaclFindings: List<WebShaclFinding> = emptyList(),
+    val unsupportedFeatures: List<String> = emptyList(),
+    val warnings: List<String> = emptyList(),
+    val errors: List<String> = emptyList(),
+    val explanationsAvailable: Boolean = false,
+    val truncated: Boolean = false,
+)
+
 internal data class ParsedWebJobRequest(
     val kind: WebJobKind,
     val scope: WebJobScope,

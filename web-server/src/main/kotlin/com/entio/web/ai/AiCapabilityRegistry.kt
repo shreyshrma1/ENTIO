@@ -150,6 +150,11 @@ public fun defaultAiCapabilityDefinitions(): List<AiCapabilityDefinition> = list
     workflowStateDefinition(),
     helpDefinition(),
     errorCodeDefinition(),
+    semanticJobDefinition(),
+    proposalReadDefinition(),
+    activityReadDefinition(),
+    fiboSearchDefinition(),
+    fiboEntityDefinition(),
 )
 
 private fun projectSummaryDefinition(): AiCapabilityDefinition = AiCapabilityDefinition(
@@ -406,6 +411,112 @@ private fun errorCodeDefinition(): AiCapabilityDefinition {
     )
 }
 
+private fun semanticJobDefinition(): AiCapabilityDefinition {
+    val fields = setOf("jobId", "limit")
+    return localReadDefinition(
+        name = "entio_semantic_job",
+        operationType = AiCapabilityOperationType.READ_SEMANTIC_JOB,
+        description = "Read one bounded retained reasoning or SHACL job result.",
+        inputSchema = objectSchema(
+            listOf(
+                property("jobId", AiStringSchema(maxLength = 128), "Semantic job ID."),
+                property("limit", AiIntegerSchema(1, 50), "Maximum retained facts or findings."),
+            ),
+            fields,
+        ),
+        sourceScope = AiSourceScopeRule.NONE,
+        resultLimit = 50,
+        requiredFeature = AiCapabilityFeatures.SEMANTIC_RESULTS,
+        decoder = AiCapabilityArgumentDecoder { input ->
+            val objectInput = StrictObject(input, fields, fields)
+            AiSemanticJobArguments(objectInput.string("jobId", 1, 128), objectInput.integer("limit", 1, 50))
+        },
+    )
+}
+
+private fun proposalReadDefinition(): AiCapabilityDefinition {
+    val fields = setOf("proposalId", "limit")
+    return localReadDefinition(
+        name = "entio_proposal_summary",
+        operationType = AiCapabilityOperationType.READ_PROPOSAL,
+        description = "Read the current bounded proposal validation and semantic diff summary.",
+        inputSchema = objectSchema(
+            listOf(
+                property("proposalId", AiStringSchema(maxLength = 128), "Optional current proposal ID.", nullable = true),
+                property("limit", AiIntegerSchema(1, 50), "Maximum validation or diff entries."),
+            ),
+            setOf("limit"),
+        ),
+        sourceScope = AiSourceScopeRule.NONE,
+        resultLimit = 50,
+        requiredFeature = AiCapabilityFeatures.PROPOSAL_READ,
+        decoder = AiCapabilityArgumentDecoder { input ->
+            val objectInput = StrictObject(input, fields, setOf("limit"))
+            AiProposalReadArguments(objectInput.optionalString("proposalId", 1, 128), objectInput.integer("limit", 1, 50))
+        },
+    )
+}
+
+private fun activityReadDefinition(): AiCapabilityDefinition {
+    val fields = setOf("limit")
+    return localReadDefinition(
+        name = "entio_recent_activity",
+        operationType = AiCapabilityOperationType.READ_ACTIVITY,
+        description = "Read bounded shared workflow activity for the current project.",
+        inputSchema = objectSchema(listOf(property("limit", AiIntegerSchema(1, 50), "Maximum shared activity events.")), fields),
+        sourceScope = AiSourceScopeRule.NONE,
+        resultLimit = 50,
+        requiredFeature = AiCapabilityFeatures.ACTIVITY_READ,
+        decoder = AiCapabilityArgumentDecoder { input ->
+            val objectInput = StrictObject(input, fields, fields)
+            AiActivityReadArguments(objectInput.integer("limit", 1, 50))
+        },
+    )
+}
+
+private fun fiboSearchDefinition(): AiCapabilityDefinition {
+    val fields = setOf("query", "kind", "moduleIri", "limit")
+    return externalReadDefinition(
+        name = "entio_fibo_search",
+        operationType = AiCapabilityOperationType.SEARCH_FIBO,
+        description = "Search the pinned curated FIBO catalog with deterministic ranking.",
+        inputSchema = objectSchema(
+            listOf(
+                property("query", AiStringSchema(maxLength = 256), "FIBO search text."),
+                property("kind", AiStringSchema(maxLength = 32, allowedValues = AiFiboEntityKind.entries.map(Enum<*>::name)), "Optional entity kind.", nullable = true),
+                property("moduleIri", AiStringSchema(maxLength = 2_048, format = AiStringFormat.HTTP_IRI), "Optional FIBO module IRI.", nullable = true),
+                property("limit", AiIntegerSchema(1, 20), "Maximum search result count."),
+            ),
+            setOf("query", "limit"),
+        ),
+        resultLimit = 20,
+        decoder = AiCapabilityArgumentDecoder { input ->
+            val objectInput = StrictObject(input, fields, setOf("query", "limit"))
+            AiFiboSearchArguments(
+                query = objectInput.string("query", 1, 256),
+                kind = objectInput.optionalEnum("kind", AiFiboEntityKind.entries.associateBy(Enum<*>::name)),
+                moduleIri = objectInput.optionalHttpIri("moduleIri"),
+                limit = objectInput.integer("limit", 1, 20),
+            )
+        },
+    )
+}
+
+private fun fiboEntityDefinition(): AiCapabilityDefinition {
+    val fields = setOf("entityIri")
+    return externalReadDefinition(
+        name = "entio_fibo_entity",
+        operationType = AiCapabilityOperationType.READ_FIBO_ENTITY,
+        description = "Read one pinned FIBO entity descriptor and dependency summary.",
+        inputSchema = objectSchema(listOf(property("entityIri", AiStringSchema(maxLength = 2_048, format = AiStringFormat.HTTP_IRI), "FIBO entity IRI.")), fields),
+        resultLimit = 1,
+        decoder = AiCapabilityArgumentDecoder { input ->
+            val objectInput = StrictObject(input, fields, fields)
+            AiFiboEntityArguments(objectInput.httpIri("entityIri"))
+        },
+    )
+}
+
 private fun localReadDefinition(
     name: String,
     operationType: AiCapabilityOperationType,
@@ -413,6 +524,7 @@ private fun localReadDefinition(
     inputSchema: AiObjectSchema,
     sourceScope: AiSourceScopeRule,
     resultLimit: Int,
+    requiredFeature: String = AiCapabilityFeatures.LOCAL_SEMANTIC_READ,
     decoder: AiCapabilityArgumentDecoder,
 ): AiCapabilityDefinition = AiCapabilityDefinition(
     name = name,
@@ -423,11 +535,35 @@ private fun localReadDefinition(
     access = AiCapabilityAccess.READ_ONLY,
     requiredRole = AiRequiredRole.CONTRIBUTOR,
     requiredPermissions = setOf(WebPermission.BROWSE.name, WebPermission.USE_AI.name),
-    requiredFeature = AiCapabilityFeatures.LOCAL_SEMANTIC_READ,
+    requiredFeature = requiredFeature,
     sourceScope = sourceScope,
     resultLimit = resultLimit,
     timeoutMillis = 5_000,
     auditClassification = AiCapabilityAuditClassification.PROJECT_READ,
+    decoder = decoder,
+)
+
+private fun externalReadDefinition(
+    name: String,
+    operationType: AiCapabilityOperationType,
+    description: String,
+    inputSchema: AiObjectSchema,
+    resultLimit: Int,
+    decoder: AiCapabilityArgumentDecoder,
+): AiCapabilityDefinition = AiCapabilityDefinition(
+    name = name,
+    operationType = operationType,
+    category = AiCapabilityCategory.EXTERNAL_READ,
+    description = description,
+    inputSchema = inputSchema,
+    access = AiCapabilityAccess.READ_ONLY,
+    requiredRole = AiRequiredRole.CONTRIBUTOR,
+    requiredPermissions = setOf(WebPermission.BROWSE.name, WebPermission.USE_AI.name),
+    requiredFeature = AiCapabilityFeatures.FIBO_READ,
+    sourceScope = AiSourceScopeRule.NONE,
+    resultLimit = resultLimit,
+    timeoutMillis = 5_000,
+    auditClassification = AiCapabilityAuditClassification.EXTERNAL_READ,
     decoder = decoder,
 )
 
@@ -466,6 +602,12 @@ private class StrictObject(
         val sourceId = string(name, 1, 128)
         if (!isSourceId(sourceId)) throw AiCapabilityFailure("invalid-source-id", "$name is not a valid source ID.")
         return sourceId
+    }
+
+    fun optionalString(name: String, minLength: Int, maxLength: Int): String? {
+        val node = value.get(name) ?: return null
+        if (node.isNull) return null
+        return string(name, minLength, maxLength)
     }
 
     fun httpIri(name: String): String {
@@ -513,6 +655,12 @@ private class StrictObject(
     fun <T> enum(name: String, values: Map<String, T>): T {
         val raw = string(name, 1, 64)
         return values[raw] ?: throw AiCapabilityFailure("invalid-enum-value", "$name is not an allowed value.")
+    }
+
+    fun <T> optionalEnum(name: String, values: Map<String, T>): T? {
+        val node = value.get(name) ?: return null
+        if (node.isNull) return null
+        return enum(name, values)
     }
 
     fun <T> enumArray(name: String, values: Map<String, T>, maximum: Int): List<T> {

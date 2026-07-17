@@ -22,3 +22,10 @@ public data class WebCollaborationEvent(
     val jobId: String? = null,
     val data: Map<String, Any?> = emptyMap(),
 )
+
+/** Bounded, in-memory shared workflow activity. Private presence activity is excluded. */
+public data class WebActivitySnapshot(
+    val projectId: String,
+    val events: List<WebCollaborationEvent>,
+    val truncated: Boolean,
+)

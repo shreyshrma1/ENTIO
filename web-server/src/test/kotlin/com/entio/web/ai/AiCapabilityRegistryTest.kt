@@ -110,11 +110,16 @@ class AiCapabilityRegistryTest {
                 "entio_entity_detail",
                 "entio_entity_usage",
                 "entio_error_help",
+                "entio_fibo_entity",
+                "entio_fibo_search",
                 "entio_help",
                 "entio_hierarchy_neighborhood",
                 "entio_project_summary",
+                "entio_proposal_summary",
+                "entio_recent_activity",
                 "entio_screen_context",
                 "entio_search_local_entities",
+                "entio_semantic_job",
                 "entio_workflow_state",
             ),
             all,
@@ -185,7 +190,14 @@ class AiCapabilityRegistryTest {
         )
 
     private fun scope(
-        features: Set<String> = setOf(AiCapabilityFeatures.LOCAL_SEMANTIC_READ, AiCapabilityFeatures.ENTIO_HELP),
+        features: Set<String> = setOf(
+            AiCapabilityFeatures.LOCAL_SEMANTIC_READ,
+            AiCapabilityFeatures.ENTIO_HELP,
+            AiCapabilityFeatures.SEMANTIC_RESULTS,
+            AiCapabilityFeatures.PROPOSAL_READ,
+            AiCapabilityFeatures.ACTIVITY_READ,
+            AiCapabilityFeatures.FIBO_READ,
+        ),
         permissions: Set<String> = setOf(WebPermission.BROWSE.name, WebPermission.USE_AI.name),
     ): AiCapabilityScope = AiCapabilityScope(
         userId = "alice",

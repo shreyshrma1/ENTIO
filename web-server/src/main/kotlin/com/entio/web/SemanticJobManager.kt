@@ -9,6 +9,7 @@ import com.entio.core.ReasoningResult
 import com.entio.core.ReasoningRunStatus
 import com.entio.core.ShaclGraphIdentity
 import com.entio.core.ShaclValidationMode
+import com.entio.core.ShaclValidationReport
 import com.entio.core.ShaclValidationStatus
 import com.entio.semantic.ProjectLoader
 import com.entio.semantic.ReasoningService
@@ -45,6 +46,8 @@ private class MutableSemanticJob(
     var startedAt: String? = null
     var completedAt: String? = null
     var resultSummary: Map<String, Any?> = emptyMap()
+    var reasoningResult: ReasoningResult? = null
+    var shaclReport: ShaclValidationReport? = null
     var error: String? = null
     var coroutine: Job? = null
 
@@ -123,6 +126,57 @@ public class SemanticJobManager(
         ?.status()
 
     @Synchronized
+    public fun details(projectId: String, jobId: String, limit: Int = 50): WebSemanticJobDetails? {
+        require(limit in 1..100) { "semantic-job-detail-limit-must-be-between-1-and-100" }
+        val record = jobs[jobId]?.takeIf { it.projectId == projectId } ?: return null
+        val reasoning = record.reasoningResult
+        val shacl = record.shaclReport
+        val allFacts = reasoning?.toWebFacts().orEmpty()
+        val allUnsatisfiable = reasoning?.unsatisfiableClasses?.map { it.value }.orEmpty()
+        val allFindings = shacl?.results?.map { result ->
+            WebShaclFinding(
+                resultId = result.resultId,
+                severity = result.severity.name,
+                message = result.message,
+                focusNode = result.focusNode.value,
+                path = result.path?.let { path ->
+                    when (path) {
+                        is com.entio.core.ShaclPath.DirectProperty -> path.propertyIri.value
+                    }
+                },
+                shapeIri = result.shape.iri.value,
+                shapeSourceId = result.shape.sourceId,
+                constraint = result.constraint.name,
+                value = result.value?.displayValue(),
+                sourceId = result.sourceId,
+            )
+        }.orEmpty()
+        val retainedStatus = record.status()
+        val currentStatus = if (retainedStatus.status == WebSemanticJobState.Completed && !acceptsCurrentGraph(record)) {
+            retainedStatus.copy(
+                status = WebSemanticJobState.Stale,
+                phase = "stale",
+                message = "The retained semantic result no longer matches the current graph scope.",
+            )
+        } else {
+            retainedStatus
+        }
+        return WebSemanticJobDetails(
+            job = currentStatus,
+            facts = allFacts.take(limit),
+            unsatisfiableClasses = allUnsatisfiable.take(limit),
+            shaclFindings = allFindings.take(limit),
+            unsupportedFeatures = reasoning?.unsupportedFeatures?.take(limit)?.map { finding ->
+                listOf(finding.feature, finding.support.name, finding.message).filterNotNull().joinToString(": ")
+            }.orEmpty(),
+            warnings = reasoning?.warnings.orEmpty() + shacl?.warnings.orEmpty(),
+            errors = reasoning?.errors.orEmpty() + shacl?.errors.orEmpty(),
+            truncated = allFacts.size > limit || allUnsatisfiable.size > limit || allFindings.size > limit ||
+                (reasoning?.unsupportedFeatures?.size ?: 0) > limit,
+        )
+    }
+
+    @Synchronized
     public fun cancel(projectId: String, jobId: String): WebSemanticJobStatus {
         val record = jobs[jobId]?.takeIf { it.projectId == projectId }
             ?: throw WebWorkflowFailure("unknown-semantic-job", "Semantic job '$jobId' was not found.")
@@ -184,6 +238,7 @@ public class SemanticJobManager(
         val complete = result.metadata.status == ReasoningRunStatus.Completed
         synchronized(this) {
             record.resultSummary = summary
+            record.reasoningResult = result
             if (complete && record.request.scope == WebJobScope.Applied) {
                 latestAppliedReasoning[record.projectId] = CachedReasoning(record.snapshot.graphFingerprint, summary, result)
             }
@@ -240,7 +295,10 @@ public class SemanticJobManager(
             return
         }
         val complete = report.status == ShaclValidationStatus.Completed
-        synchronized(this) { record.resultSummary = shaclSummary(report) }
+        synchronized(this) {
+            record.resultSummary = shaclSummary(report)
+            record.shaclReport = report
+        }
         update(
             record,
             if (complete) WebSemanticJobState.Completed else WebSemanticJobState.Failed,
@@ -326,6 +384,27 @@ public class SemanticJobManager(
             }
         }
         return GraphState(triples)
+    }
+
+    private fun ReasoningResult.toWebFacts(): List<WebReasoningFact> = buildList {
+        classRelationships.forEach { fact ->
+            add(WebReasoningFact("class-relationship", fact.subject.value, RDFS_SUBCLASS, fact.objectClass.value, fact.origin.name, fact.sourceId))
+        }
+        individualTypes.forEach { fact ->
+            add(WebReasoningFact("individual-type", fact.individual.value, RDF_TYPE, fact.type.value, fact.origin.name, fact.sourceId))
+        }
+        propertyRelationships.forEach { fact ->
+            add(WebReasoningFact("property-relationship", fact.subject.value, fact.predicate.value, fact.objectResource.value, fact.origin.name, fact.sourceId))
+        }
+    }.sortedWith(compareBy(WebReasoningFact::kind, WebReasoningFact::subject, WebReasoningFact::predicate, WebReasoningFact::objectValue))
+
+    private fun com.entio.core.RdfTerm.displayValue(): String = when (this) {
+        is com.entio.core.RdfResource -> value
+        is com.entio.core.RdfLiteral -> buildString {
+            append(lexicalForm)
+            languageTag?.let { append('@').append(it) }
+            datatypeIri?.let { append("^^").append(it.value) }
+        }
     }
 
     private companion object {
