@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { WebEntityReference, WebHierarchyItem } from "../web/projectApi";
 import { useHierarchy } from "../web/queries";
+import { entityKindPresentation } from "./entityKindPresentation";
 
 interface HierarchyNodeProps {
   projectId: string;
@@ -18,6 +19,7 @@ export default function HierarchyNode({ projectId, item, depth, onOpen }: Hierar
     kind: item.kind,
     sourceId: item.sourceId,
   };
+  const presentation = entityKindPresentation(item.kind);
 
   return (
     <li className="hierarchy-node">
@@ -35,9 +37,9 @@ export default function HierarchyNode({ projectId, item, depth, onOpen }: Hierar
         ) : (
           <span className="hierarchy-spacer" aria-hidden="true" />
         )}
-        <button className="entity-link" type="button" onClick={() => onOpen(reference)}>
-          <span>{item.label}</span>
-          <small>{item.kind}</small>
+        <button className="entity-link" type="button" aria-label={`${item.label}, ${presentation.label}`} onClick={() => onOpen(reference)}>
+          <span className={`entity-type-marker ${presentation.className}`} aria-hidden="true">{presentation.marker}</span>
+          <span className="entity-link-label">{item.label}</span>
         </button>
       </div>
       {expanded && children.isPending ? <p className="tree-status" role="status">Loading children...</p> : null}

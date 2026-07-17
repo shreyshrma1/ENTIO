@@ -50,6 +50,19 @@ export interface WebHierarchyResponse {
   page: WebPage<WebHierarchyItem>;
 }
 
+export interface WebOutlineItem {
+  iri: string;
+  label: string;
+  kind: string;
+  sourceId: string;
+}
+
+export interface WebOutlineResponse {
+  apiVersion: "v1";
+  sourceId: string | null;
+  page: WebPage<WebOutlineItem>;
+}
+
 export interface WebEntityReference {
   iri: string;
   label: string;
@@ -126,15 +139,25 @@ export interface WebStageChangeRequest {
   sourceId: string;
   editType: string;
   classIri?: string;
+  classLabel?: string;
   superclassIri?: string;
+  superclassLabel?: string;
   propertyIri?: string;
+  propertyLabel?: string;
   domainClassIri?: string;
+  domainClassLabel?: string;
   rangeIri?: string;
+  rangeLabel?: string;
   individualIri?: string;
+  individualLabel?: string;
   resourceIri?: string;
+  resourceLabel?: string;
   typeIri?: string;
+  typeLabel?: string;
   subjectIri?: string;
+  subjectLabel?: string;
   objectIri?: string;
+  objectLabel?: string;
   targetIri?: string;
   targetLabel?: string;
   label?: string;
@@ -476,6 +499,20 @@ export async function loadHierarchy(
   if (options.parentIri) params.set("parentIri", options.parentIri);
   return getJson(
     `/api/v1/projects/${encodeURIComponent(projectId)}/hierarchy?${params.toString()}`,
+    fetcher,
+  );
+}
+
+export async function loadProjectOutline(
+  projectId: string,
+  options: { sourceId?: string } & PageRequest = {},
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebOutlineResponse> {
+  const page = normalizePageRequest(options);
+  const params = new URLSearchParams({ offset: String(page.offset), limit: String(page.limit) });
+  if (options.sourceId) params.set("sourceId", options.sourceId);
+  return getJson(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/outline?${params.toString()}`,
     fetcher,
   );
 }

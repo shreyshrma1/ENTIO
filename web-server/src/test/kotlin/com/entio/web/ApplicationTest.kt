@@ -92,6 +92,7 @@ class ApplicationTest {
 
         val summary = client.get("/api/v1/projects/simple/summary")
         val hierarchy = client.get("/api/v1/projects/simple/hierarchy?limit=1")
+        val outline = client.get("/api/v1/projects/simple/outline?sourceId=simple&limit=20")
         val search = client.get("/api/v1/projects/simple/search?q=customer")
         val detail = client.get(
             "/api/v1/projects/simple/entities?iri=" +
@@ -104,6 +105,11 @@ class ApplicationTest {
         assertEquals(HttpStatusCode.OK, hierarchy.status)
         assertContains(hierarchy.bodyAsText(), "Invoice")
         assertContains(hierarchy.bodyAsText(), "nextOffset")
+        assertEquals(HttpStatusCode.OK, outline.status)
+        assertContains(outline.bodyAsText(), "received invoice")
+        assertContains(outline.bodyAsText(), "ObjectProperty")
+        assertContains(outline.bodyAsText(), "Shrey")
+        assertContains(outline.bodyAsText(), "Individual")
         assertEquals(HttpStatusCode.OK, search.status)
         assertContains(search.bodyAsText(), "Customer")
         assertContains(search.bodyAsText(), "PreferredLabel")
@@ -224,6 +230,43 @@ class ApplicationTest {
         assertEquals(HttpStatusCode.OK, applied.status)
         assertContains(applied.bodyAsText(), "APPLIED")
         assertContains(Files.readString(projectRoot.resolve("ontology/simple.ttl")), "Account")
+    }
+
+    @Test
+    fun stagingResolvesExistingLabelsAndGeneratesNewEntityIrisOnTheServer(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-label-staging")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+
+        val generated = client.post("/api/v1/projects/simple/staged") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"sourceId":"simple","editType":"create-class","label":"Account"}""")
+        }
+        assertEquals(HttpStatusCode.OK, generated.status)
+        assertContains(generated.bodyAsText(), "https://example.com/entio/simple#Account")
+
+        val resolved = client.post("/api/v1/projects/simple/staged") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                """
+                {
+                  "sourceId":"simple",
+                  "editType":"add-object-property-assertion",
+                  "subjectLabel":"Shrey",
+                  "propertyLabel":"received invoice",
+                  "objectLabel":"Invoice 20874"
+                }
+                """.trimIndent(),
+            )
+        }
+        val body = resolved.bodyAsText()
+        assertEquals(HttpStatusCode.OK, resolved.status)
+        assertContains(body, "https://example.com/entio/simple#Shrey")
+        assertContains(body, "https://example.com/entio/simple#receivedInvoice")
+        assertContains(body, "https://example.com/entio/simple#Invoice20874")
     }
 
     @Test
@@ -365,6 +408,7 @@ class ApplicationTest {
             projectRoot.resolve("entio.yaml"),
             """
             name: simple-ontology
+            iriNamespace: https://example.com/entio/simple#
             ontologySources:
               - id: simple
                 path: ontology/simple.ttl

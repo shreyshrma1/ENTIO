@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   loadEntityDetails,
   loadHierarchy,
+  loadProjectOutline,
   loadProjectSources,
   loadProjectSummary,
   loadProjects,
@@ -38,6 +39,7 @@ import {
   type WebAiAssistantResponse,
   type WebEntityDetailResponse,
   type WebHierarchyResponse,
+  type WebOutlineResponse,
   type WebProjectSummaryResponse,
   type WebSemanticSearchResponse,
 } from "./projectApi";
@@ -49,6 +51,8 @@ export const queryKeys = {
   sources: (projectId: string) => ["project", projectId, "sources"] as const,
   hierarchy: (projectId: string, sourceId?: string, parentIri?: string) =>
     ["project", projectId, "hierarchy", sourceId ?? null, parentIri ?? null] as const,
+  outline: (projectId: string, sourceId?: string) =>
+    ["project", projectId, "outline", sourceId ?? null] as const,
   entity: (projectId: string, iri: string) => ["project", projectId, "entity", iri] as const,
   search: (projectId: string, text: string) => ["project", projectId, "search", text] as const,
   staged: (projectId: string) => ["project", projectId, "staged"] as const,
@@ -86,6 +90,14 @@ export function useHierarchy(projectId: string, sourceId?: string, parentIri?: s
     queryKey: queryKeys.hierarchy(projectId, sourceId, parentIri),
     queryFn: () => loadHierarchy(projectId, { sourceId, parentIri }),
     enabled: enabled && projectId.length > 0,
+  });
+}
+
+export function useProjectOutline(projectId: string, sourceId?: string) {
+  return useQuery<WebOutlineResponse>({
+    queryKey: queryKeys.outline(projectId, sourceId),
+    queryFn: () => loadProjectOutline(projectId, { sourceId, limit: 100 }),
+    enabled: projectId.length > 0,
   });
 }
 

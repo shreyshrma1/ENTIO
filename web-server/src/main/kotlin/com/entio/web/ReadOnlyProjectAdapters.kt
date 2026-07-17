@@ -59,6 +59,19 @@ public data class WebHierarchyResponse(
     val page: WebPage<WebHierarchyItem>,
 )
 
+public data class WebOutlineItem(
+    val iri: String,
+    val label: String,
+    val kind: String,
+    val sourceId: String,
+)
+
+public data class WebOutlineResponse(
+    val apiVersion: String = WEB_API_VERSION,
+    val sourceId: String?,
+    val page: WebPage<WebOutlineItem>,
+)
+
 public data class WebEntityReference(
     val iri: String,
     val label: String,
@@ -203,6 +216,34 @@ public class ReadOnlyProjectAdapter(
         )
     }
 
+    public fun outline(
+        projectId: String,
+        sourceId: String?,
+        request: WebPageRequest,
+    ): WebOutlineResponse {
+        val items = descriptionService.describeAll(load(projectId))
+            .map(OntologyEntityDescriptor::common)
+            .filter { sourceId == null || it.sourceId == sourceId }
+            .map { descriptor ->
+                WebOutlineItem(
+                    iri = descriptor.entity.value,
+                    label = descriptor.displayLabel(),
+                    kind = descriptor.kind.name,
+                    sourceId = descriptor.sourceId,
+                )
+            }
+            .sortedWith(
+                compareBy<WebOutlineItem> { outlineKindOrder(it.kind) }
+                    .thenBy { it.label.lowercase() }
+                    .thenBy(WebOutlineItem::iri),
+            )
+
+        return WebOutlineResponse(
+            sourceId = sourceId,
+            page = items.toWebPage(request),
+        )
+    }
+
     public fun entity(
         projectId: String,
         entityIri: Iri,
@@ -254,6 +295,13 @@ public class ReadOnlyProjectAdapter(
                 result.message,
             )
         }
+    }
+
+    private fun outlineKindOrder(kind: String): Int = when (kind) {
+        "Class" -> 0
+        "Individual" -> 1
+        "ObjectProperty", "DatatypeProperty", "AnnotationProperty" -> 2
+        else -> 3
     }
 
     private fun OntologyEntityDescriptor.toResponse(
