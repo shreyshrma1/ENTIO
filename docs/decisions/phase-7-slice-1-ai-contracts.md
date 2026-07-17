@@ -2,7 +2,7 @@
 
 ## ExecPlan Slice
 
-Slice 1 of `docs/execplans/0010-phase-7-native-ai-assistant.md`.
+Slice 1 of `docs/execplans/0012-phase-7-tool-driven-native-ai-ontology-copilot.md`.
 
 ## Goal
 
