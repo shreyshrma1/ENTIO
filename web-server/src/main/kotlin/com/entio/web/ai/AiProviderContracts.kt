@@ -35,14 +35,14 @@ public sealed interface AiProviderTestResult {
 public interface AiProviderClient {
     public val providerId: String
 
-    public fun test(apiKey: String): AiProviderTestResult
+    public suspend fun test(apiKey: String): AiProviderTestResult
 }
 
 /** Development provider boundary used until a real provider adapter is explicitly approved. */
 public class DevelopmentAiProviderClient(
     override val providerId: String = "provider-neutral",
 ) : AiProviderClient {
-    override fun test(apiKey: String): AiProviderTestResult = when {
+    override suspend fun test(apiKey: String): AiProviderTestResult = when {
         apiKey.isBlank() -> AiProviderTestResult.Failed("The credential is empty.")
         apiKey.contains("reject", ignoreCase = true) -> AiProviderTestResult.Failed("The provider rejected the credential.")
         else -> AiProviderTestResult.Passed("The provider credential was accepted by the development boundary.")
@@ -133,9 +133,8 @@ public class AiCredentialService(
         return status(userId)
     }
 
-    @Synchronized
-    public fun test(userId: String): AiCredentialTestResponse {
-        val result = store.withCredential(userId) { providerId, apiKey ->
+    public suspend fun test(userId: String): AiCredentialTestResponse {
+        val result = store.withCredentialSuspending(userId) { providerId, apiKey ->
             if (providerId != provider.providerId) {
                 AiProviderTestResult.Failed("The configured provider is not available in this server boundary.")
             } else {
@@ -144,11 +143,11 @@ public class AiCredentialService(
         } ?: throw AiCredentialFailure("missing-credential", "Configure a credential before testing it.")
         return when (result) {
             is AiProviderTestResult.Passed -> {
-                lastTests[userId] = AiCredentialTestStatus.PASSED
+                synchronized(this) { lastTests[userId] = AiCredentialTestStatus.PASSED }
                 AiCredentialTestResponse(status = AiCredentialTestStatus.PASSED, message = result.message)
             }
             is AiProviderTestResult.Failed -> {
-                lastTests[userId] = AiCredentialTestStatus.FAILED
+                synchronized(this) { lastTests[userId] = AiCredentialTestStatus.FAILED }
                 AiCredentialTestResponse(status = AiCredentialTestStatus.FAILED, message = result.message)
             }
         }
