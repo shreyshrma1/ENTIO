@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft
+Implemented. Phase 5 is complete and summarized in `docs/phase-summaries/phase-5-summary.md`. This specification remains the approved behavioral record.
 
 ## Problem
 

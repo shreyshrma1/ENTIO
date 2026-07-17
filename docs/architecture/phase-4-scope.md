@@ -2,7 +2,7 @@
 
 ## Status
 
-Complete. The approved Phase 4 OWL reasoning and SHACL constraint foundation is implemented and summarized in `docs/phase-summaries/phase-4-summary.md`. Phase 5 is the current planning boundary.
+Complete. The approved Phase 4 OWL reasoning and SHACL constraint foundation is implemented and summarized in `docs/phase-summaries/phase-4-summary.md`. Phases 5 and 6 are also complete; Phase 7 is the active planning boundary.
 
 Phase 4 adds OWL reasoning and SHACL constraint authoring and validation to Entio.
 

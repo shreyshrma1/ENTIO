@@ -18,17 +18,17 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation, the completed Phase 1.5 Core Semantic Engine Stabilization work, the completed Phase 2 Controlled Ontology Editing Workbench foundation, the completed Phase 2.5+ workbench usability and staged-change work, and the completed Phase 3 Semantic Description Layer.
+This repository contains the completed Phase 1 Kotlin/JVM Core Semantic Engine, Phase 1.5 stabilization, Phase 2 controlled ontology editing, Phase 2.5 and Phase 2.5+ workbench completion, Phase 3 semantic descriptions, Phase 4 reasoning and SHACL foundation, Phase 5 external ontology catalog, and Phase 6 collaborative web workbench and native AI foundation.
 
 Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because the core work is ontology loading, RDF/Turtle parsing, deterministic validation, semantic diffing, and CLI behavior.
 
 The current implementation supports small local Entio projects, Turtle/RDF parsing through Apache Jena, RDF-term-aware graph triples, deterministic validation reports, semantic graph diffs, reusable project loading, and a thin CLI.
 
-Phase 2, Phase 2.5, Phase 2.5+, Phase 3, and Phase 4 are complete. Phases 2 through 2.5+ add safe ontology mutation, label-first selection, deterministic IRI generation, deletion review, multi-edit staging, combined preview and approval workflows, source-file persistence, and a VS Code workbench. Phase 3 adds semantic descriptors, deterministic label policy, semantic metadata editing, and semantic search. Phase 4 adds bounded OWL reasoning, import-aware reasoning views, SHACL shape and validation support, proposal impact integration, and corresponding CLI and VS Code views. The Kotlin semantic engine remains responsible for RDF and ontology behavior.
+Phases 2 through 6 are complete. Phases 2 through 2.5+ add safe ontology mutation, label-first selection, deterministic IRI generation, deletion review, multi-edit staging, combined preview and approval workflows, source-file persistence, and a VS Code workbench. Phase 3 adds semantic descriptors, deterministic label policy, semantic metadata editing, and semantic search. Phase 4 adds bounded OWL reasoning, import-aware reasoning views, SHACL shape and validation support, and proposal impact integration. Phase 5 adds a pinned, deterministic FIBO catalog with browsing, search, dependency review, and controlled external reuse. Phase 6 adds a Ktor web boundary, React workbench, shared staging, collaboration, asynchronous semantic jobs, browser FIBO workflows, and a provider-neutral AI foundation. The Kotlin semantic engine remains responsible for RDF and ontology behavior.
 
 ## Workspace Structure
 
-The repository contains the Phase 1 through Phase 3 Kotlin/Gradle workspace plus a separate TypeScript VS Code extension:
+The repository contains the Kotlin/Gradle semantic workspace, a Ktor web adapter, and two TypeScript clients:
 
 - `core-types`
 - `semantic-engine`
@@ -36,13 +36,15 @@ The repository contains the Phase 1 through Phase 3 Kotlin/Gradle workspace plus
 - `graph-diff`
 - `cli`
 - `shared`
+- `web-server`
+- `web-app`
 - `vscode-extension`
 
-The VS Code extension consumes the Kotlin/JVM core engine through the machine-readable CLI boundary rather than duplicating semantic logic.
+The VS Code extension consumes the Kotlin/JVM core engine through the machine-readable CLI boundary. The React web application consumes versioned Ktor HTTP and WebSocket contracts. Neither client duplicates RDF or semantic policy.
 
 ## Current Capabilities
 
-The Phase 1 through Phase 4 implementation currently supports:
+The Phase 1 through Phase 6 implementation currently supports:
 
 - Loading an Entio project configuration.
 - Loading a project through a reusable `ProjectLoader`.
@@ -67,6 +69,13 @@ The Phase 1 through Phase 4 implementation currently supports:
 - Validating configured SHACL data against configured shape graphs in asserted-only or explicit asserted-plus-inferred modes.
 - Inspecting SHACL shapes and reasoning/SHACL proposal impact through the CLI and VS Code workbench.
 - Applying approved multi-source proposals atomically with reload verification and rollback on failure.
+- Loading a pinned, read-only FIBO package and searching its catalog deterministically.
+- Reviewing external dependencies and preparing controlled FIBO reuse or local-extension proposals while preserving original external IRIs.
+- Serving approved projects through versioned Ktor HTTP and WebSocket contracts.
+- Browsing and editing projects through a React web workbench with server-authoritative staging and proposal state.
+- Coordinating collaboration presence, shared activity, baseline conflicts, and asynchronous reasoning and SHACL jobs.
+- Browsing FIBO content and staging supported external reuse intents from the browser.
+- Storing optional per-user AI credentials in server memory and returning bounded deterministic assistant suggestions through a provider-neutral Phase 6 boundary.
 
 Implemented CLI commands:
 
@@ -105,6 +114,31 @@ Run checks:
 ./gradlew check
 ```
 
+Run the web server:
+
+```bash
+./gradlew :web-server:run
+```
+
+Run and verify the web application:
+
+```bash
+cd web-app
+npm ci
+npm run dev
+npm test
+npm run build
+npm run test:e2e
+```
+
+Verify the VS Code extension:
+
+```bash
+cd vscode-extension
+npm ci
+npm test
+```
+
 ## Current Limitations
 
 - Only Turtle is supported.
@@ -113,10 +147,11 @@ Run checks:
 - Entio does not store project versions itself; `diff` compares two project directories supplied by the caller.
 - Proposal state is reconstructed within the current CLI invocation and is not persisted as long-term project history.
 - Jena serialization does not preserve original Turtle source formatting or comments.
-- Combined application currently targets one ontology source at a time.
 - Proposal and staged-change state is process/session scoped rather than a durable review store.
+- Web project registration, development identity, collaboration, semantic jobs, staging, and AI credentials are in-memory development boundaries rather than production persistence or authentication.
+- The Phase 6 assistant uses a deterministic provider-neutral adapter. It does not call OpenAI or another production model; the real tool-driven copilot is planned for Phase 7.
 
-## Implemented Phase 2 Through Phase 3 Workflow
+## Implemented Phase 2 Through Phase 6 Workflow
 
 Phase 2 provides:
 
@@ -137,6 +172,25 @@ Phase 3 adds:
 - Deterministic preferred-label selection, semantic ordering, and label-aware search.
 - Typed semantic edits for annotation properties, definitions, alternate labels, and general annotations.
 - Semantic validation and CLI/VS Code integration without moving RDF or semantic policy into TypeScript.
+
+Phase 4 adds:
+
+- Bounded OWL reasoning with asserted and inferred separation, explanations, import status, and explicit feature limitations.
+- SHACL shape authoring and validation against configured data and shape graphs.
+- Reasoning and SHACL proposal-impact checks within the controlled review workflow.
+
+Phase 5 adds:
+
+- A pinned, immutable FIBO package with deterministic catalog browsing and search.
+- External semantic descriptors, dependency review, and controlled reuse or local-extension proposals.
+- CLI and VS Code workflows that preserve original external IRIs.
+
+Phase 6 adds:
+
+- A versioned Ktor server over reusable Kotlin services.
+- A React browser workbench with shared staging, proposals, collaboration, reasoning, SHACL, and FIBO views.
+- In-memory development identity, collaboration, semantic-job, and credential boundaries.
+- A provider-neutral deterministic assistant foundation whose suggestions still require ordinary staging and human review.
 
 ## Explicit Historical Non-Goals For Phase 2 Through Phase 2.5+
 
@@ -162,7 +216,7 @@ Phase 2 should not include:
 
 ## Current Planning Boundary
 
-Phase 4 is complete. Phase 5 is the current planning phase and concerns external ontology browsing and basic Schema RAG. Phase 5 is not implemented yet.
+Phase 6 is complete and summarized in [the Phase 6 implementation summary](docs/phase-summaries/phase-6-summary.md). Phase 7 is the active planning phase for a tool-driven native AI ontology copilot. Phase 7 planning documents describe proposed behavior and are not implemented behavior.
 
 ## Technical Principle
 
@@ -181,6 +235,8 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 3 Scope](docs/architecture/phase-3-scope.md)
 - [Phase 4 Scope](docs/architecture/phase-4-scope.md)
 - [Phase 5 Scope](docs/architecture/phase-5-scope.md)
+- [Phase 6 Scope](docs/architecture/phase-6-scope.md)
+- [Phase 7 Scope](docs/architecture/phase-7-scope.md)
 - [Technical Approach](docs/architecture/002-technical-approach.md)
 - [Kotlin Engine Guidelines](docs/architecture/003-kotlin-engine-guidelines.md)
 - [Phase 1.5 Spec](docs/specs/0002-phase-1.5-core-semantic-engine-stabilization.md)
@@ -196,3 +252,9 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 4 Spec](docs/specs/0007-phase-4-owl-reasoning-shacl-revised.md)
 - [Phase 4 Implementation Summary](docs/phase-summaries/phase-4-summary.md)
 - [Phase 5 Spec](docs/specs/0008-phase-5-external-ontology-browsing-schema-rag.md)
+- [Phase 5 Implementation Summary](docs/phase-summaries/phase-5-summary.md)
+- [Phase 6 Spec](docs/specs/0009-phase-6-collaborative-web-workbench-native-ai-foundation.md)
+- [Phase 6 ExecPlan](docs/execplans/0009-phase-6-collaborative-web-workbench-native-ai-foundation-execplan.md)
+- [Phase 6 Implementation Summary](docs/phase-summaries/phase-6-summary.md)
+- [Phase 7 Spec](docs/specs/0012-phase-7-tool-driven-native-ai-ontology-copilot.md)
+- [Phase 7 ExecPlan](docs/execplans/0012-phase-7-tool-driven-native-ai-ontology-copilot.md)

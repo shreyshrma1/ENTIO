@@ -6,7 +6,7 @@
 
 ## Status
 
-Draft
+Complete. The approved collaborative web workbench and native AI foundation is implemented and summarized in `docs/phase-summaries/phase-6-summary.md`. Phase 7 is the active planning boundary.
 
 ## Purpose
 

@@ -1,10 +1,10 @@
 # Agent Guidance For Entio
 
-This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation, the completed Phase 1.5 Core Semantic Engine Stabilization work, the completed Phase 2 Controlled Ontology Editing Workbench foundation, the completed Phase 2.5+ workbench usability and staged-change work, and the completed Phase 3 Semantic Description Layer. Earlier planning documents remain for history; the repository is no longer documentation-only.
+This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation, Phase 1.5 stabilization, Phase 2 controlled editing, Phase 2.5 and Phase 2.5+ workbench completion, Phase 3 semantic description layer, Phase 4 reasoning and SHACL foundation, Phase 5 external ontology catalog, and Phase 6 collaborative web workbench and native AI foundation. Earlier planning documents remain for history; the repository is no longer documentation-only.
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
-Phase 2, Phase 2.5, Phase 2.5+, Phase 3, and Phase 4 are complete. Phase 5 planning covers external ontology browsing and Schema RAG. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the VS Code layer delegates semantic work to it.
+Phases 1 through 6 are complete. Phase 7 is the active planning boundary for the Tool-Driven Native AI Ontology Copilot. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
 
 ## Product Context
 
@@ -22,7 +22,7 @@ If a task seems to require later-phase infrastructure, stop and explain why befo
 
 ## Current Scope
 
-Phase 1, Phase 1.5, Phase 2, Phase 2.5, Phase 2.5+, Phase 3, and Phase 4 are complete. The current Entio foundation supports:
+Phase 1, Phase 1.5, Phase 2, Phase 2.5, Phase 2.5+, Phase 3, Phase 4, Phase 5, and Phase 6 are complete. The current Entio foundation supports:
 
 - Loading an Entio project.
 - Parsing small Turtle/RDF ontology files with existing libraries.
@@ -39,10 +39,16 @@ Phase 1, Phase 1.5, Phase 2, Phase 2.5, Phase 2.5+, Phase 3, and Phase 4 are com
 - Selecting preferred labels, collecting alternate labels and definitions, and preserving explicit semantic annotations.
 - Performing deterministic semantic search with stable match reasons and ranked results.
 - Translating supported semantic edits through the existing proposal, validation, diff, approval, apply, reload, and rollback workflow.
+- Browsing and searching a pinned, read-only FIBO catalog with deterministic ranking, explicit dependency review, and controlled external reuse proposals.
+- Serving approved projects through a Ktor HTTP and WebSocket boundary without moving semantic logic out of the Kotlin engine.
+- Using a React web workbench for project navigation, entity inspection, label-first typed editing, shared staging, proposal review, reasoning, SHACL, FIBO, collaboration, and bounded AI assistance.
+- Coordinating shared staged state, collaboration presence/activity, asynchronous semantic jobs, and in-memory development sessions through explicit server-owned contracts.
+- Storing per-user AI credentials in server memory and exposing a provider-neutral, deterministic Phase 6 assistant foundation. Phase 6 does not call a production AI provider.
 
 Current implementation notes:
 
-- The Gradle modules are `core-types`, `semantic-engine`, `validation-engine`, `graph-diff`, `cli`, and `shared`.
+- The Gradle modules are `core-types`, `semantic-engine`, `validation-engine`, `graph-diff`, `cli`, `shared`, and `web-server`.
+- `web-app` is the React/TypeScript/Vite browser client, and `vscode-extension` remains the TypeScript VS Code client.
 - The CLI exposes `validate`, `symbols`, and `diff`.
 - The CLI also exposes `project-summary`, `proposal-preview`, `proposal-validate`, `proposal-diff`, `proposal-apply`, `proposal-reject`, structured label/IRI/deletion operations, and combined proposal operations.
 - `semantic-engine` exposes reusable project loading through `ProjectLoader`.
@@ -50,6 +56,8 @@ Current implementation notes:
 - RDF graph terms preserve IRI resources, blank nodes, plain literals, datatyped literals, and language-tagged literals.
 - `ProposalApplier` writes only the target ontology source and restores it when post-save verification fails.
 - The VS Code extension delegates ontology operations to the Kotlin CLI and does not write RDF directly.
+- The Ktor web server delegates ontology operations to reusable Kotlin services and does not implement a second RDF or semantic engine.
+- The React web application consumes versioned Entio HTTP and WebSocket contracts and does not decide ontology validity.
 - `shared` intentionally remains minimal and should not collect speculative utilities.
 
 Phase 2.5 and Phase 2.5+ implemented:
@@ -69,7 +77,20 @@ Phase 3 implemented:
 - VS Code semantic details, label-aware search, semantic edit forms, and staged semantic previews.
 - Copied-fixture regression coverage for semantic descriptors, search, semantic edits, approval, rejection, reload, and rollback.
 
-Phase 4 is complete. It added bounded OWL reasoning, import-aware reasoning views, SHACL shape and validation support, proposal impact integration, CLI commands, VS Code views, and regression coverage. Phase 5 is the current planning boundary for external ontology browsing and basic Schema RAG; it is not implemented yet.
+Phase 4 implemented bounded OWL reasoning, import-aware reasoning views, SHACL shape authoring and validation support, proposal impact integration, CLI commands, VS Code views, and regression coverage.
+
+Phase 5 implemented:
+
+- A pinned, read-only FIBO package and deterministic compact catalog.
+- Curated module browsing, semantic descriptors, deterministic search, dependency review, and controlled external reuse intents.
+- Machine-readable CLI and VS Code catalog workflows that preserve original external IRIs and keep FIBO assets immutable.
+
+Phase 6 implemented:
+
+- A Ktor `web-server` with versioned HTTP contracts, approved-project registration, development identity, collaboration, shared staging, proposal routes, semantic jobs, FIBO adapters, and AI credential/assistant boundaries.
+- A React/TypeScript/Vite `web-app` with ontology navigation, entity details, label-first editing, proposal review, reasoning and SHACL workspaces, FIBO browsing, collaboration indicators, settings, and an assistant panel.
+- Server-authoritative shared state and asynchronous job status while preserving existing CLI, VS Code, semantic engine, proposal, application, reload, and rollback behavior.
+- A provider-neutral AI foundation with server-memory credentials and a deterministic development assistant. A real tool-driven OpenAI copilot belongs to Phase 7.
 
 Phase 2 implemented:
 
@@ -105,9 +126,9 @@ Do not add the following in Phase 2 unless the project direction changes explici
 
 ## Current Phase Boundary
 
-Phase 4 is complete. Do not treat the Phase 5 planning documents as implemented behavior.
+Phase 6 is complete and summarized in `docs/phase-summaries/phase-6-summary.md`.
 
-Phase 4 implementation is complete and remains bounded to the approved OWL reasoning, import-aware reasoning views, SHACL authoring, SHACL validation, proposal-workflow integration, and documented limitations. Phase 5 implementation must remain deferred until explicitly activated and planned.
+Phase 7 is the active planning boundary. Its scope, spec, and ExecPlan describe proposed behavior and must not be treated as implemented until the approved slices are completed and verified.
 
 ## Software Architecture Rules
 
@@ -123,6 +144,8 @@ Each module should have one clear responsibility.
 - `graph-diff` compares graph states and produces semantic diffs.
 - `cli` exposes engine capabilities through command-line commands.
 - `shared` contains only generic utilities.
+- `web-server` adapts reusable Kotlin services to versioned HTTP/WebSocket contracts and owns in-memory web-session orchestration.
+- `web-app` and `vscode-extension` are presentation clients and must not own semantic policy.
 
 Do not put product logic in `shared`.
 
@@ -133,9 +156,11 @@ Lower-level modules should not depend on higher-level modules.
 Allowed general direction:
 
 - `cli` may depend on engine modules.
+- `web-server` may depend on engine modules and must adapt rather than duplicate their behavior.
 - engine modules may depend on `core-types` and `shared`.
 - `core-types` should not depend on engine modules.
 - `shared` should not depend on Entio product modules.
+- engine modules must not depend on `web-server`, `web-app`, or `vscode-extension`.
 
 If a change requires reversing these dependencies, stop and explain why before implementing.
 
@@ -181,7 +206,7 @@ Do not report a feature complete unless tests were added or updated and the veri
 
 Do not add later-phase infrastructure unless explicitly requested.
 
-This includes VS Code extension infrastructure, web app infrastructure, document ingestion, autonomous agents, Schema RAG, entity resolution, Stardog integration, and full FIBO indexing.
+The VS Code extension, deterministic FIBO catalog, Ktor web server, and React web application are already implemented and should be extended only through approved specs and ExecPlans. Still-deferred infrastructure includes document ingestion, entity-resolution agents, Stardog integration, unrestricted autonomous agents, durable production persistence, production identity/tenancy, additional ontology catalogs, and unbounded external indexing.
 
 ### 10. Document important architecture decisions
 
@@ -191,7 +216,7 @@ An ADR should explain the context, the decision, and the consequences.
 
 ### 11. Avoid unnecessary frameworks and abstractions
 
-Do not add server frameworks, dependency injection frameworks, coroutine infrastructure, database layers, plugin systems, or broad abstraction layers unless a spec and ExecPlan explicitly justify them.
+Do not add another server framework, dependency injection framework, database layer, plugin system, or broad abstraction layer unless a spec and ExecPlan explicitly justify it. Ktor and the bounded coroutine usage approved for Phase 6 are existing infrastructure, not permission to spread web concerns into semantic modules.
 
 Prefer plain classes, simple functions, and clear module boundaries until complexity requires more infrastructure.
 
@@ -260,7 +285,7 @@ Do not bypass formatting or lint failures unless explicitly approved.
 
 ### 10. Avoid unnecessary frameworks
 
-Do not add server frameworks, dependency injection frameworks, coroutine infrastructure, database layers, or plugin systems unless a spec and ExecPlan explicitly justify them.
+Do not add another server framework, dependency injection framework, database layer, or plugin system unless a spec and ExecPlan explicitly justify it. Keep existing Ktor and coroutine usage contained within their approved boundaries.
 
 ### 11. Comment and document code intentionally
 

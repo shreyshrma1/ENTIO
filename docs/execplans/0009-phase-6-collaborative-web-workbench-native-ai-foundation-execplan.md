@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft. This plan is ready for review and does not activate Phase 6 implementation by itself.
+Implemented. The approved Phase 6 slices and regression work are complete; see `docs/phase-summaries/phase-6-summary.md` for the resulting repository state and documented limitations. Historical current-state language below describes the repository before Phase 6 implementation.
 
 ## Source Spec
 

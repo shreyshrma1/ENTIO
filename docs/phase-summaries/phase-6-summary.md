@@ -1,5 +1,9 @@
 # Entio Phase 6 Summary
 
+## Status
+
+Complete. Phase 6 is implemented through its approved slices and regression coverage. Phase 7 is the active planning boundary.
+
 ## What Phase 6 implemented
 
 Phase 6 added an additive browser workbench and native AI foundation around the existing Kotlin/JVM semantic engine. The semantic engine remains the source of truth for project loading, RDF parsing, ontology descriptions, validation, diffs, typed edits, proposals, reasoning, SHACL, and FIBO workflows.
