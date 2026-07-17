@@ -247,7 +247,13 @@ public class AiLocalReadCapabilityService(
             is AiActivityReadArguments,
             is AiFiboSearchArguments,
             is AiFiboEntityArguments,
-            -> throw AiCapabilityFailure("capability-service-mismatch", "This capability requires the semantic read service.")
+            is AiAddDraftItemArguments,
+            is AiUpdateDraftItemArguments,
+            is AiRemoveDraftItemArguments,
+            is AiReorderDraftItemsArguments,
+            is AiUndoDraftArguments,
+            is AiClearDraftArguments,
+            -> throw AiCapabilityFailure("capability-service-mismatch", "This capability requires a different bounded capability service.")
         }
         return AiCapabilityExecution(
             result = AiCapabilityResult(

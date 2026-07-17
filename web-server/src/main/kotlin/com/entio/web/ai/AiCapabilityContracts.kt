@@ -27,6 +27,12 @@ public enum class AiCapabilityOperationType {
     READ_ACTIVITY,
     SEARCH_FIBO,
     READ_FIBO_ENTITY,
+    DRAFT_ADD_TYPED_EDIT,
+    DRAFT_UPDATE_TYPED_EDIT,
+    DRAFT_REMOVE_ITEM,
+    DRAFT_REORDER_ITEMS,
+    DRAFT_UNDO,
+    DRAFT_CLEAR,
 }
 
 public enum class AiCapabilityAccess {
@@ -311,4 +317,5 @@ public object AiCapabilityFeatures {
     public const val PROPOSAL_READ: String = "proposal-read"
     public const val ACTIVITY_READ: String = "activity-read"
     public const val FIBO_READ: String = "fibo-read"
+    public const val PRIVATE_DRAFT: String = "private-draft"
 }

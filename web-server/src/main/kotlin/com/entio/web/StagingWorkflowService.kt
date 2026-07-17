@@ -49,6 +49,7 @@ import com.entio.web.contract.WebStageChangeRequest
 import com.entio.web.contract.WebStagedEntry
 import com.entio.web.contract.WebStagingResponse
 import com.entio.web.contract.WebDiffEntry
+import java.nio.file.Files
 
 public class WebWorkflowFailure(
     public val code: String,
@@ -79,6 +80,15 @@ private data class ProjectSession(
 
 private data class PreparedStageRequest(
     val request: WebStageChangeRequest,
+    val resolvedCandidates: List<EntityCandidate>,
+    val generatedIris: List<GeneratedIri>,
+)
+
+internal data class PreparedPrivateDraftChange(
+    val request: WebStageChangeRequest,
+    val summary: String,
+    val operation: StagedChangeOperation,
+    val normalizedValues: Map<String, String>,
     val resolvedCandidates: List<EntityCandidate>,
     val generatedIris: List<GeneratedIri>,
 )
@@ -147,40 +157,33 @@ public class StagingWorkflowService(
         }
 
         val project = load(projectId)
-        val requestedSource = project.resolvedSources.firstOrNull { it.id == request.sourceId }
-            ?: throw WebWorkflowFailure("unknown-source", "Ontology source '${request.sourceId}' was not found.")
-        if (!request.isShaclEdit() && com.entio.core.ShaclGraphRole.Ontology !in requestedSource.roles) {
-            throw WebWorkflowFailure("invalid-ontology-source-role", "Ontology edits require a source with the ontology role.")
-        }
+        val prepared = prepareChange(project, request)
         val id = "stage-${session.nextOrder++}"
-        val staged = if (request.isShaclEdit()) {
-            val prepared = shaclStagePreparer.prepare(project, request)
-            StagedChange(
-                id = id,
-                order = session.nextOrder - 1,
-                targetSourceId = request.sourceId,
-                summary = prepared.summary,
-                operation = StagedChangeOperation.ShaclEdit(prepared.edit),
-                normalizedValues = prepared.normalizedValues,
-                resolvedCandidates = prepared.resolvedCandidates,
-                generatedIris = prepared.generatedIris,
-            )
-        } else {
-            val prepared = request.prepare(project)
-            StagedChange(
-                id = id,
-                order = session.nextOrder - 1,
-                targetSourceId = request.sourceId,
-                summary = request.summary(),
-                operation = prepared.request.toOperation(project),
-                normalizedValues = prepared.request.normalizedValues(),
-                resolvedCandidates = prepared.resolvedCandidates,
-                generatedIris = prepared.generatedIris,
-            )
-        }
+        val staged = StagedChange(
+            id = id,
+            order = session.nextOrder - 1,
+            targetSourceId = request.sourceId,
+            summary = prepared.summary,
+            operation = prepared.operation,
+            normalizedValues = prepared.normalizedValues,
+            resolvedCandidates = prepared.resolvedCandidates,
+            generatedIris = prepared.generatedIris,
+        )
         session.entries += StoredEntry(staged, userId, userId, request.comment, request.aiGenerated)
         session.clearPreparedProposal()
         return response(projectId, session)
+    }
+
+    /** Prepares the same typed operation as [stage] without mutating shared staging state. */
+    @Synchronized
+    internal fun preparePrivateDraft(projectId: String, request: WebStageChangeRequest): PreparedPrivateDraftChange {
+        val project = load(projectId)
+        val source = project.resolvedSources.firstOrNull { it.id == request.sourceId }
+            ?: throw WebWorkflowFailure("unknown-source", "Ontology source '${request.sourceId}' was not found.")
+        if (!Files.isWritable(source.path)) {
+            throw WebWorkflowFailure("immutable-source", "Ontology source '${request.sourceId}' is not writable.")
+        }
+        return prepareChange(project, request)
     }
 
     @Synchronized
@@ -371,6 +374,34 @@ public class StagingWorkflowService(
                     message = message,
                 )
             },
+        )
+    }
+
+    private fun prepareChange(project: EntioProject, request: WebStageChangeRequest): PreparedPrivateDraftChange {
+        val requestedSource = project.resolvedSources.firstOrNull { it.id == request.sourceId }
+            ?: throw WebWorkflowFailure("unknown-source", "Ontology source '${request.sourceId}' was not found.")
+        if (!request.isShaclEdit() && com.entio.core.ShaclGraphRole.Ontology !in requestedSource.roles) {
+            throw WebWorkflowFailure("invalid-ontology-source-role", "Ontology edits require a source with the ontology role.")
+        }
+        if (request.isShaclEdit()) {
+            val prepared = shaclStagePreparer.prepare(project, request)
+            return PreparedPrivateDraftChange(
+                request = request,
+                summary = prepared.summary,
+                operation = StagedChangeOperation.ShaclEdit(prepared.edit),
+                normalizedValues = prepared.normalizedValues,
+                resolvedCandidates = prepared.resolvedCandidates,
+                generatedIris = prepared.generatedIris,
+            )
+        }
+        val prepared = request.prepare(project)
+        return PreparedPrivateDraftChange(
+            request = prepared.request,
+            summary = prepared.request.summary(),
+            operation = prepared.request.toOperation(project),
+            normalizedValues = prepared.request.normalizedValues(),
+            resolvedCandidates = prepared.resolvedCandidates,
+            generatedIris = prepared.generatedIris,
         )
     }
 
