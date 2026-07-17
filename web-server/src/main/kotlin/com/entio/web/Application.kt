@@ -179,6 +179,16 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
             }
         }
 
+        get("/api/v1/projects/{projectId}/outline") {
+            call.respondReadOnly {
+                readOnly.outline(
+                    projectId = call.requiredProjectId(),
+                    sourceId = call.request.queryParameters["sourceId"],
+                    request = call.pageRequest(),
+                )
+            }
+        }
+
         get("/api/v1/projects/{projectId}/entities") {
             call.respondReadOnly {
                 val iri = call.request.queryParameters["iri"]

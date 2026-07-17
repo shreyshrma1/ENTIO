@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("completes the browser workbench journey through reviewable staging", async ({ page }) => {
+  let stagedEditType: string | undefined;
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -17,6 +18,14 @@ test("completes the browser workbench journey through reviewable staging", async
       apiVersion: "v1", sourceId: "simple", parentIri: null,
       page: { items: [{ iri: "https://example.com/entio/simple#Customer", label: "Customer", kind: "Class", sourceId: "simple", childCount: 0 }], offset: 0, limit: 50, total: 1, nextOffset: null },
     });
+    if (path.endsWith("/outline")) return json(route, {
+      apiVersion: "v1", sourceId: "simple",
+      page: { items: [
+        { iri: "https://example.com/entio/simple#Customer", label: "Customer", kind: "Class", sourceId: "simple" },
+        { iri: "https://example.com/entio/simple#Shrey", label: "Shrey", kind: "Individual", sourceId: "simple" },
+        { iri: "https://example.com/entio/simple#receivedInvoice", label: "received invoice", kind: "ObjectProperty", sourceId: "simple" },
+      ], offset: 0, limit: 100, total: 3, nextOffset: null },
+    });
     if (path.endsWith("/entities")) return json(route, {
       apiVersion: "v1", iri: "https://example.com/entio/simple#Customer", label: "Customer", kind: "Class", sourceId: "simple", sourceOntologyId: "simple", locality: "Local", preferredLabelSource: "RdfsLabel",
       alternateLabels: [], definitions: [{ value: "A customer.", language: null, datatype: null }], annotations: [], directSuperclasses: [], directSubclasses: [], directlyTypedIndividuals: [], assertedTypes: [], domains: [], ranges: [], outgoingRelationships: [], incomingRelationships: [],
@@ -28,9 +37,12 @@ test("completes the browser workbench journey through reviewable staging", async
       uncertainty: ["Development response"], warnings: [],
     });
     if (path.endsWith("/staged") && request.method() === "GET") return json(route, { apiVersion: "v1", projectId: "simple", status: "READY", entries: [], proposal: null });
-    if (path.endsWith("/staged") && request.method() === "POST") return json(route, {
-      apiVersion: "v1", projectId: "simple", status: "READY", entries: [{ id: "stage-1", order: 1, sourceId: "simple", summary: "add superclass", editType: "add-superclass", status: "STAGED", authorId: "alice", latestEditorId: "alice", comment: null, aiGenerated: true, normalizedValues: {}, generatedIris: [], validationMessages: [] }], proposal: null,
-    });
+    if (path.endsWith("/staged") && request.method() === "POST") {
+      stagedEditType = (request.postDataJSON() as { editType?: string }).editType;
+      return json(route, {
+        apiVersion: "v1", projectId: "simple", status: "READY", entries: [{ id: "stage-1", order: 1, sourceId: "simple", summary: "create object property", editType: stagedEditType, status: "STAGED", authorId: "alice", latestEditorId: "alice", comment: null, aiGenerated: false, normalizedValues: {}, generatedIris: [], validationMessages: [] }], proposal: null,
+      });
+    }
     if (path.endsWith("/proposal/preview")) return json(route, { apiVersion: "v1", projectId: "simple", status: "READY", entries: [{ id: "stage-1", order: 1, sourceId: "simple", summary: "add superclass", editType: "add-superclass", status: "STAGED", authorId: "alice", latestEditorId: "alice", comment: null, aiGenerated: true, normalizedValues: {}, generatedIris: [], validationMessages: [] }], proposal: { id: "proposal-1", status: "READYFORREVIEW", stagedChangeIds: ["stage-1"], baselineProjectFingerprint: "base", validationMessages: [], diff: [{ kind: "Added", subject: "Customer", predicate: "subClassOf", objectValue: "Party", description: "Customer is a Party" }], message: "Proposal ready for review." } });
     if (path.endsWith("/proposal/approve")) return json(route, { apiVersion: "v1", projectId: "simple", status: "READY", entries: [], proposal: { id: "proposal-1", status: "APPROVED", stagedChangeIds: ["stage-1"], baselineProjectFingerprint: "base", validationMessages: [], diff: [], message: "Approved." } });
     if (path.endsWith("/proposal/apply")) return json(route, { apiVersion: "v1", projectId: "simple", status: "READY", entries: [], proposal: { id: "proposal-1", status: "APPLIED", stagedChangeIds: [], baselineProjectFingerprint: "base", validationMessages: [], diff: [], message: "Applied and reloaded." } });
@@ -51,20 +63,33 @@ test("completes the browser workbench journey through reviewable staging", async
   await page.getByRole("button", { name: "Expand navigation" }).click();
   await expect(page.getByRole("tab", { name: "Explore", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Account", exact: true }).click();
-  await expect(page.getByText("Provider credential", { exact: true })).toBeVisible();
-  await page.getByRole("tab", { name: "Settings", exact: true }).click();
+  await expect(page.getByText("Local reviewer", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Open settings" }).click();
   await expect(page.getByRole("tab", { name: "Settings", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+  await page.getByRole("textbox", { name: "Display name" }).fill("Shrey Sharma");
+  await page.getByRole("button", { name: "Save name" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Display name updated." })).toBeVisible();
+  await expect(page.getByText("Provider credential", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "simple-ontology" })).toBeVisible();
+  await page.getByRole("button", { name: "Expand navigation" }).click();
+  await page.getByRole("button", { name: "Account", exact: true }).click();
+  await expect(page.getByText("Shrey Sharma", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Account", exact: true }).click();
   await page.getByRole("tab", { name: "Explore", exact: true }).click();
 
-  await page.getByLabel("Class IRI").fill("https://example.com/entio/simple#Party");
-  await page.getByRole("textbox", { name: "Label", exact: true }).fill("Party");
-  await page.getByRole("button", { name: "Stage class" }).click();
-  await expect(page.getByText("add superclass")).toBeVisible();
+  await page.getByLabel("Change type").selectOption("create-object-property");
+  await page.getByRole("textbox", { name: "Property label", exact: true }).fill("owns account");
+  await page.getByRole("button", { name: "Stage change" }).click();
+  await expect(page.getByText("create object property", { exact: true })).toBeVisible();
+  expect(stagedEditType).toBe("create-object-property");
   await page.getByRole("button", { name: "Preview proposal" }).click();
   await expect(page.getByText(/Proposal ready for review/i)).toBeVisible();
 
-  await page.getByRole("tab", { name: "Assistant" }).click();
+  await page.getByRole("button", { name: "Assistant" }).click();
+  await expect(page.getByRole("complementary", { name: "Entio AI assistant" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Explore", exact: true })).toHaveAttribute("aria-selected", "true");
   await page.getByRole("combobox", { name: "Operation" }).selectOption("SUGGEST_SUPERCLASS");
   await page.getByLabel("Request or IRI").fill("https://example.com/entio/simple#Party");
   await page.getByRole("button", { name: "Ask assistant" }).click();

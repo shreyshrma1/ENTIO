@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadEntityDetails, loadHierarchy, searchProject, stageChange, previewStagedChanges } from "./projectApi";
+import { loadEntityDetails, loadHierarchy, loadProjectOutline, searchProject, stageChange, previewStagedChanges } from "./projectApi";
 
 function response(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -33,6 +33,21 @@ describe("read-only project API", () => {
 
     expect(paths[0]).toContain("entities?iri=https%3A%2F%2Fexample.com%2Fentio%2Fsimple%23Customer");
     expect(paths[1]).toContain("/search?q=customer");
+  });
+
+  it("loads a paged semantic outline for the selected source", async () => {
+    let requestedPath = "";
+    const result = await loadProjectOutline(
+      "simple",
+      { sourceId: "simple", limit: 100 },
+      async (input) => {
+        requestedPath = String(input);
+        return response({ apiVersion: "v1", sourceId: "simple", page: { items: [], offset: 0, limit: 100, total: 0, nextOffset: null } });
+      },
+    );
+
+    expect(requestedPath).toContain("/outline?offset=0&limit=100&sourceId=simple");
+    expect(result.sourceId).toBe("simple");
   });
 
   it("keeps staging and proposal actions behind typed HTTP helpers", async () => {
