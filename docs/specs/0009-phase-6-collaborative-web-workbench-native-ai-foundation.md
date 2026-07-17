@@ -2,9 +2,7 @@
 
 ## Status
 
-Draft
-
-Phase 6 is a planning boundary. Writing this specification does not activate Phase 6 implementation or change the current repository phase by itself.
+Implemented. Phase 6 is complete and summarized in `docs/phase-summaries/phase-6-summary.md`. This specification remains the approved behavioral record for the collaborative web workbench and native AI foundation.
 
 ## Problem
 

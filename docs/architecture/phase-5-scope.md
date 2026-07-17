@@ -1,5 +1,9 @@
 # Phase 5 Scope
 
+## Status
+
+Complete. The approved external ontology browsing and deterministic Schema RAG work is implemented and summarized in `docs/phase-summaries/phase-5-summary.md`.
+
 Phase 5 adds external ontology browsing and basic Schema RAG to Entio.
 
 Phase 3 already gives Entio a structured way to describe ontology classes, properties, annotation properties, and individuals using labels, alternate labels, definitions, structural relationships, source information, and IRIs.

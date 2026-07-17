@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft
+Implemented. The approved slices are complete; see `docs/phase-summaries/phase-5-summary.md` for the resulting repository state and documented limitations.
 
 ## Source Spec
 
