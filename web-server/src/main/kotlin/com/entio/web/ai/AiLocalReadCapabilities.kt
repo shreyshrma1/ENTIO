@@ -253,6 +253,7 @@ public class AiLocalReadCapabilityService(
             is AiReorderDraftItemsArguments,
             is AiUndoDraftArguments,
             is AiClearDraftArguments,
+            is AiDraftAnalysisArguments,
             -> throw AiCapabilityFailure("capability-service-mismatch", "This capability requires a different bounded capability service.")
         }
         return AiCapabilityExecution(

@@ -33,6 +33,11 @@ public enum class AiCapabilityOperationType {
     DRAFT_REORDER_ITEMS,
     DRAFT_UNDO,
     DRAFT_CLEAR,
+    DRAFT_VALIDATE,
+    DRAFT_PREVIEW,
+    DRAFT_REASON,
+    DRAFT_SHACL,
+    DRAFT_IMPACT,
 }
 
 public enum class AiCapabilityAccess {
