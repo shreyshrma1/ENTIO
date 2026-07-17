@@ -256,12 +256,13 @@ public class AiConversationService(
         screenContext: AiCurrentScreenContext = AiCurrentScreenContext(AiScreenId.EXPLORE),
     ): AiConversationTurnResult {
         requireConversationScope(scope, conversationId)
+        val pending = activeRun(scope, conversationId)
+        ensureTurnCanStart(pending, request.decision)
         val conversation = appendMessage(
             conversations.get(scope.userId, scope.projectId, conversationId),
             AiMessageRole.USER,
             request.message,
         )
-        val pending = activeRun(scope, conversationId)
         if (request.decision == AiConversationDecision.CANCEL) {
             val cancelled = pending?.let { cancel(scope.userId, scope.projectId, it.id) }
                 ?: throw AiConversationFailure("missing-active-run", "There is no active AI run to cancel.")
@@ -455,7 +456,7 @@ public class AiConversationService(
                     return limit(conversation, run, classification.intent, "output-tokens", run.policy.maxOutputTokens, outputTokens, capabilityCalls, resultReferences)
                 }
                 if (completed.functionCalls.isEmpty()) {
-                    val answer = completed.text.trim().ifBlank { "The provider completed without a user-visible answer." }
+                    val answer = safeProviderAnswer(completed.text)
                     val terminal = updateRun(run, AiRunStatus.READY_FOR_REVIEW)
                     event(terminal, AiRunEventType.TEXT_COMPLETED, "The provider response completed safely.", resultReferences)
                     val updated = appendMessage(conversation, AiMessageRole.ASSISTANT, answer)
@@ -594,6 +595,15 @@ public class AiConversationService(
         .filter { it.conversationId == conversationId && !it.status.terminal }
         .maxByOrNull(AiRun::createdAt)
 
+    private fun ensureTurnCanStart(pending: AiRun?, decision: AiConversationDecision) {
+        if (pending == null || decision == AiConversationDecision.CANCEL) return
+        if (pending.status in setOf(AiRunStatus.AWAITING_PLAN_CONFIRMATION, AiRunStatus.AWAITING_CLARIFICATION)) return
+        throw AiConversationFailure(
+            "active-run-in-progress",
+            "The current AI run is still active. Wait for it to finish or cancel it before sending another message.",
+        )
+    }
+
     private fun updateRun(run: AiRun, status: AiRunStatus): AiRun {
         val updated = runs.update(run.copy(status = status, updatedAt = clock.instant()))
         event(updated, AiRunEventType.STATUS_CHANGED, "Run status is ${status.name.lowercase()}.")
@@ -678,7 +688,7 @@ public class AiConversationService(
         }
     }
 
-    private fun safeFailure(failure: Exception): String = when (failure) {
+    private fun safeFailure(failure: Exception): String = redactSensitiveText(when (failure) {
         is AiCapabilityFailure,
         is AiDraftFailure,
         is AiStateAccessFailure,
@@ -686,6 +696,21 @@ public class AiConversationService(
         -> failure.message ?: "The AI run failed safely."
         is AiLimitFailure -> "The AI run reached the ${failure.kind} limit and stopped safely."
         else -> "The AI run failed safely without changing applied ontology sources."
+    })
+
+    private fun safeProviderAnswer(rawAnswer: String): String {
+        val answer = rawAnswer.trim().ifBlank { "The provider completed without a user-visible answer." }
+        if (forbiddenAuthorityClaims.any { it.containsMatchIn(answer) }) {
+            throw AiConversationFailure(
+                "unsafe-provider-claim",
+                "The provider response was withheld because it claimed an action outside the approved AI boundary.",
+            )
+        }
+        return redactSensitiveText(answer)
+    }
+
+    private fun redactSensitiveText(value: String): String = sensitivePatterns.fold(value) { redacted, pattern ->
+        pattern.replace(redacted, "[REDACTED]")
     }
 
     private fun result(
@@ -697,6 +722,16 @@ public class AiConversationService(
 
     private companion object {
         const val MAX_RETAINED_EVENTS_PER_RUN: Int = 250
+        val forbiddenAuthorityClaims: List<Regex> = listOf(
+            Regex("\\b(?:i|we|entio ai)\\s+(?:successfully\\s+)?(?:approved|applied|rejected|rolled back|changed permissions?)\\b", RegexOption.IGNORE_CASE),
+            Regex("\\b(?:proposal|change|ontology)\\s+(?:was|has been)\\s+(?:successfully\\s+)?(?:approved|applied|rejected|rolled back)\\b", RegexOption.IGNORE_CASE),
+            Regex("\\b(?:api[ -]?key|authorization)\\s*(?::|is)\\s*(?:bearer\\s+)?\\S+", RegexOption.IGNORE_CASE),
+        )
+        val sensitivePatterns: List<Regex> = listOf(
+            Regex("authorization\\s*:\\s*bearer\\s+\\S+", RegexOption.IGNORE_CASE),
+            Regex("\\bsk-[A-Za-z0-9_-]{8,}\\b"),
+            Regex("\\bapi[ -]?key\\s*(?::|=|is)\\s*\\S+", RegexOption.IGNORE_CASE),
+        )
     }
 }
 
