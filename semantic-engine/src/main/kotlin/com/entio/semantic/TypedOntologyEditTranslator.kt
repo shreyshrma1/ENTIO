@@ -17,6 +17,8 @@ import com.entio.core.Iri
 import com.entio.core.RdfLiteral
 import com.entio.core.RdfResource
 import com.entio.core.RemoveSuperclassEdit
+import com.entio.core.RemovePropertyDomainEdit
+import com.entio.core.RemovePropertyRangeEdit
 import com.entio.core.SetEntityLabelEdit
 import com.entio.core.SetPropertyDomainEdit
 import com.entio.core.SetPropertyRangeEdit
@@ -67,6 +69,8 @@ public class TypedOntologyEditTranslator {
             is CreateDatatypePropertyEdit -> typeAssertion(propertyIri, OWL_DATATYPE_PROPERTY) + optionalLabel(propertyIri, label)
             is SetPropertyDomainEdit -> listOf(addTriple(propertyIri, RDFS_DOMAIN, domainClassIri))
             is SetPropertyRangeEdit -> listOf(addTriple(propertyIri, RDFS_RANGE, rangeIri))
+            is RemovePropertyDomainEdit -> listOf(removeTriple(propertyIri, RDFS_DOMAIN, domainClassIri))
+            is RemovePropertyRangeEdit -> listOf(removeTriple(propertyIri, RDFS_RANGE, rangeIri))
             is CreateIndividualEdit -> typeAssertion(individualIri, OWL_NAMED_INDIVIDUAL) +
                 classIri?.let { listOf(addTriple(individualIri, RDF_TYPE, it)) }.orEmpty()
             is AssignTypeEdit -> listOf(addTriple(resource, RDF_TYPE, typeIri))
@@ -157,6 +161,8 @@ public class TypedOntologyEditTranslator {
             is CreateDatatypePropertyEdit -> listOf("propertyIri" to propertyIri)
             is SetPropertyDomainEdit -> listOf("propertyIri" to propertyIri, "domainClassIri" to domainClassIri)
             is SetPropertyRangeEdit -> listOf("propertyIri" to propertyIri, "rangeIri" to rangeIri)
+            is RemovePropertyDomainEdit -> listOf("propertyIri" to propertyIri, "domainClassIri" to domainClassIri)
+            is RemovePropertyRangeEdit -> listOf("propertyIri" to propertyIri, "rangeIri" to rangeIri)
             is CreateIndividualEdit -> listOfNotNull("individualIri" to individualIri, classIri?.let { "classIri" to it })
             is AssignTypeEdit -> listOf("resource" to resource, "typeIri" to typeIri)
             is AddObjectPropertyAssertionEdit -> listOf(

@@ -115,8 +115,8 @@ export const STAGING_EDIT_DEFINITIONS: readonly StagingEditDefinition[] = [
   {
     type: "create-individual",
     label: "Create individual",
-    description: "Create a named individual and optionally assign its initial class.",
-    fields: [text("label", "Individual label", "Shrey"), text("classLabel", "Class label (optional)", "Customer", false)],
+    description: "Create a named individual and assign its required initial class.",
+    fields: [text("label", "Individual label", "Shrey"), text("classLabel", "Class", "Customer")],
   },
   {
     type: "assign-type",

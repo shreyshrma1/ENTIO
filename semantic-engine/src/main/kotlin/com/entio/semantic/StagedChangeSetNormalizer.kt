@@ -140,6 +140,8 @@ public class StagedChangeSetNormalizer(
             is com.entio.core.CreateDatatypePropertyEdit -> listOf(propertyIri)
             is com.entio.core.SetPropertyDomainEdit -> listOf(propertyIri, domainClassIri)
             is com.entio.core.SetPropertyRangeEdit -> listOf(propertyIri, rangeIri)
+            is com.entio.core.RemovePropertyDomainEdit -> listOf(propertyIri, domainClassIri)
+            is com.entio.core.RemovePropertyRangeEdit -> listOf(propertyIri, rangeIri)
             is com.entio.core.CreateIndividualEdit -> listOfNotNull(individualIri, classIri)
             is com.entio.core.AssignTypeEdit -> listOf(resource, typeIri)
             is com.entio.core.AddObjectPropertyAssertionEdit -> listOf(subject, propertyIri, objectResource)

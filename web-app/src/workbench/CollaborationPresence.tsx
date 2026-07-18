@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createCollaborationClient, type CollaborationEvent } from "../web/collaboration";
 import { queryKeys } from "../web/queries";
+import { WEB_DEVELOPMENT_USER_ID } from "../web/session";
 
 export default function CollaborationPresence({ projectId, activeEntityIri }: { projectId: string; activeEntityIri: string | null }) {
   const queryClient = useQueryClient();
@@ -14,7 +15,7 @@ export default function CollaborationPresence({ projectId, activeEntityIri }: { 
     if (typeof WebSocket === "undefined") return undefined;
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const collaboration = createCollaborationClient({
-      url: `${protocol}//${window.location.host}/api/v1/projects/${encodeURIComponent(projectId)}/collaboration?userId=alice`,
+      url: `${protocol}//${window.location.host}/api/v1/projects/${encodeURIComponent(projectId)}/collaboration?userId=${encodeURIComponent(WEB_DEVELOPMENT_USER_ID)}`,
       onEvent: (event) => handleEvent(event),
       onRefresh: () => queryClient.invalidateQueries({ queryKey: queryKeys.staged(projectId) }),
     });

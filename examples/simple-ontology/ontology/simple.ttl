@@ -15,8 +15,12 @@
 
 <https://example.com/entio/simple#ownsAccount>
         a       <http://www.w3.org/1999/02/22-rdf-syntax-ns#Property>;
+        <http://www.w3.org/2000/01/rdf-schema#domain>
+                <https://example.com/entio/simple#Customer>;
         <http://www.w3.org/2000/01/rdf-schema#label>
-                "owns account" .
+                "owns account";
+        <http://www.w3.org/2000/01/rdf-schema#range>
+                <https://example.com/entio/simple#Account> .
 
 <https://example.com/entio/simple#Customer>
         a       <http://www.w3.org/2000/01/rdf-schema#Class>;
@@ -26,4 +30,9 @@
 <https://example.com/entio/simple#Shrey>
         a       <https://example.com/entio/simple#Customer> , <http://www.w3.org/2002/07/owl#NamedIndividual>;
         <http://www.w3.org/2000/01/rdf-schema#label>
-                "Shrey" .
+                "Shrey";
+        <https://example.com/entio/simple#ownsAccount>
+                <https://example.com/entio/simple#Account101> .
+
+<https://example.com/entio/simple#Account101>
+        a       <https://example.com/entio/simple#Account> , <http://www.w3.org/2002/07/owl#NamedIndividual> .

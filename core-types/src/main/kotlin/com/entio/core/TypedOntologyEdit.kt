@@ -42,6 +42,16 @@ public data class SetPropertyRangeEdit(
     public val rangeIri: Iri,
 ) : TypedOntologyEdit
 
+public data class RemovePropertyDomainEdit(
+    public val propertyIri: Iri,
+    public val domainClassIri: Iri,
+) : TypedOntologyEdit
+
+public data class RemovePropertyRangeEdit(
+    public val propertyIri: Iri,
+    public val rangeIri: Iri,
+) : TypedOntologyEdit
+
 public data class CreateIndividualEdit(
     public val individualIri: Iri,
     public val classIri: Iri? = null,

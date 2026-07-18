@@ -331,7 +331,41 @@ class ProposalValidatorTest {
 
         assertEquals(ValidationStatus.Invalid, report.status)
         assertTrue(report.issues.any { issue -> issue.code == "incompatible-property-domain" })
-        assertTrue(report.issues.any { issue -> issue.code == "incompatible-property-range" })
+        val rangeIssue = report.issues.single { issue -> issue.code == "incompatible-property-range" }
+        assertEquals(
+            "Object 'https://example.com/Customer' is not an instance of the declared range 'https://example.com/Account' for property 'https://example.com/ownsAccount'.",
+            rangeIssue.message,
+        )
+    }
+
+    @Test
+    fun genericRdfPropertyCanReceiveClassDomainAndRange(): Unit {
+        val source = tempSource()
+        val property = iri("ownsAccount")
+        val account = iri("Account")
+        val customer = iri("Customer")
+        val graph = GraphState(
+            setOf(
+                typeTriple("Account"),
+                typeTriple("Customer"),
+                propertyTypeTriple(property, RDF_PROPERTY),
+            ),
+        )
+        val project = project(source = source, graph = graph)
+        val proposal = proposal(
+            project = project,
+            changeSet = ChangeSet(
+                listOf(
+                    GraphChange(GraphChangeKind.Addition, GraphTriple(property, RDFS_DOMAIN, account)),
+                    GraphChange(GraphChangeKind.Addition, GraphTriple(property, RDFS_RANGE, customer)),
+                ),
+            ),
+        )
+
+        val report = validator.validateProposal(proposal, project)
+
+        assertEquals(ValidationStatus.Valid, report.status)
+        assertEquals(emptyList(), report.issues)
     }
 
     @Test
@@ -442,6 +476,7 @@ class ProposalValidatorTest {
 
     private companion object {
         private const val RDF_TYPE: String = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+        private val RDF_PROPERTY: Iri = Iri("http://www.w3.org/1999/02/22-rdf-syntax-ns#Property")
         private val RDFS_SUBCLASS_OF: Iri = Iri("http://www.w3.org/2000/01/rdf-schema#subClassOf")
         private val RDFS_DOMAIN: Iri = Iri("http://www.w3.org/2000/01/rdf-schema#domain")
         private val RDFS_RANGE: Iri = Iri("http://www.w3.org/2000/01/rdf-schema#range")

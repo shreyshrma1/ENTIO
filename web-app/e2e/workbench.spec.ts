@@ -1,9 +1,14 @@
 import { expect, test } from "@playwright/test";
 
 test("completes the browser workbench journey through reviewable staging", async ({ page }) => {
-  let stagedEditType: string | undefined;
+  const stagedEditTypes: string[] = [];
+  const stagedEntries: Array<Record<string, unknown>> = [];
+  let approvingUser: string | undefined;
   let aiMessageCall = 0;
   let aiDraftAnalyzed = false;
+  let proposalApplied = false;
+  let hierarchyRequests = 0;
+  let currentProposal: Record<string, unknown> | null = null;
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -13,13 +18,26 @@ test("completes the browser workbench journey through reviewable staging", async
       apiVersion: "v1",
       project: { id: "simple", displayName: "Simple ontology", name: "simple-ontology" },
       sources: [{ id: "simple", path: "ontology/simple.ttl", format: "turtle", roles: ["ontology"], tripleCount: 7 }],
-      symbolCount: 5,
-      graphTripleCount: 7,
+      symbolCount: proposalApplied ? 6 : 5,
+      graphTripleCount: proposalApplied ? 10 : 7,
     });
-    if (path.endsWith("/hierarchy")) return json(route, {
-      apiVersion: "v1", sourceId: "simple", parentIri: null,
-      page: { items: [{ iri: "https://example.com/entio/simple#Customer", label: "Customer", kind: "Class", sourceId: "simple", childCount: 0 }], offset: 0, limit: 50, total: 1, nextOffset: null },
+    if (path.endsWith("/sources")) return json(route, {
+      items: [
+        { id: "simple", path: "ontology/simple.ttl", format: "turtle", roles: ["ontology"], writable: true },
+        { id: "shapes", path: "ontology/shapes.ttl", format: "turtle", roles: ["shapes"], writable: true },
+      ], offset: 0, limit: 50, total: 2, nextOffset: null,
     });
+    if (path.endsWith("/hierarchy")) {
+      hierarchyRequests += 1;
+      const parentIri = url.searchParams.get("parentIri");
+      const items = parentIri === "https://example.com/entio/simple#Customer"
+        ? proposalApplied ? [{ iri: "https://example.com/entio/simple#CommercialCustomer", label: "Commercial Customer", kind: "Class", sourceId: "simple", childCount: 0 }] : []
+        : [{ iri: "https://example.com/entio/simple#Customer", label: "Customer", kind: "Class", sourceId: "simple", childCount: proposalApplied ? 1 : 0 }];
+      return json(route, {
+        apiVersion: "v1", sourceId: "simple", parentIri,
+        page: { items, offset: 0, limit: 50, total: items.length, nextOffset: null },
+      });
+    }
     if (path.endsWith("/outline")) return json(route, {
       apiVersion: "v1", sourceId: "simple",
       page: { items: [
@@ -28,9 +46,27 @@ test("completes the browser workbench journey through reviewable staging", async
         { iri: "https://example.com/entio/simple#receivedInvoice", label: "received invoice", kind: "ObjectProperty", sourceId: "simple" },
       ], offset: 0, limit: 100, total: 3, nextOffset: null },
     });
-    if (path.endsWith("/entities")) return json(route, {
-      apiVersion: "v1", iri: "https://example.com/entio/simple#Customer", label: "Customer", kind: "Class", sourceId: "simple", sourceOntologyId: "simple", locality: "Local", preferredLabelSource: "RdfsLabel",
-      alternateLabels: [], definitions: [{ value: "A customer.", language: null, datatype: null }], annotations: [], directSuperclasses: [], directSubclasses: [], directlyTypedIndividuals: [], assertedTypes: [], domains: [], ranges: [], outgoingRelationships: [], incomingRelationships: [],
+    if (path.endsWith("/search")) return json(route, {
+      apiVersion: "v1", query: url.searchParams.get("q") ?? "",
+      page: { items: [
+        { iri: "https://example.com/entio/simple#Customer", label: "Customer", kind: "Class", sourceId: "simple", reason: "PreferredLabel", rank: 0, locality: "Local" },
+        { iri: "https://example.com/entio/simple#Shrey", label: "Shrey", kind: "Individual", sourceId: "simple", reason: "AssertedType", rank: 4, locality: "Local" },
+      ], offset: 0, limit: 50, total: 2, nextOffset: null },
+    });
+    if (path.endsWith("/entities")) {
+      const iri = url.searchParams.get("iri") ?? "";
+      const isProperty = iri.endsWith("receivedInvoice");
+      return json(route, {
+        apiVersion: "v1", iri, label: isProperty ? "received invoice" : "Customer", kind: isProperty ? "ObjectProperty" : "Class", sourceId: "simple", sourceOntologyId: "simple", locality: "Local", preferredLabelSource: "RdfsLabel",
+        alternateLabels: [], definitions: isProperty ? [] : [{ value: "A customer.", language: null, datatype: null }], annotations: [], directSuperclasses: [], directSubclasses: [], directlyTypedIndividuals: [], assertedTypes: [], domains: [], ranges: [],
+        outgoingRelationships: isProperty ? [{ direction: "outgoing", predicate: { iri: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type", label: "type", kind: null, sourceId: "simple" }, value: { kind: "Iri", value: "http://www.w3.org/1999/02/22-rdf-syntax-ns#Property", label: null, datatype: null, language: null }, sourceId: "simple" }] : [],
+        incomingRelationships: [],
+      });
+    }
+    if (path.endsWith("/deletion-dependencies")) return json(route, {
+      apiVersion: "v1", projectId: "simple", targetIri: "https://example.com/entio/simple#Customer", targetLabel: "Customer", status: "RequiresExplicitDependencies",
+      directStatements: [{ key: "direct-1", kind: "DirectDefinition", subject: "https://example.com/entio/simple#Customer", subjectLabel: "Customer", predicate: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type", predicateLabel: "type", objectValue: "http://www.w3.org/2002/07/owl#Class", objectLabel: "Class" }],
+      dependentStatements: [{ key: "dependent-1", kind: "IncomingReference", subject: "https://example.com/entio/simple#Shrey", subjectLabel: "Shrey", predicate: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type", predicateLabel: "type", objectValue: "https://example.com/entio/simple#Customer", objectLabel: "Customer" }],
     });
     if (path.endsWith("/ai/credential-status")) return json(route, { apiVersion: "v1", configured: true, providerId: "openai", testStatus: "PASSED" });
     if (path.endsWith("/ai/conversations") && request.method() === "GET") return json(route, { apiVersion: "v1", conversations: [aiConversation([])] });
@@ -70,16 +106,42 @@ test("completes the browser workbench journey through reviewable staging", async
     if (path.endsWith("/ai/drafts/draft-1/submit") && request.method() === "POST") return json(route, {
       apiVersion: "v1", submissionId: "submission-1", proposalId: "proposal-ai-1", reviewState: "READYFORREVIEW", projectId: "simple", draftId: "draft-1", draftRevision: 1, submittingUserId: "alice", conversationId: "conversation-1", runId: "run-2", rationale: "Reviewed AI draft", itemAttributions: [{ itemId: "item-1", aiGenerated: true, acceptingUserId: "alice", conversationId: "conversation-1", runId: "run-2" }], diff: [{ kind: "Added", subject: "Receivable Account", predicate: "type", objectValue: "Class", description: "Added class Receivable Account." }], analysisReferenceIds: ["analysis-ref"], reviewRoute: "/projects/simple/changes?proposalId=proposal-ai-1",
     });
-    if (path.endsWith("/staged") && request.method() === "GET") return json(route, { apiVersion: "v1", projectId: "simple", status: "READY", entries: [], proposal: null });
+    if (path.endsWith("/staged") && request.method() === "GET") return json(route, { apiVersion: "v1", projectId: "simple", status: "READY", entries: stagedEntries, proposal: currentProposal });
     if (path.endsWith("/staged") && request.method() === "POST") {
-      stagedEditType = (request.postDataJSON() as { editType?: string }).editType;
+      const body = request.postDataJSON() as Record<string, string>;
+      const editType = body.editType;
+      stagedEditTypes.push(editType);
+      const label = body.label ?? body.classLabel ?? body.propertyLabel ?? "Untitled change";
+      const classIri = body.classIri ?? `https://example.com/entio/simple#${label.replace(/\s+/g, "")}`;
+      const superclassIri = body.superclassLabel ? `https://example.com/entio/simple#${body.superclassLabel.replace(/\s+/g, "")}` : undefined;
+      stagedEntries.push({
+        id: `stage-${stagedEntries.length + 1}`, order: stagedEntries.length + 1, sourceId: "simple", summary: `${editType} · ${label}`, editType: "TypedEdit", status: "STAGED", authorId: "bob", latestEditorId: "bob", comment: null, aiGenerated: false,
+        normalizedValues: { ...body, classIri, ...(superclassIri ? { superclassIri } : {}) }, generatedIris: editType === "create-class" ? [classIri] : [], validationMessages: [],
+      });
+      currentProposal = null;
       return json(route, {
-        apiVersion: "v1", projectId: "simple", status: "READY", entries: [{ id: "stage-1", order: 1, sourceId: "simple", summary: "create object property", editType: stagedEditType, status: "STAGED", authorId: "alice", latestEditorId: "alice", comment: null, aiGenerated: false, normalizedValues: {}, generatedIris: [], validationMessages: [] }], proposal: null,
+        apiVersion: "v1", projectId: "simple", status: "READY", entries: stagedEntries, proposal: null,
       });
     }
-    if (path.endsWith("/proposal/preview")) return json(route, { apiVersion: "v1", projectId: "simple", status: "READY", entries: [{ id: "stage-1", order: 1, sourceId: "simple", summary: "add superclass", editType: "add-superclass", status: "STAGED", authorId: "alice", latestEditorId: "alice", comment: null, aiGenerated: true, normalizedValues: {}, generatedIris: [], validationMessages: [] }], proposal: { id: "proposal-1", status: "READYFORREVIEW", stagedChangeIds: ["stage-1"], baselineProjectFingerprint: "base", validationMessages: [], diff: [{ kind: "Added", subject: "Customer", predicate: "subClassOf", objectValue: "Party", description: "Customer is a Party" }], message: "Proposal ready for review." } });
-    if (path.endsWith("/proposal/approve")) return json(route, { apiVersion: "v1", projectId: "simple", status: "READY", entries: [], proposal: { id: "proposal-1", status: "APPROVED", stagedChangeIds: ["stage-1"], baselineProjectFingerprint: "base", validationMessages: [], diff: [], message: "Approved." } });
-    if (path.endsWith("/proposal/apply")) return json(route, { apiVersion: "v1", projectId: "simple", status: "READY", entries: [], proposal: { id: "proposal-1", status: "APPLIED", stagedChangeIds: [], baselineProjectFingerprint: "base", validationMessages: [], diff: [], message: "Applied and reloaded." } });
+    if (path.endsWith("/proposal/preview")) {
+      currentProposal = { id: "proposal-1", status: "READYFORREVIEW", stagedChangeIds: stagedEntries.map((entry) => entry.id), baselineProjectFingerprint: "base", validationMessages: [], validationIssues: [], diff: [
+        { kind: "Added", subject: "https://example.com/entio/simple#CommercialCustomer", predicate: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type", objectValue: "http://www.w3.org/2002/07/owl#Class", description: "Added triple (raw RDF)." },
+        { kind: "Added", subject: "https://example.com/entio/simple#CommercialCustomer", predicate: "http://www.w3.org/2000/01/rdf-schema#label", objectValue: "\"Commercial Customer\"^^http://www.w3.org/2001/XMLSchema#string", description: "Added triple (raw RDF)." },
+        { kind: "Added", subject: "https://example.com/entio/simple#CommercialCustomer", predicate: "http://www.w3.org/2000/01/rdf-schema#subClassOf", objectValue: "https://example.com/entio/simple#Customer", description: "Added triple (raw RDF)." },
+      ], message: "Proposal ready for review." };
+      return json(route, { apiVersion: "v1", projectId: "simple", status: "READY", entries: stagedEntries, proposal: currentProposal });
+    }
+    if (path.endsWith("/proposal/approve")) {
+      approvingUser = request.headers()["x-entio-user"];
+      currentProposal = { id: "proposal-1", status: "APPROVED", stagedChangeIds: stagedEntries.map((entry) => entry.id), baselineProjectFingerprint: "base", validationMessages: [], validationIssues: [], diff: [], message: "Approved." };
+      return json(route, { apiVersion: "v1", projectId: "simple", status: "READY", entries: stagedEntries, proposal: currentProposal });
+    }
+    if (path.endsWith("/proposal/apply")) {
+      proposalApplied = true;
+      stagedEntries.length = 0;
+      currentProposal = { id: "proposal-1", status: "APPLIED", stagedChangeIds: [], baselineProjectFingerprint: "base", validationMessages: [], validationIssues: [], diff: [], message: "Applied and reloaded." };
+      return json(route, { apiVersion: "v1", projectId: "simple", status: "READY", entries: stagedEntries, proposal: currentProposal });
+    }
     if (path.endsWith("/external/fibo/modules")) return json(route, { sourceId: "fibo", release: "test", page: { items: [{ ontologyIri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/", label: "Agreements", domain: "FND", sourcePath: "source/FND/Agreements/Agreements.rdf", maturity: "Release", curated: true, elementCount: 1 }], offset: 0, limit: 15, total: 1, nextOffset: null } });
     if (path.endsWith("/external/fibo/module-elements")) return json(route, { moduleIri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/", page: { items: [{ iri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement", label: "agreement", kind: "Class", moduleIri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/", domain: "FND", maturity: "Release", catalogStatus: "Available", sourcePath: "source/FND/Agreements/Agreements.rdf", alternateLabels: [], definitions: ["a mutual understanding"], parents: [], domains: [], ranges: [] }], offset: 0, limit: 15, total: 1, nextOffset: null } });
     if (path.endsWith("/external/fibo/details")) return json(route, { element: { iri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement", label: "agreement", kind: "Class", moduleIri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/", domain: "FND", maturity: "Release", catalogStatus: "Available", sourcePath: "source/FND/Agreements/Agreements.rdf", alternateLabels: [], definitions: ["a mutual understanding"], parents: [], domains: [], ranges: [] }, dependencies: [] });
@@ -91,8 +153,34 @@ test("completes the browser workbench journey through reviewable staging", async
   await expect(page.getByRole("heading", { name: "simple-ontology" })).toBeVisible();
   await page.getByRole("button", { name: /Customer/ }).click();
   await expect(page.getByRole("heading", { name: "Customer" })).toBeVisible();
-  await expect(page.getByText("A customer.")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Definition" })).toHaveValue("A customer.");
   await expect(page).toHaveScreenshot("workbench-light.png", { fullPage: true, mask: [page.locator(".collaboration-presence")], maskColor: "#ffffff" });
+
+  const projectNavigation = page.getByRole("complementary", { name: "Project navigation" });
+  await projectNavigation.getByRole("textbox", { name: "Search entities by label" }).fill("Customer");
+  await expect(projectNavigation.getByRole("button", { name: /Shrey/ })).toBeVisible();
+  await expect(projectNavigation.getByText("Object · Asserted Type")).toBeVisible();
+  await expect(projectNavigation.getByRole("tab", { name: /Classes/ })).toHaveCount(0);
+  await expect(page).toHaveScreenshot("semantic-search-light.png", { fullPage: true, mask: [page.locator(".collaboration-presence")], maskColor: "#ffffff" });
+  await projectNavigation.getByRole("button", { name: "Clear search" }).click();
+  await expect(projectNavigation.getByRole("tab", { name: /Classes/ })).toBeVisible();
+  await projectNavigation.getByRole("tab", { name: /Properties/ }).click();
+  const propertyNode = projectNavigation.getByRole("button", { name: "received invoice, Object property" });
+  await propertyNode.click();
+  await expect(page.getByRole("heading", { name: "received invoice" })).toBeVisible();
+  await page.getByRole("tab", { name: "Schema" }).click();
+  await expect(page.getByRole("combobox", { name: "Set domain" })).toHaveAttribute("placeholder", "Search existing or staged classes");
+  await expect(page.getByRole("combobox", { name: "Set range" })).toHaveAttribute("placeholder", "Search existing or staged classes");
+  await expect(page.getByRole("tab", { name: "Relationships" })).toHaveCount(0);
+  await page.getByRole("tab", { name: "SHACL" }).click();
+  await expect(page.getByRole("textbox", { name: "Shape label" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Target class" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Property path" })).toBeVisible();
+  await propertyNode.click({ button: "right" });
+  await expect(page.getByRole("menuitem", { name: "Add subclass" })).toHaveCount(0);
+  await page.getByRole("menuitem", { name: "Edit details" }).click();
+  await expect(page.getByRole("heading", { name: "received invoice" })).toBeVisible();
+  await projectNavigation.getByRole("tab", { name: /Classes/ }).click();
 
   await page.getByRole("button", { name: "Expand navigation" }).click();
   await expect(page.getByRole("tab", { name: "Explore", exact: true })).toBeVisible();
@@ -105,6 +193,14 @@ test("completes the browser workbench journey through reviewable staging", async
   await page.getByRole("button", { name: "Save name" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Display name updated." })).toBeVisible();
   await expect(page.getByText("Provider credential", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Assistant", exact: true }).click();
+  await expect(page.getByRole("complementary", { name: "Entio AI assistant" })).toBeVisible();
+  const settingsScroll = page.locator(".workspace-content");
+  await expect.poll(() => settingsScroll.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  await settingsScroll.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+  await expect.poll(() => settingsScroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await expect(page.getByRole("button", { name: "Save credential" })).toBeVisible();
+  await page.getByRole("button", { name: "Close assistant" }).click();
   await page.reload();
   await expect(page.getByRole("heading", { name: "simple-ontology" })).toBeVisible();
   await page.getByRole("button", { name: "Expand navigation" }).click();
@@ -113,17 +209,78 @@ test("completes the browser workbench journey through reviewable staging", async
   await page.getByRole("button", { name: "Account", exact: true }).click();
   await page.getByRole("tab", { name: "Explore", exact: true }).click();
 
-  await page.getByLabel("Change type").selectOption("create-object-property");
-  await page.getByRole("textbox", { name: "Property label", exact: true }).fill("owns account");
-  await page.getByRole("button", { name: "Stage change" }).click();
-  await expect(page.getByText("create object property", { exact: true })).toBeVisible();
-  expect(stagedEditType).toBe("create-object-property");
-  await page.getByRole("button", { name: "Preview proposal" }).click();
+  const customerNode = projectNavigation.getByRole("button", { name: "Customer, Class", exact: true });
+  await customerNode.click();
+  await customerNode.click({ button: "right" });
+  await expect(page.getByRole("menuitem", { name: "Add subclass" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Edit details" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Copy IRI" })).toBeVisible();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
+  await expect(page.getByRole("heading", { name: "Delete Customer" })).toBeVisible();
+  await expect(page.getByText("Shrey · type · Customer", { exact: true })).toBeVisible();
+  await page.getByRole("checkbox").check();
+  await expect(page.getByRole("button", { name: "Stage deletion" })).toBeEnabled();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await customerNode.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Add subclass" }).click();
+  await expect(page.getByRole("heading", { name: "Add subclass of Customer" })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Selected superclass labels" })).toContainText("Customer");
+  await expect(page.getByRole("combobox", { name: "Superclass labels" })).toHaveValue("");
+  await page.getByRole("textbox", { name: "Class label", exact: true }).fill("Commercial Customer");
+  await page.getByRole("button", { name: "Stage class" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByText("2 changes staged", { exact: true })).toBeVisible();
+  const expandCustomer = projectNavigation.getByRole("button", { name: "Expand Customer" });
+  await expandCustomer.click();
+  const stagedSubclass = projectNavigation.getByRole("button", { name: "Commercial Customer, Class" });
+  await expect(stagedSubclass).toBeVisible();
+  await expect(projectNavigation.getByText("Loading children...", { exact: true })).toHaveCount(0);
+  await expect(stagedSubclass.locator("..")).toHaveClass(/entity-staged/);
+  const parentBox = await customerNode.boundingBox();
+  const childBox = await stagedSubclass.boundingBox();
+  expect(parentBox).not.toBeNull();
+  expect(childBox).not.toBeNull();
+  expect(childBox!.x).toBeGreaterThan(parentBox!.x);
+  await projectNavigation.getByRole("button", { name: "Collapse Customer" }).click();
+  await expect(stagedSubclass).toBeHidden();
+  await projectNavigation.getByRole("button", { name: "Expand Customer" }).click();
+  await expect(stagedSubclass).toBeVisible();
+  await stagedSubclass.click();
+  const stagedDetails = page.locator(".entity-details");
+  await expect(stagedDetails.getByRole("heading", { name: "Commercial Customer" })).toBeVisible();
+  await expect(stagedDetails.getByText("Staged", { exact: true })).toBeVisible();
+  await expect(stagedDetails.getByRole("textbox", { name: "Preferred label" })).toHaveValue("Commercial Customer");
+  await stagedDetails.getByRole("tab", { name: "Hierarchy" }).click();
+  await expect(stagedDetails.getByRole("heading", { name: "Superclasses" }).locator("..")).toContainText("Customer");
+  await expect(page.getByRole("tab", { name: "Commercial Customer", exact: true })).toHaveCSS("background-color", "rgb(255, 251, 235)");
+  await expect(page.getByRole("tab", { name: "Customer", exact: true }).locator("..")).toHaveClass(/entity-staged/);
+  expect(stagedEditTypes).toEqual(["create-class", "add-superclass"]);
+  await page.getByRole("tab", { name: "Proposal" }).click();
+  await expect(page.getByRole("tab", { name: "Customer", exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Shared staged changes")).toHaveCount(0);
+  await expect(page.getByText("Commercial Customer", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Review queue" })).toBeVisible();
   await expect(page.getByText(/Proposal ready for review/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove" }).first()).toBeEnabled();
+  await expect(page.getByText("Updating staged changes...", { exact: true })).toHaveCount(0);
+  const proposalReview = page.locator(".proposal-summary");
+  await expect(proposalReview.getByText("Added · Commercial Customer · type · Class", { exact: true })).toBeVisible();
+  await expect(proposalReview.getByText("Added · Commercial Customer · superclass · Customer", { exact: true })).toBeVisible();
+  await expect(proposalReview).not.toContainText("https://");
+  await page.getByRole("button", { name: "Accept" }).click();
+  const appliedNotification = page.getByRole("status").filter({ hasText: "Proposal accepted and applied" });
+  await expect(appliedNotification).toBeVisible();
+  await expect(page.getByText("Applied", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Updating staged changes...", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("No staged changes", { exact: true })).toBeVisible();
+  await expect(projectNavigation.getByRole("button", { name: "Commercial Customer, Class" })).toBeVisible();
+  await expect.poll(() => hierarchyRequests).toBeGreaterThan(1);
+  await expect(appliedNotification).toBeHidden({ timeout: 6_000 });
+  expect(approvingUser).toBe("bob");
 
   await page.getByRole("button", { name: "Assistant" }).click();
   await expect(page.getByRole("complementary", { name: "Entio AI assistant" })).toBeVisible();
-  await expect(page.getByRole("tab", { name: "Explore", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "Proposal", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByText("Ready when you are")).toBeVisible();
   await page.getByLabel("Ask about this ontology context").fill("Explain Customer.");
   await page.getByRole("button", { name: "Send" }).click();

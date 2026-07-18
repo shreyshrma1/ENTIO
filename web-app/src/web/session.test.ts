@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { loadWebSession } from "./session";
+import { loadWebSession, WEB_DEVELOPMENT_USER_ID, withDevelopmentIdentity } from "./session";
 
 describe("web session client", () => {
   it("loads the server-owned current user", async () => {
@@ -22,5 +22,14 @@ describe("web session client", () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 401 }));
 
     await expect(loadWebSession(fetcher)).rejects.toThrow("session-request-failed:401");
+  });
+
+  it("uses the configured reviewer identity for the development workbench", () => {
+    const request = withDevelopmentIdentity({ headers: { Accept: "application/json" } });
+    const headers = new Headers(request.headers);
+
+    expect(WEB_DEVELOPMENT_USER_ID).toBe("bob");
+    expect(headers.get("X-Entio-User")).toBe("bob");
+    expect(headers.get("Accept")).toBe("application/json");
   });
 });

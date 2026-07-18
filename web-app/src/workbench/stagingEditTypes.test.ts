@@ -63,4 +63,10 @@ describe("web staging edit definitions", () => {
       propertyLabel: "owns account",
     }, "request-2")).toThrow("Domain class label is required.");
   });
+
+  it("requires an initial class when creating an individual", () => {
+    expect(() => buildStageChangeRequest("simple", "create-individual", {
+      label: "Account 101",
+    }, "request-individual")).toThrow("Class is required.");
+  });
 });

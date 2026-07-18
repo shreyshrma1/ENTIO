@@ -371,10 +371,11 @@ public class ProposalValidator(
 
         val ranges = facts.objects(property, RDFS_RANGE)
         if (ranges.isNotEmpty() && facts.hasExplicitType(objectResource) && ranges.none { range -> facts.hasType(objectResource, range.value) }) {
+            val declaredRanges = ranges.joinToString(", ") { range -> "'${range.value}'" }
             add(
                 issue(
                     code = "incompatible-property-range",
-                    message = "Object '${objectResource.value}' does not have a known range class for property '${property.value}'.",
+                    message = "Object '${objectResource.value}' is not an instance of the declared range ${declaredRanges} for property '${property.value}'.",
                     source = source,
                 ),
             )
@@ -542,10 +543,11 @@ public class ProposalValidator(
         fun propertyKind(resource: RdfResource): PropertyKind {
             val objectProperty = hasType(resource, OWL_OBJECT_PROPERTY)
             val datatypeProperty = hasType(resource, OWL_DATATYPE_PROPERTY)
+            val genericProperty = hasType(resource, RDF_PROPERTY)
             return when {
                 objectProperty && datatypeProperty -> PropertyKind.Ambiguous
-                objectProperty -> PropertyKind.Object
                 datatypeProperty -> PropertyKind.Datatype
+                objectProperty || genericProperty -> PropertyKind.Object
                 else -> PropertyKind.Missing
             }
         }
@@ -599,6 +601,7 @@ public class ProposalValidator(
         private const val RDFS_SUBCLASS_OF: String = "http://www.w3.org/2000/01/rdf-schema#subClassOf"
         private const val RDFS_DOMAIN: String = "http://www.w3.org/2000/01/rdf-schema#domain"
         private const val RDFS_RANGE: String = "http://www.w3.org/2000/01/rdf-schema#range"
+        private const val RDF_PROPERTY: String = "http://www.w3.org/1999/02/22-rdf-syntax-ns#Property"
         private const val OWL_CLASS: String = "http://www.w3.org/2002/07/owl#Class"
         private const val RDFS_CLASS: String = "http://www.w3.org/2000/01/rdf-schema#Class"
         private const val OWL_OBJECT_PROPERTY: String = "http://www.w3.org/2002/07/owl#ObjectProperty"
@@ -615,6 +618,7 @@ public class ProposalValidator(
         private val BUILT_IN_TYPES: Set<String> = setOf(
             OWL_CLASS,
             RDFS_CLASS,
+            RDF_PROPERTY,
             OWL_OBJECT_PROPERTY,
             OWL_DATATYPE_PROPERTY,
             OWL_NAMED_INDIVIDUAL,

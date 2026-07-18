@@ -29,6 +29,7 @@ class ProjectLoaderTest {
             listOf(
                 "https://example.com/entio/simple#20874",
                 "https://example.com/entio/simple#Account",
+                "https://example.com/entio/simple#Account101",
                 "https://example.com/entio/simple#Customer",
                 "https://example.com/entio/simple#CustomerShape",
                 "https://example.com/entio/simple#Invoice",

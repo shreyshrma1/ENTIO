@@ -25,6 +25,7 @@ class CliExampleProjectTest {
             """
                 Individual https://example.com/entio/simple#20874 "Invoice 20874" [simple]
                 Class https://example.com/entio/simple#Account "Account" [simple]
+                Individual https://example.com/entio/simple#Account101 [simple]
                 Class https://example.com/entio/simple#Customer "Customer" [simple]
                 Shape https://example.com/entio/simple#CustomerShape [shapes]
                 Class https://example.com/entio/simple#Invoice "Invoice" [simple]

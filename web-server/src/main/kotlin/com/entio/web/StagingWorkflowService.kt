@@ -21,6 +21,9 @@ import com.entio.core.Iri
 import com.entio.core.MultiSourceApplyStatus
 import com.entio.core.RdfLiteral
 import com.entio.core.RdfResource
+import com.entio.core.SemanticEditRequest
+import com.entio.core.RemovePropertyDomainEdit
+import com.entio.core.RemovePropertyRangeEdit
 import com.entio.core.ShaclPath
 import com.entio.core.SetEntityLabelEdit
 import com.entio.core.SetPropertyDomainEdit
@@ -39,10 +42,16 @@ import com.entio.semantic.MultiSourceAtomicApplier
 import com.entio.semantic.ProjectLoader
 import com.entio.semantic.ProposalCreator
 import com.entio.semantic.StagedChangeSetNormalizer
+import com.entio.semantic.TypedOntologyEditTranslator
 import com.entio.web.contract.IdempotencyDecision
 import com.entio.web.contract.InMemoryIdempotencyStore
 import com.entio.web.contract.ProjectRegistry
 import com.entio.web.contract.WebProposalState
+import com.entio.web.contract.WebProposalRemediation
+import com.entio.web.contract.WebProposalValidationIssue
+import com.entio.web.contract.WebDeletionDependenciesRequest
+import com.entio.web.contract.WebDeletionDependenciesResponse
+import com.entio.web.contract.WebDeletionDependency
 import com.entio.web.contract.WebShaclFindingSummary
 import com.entio.web.contract.WebShaclImpact
 import com.entio.web.contract.WebStageChangeRequest
@@ -64,6 +73,7 @@ public data class WorkflowGraphSnapshot(
 
 private data class StoredEntry(
     val staged: StagedChange,
+    val editType: String,
     val authorId: String,
     var latestEditorId: String,
     val comment: String?,
@@ -110,6 +120,7 @@ public class StagingWorkflowService(
     private val externalIntentTranslator: ExternalProposalIntentTranslator = ExternalProposalIntentTranslator(),
     private val labelResolver: LabelResolver = LabelResolver(),
     private val iriGenerator: DeterministicIriGenerator = DeterministicIriGenerator(),
+    private val editTranslator: TypedOntologyEditTranslator = TypedOntologyEditTranslator(),
     private val additionalPostApplyVerification: (String, EntioProject) -> EntioResult<Unit> = { _, _ -> EntioResult.Success(Unit) },
 ) {
     private val sessions: MutableMap<String, ProjectSession> = linkedMapOf()
@@ -126,6 +137,34 @@ public class StagingWorkflowService(
 
     @Synchronized
     public fun snapshot(projectId: String): WebStagingResponse = response(projectId, session(projectId))
+
+    @Synchronized
+    public fun deletionDependencies(
+        projectId: String,
+        request: WebDeletionDependenciesRequest,
+    ): WebDeletionDependenciesResponse {
+        val project = load(projectId)
+        val target = project.symbols.firstOrNull { symbol ->
+            request.targetIri == symbol.iri.value ||
+                (request.targetIri == null && request.targetLabel == symbol.label)
+        } ?: throw WebWorkflowFailure("unknown-delete-target", "The deletion target does not exist.")
+        val ontology = project.ontologies.firstOrNull { it.source.id == request.sourceId }
+            ?: throw WebWorkflowFailure("unknown-source", "Ontology source '${request.sourceId}' was not found.")
+        val plan = deletionAnalyzer.analyze(
+            ontology,
+            EntityCandidate(target.iri, target.label, target.kind, target.sourceId),
+        )
+        val labels = project.symbols.mapNotNull { symbol -> symbol.label?.let { symbol.iri.value to it } }.toMap()
+        val targetLabel = target.label ?: target.iri.value.substringAfterLast('#').substringAfterLast('/')
+        return WebDeletionDependenciesResponse(
+            projectId = projectId,
+            targetIri = target.iri.value,
+            targetLabel = targetLabel,
+            status = plan.status.name,
+            directStatements = plan.directStatements.map { webDeletionDependency(it, labels) },
+            dependentStatements = plan.dependentStatements.map { webDeletionDependency(it, labels) },
+        )
+    }
 
     @Synchronized
     public fun graphSnapshot(projectId: String, scope: WebJobScope): WorkflowGraphSnapshot {
@@ -163,10 +202,17 @@ public class StagingWorkflowService(
 
         val project = load(projectId)
         val prepared = prepareChange(project, request)
-        val id = "stage-${session.nextOrder++}"
+        val replacementIndex = request.replacesStagedId?.let { stagedId ->
+            session.entries.indexOfFirst { it.staged.id == stagedId }
+                .takeIf { it >= 0 }
+                ?: throw WebWorkflowFailure("unknown-staged-change", "Staged change '$stagedId' was not found.")
+        }
+        val replaced = replacementIndex?.let(session.entries::get)
+        val id = replaced?.staged?.id ?: "stage-${session.nextOrder++}"
+        val order = replaced?.staged?.order ?: session.nextOrder - 1
         val staged = StagedChange(
             id = id,
-            order = session.nextOrder - 1,
+            order = order,
             targetSourceId = request.sourceId,
             summary = prepared.summary,
             operation = prepared.operation,
@@ -174,7 +220,15 @@ public class StagingWorkflowService(
             resolvedCandidates = prepared.resolvedCandidates,
             generatedIris = prepared.generatedIris,
         )
-        session.entries += StoredEntry(staged, userId, userId, request.comment, request.aiGenerated)
+        val stored = StoredEntry(
+            staged = staged,
+            editType = request.editType,
+            authorId = replaced?.authorId ?: userId,
+            latestEditorId = userId,
+            comment = request.comment,
+            aiGenerated = request.aiGenerated,
+        )
+        if (replacementIndex == null) session.entries += stored else session.entries[replacementIndex] = stored
         session.clearPreparedProposal()
         return response(projectId, session)
     }
@@ -228,6 +282,7 @@ public class StagingWorkflowService(
                     resolvedCandidates = prepared.resolvedCandidates,
                     generatedIris = prepared.generatedIris,
                 ),
+                editType = request.editType,
                 authorId = userId,
                 latestEditorId = userId,
                 comment = entry.rationale,
@@ -284,6 +339,7 @@ public class StagingWorkflowService(
                 operation = StagedChangeOperation.GraphChanges(changeSet),
                 normalizedValues = mapOf("externalSource" to intent.sourceId, "targetOntologyIri" to targetOntologyIri.value),
             ),
+            editType = "external-reuse",
             authorId = userId,
             latestEditorId = userId,
             comment = "External ontology reuse staged for review.",
@@ -412,7 +468,7 @@ public class StagingWorkflowService(
                     order = entry.staged.order,
                     sourceId = entry.staged.targetSourceId,
                     summary = entry.staged.summary,
-                    editType = entry.staged.operation::class.simpleName.orEmpty(),
+                    editType = entry.editType,
                     status = entry.staged.status.name.uppercase(),
                     authorId = entry.authorId,
                     latestEditorId = entry.latestEditorId,
@@ -434,6 +490,20 @@ public class StagingWorkflowService(
                     targetSourceIds = session.preparedProposal?.targets?.map { it.sourceId }.orEmpty(),
                     shaclImpact = session.preparedProposal?.toWebShaclImpact(),
                     message = message,
+                    validationIssues = session.preparedProposal?.stagingIntegrityIssues?.map { issue ->
+                        WebProposalValidationIssue(
+                            code = issue.code,
+                            message = issue.message,
+                            stagedChangeId = issue.stagedChangeId,
+                            remediations = issue.remediations.map { remediation ->
+                                WebProposalRemediation(
+                                    action = remediation.action,
+                                    label = remediation.label,
+                                    stagedChangeIds = remediation.stagedChangeIds,
+                                )
+                            },
+                        )
+                    }.orEmpty(),
                 )
             },
         )
@@ -485,6 +555,35 @@ public class StagingWorkflowService(
         shapeIri = result.shape.iri.value,
     )
 
+    private fun webDeletionDependency(
+        dependency: com.entio.core.DeletionDependency,
+        labels: Map<String, String>,
+    ): WebDeletionDependency {
+        val objectValue = when (val term = dependency.statement.objectTerm) {
+            is RdfResource -> term.value
+            is RdfLiteral -> buildString {
+                append('"').append(term.lexicalForm).append('"')
+                term.languageTag?.let { append('@').append(it) }
+                term.datatypeIri?.let { append("^^").append(it.value) }
+            }
+        }
+        return WebDeletionDependency(
+            key = dependency.identityKey,
+            kind = dependency.kind.name,
+            subject = dependency.statement.subjectResource.value,
+            subjectLabel = deletionTermLabel(dependency.statement.subjectResource.value, labels),
+            predicate = dependency.statement.predicate.value,
+            predicateLabel = deletionTermLabel(dependency.statement.predicate.value, labels),
+            objectValue = objectValue,
+            objectLabel = (dependency.statement.objectTerm as? RdfResource)
+                ?.let { deletionTermLabel(it.value, labels) }
+                ?: (dependency.statement.objectTerm as RdfLiteral).lexicalForm,
+        )
+    }
+
+    private fun deletionTermLabel(value: String, labels: Map<String, String>): String =
+        labels[value] ?: DELETION_TERM_LABELS[value] ?: value.substringAfterLast('#').substringAfterLast('/')
+
     private fun WebStageChangeRequest.toOperation(project: EntioProject): StagedChangeOperation {
         if (editType == "delete") {
             val target = project.symbols.firstOrNull { symbol -> targetIri == symbol.iri.value || (targetIri == null && targetLabel == symbol.label) }
@@ -494,6 +593,15 @@ public class StagingWorkflowService(
             val candidate = EntityCandidate(target.iri, target.label, target.kind, target.sourceId)
             val plan = deletionAnalyzer.analyze(ontology, candidate, selectedDependencyKeys = dependencyKeys)
             return StagedChangeOperation.Delete(plan)
+        }
+        if (isSemanticMetadataEdit()) {
+            return when (val translated = editTranslator.translate(toSemanticEdit())) {
+                is EntioResult.Failure -> throw WebWorkflowFailure(
+                    translated.issues.firstOrNull()?.code ?: "semantic-edit-invalid",
+                    translated.message,
+                )
+                is EntioResult.Success -> StagedChangeOperation.GraphChanges(translated.value)
+            }
         }
         return StagedChangeOperation.TypedEdit(toTypedEdit())
     }
@@ -560,6 +668,9 @@ public class StagingWorkflowService(
         val prepared = when (editType) {
             "create-class" -> copy(classIri = newEntity(classIri, label, SymbolKind.Class, "class"))
             "set-entity-label" -> copy(resourceIri = existing(resourceIri ?: targetIri, resourceLabel ?: targetLabel, null, "entity"))
+            "add-definition", "replace-definition", "remove-definition",
+            "add-alternate-label", "replace-alternate-label", "remove-alternate-label",
+            -> copy(targetIri = existing(targetIri, targetLabel, null, "target"))
             "add-superclass", "remove-superclass" -> copy(
                 classIri = existing(classIri, classLabel, SymbolKind.Class, "class"),
                 superclassIri = existing(superclassIri, superclassLabel, SymbolKind.Class, "superclass"),
@@ -567,17 +678,17 @@ public class StagingWorkflowService(
             "create-object-property", "create-datatype-property" -> copy(
                 propertyIri = newEntity(propertyIri, label, SymbolKind.Property, "property"),
             )
-            "set-property-domain" -> copy(
+            "set-property-domain", "remove-property-domain" -> copy(
                 propertyIri = existing(propertyIri, propertyLabel, SymbolKind.Property, "property"),
                 domainClassIri = existing(domainClassIri, domainClassLabel, SymbolKind.Class, "domain class"),
             )
-            "set-property-range" -> copy(
+            "set-property-range", "remove-property-range" -> copy(
                 propertyIri = existing(propertyIri, propertyLabel, SymbolKind.Property, "property"),
                 rangeIri = range(),
             )
             "create-individual" -> copy(
                 individualIri = newEntity(individualIri, label ?: individualLabel, SymbolKind.Individual, "individual"),
-                classIri = if (classIri.isNullOrBlank() && classLabel.isNullOrBlank()) null else existing(classIri, classLabel, SymbolKind.Class, "class"),
+                classIri = existing(classIri, classLabel, SymbolKind.Class, "class"),
             )
             "assign-type" -> copy(
                 resourceIri = existing(resourceIri, resourceLabel, null, "resource"),
@@ -606,6 +717,8 @@ public class StagingWorkflowService(
         "create-datatype-property" -> CreateDatatypePropertyEdit(requiredIri(propertyIri, "propertyIri"), label?.let(::literal))
         "set-property-domain" -> SetPropertyDomainEdit(requiredIri(propertyIri, "propertyIri"), requiredIri(domainClassIri, "domainClassIri"))
         "set-property-range" -> SetPropertyRangeEdit(requiredIri(propertyIri, "propertyIri"), requiredIri(rangeIri, "rangeIri"))
+        "remove-property-domain" -> RemovePropertyDomainEdit(requiredIri(propertyIri, "propertyIri"), requiredIri(domainClassIri, "domainClassIri"))
+        "remove-property-range" -> RemovePropertyRangeEdit(requiredIri(propertyIri, "propertyIri"), requiredIri(rangeIri, "rangeIri"))
         "create-individual" -> CreateIndividualEdit(requiredIri(individualIri, "individualIri"), classIri?.let(::Iri))
         "assign-type" -> AssignTypeEdit(requiredResource(resourceIri, "resourceIri"), requiredIri(typeIri, "typeIri"))
         "add-object-property-assertion" -> AddObjectPropertyAssertionEdit(requiredResource(subjectIri, "subjectIri"), requiredIri(propertyIri, "propertyIri"), requiredResource(objectIri, "objectIri"))
@@ -613,15 +726,45 @@ public class StagingWorkflowService(
         else -> throw WebWorkflowFailure("unsupported-edit-type", "Edit type '$editType' is not supported by the web boundary.")
     }
 
+    private fun WebStageChangeRequest.toSemanticEdit(): SemanticEditRequest = when (editType) {
+        "add-definition" -> SemanticEditRequest.AddDefinition(requiredResource(targetIri, "targetIri"), requiredLiteral(value, "value"), sourceId)
+        "replace-definition" -> SemanticEditRequest.ReplaceDefinition(
+            requiredResource(targetIri, "targetIri"),
+            requiredLiteral(existingValue, "existingValue"),
+            requiredLiteral(value, "value"),
+            sourceId,
+        )
+        "remove-definition" -> SemanticEditRequest.RemoveDefinition(requiredResource(targetIri, "targetIri"), requiredLiteral(value, "value"), sourceId)
+        "add-alternate-label" -> SemanticEditRequest.AddAlternateLabel(requiredResource(targetIri, "targetIri"), requiredLiteral(value, "value"), sourceId)
+        "replace-alternate-label" -> SemanticEditRequest.ReplaceAlternateLabel(
+            requiredResource(targetIri, "targetIri"),
+            requiredLiteral(existingValue, "existingValue"),
+            requiredLiteral(value, "value"),
+            sourceId,
+        )
+        "remove-alternate-label" -> SemanticEditRequest.RemoveAlternateLabel(requiredResource(targetIri, "targetIri"), requiredLiteral(value, "value"), sourceId)
+        else -> throw WebWorkflowFailure("unsupported-edit-type", "Edit type '$editType' is not a semantic metadata edit.")
+    }
+
+    private fun WebStageChangeRequest.isSemanticMetadataEdit(): Boolean = editType in setOf(
+        "add-definition",
+        "replace-definition",
+        "remove-definition",
+        "add-alternate-label",
+        "replace-alternate-label",
+        "remove-alternate-label",
+    )
+
     private fun WebStageChangeRequest.normalizedValues(): Map<String, String> = sequenceOf(
         "classIri" to classIri, "superclassIri" to superclassIri, "propertyIri" to propertyIri,
         "domainClassIri" to domainClassIri, "rangeIri" to rangeIri, "individualIri" to individualIri,
         "resourceIri" to (resourceIri ?: targetIri), "typeIri" to typeIri, "subjectIri" to subjectIri,
         "objectIri" to objectIri, "targetIri" to targetIri, "label" to label, "value" to value,
+        "existingValue" to existingValue,
         "classLabel" to classLabel, "superclassLabel" to superclassLabel, "propertyLabel" to propertyLabel,
         "domainClassLabel" to domainClassLabel, "rangeLabel" to rangeLabel, "individualLabel" to individualLabel,
         "resourceLabel" to resourceLabel, "typeLabel" to typeLabel, "subjectLabel" to subjectLabel,
-        "objectLabel" to objectLabel,
+        "objectLabel" to objectLabel, "targetLabel" to targetLabel,
     ).mapNotNull { (key, current) -> current?.takeIf(String::isNotBlank)?.let { key to it } }.toMap()
 
     private fun WebStageChangeRequest.summary(): String = "$editType · ${targetLabel ?: label ?: classLabel ?: propertyLabel ?: individualLabel ?: resourceLabel ?: subjectLabel ?: targetIri ?: classIri ?: propertyIri ?: individualIri ?: subjectIri ?: "target"}"
@@ -642,6 +785,17 @@ public class StagingWorkflowService(
             "boolean" to "http://www.w3.org/2001/XMLSchema#boolean",
             "date" to "http://www.w3.org/2001/XMLSchema#date",
             "datetime" to "http://www.w3.org/2001/XMLSchema#dateTime",
+        )
+        private val DELETION_TERM_LABELS: Map<String, String> = mapOf(
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#type" to "type",
+            "http://www.w3.org/2000/01/rdf-schema#label" to "label",
+            "http://www.w3.org/2000/01/rdf-schema#subClassOf" to "superclass",
+            "http://www.w3.org/2000/01/rdf-schema#domain" to "domain",
+            "http://www.w3.org/2000/01/rdf-schema#range" to "range",
+            "http://www.w3.org/2002/07/owl#Class" to "Class",
+            "http://www.w3.org/2002/07/owl#ObjectProperty" to "Object property",
+            "http://www.w3.org/2002/07/owl#DatatypeProperty" to "Datatype property",
+            "http://www.w3.org/2002/07/owl#NamedIndividual" to "Individual",
         )
     }
 }

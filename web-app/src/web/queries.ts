@@ -126,11 +126,11 @@ export function useProjectOutline(projectId: string, sourceId?: string) {
   });
 }
 
-export function useEntityDetails(projectId: string, iri: string) {
+export function useEntityDetails(projectId: string, iri: string, enabled = true) {
   return useQuery<WebEntityDetailResponse>({
     queryKey: queryKeys.entity(projectId, iri),
     queryFn: () => loadEntityDetails(projectId, iri),
-    enabled: projectId.length > 0 && iri.length > 0,
+    enabled: enabled && projectId.length > 0 && iri.length > 0,
   });
 }
 
@@ -150,7 +150,11 @@ export function useStagingActions(projectId: string) {
   const queryClient = useQueryClient();
   const refresh = (data: Awaited<ReturnType<typeof loadStagedChanges>>) => {
     queryClient.setQueryData(queryKeys.staged(projectId), data);
-    queryClient.invalidateQueries({ queryKey: queryKeys.summary(projectId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.summary(projectId) });
+  };
+  const refreshApplied = async (data: Awaited<ReturnType<typeof loadStagedChanges>>) => {
+    queryClient.setQueryData(queryKeys.staged(projectId), data);
+    await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
   };
   return {
     stage: useMutation({ mutationFn: (request: Parameters<typeof stageChange>[1]) => stageChange(projectId, request), onSuccess: refresh }),
@@ -158,7 +162,18 @@ export function useStagingActions(projectId: string) {
     preview: useMutation({ mutationFn: () => previewStagedChanges(projectId), onSuccess: refresh }),
     approve: useMutation({ mutationFn: () => approveProposal(projectId), onSuccess: refresh }),
     reject: useMutation({ mutationFn: () => rejectProposal(projectId), onSuccess: refresh }),
-    apply: useMutation({ mutationFn: () => applyProposal(projectId), onSuccess: refresh }),
+    apply: useMutation({ mutationFn: () => applyProposal(projectId), onSuccess: refreshApplied }),
+    accept: useMutation({
+      mutationFn: async () => {
+        const current = queryClient.getQueryData<Awaited<ReturnType<typeof loadStagedChanges>>>(queryKeys.staged(projectId));
+        if (current?.proposal?.status !== "APPROVED") {
+          const approved = await approveProposal(projectId);
+          queryClient.setQueryData(queryKeys.staged(projectId), approved);
+        }
+        return applyProposal(projectId);
+      },
+      onSuccess: refreshApplied,
+    }),
   };
 }
 
