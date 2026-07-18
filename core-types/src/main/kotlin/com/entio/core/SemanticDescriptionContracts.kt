@@ -153,6 +153,7 @@ public enum class SemanticMatchReason {
     AlternateLabel,
     Iri,
     Annotation,
+    AssertedType,
 }
 
 /** Filters accepted by the semantic search boundary. */

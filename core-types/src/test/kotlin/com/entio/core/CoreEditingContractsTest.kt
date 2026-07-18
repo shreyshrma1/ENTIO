@@ -57,6 +57,11 @@ class CoreEditingContractsTest {
                 propertyIri = Iri("https://example.com/name"),
                 rangeIri = Iri("http://www.w3.org/2001/XMLSchema#string"),
             ),
+            RemovePropertyDomainEdit(propertyIri = Iri("https://example.com/name"), domainClassIri = customerIri),
+            RemovePropertyRangeEdit(
+                propertyIri = Iri("https://example.com/name"),
+                rangeIri = Iri("http://www.w3.org/2001/XMLSchema#string"),
+            ),
             CreateIndividualEdit(individualIri = Iri("https://example.com/customer-1"), classIri = customerIri),
             AssignTypeEdit(resource = BlankNodeResource(id = "b0"), typeIri = customerIri),
             AddObjectPropertyAssertionEdit(

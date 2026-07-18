@@ -37,8 +37,14 @@ class SemanticDescriptionServiceTest {
         val project = project()
 
         val preferred = service.search(project, SemanticSearchQuery(text = "customer", preferredLanguage = "en"))
-        assertEquals(SemanticMatchReason.PreferredLabel, preferred.single().reason)
-        assertEquals(SemanticDescriptorKind.Class, preferred.single().descriptor.common.kind)
+        assertEquals(
+            listOf("https://example.com/Customer", "https://example.com/Shrey"),
+            preferred.map { it.descriptor.common.entity.value },
+        )
+        assertEquals(SemanticMatchReason.PreferredLabel, preferred.first().reason)
+        assertEquals(SemanticDescriptorKind.Class, preferred.first().descriptor.common.kind)
+        assertEquals(SemanticMatchReason.AssertedType, preferred.last().reason)
+        assertEquals(SemanticDescriptorKind.Individual, preferred.last().descriptor.common.kind)
 
         val alternate = service.search(
             project,
@@ -50,7 +56,7 @@ class SemanticDescriptionServiceTest {
         assertEquals(SemanticMatchReason.Annotation, annotation.single().reason)
 
         val sourceFiltered = service.search(project, SemanticSearchQuery(text = "customer", preferredLanguage = "en", sourceId = "simple"))
-        assertEquals(1, sourceFiltered.size)
+        assertEquals(2, sourceFiltered.size)
         assertTrue(service.search(project, SemanticSearchQuery(text = "customer", sourceId = "other")).isEmpty())
     }
 
@@ -67,6 +73,8 @@ class SemanticDescriptionServiceTest {
                         skos:prefLabel "Customer"@en ;
                         skos:altLabel "Client"@en ;
                         ex:note "Important customer" .
+                    ex:Shrey a ex:Customer ;
+                        skos:prefLabel "Shrey"@en .
                     ex:note a owl:AnnotationProperty .
                     """.trimIndent(),
                 ),

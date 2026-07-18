@@ -98,6 +98,10 @@ class ApplicationTest {
             "/api/v1/projects/simple/entities?iri=" +
                 "https%3A%2F%2Fexample.com%2Fentio%2Fsimple%23Shrey",
         )
+        val customerDetail = client.get(
+            "/api/v1/projects/simple/entities?iri=" +
+                "https%3A%2F%2Fexample.com%2Fentio%2Fsimple%23Customer",
+        )
 
         assertEquals(HttpStatusCode.OK, summary.status)
         assertContains(summary.bodyAsText(), "graphTripleCount")
@@ -113,10 +117,16 @@ class ApplicationTest {
         assertEquals(HttpStatusCode.OK, search.status)
         assertContains(search.bodyAsText(), "Customer")
         assertContains(search.bodyAsText(), "PreferredLabel")
+        assertContains(search.bodyAsText(), "Shrey")
+        assertContains(search.bodyAsText(), "AssertedType")
         assertEquals(HttpStatusCode.OK, detail.status)
         assertContains(detail.bodyAsText(), "Shrey")
         assertContains(detail.bodyAsText(), "received invoice")
         assertContains(detail.bodyAsText(), "Invoice 20874")
+        assertEquals(HttpStatusCode.OK, customerDetail.status)
+        assertContains(customerDetail.bodyAsText(), "\"direction\":\"incoming\"")
+        assertContains(customerDetail.bodyAsText(), "\"value\":\"https://example.com/entio/simple#receivedInvoice\"")
+        assertContains(customerDetail.bodyAsText(), "\"label\":\"received invoice\"")
     }
 
     @Test
@@ -187,6 +197,56 @@ class ApplicationTest {
             Path.of("..", "external-ontologies/fibo/indexes/catalog-v1.jsonl"),
         ).firstOrNull(Files::isRegularFile)
         assertTrue(asset != null)
+    }
+
+    @Test
+    fun deletionDependenciesAreReviewableBeforeDeletionIsStaged(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-deletion")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+
+        val dependencies = client.post("/api/v1/projects/simple/deletion-dependencies") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                """{"sourceId":"simple","targetIri":"https://example.com/entio/simple#receivedInvoice","targetLabel":"received invoice"}""",
+            )
+        }
+        val dependencyBody = dependencies.bodyAsText()
+        assertEquals(HttpStatusCode.OK, dependencies.status)
+        assertContains(dependencyBody, "RequiresExplicitDependencies")
+        assertContains(dependencyBody, "Shrey")
+        assertContains(dependencyBody, "received invoice")
+        assertContains(dependencyBody, "Invoice 20874")
+
+        val dependencyKey = com.fasterxml.jackson.databind.ObjectMapper()
+            .readTree(dependencyBody)
+            .path("dependentStatements")
+            .first()
+            .path("key")
+            .asText()
+        val stage = client.post("/api/v1/projects/simple/staged") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
+                    mapOf(
+                        "sourceId" to "simple",
+                        "editType" to "delete",
+                        "targetIri" to "https://example.com/entio/simple#receivedInvoice",
+                        "targetLabel" to "received invoice",
+                        "dependencyKeys" to listOf(dependencyKey),
+                    ),
+                ),
+            )
+        }
+        assertEquals(HttpStatusCode.OK, stage.status)
+        assertContains(stage.bodyAsText(), "delete · received invoice")
+
+        val preview = client.post("/api/v1/projects/simple/proposal/preview")
+        assertEquals(HttpStatusCode.OK, preview.status)
+        assertContains(preview.bodyAsText(), "READYFORREVIEW")
     }
 
     @Test
@@ -270,6 +330,127 @@ class ApplicationTest {
     }
 
     @Test
+    fun stagingAcceptsAnExistingRdfPropertyDomain(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-property-domain")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        Files.writeString(
+            projectRoot.resolve("ontology/simple.ttl"),
+            Files.readString(projectRoot.resolve("ontology/simple.ttl")) +
+                """
+
+                <https://example.com/entio/simple#Account>
+                    a <http://www.w3.org/2000/01/rdf-schema#Class> ;
+                    <http://www.w3.org/2000/01/rdf-schema#label> "Account" .
+                <https://example.com/entio/simple#ownsAccount>
+                    a <http://www.w3.org/1999/02/22-rdf-syntax-ns#Property> ;
+                    <http://www.w3.org/2000/01/rdf-schema#label> "owns account" .
+                """.trimIndent(),
+        )
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+
+        val staged = client.post("/api/v1/projects/simple/staged") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                """
+                {
+                  "sourceId":"simple",
+                  "editType":"set-property-domain",
+                  "propertyIri":"https://example.com/entio/simple#ownsAccount",
+                  "propertyLabel":"owns account",
+                  "domainClassIri":"https://example.com/entio/simple#Account",
+                  "domainClassLabel":"Account"
+                }
+                """.trimIndent(),
+            )
+        }
+
+        val body = staged.bodyAsText()
+        assertEquals(HttpStatusCode.OK, staged.status, body)
+        assertContains(body, "\"editType\":\"set-property-domain\"")
+        assertContains(body, "https://example.com/entio/simple#ownsAccount")
+        assertContains(body, "https://example.com/entio/simple#Account")
+
+        val range = client.post("/api/v1/projects/simple/staged") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                """
+                {
+                  "sourceId":"simple",
+                  "editType":"set-property-range",
+                  "propertyIri":"https://example.com/entio/simple#ownsAccount",
+                  "propertyLabel":"owns account",
+                  "rangeIri":"https://example.com/entio/simple#Customer",
+                  "rangeLabel":"Customer"
+                }
+                """.trimIndent(),
+            )
+        }
+        assertEquals(HttpStatusCode.OK, range.status, range.bodyAsText())
+
+        val preview = client.post("/api/v1/projects/simple/proposal/preview")
+        val previewBody = preview.bodyAsText()
+        assertEquals(HttpStatusCode.OK, preview.status, previewBody)
+        assertContains(previewBody, "READYFORREVIEW")
+        assertFalse(previewBody.contains("missing-property"))
+    }
+
+    @Test
+    fun synchronizedFieldEditsReplaceAndRemoveTheSameStagedEntry(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-synchronized-fields")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+
+        val initial = client.post("/api/v1/projects/simple/staged") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                """
+                {
+                  "sourceId":"simple",
+                  "editType":"add-definition",
+                  "targetIri":"https://example.com/entio/simple#Customer",
+                  "targetLabel":"Customer",
+                  "value":"An initial definition."
+                }
+                """.trimIndent(),
+            )
+        }
+        assertEquals(HttpStatusCode.OK, initial.status)
+        assertContains(initial.bodyAsText(), "stage-1")
+        assertContains(initial.bodyAsText(), "An initial definition.")
+
+        val replacement = client.post("/api/v1/projects/simple/staged") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                """
+                {
+                  "sourceId":"simple",
+                  "editType":"add-definition",
+                  "targetIri":"https://example.com/entio/simple#Customer",
+                  "targetLabel":"Customer",
+                  "value":"The edited definition.",
+                  "replacesStagedId":"stage-1"
+                }
+                """.trimIndent(),
+            )
+        }
+        val replacementBody = replacement.bodyAsText()
+        assertEquals(HttpStatusCode.OK, replacement.status)
+        assertEquals(1, Regex("\\\"id\\\":\\\"stage-1\\\"").findAll(replacementBody).count())
+        assertContains(replacementBody, "The edited definition.")
+        assertFalse(replacementBody.contains("An initial definition."))
+
+        val removed = client.delete("/api/v1/projects/simple/staged/stage-1")
+        assertEquals(HttpStatusCode.OK, removed.status)
+        assertContains(removed.bodyAsText(), "\"entries\":[]")
+    }
+
+    @Test
     fun rejectingAProposalLeavesItsStagedEntriesForCorrection(): Unit = testApplication {
         val allowedRoot = Files.createTempDirectory("entio-web-reject")
         val projectRoot = createReadOnlyFixture(allowedRoot)
@@ -290,6 +471,72 @@ class ApplicationTest {
         assertContains(rejected.bodyAsText(), "stage-1")
         assertContains(rejected.bodyAsText(), "READY")
         assertFalse(Files.readString(projectRoot.resolve("ontology/simple.ttl")).contains("Account"))
+    }
+
+    @Test
+    fun creatingAnIndividualRequiresAnInitialClass(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-individual-class")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+
+        val response = client.post("/api/v1/projects/simple/staged") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"sourceId":"simple","editType":"create-individual","label":"Account 101"}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertContains(response.bodyAsText(), "A class label is required.")
+        assertContains(response.bodyAsText(), "missing-field")
+    }
+
+    @Test
+    fun proposalRejectsSuperclassAssignmentAfterItsStagedSuperclassIsRemoved(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-staged-superclass")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+
+        client.post("/api/v1/projects/simple/staged") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"sourceId":"simple","editType":"create-class","classIri":"https://example.com/entio/simple#FinancialProduct","label":"Financial Product"}""")
+        }
+        client.post("/api/v1/projects/simple/staged") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"sourceId":"simple","editType":"create-class","classIri":"https://example.com/entio/simple#CheckingAccount","label":"Checking Account"}""")
+        }
+        client.post("/api/v1/projects/simple/staged") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                """
+                {
+                  "sourceId":"simple",
+                  "editType":"add-superclass",
+                  "classIri":"https://example.com/entio/simple#CheckingAccount",
+                  "classLabel":"Checking Account",
+                  "superclassIri":"https://example.com/entio/simple#FinancialProduct",
+                  "superclassLabel":"Financial Product"
+                }
+                """.trimIndent(),
+            )
+        }
+
+        assertEquals(HttpStatusCode.OK, client.delete("/api/v1/projects/simple/staged/stage-1").status)
+        val preview = client.post("/api/v1/projects/simple/proposal/preview")
+        val body = preview.bodyAsText()
+
+        assertEquals(HttpStatusCode.OK, preview.status)
+        assertContains(body, "VERIFICATIONFAILED")
+        assertContains(body, "dangling-staged-superclass")
+        assertContains(body, "Checking Account cannot use Financial Product as a superclass")
+        assertContains(body, "REMOVE_SUPERCLASS_ASSIGNMENT")
+        assertContains(body, "REMOVE_STAGED_SUBCLASS")
+        assertContains(body, "stage-2")
+        assertContains(body, "stage-3")
     }
 
     @Test

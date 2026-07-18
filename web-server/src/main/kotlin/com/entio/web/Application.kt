@@ -28,7 +28,7 @@ import com.entio.web.contract.WebProjectListResponse
 import com.entio.web.contract.WebSessionResponse
 import com.entio.web.contract.WebPageRequest
 import com.entio.web.contract.WebStageChangeRequest
-import com.entio.web.contract.WebStagingResponse
+import com.entio.web.contract.WebDeletionDependenciesRequest
 import com.entio.web.contract.WebPresenceUser
 import com.entio.core.Iri
 import com.entio.core.SemanticDescriptorKind
@@ -477,6 +477,15 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
             call.respondWorkflow { staging.snapshot(call.requiredProjectId()) }
         }
 
+        post("/api/v1/projects/{projectId}/deletion-dependencies") {
+            call.respondWorkflow {
+                staging.deletionDependencies(
+                    call.requiredProjectId(),
+                    call.receive<WebDeletionDependenciesRequest>(),
+                )
+            }
+        }
+
         post("/api/v1/projects/{projectId}/staged") {
             call.respondWorkflow {
                 val user = call.requireUser(dependencies)
@@ -801,7 +810,7 @@ private val terminalAiRunStatuses: Set<String> = setOf(
     "STALE",
 )
 
-private suspend fun ApplicationCall.respondWorkflow(block: suspend () -> WebStagingResponse): Unit = try {
+private suspend inline fun <reified T : Any> ApplicationCall.respondWorkflow(crossinline block: suspend () -> T): Unit = try {
     respond(block())
 } catch (failure: WebWorkflowFailure) {
     val status = when (failure.code) {

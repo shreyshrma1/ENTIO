@@ -13,6 +13,7 @@ import com.entio.core.ShaclValidationStatus
 import com.entio.core.SourceFileImpact
 import com.entio.core.StagedChange
 import com.entio.core.StagedChangeSet
+import com.entio.core.SymbolKind
 import com.entio.core.ValidationIssue
 import com.entio.core.ValidationReport
 import com.entio.core.ValidationSeverity
@@ -38,6 +39,20 @@ internal data class PreparedWebProposal(
     val currentShaclFingerprint: String,
     val previewShaclFingerprint: String,
     val expectedShaclResults: Set<String>,
+    val stagingIntegrityIssues: List<StagedIntegrityIssue>,
+)
+
+internal data class StagedIntegrityRemediation(
+    val action: String,
+    val label: String,
+    val stagedChangeIds: List<String>,
+)
+
+internal data class StagedIntegrityIssue(
+    val code: String,
+    val message: String,
+    val stagedChangeId: String,
+    val remediations: List<StagedIntegrityRemediation>,
 )
 
 /** Builds one reviewable proposal while retaining source-specific atomic apply targets. */
@@ -53,6 +68,7 @@ internal class WebProposalPlanner(
     private val shaclTranslator: TypedShaclEditTranslator = TypedShaclEditTranslator(),
 ) {
     fun prepare(project: EntioProject, entries: List<StagedChange>): PreparedWebProposal {
+        val stagingIntegrityIssues = stagedSuperclassIntegrityIssues(project, entries)
         val materializedEntries = materializeShaclEdits(project, entries)
         val normalized = normalize(materializedEntries)
         if (normalized.conflicts.isNotEmpty()) {
@@ -100,7 +116,7 @@ internal class WebProposalPlanner(
                 ?.roles
                 ?.contains(com.entio.core.ShaclGraphRole.Shapes) != true
         }
-        val validation = combinedValidation(project, ontologyEntries, impact, currentShacl, previewShacl)
+        val validation = combinedValidation(project, ontologyEntries, impact, currentShacl, previewShacl, stagingIntegrityIssues)
         val prepared = proposal.copy(
             status = if (validation.ok) ChangeProposalStatus.ReadyForReview else ChangeProposalStatus.VerificationFailed,
             validationReport = validation,
@@ -114,8 +130,68 @@ internal class WebProposalPlanner(
             currentShaclFingerprint = currentShacl.graphIdentity.combinedFingerprint(),
             previewShaclFingerprint = previewShacl.graphIdentity.combinedFingerprint(),
             expectedShaclResults = previewShacl.results.map(::verificationKey).toSet(),
+            stagingIntegrityIssues = stagingIntegrityIssues,
         )
     }
+
+    private fun stagedSuperclassIntegrityIssues(
+        project: EntioProject,
+        entries: List<StagedChange>,
+    ): List<StagedIntegrityIssue> {
+        val appliedClassIris = project.symbols
+            .filter { it.kind == SymbolKind.Class }
+            .map { it.iri.value }
+            .toSet()
+        val stagedClasses = entries
+            .filter { it.summary.substringBefore(" · ") == "create-class" }
+            .mapNotNull { entry -> entry.normalizedValues["classIri"]?.let { it to entry } }
+            .toMap()
+        val availableClassIris = appliedClassIris + stagedClasses.keys
+
+        return entries
+            .filter { it.summary.substringBefore(" · ") == "add-superclass" }
+            .mapNotNull { assignment ->
+                val superclassIri = assignment.normalizedValues["superclassIri"] ?: return@mapNotNull null
+                if (superclassIri in availableClassIris) return@mapNotNull null
+                val subclassIri = assignment.normalizedValues["classIri"] ?: return@mapNotNull null
+                val subclassLabel = assignment.normalizedValues["classLabel"] ?: subclassIri.substringAfterLast('#').substringAfterLast('/')
+                val superclassLabel = assignment.normalizedValues["superclassLabel"] ?: superclassIri.substringAfterLast('#').substringAfterLast('/')
+                val stagedSubclass = stagedClasses[subclassIri]
+                val remediations = buildList {
+                    add(
+                        StagedIntegrityRemediation(
+                            action = "REMOVE_SUPERCLASS_ASSIGNMENT",
+                            label = "Remove superclass assignment",
+                            stagedChangeIds = listOf(assignment.id),
+                        ),
+                    )
+                    if (stagedSubclass != null) {
+                        add(
+                            StagedIntegrityRemediation(
+                                action = "REMOVE_STAGED_SUBCLASS",
+                                label = "Remove staged subclass",
+                                stagedChangeIds = entries
+                                    .filter { entry -> entry.targetsClass(subclassIri) }
+                                    .sortedWith(compareByDescending<StagedChange> { it.order }.thenByDescending { it.id })
+                                    .map { it.id },
+                            ),
+                        )
+                    }
+                }
+                StagedIntegrityIssue(
+                    code = "dangling-staged-superclass",
+                    message = "$subclassLabel cannot use $superclassLabel as a superclass because that staged class is no longer available.",
+                    stagedChangeId = assignment.id,
+                    remediations = remediations,
+                )
+            }
+            .sortedWith(compareBy({ it.stagedChangeId }, { it.message }))
+    }
+
+    private fun StagedChange.targetsClass(classIri: String): Boolean =
+        normalizedValues["classIri"] == classIri ||
+            normalizedValues["resourceIri"] == classIri ||
+            normalizedValues["targetIri"] == classIri
 
     private fun materializeShaclEdits(project: EntioProject, entries: List<StagedChange>): List<StagedChange> {
         val currentGraphs = project.ontologies.associate { it.source.id to it.graph }.toMutableMap()
@@ -216,8 +292,12 @@ internal class WebProposalPlanner(
         impact: ProposalImpactReport,
         currentShacl: ShaclValidationReport,
         previewShacl: ShaclValidationReport,
+        stagingIntegrityIssues: List<StagedIntegrityIssue>,
     ): ValidationReport {
         val issues = mutableListOf<ValidationIssue>()
+        stagingIntegrityIssues.forEach { issue ->
+            issues += ValidationIssue(ValidationSeverity.Error, issue.code, issue.message, issue.stagedChangeId)
+        }
         if (ontologyEntries.isNotEmpty()) {
             val normalized = normalize(ontologyEntries)
             val changes = normalized.changeSet

@@ -15,6 +15,8 @@ import com.entio.core.GraphTriple
 import com.entio.core.Iri
 import com.entio.core.RdfLiteral
 import com.entio.core.RemoveSuperclassEdit
+import com.entio.core.RemovePropertyDomainEdit
+import com.entio.core.RemovePropertyRangeEdit
 import com.entio.core.SetEntityLabelEdit
 import com.entio.core.SetPropertyDomainEdit
 import com.entio.core.SetPropertyRangeEdit
@@ -97,6 +99,14 @@ class TypedOntologyEditTranslatorTest {
         assertEquals(
             listOf(added(datatypeProperty, RDFS_RANGE, XSD_STRING)),
             translate(SetPropertyRangeEdit(propertyIri = datatypeProperty, rangeIri = XSD_STRING)).changes,
+        )
+        assertEquals(
+            listOf(removed(objectProperty, RDFS_DOMAIN, CUSTOMER)),
+            translate(RemovePropertyDomainEdit(propertyIri = objectProperty, domainClassIri = CUSTOMER)).changes,
+        )
+        assertEquals(
+            listOf(removed(objectProperty, RDFS_RANGE, ACCOUNT)),
+            translate(RemovePropertyRangeEdit(propertyIri = objectProperty, rangeIri = ACCOUNT)).changes,
         )
     }
 

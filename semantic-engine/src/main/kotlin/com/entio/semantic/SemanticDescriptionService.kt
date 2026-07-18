@@ -49,12 +49,14 @@ public class SemanticDescriptionService(
     ): List<SemanticSearchResult> {
         val normalizedQuery = query.text.trim().lowercase(Locale.ROOT)
         if (normalizedQuery.isEmpty()) return emptyList()
+        val descriptors = assembler.assemble(project, query.preferredLanguage)
+        val descriptorsByEntity = descriptors.groupBy { it.common.entity.value }
 
-        return assembler.assemble(project, query.preferredLanguage)
+        return descriptors
             .asSequence()
             .filter { descriptor -> query.kind == null || descriptor.common.kind == query.kind }
             .filter { descriptor -> query.sourceId == null || descriptor.common.sourceId == query.sourceId }
-            .mapNotNull { descriptor -> descriptor.match(normalizedQuery) }
+            .mapNotNull { descriptor -> descriptor.match(normalizedQuery, descriptorsByEntity) }
             .sortedWith(
                 compareBy<SemanticSearchResult> { it.rank }
                     .thenBy { it.descriptor.common.preferredLabel?.stableKey.orEmpty() }
@@ -64,7 +66,25 @@ public class SemanticDescriptionService(
             .toList()
     }
 
-    private fun OntologyEntityDescriptor.match(normalizedQuery: String): SemanticSearchResult? {
+    private fun OntologyEntityDescriptor.match(
+        normalizedQuery: String,
+        descriptorsByEntity: Map<String, List<OntologyEntityDescriptor>>,
+    ): SemanticSearchResult? {
+        directMatch(normalizedQuery)?.let { return it }
+
+        val matchesAssertedType = this is OntologyEntityDescriptor.Individual && assertedTypes.any { type ->
+            descriptorsByEntity[type.value].orEmpty().any { descriptor ->
+                descriptor.matchesEntityName(normalizedQuery)
+            }
+        }
+        if (matchesAssertedType) {
+            return SemanticSearchResult(this, SemanticMatchReason.AssertedType, ASSERTED_TYPE_RANK)
+        }
+
+        return null
+    }
+
+    private fun OntologyEntityDescriptor.directMatch(normalizedQuery: String): SemanticSearchResult? {
         val common = common
         val preferred = common.preferredLabel?.lexicalForm?.contains(normalizedQuery, ignoreCase = true) == true
         if (preferred) return SemanticSearchResult(this, SemanticMatchReason.PreferredLabel, PREFERRED_LABEL_RANK)
@@ -86,6 +106,13 @@ public class SemanticDescriptionService(
         return null
     }
 
+    private fun OntologyEntityDescriptor.matchesEntityName(normalizedQuery: String): Boolean {
+        val common = common
+        return common.preferredLabel?.lexicalForm?.contains(normalizedQuery, ignoreCase = true) == true ||
+            common.alternateLabels.any { it.lexicalForm.contains(normalizedQuery, ignoreCase = true) } ||
+            common.entity.value.lowercase(Locale.ROOT).contains(normalizedQuery)
+    }
+
     private fun com.entio.core.RdfTerm.toSearchText(): String = when (this) {
         is com.entio.core.RdfResource -> value
         is com.entio.core.RdfLiteral -> lexicalForm
@@ -96,5 +123,6 @@ public class SemanticDescriptionService(
         private const val ALTERNATE_LABEL_RANK: Int = 1
         private const val IRI_RANK: Int = 2
         private const val ANNOTATION_RANK: Int = 3
+        private const val ASSERTED_TYPE_RANK: Int = 4
     }
 }

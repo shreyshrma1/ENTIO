@@ -410,7 +410,7 @@ public class ReadOnlyProjectAdapter(
     ): WebRelationship = WebRelationship(
         direction = direction,
         predicate = predicate.reference(labels, kinds),
-        value = objectTerm.toWebValue(labels),
+        value = if (direction == "incoming") subject.toWebValue(labels) else objectTerm.toWebValue(labels),
         sourceId = sourceId,
     )
 

@@ -15,10 +15,11 @@ import {
   type WebPage,
   type WebProjectListResponse,
 } from "./contracts";
+import { withDevelopmentIdentity } from "./session";
 
 export type WebFetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-const defaultFetcher: WebFetcher = (input, init) => globalThis.fetch(input, init);
+const defaultFetcher: WebFetcher = (input, init) => globalThis.fetch(input, withDevelopmentIdentity(init));
 
 export async function loadProjects(fetcher: WebFetcher = defaultFetcher): Promise<WebProjectListResponse> {
   return getJson("/api/v1/projects", fetcher);
@@ -183,10 +184,13 @@ export interface WebStageChangeRequest {
   validationMessage?: string;
   label?: string;
   value?: string;
+  existingValue?: string;
   datatypeIri?: string;
   languageTag?: string;
+  dependencyKeys?: string[];
   comment?: string;
   aiGenerated?: boolean;
+  replacesStagedId?: string;
   idempotencyKey?: string;
 }
 
@@ -204,6 +208,33 @@ export interface WebStagedEntry {
   normalizedValues: Record<string, string>;
   generatedIris: string[];
   validationMessages: string[];
+}
+
+export interface WebDeletionDependenciesRequest {
+  sourceId: string;
+  targetIri?: string;
+  targetLabel?: string;
+}
+
+export interface WebDeletionDependency {
+  key: string;
+  kind: string;
+  subject: string;
+  subjectLabel: string;
+  predicate: string;
+  predicateLabel: string;
+  objectValue: string;
+  objectLabel: string;
+}
+
+export interface WebDeletionDependenciesResponse {
+  apiVersion: "v1";
+  projectId: string;
+  targetIri: string;
+  targetLabel: string;
+  status: string;
+  directStatements: WebDeletionDependency[];
+  dependentStatements: WebDeletionDependency[];
 }
 
 export interface WebDiffEntry {
@@ -224,6 +255,20 @@ export interface WebProposalState {
   targetSourceIds: string[];
   shaclImpact: WebShaclImpact | null;
   message: string | null;
+  validationIssues: WebProposalValidationIssue[];
+}
+
+export interface WebProposalValidationIssue {
+  code: string;
+  message: string;
+  stagedChangeId: string;
+  remediations: WebProposalRemediation[];
+}
+
+export interface WebProposalRemediation {
+  action: string;
+  label: string;
+  stagedChangeIds: string[];
 }
 
 export interface WebShaclFindingSummary {
@@ -394,6 +439,14 @@ export interface WebAiAssistantResponse {
 
 export async function loadStagedChanges(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
   return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/staged`, fetcher);
+}
+
+export async function loadDeletionDependencies(
+  projectId: string,
+  request: WebDeletionDependenciesRequest,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebDeletionDependenciesResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/deletion-dependencies`, "POST", request, fetcher);
 }
 
 export async function stageChange(projectId: string, request: WebStageChangeRequest, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {

@@ -17,6 +17,7 @@ import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import kotlin.io.path.appendText
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.Test
@@ -200,13 +201,20 @@ class Phase25PlusEndToEndRegressionTest {
     @Test
     fun deletionRequiresExplicitSelectionAndAppliesAgainstCopiedFixture(): Unit {
         val unreferencedFixture = copyExampleProject()
-        val accountIri = "https://example.com/entio/simple#Account"
+        val unreferencedIri = "https://example.com/entio/simple#UnreferencedClass"
+        unreferencedFixture.ontologyPath.appendText(
+            """
+
+                <$unreferencedIri> a <http://www.w3.org/2000/01/rdf-schema#Class> ;
+                  <http://www.w3.org/2000/01/rdf-schema#label> "Unreferenced class" .
+            """.trimIndent() + "\n",
+        )
         val unreferencedDependencies = runCli(
             "deletion-dependencies",
             unreferencedFixture.projectRoot.toString(),
             "simple",
             "--iri",
-            accountIri,
+            unreferencedIri,
         )
         assertEquals(0, unreferencedDependencies.exitCode, unreferencedDependencies.out)
         assertTrue(unreferencedDependencies.out.contains("\"status\":\"Safe\""), unreferencedDependencies.out)
@@ -215,7 +223,7 @@ class Phase25PlusEndToEndRegressionTest {
             "proposal-combined",
             unreferencedFixture.projectRoot.toString(),
             "--request-file",
-            writeDeletionRequest(unreferencedFixture.projectRoot, accountIri).toString(),
+            writeDeletionRequest(unreferencedFixture.projectRoot, unreferencedIri).toString(),
             "--action",
             "apply",
         )
@@ -223,7 +231,7 @@ class Phase25PlusEndToEndRegressionTest {
         assertTrue(unreferencedApply.out.contains("\"status\":\"applied\""), unreferencedApply.out)
         val afterUnreferencedDeletion = loadProject(unreferencedFixture.projectRoot)
         assertTrue(afterUnreferencedDeletion.graph.triples.none { triple ->
-            triple.subjectResource == Iri(accountIri)
+            triple.subjectResource == Iri(unreferencedIri)
         })
 
         val referencedFixture = copyExampleProject()

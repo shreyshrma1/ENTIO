@@ -38,10 +38,12 @@ public data class WebStageChangeRequest(
     val dependencyKeys: Set<String> = emptySet(),
     val label: String? = null,
     val value: String? = null,
+    val existingValue: String? = null,
     val datatypeIri: String? = null,
     val languageTag: String? = null,
     val comment: String? = null,
     val aiGenerated: Boolean = false,
+    val replacesStagedId: String? = null,
     val idempotencyKey: String? = null,
 )
 
@@ -59,6 +61,33 @@ public data class WebStagedEntry(
     val normalizedValues: Map<String, String>,
     val generatedIris: List<String>,
     val validationMessages: List<String>,
+)
+
+public data class WebDeletionDependenciesRequest(
+    val sourceId: String,
+    val targetIri: String? = null,
+    val targetLabel: String? = null,
+)
+
+public data class WebDeletionDependency(
+    val key: String,
+    val kind: String,
+    val subject: String,
+    val subjectLabel: String,
+    val predicate: String,
+    val predicateLabel: String,
+    val objectValue: String,
+    val objectLabel: String,
+)
+
+public data class WebDeletionDependenciesResponse(
+    val apiVersion: String = WEB_API_VERSION,
+    val projectId: String,
+    val targetIri: String,
+    val targetLabel: String,
+    val status: String,
+    val directStatements: List<WebDeletionDependency>,
+    val dependentStatements: List<WebDeletionDependency>,
 )
 
 public data class WebDiffEntry(
@@ -79,6 +108,20 @@ public data class WebProposalState(
     val targetSourceIds: List<String> = emptyList(),
     val shaclImpact: WebShaclImpact? = null,
     val message: String? = null,
+    val validationIssues: List<WebProposalValidationIssue> = emptyList(),
+)
+
+public data class WebProposalValidationIssue(
+    val code: String,
+    val message: String,
+    val stagedChangeId: String,
+    val remediations: List<WebProposalRemediation>,
+)
+
+public data class WebProposalRemediation(
+    val action: String,
+    val label: String,
+    val stagedChangeIds: List<String>,
 )
 
 public data class WebShaclFindingSummary(
