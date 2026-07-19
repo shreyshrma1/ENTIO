@@ -111,6 +111,7 @@ public class AiTaskStateMachine {
             ),
             AiTaskStatus.STALE to setOf(
                 AiTaskStatus.UNDERSTANDING,
+                AiTaskStatus.AWAITING_PLAN_CONFIRMATION,
                 AiTaskStatus.VALIDATING,
                 AiTaskStatus.CANCELLED,
                 AiTaskStatus.FAILED,

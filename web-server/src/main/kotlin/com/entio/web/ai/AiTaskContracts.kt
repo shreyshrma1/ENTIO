@@ -223,6 +223,7 @@ public data class AiTaskLimitRecord(
 public data class AiTaskWorkspace(
     val task: AiTask,
     val revision: Long = 0,
+    val currentProjectFingerprint: String = task.scope.projectFingerprint,
     val assumptions: List<AiTaskAssumption> = emptyList(),
     val openQuestions: List<AiTaskOpenQuestion> = emptyList(),
     val selectedEntities: List<AiTaskEntityReference> = emptyList(),
@@ -241,6 +242,7 @@ public data class AiTaskWorkspace(
 ) {
     init {
         require(revision >= 0)
+        require(currentProjectFingerprint.isNotBlank())
         require(executionSegments.isNotEmpty())
         require(executionSegments.first().copy(completedAt = task.initialExecutionSegment.completedAt) == task.initialExecutionSegment)
         require(executionSegments.map(AiTaskExecutionSegment::ordinal) == (1..executionSegments.size).toList())
