@@ -66,7 +66,7 @@ class AiTypedEditCapabilitiesTest {
             WebStageChangeRequest(
                 "shapes",
                 "shacl-update-constraint",
-                shapeLabel = "CustomerShape",
+                shapeLabel = "Minimum Accounts",
                 pathLabel = "owns account",
                 constraintKind = "min-count",
                 constraintValue = "2",
@@ -74,11 +74,11 @@ class AiTypedEditCapabilitiesTest {
             WebStageChangeRequest(
                 "shapes",
                 "shacl-remove-constraint",
-                shapeLabel = "CustomerShape",
+                shapeLabel = "Minimum Accounts",
                 pathLabel = "owns account",
                 constraintKind = "min-count",
             ),
-            WebStageChangeRequest("shapes", "shacl-delete-shape", shapeLabel = "CustomerShape"),
+            WebStageChangeRequest("shapes", "shacl-delete-shape", shapeLabel = "Minimum Accounts"),
         )
 
         assertEquals(AiTypedEditCapabilityInventory.approvedEditTypes, requests.map(WebStageChangeRequest::editType).toSet())
