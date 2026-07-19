@@ -1,6 +1,7 @@
 package com.entio.web.ai
 
 import com.entio.web.StagingWorkflowService
+import com.entio.web.ReadOnlyProjectAdapter
 import com.entio.web.contract.InMemoryProjectRegistry
 import com.entio.web.contract.WebPermission
 import java.nio.file.Files
@@ -82,6 +83,27 @@ class AiConversationServiceTest {
         assertTrue(provider.requests.first().trustedPolicy.contains("follow every relevant hierarchy node whose childCount is greater than zero"))
         assertTrue(provider.requests.first().trustedPolicy.contains("separate asserted relationships from cautious domain inference"))
         assertTrue(fixture.staging.snapshot("simple").entries.isEmpty())
+    }
+
+    @Test
+    fun currentOntologyQuestionReceivesEntioProjectAndSourceContextWithoutRedundantClarification(): Unit = runBlocking {
+        val provider = FakeToolProvider(completed(text = "The current ontology contains Account and related financial concepts."))
+        val fixture = fixture(provider)
+
+        val result = fixture.service.send(
+            fixture.scope,
+            fixture.conversation.id,
+            AiConversationTurnRequest("Can you explain the classes in this ontology?"),
+        )
+
+        assertEquals(AiRunStatus.READY_FOR_REVIEW, result.run.status)
+        assertEquals(AiConversationIntent.EXPLANATION, result.intent)
+        assertTrue(provider.requests.single().trustedPolicy.contains("do not ask which ontology the user means"))
+        assertTrue(provider.requests.single().trustedPolicy.contains("ontology-first workbench"))
+        assertTrue(provider.requests.single().userInput.contains("ENTIO_CURRENT_CONTEXT_DATA"))
+        assertTrue(provider.requests.single().userInput.contains("\"projectId\":\"simple\""))
+        assertTrue(provider.requests.single().userInput.contains("\"id\":\"simple\""))
+        assertTrue(provider.requests.single().userInput.contains("\"roles\":["))
     }
 
     @Test
@@ -487,6 +509,7 @@ class AiConversationServiceTest {
         val credentialStore = InMemoryAiCredentialStore()
         val credentials = AiCredentialService(credentialStore, provider)
         credentials.save("alice", AiCredentialRequest(provider.providerId, "test-key"))
+        val localReads = AiLocalReadCapabilityService(ReadOnlyProjectAdapter(projects), staging)
         val service = AiConversationService(
             conversations = conversations,
             runs = runs,
@@ -497,6 +520,7 @@ class AiConversationServiceTest {
             dispatcher = DefaultAiCapabilityDispatcher(drafts = workspace),
             provider = provider,
             credentials = credentials,
+            contextPackages = AiContextPackageBuilder(localReads),
             modelBindings = modelBindings,
             clock = clock,
             idFactory = { prefix -> "$prefix-${ids.merge(prefix, 1, Int::plus)}" },
