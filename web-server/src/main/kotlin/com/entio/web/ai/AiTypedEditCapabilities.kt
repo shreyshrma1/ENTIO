@@ -42,6 +42,9 @@ public object AiTypedEditCapabilityInventory {
                 "assign-type",
                 "add-object-property-assertion",
                 "add-datatype-property-assertion",
+                "add-definition",
+                "replace-definition",
+                "remove-definition",
                 "delete",
             ),
             status = AiTypedEditLifecycleStatus.APPROVED,
@@ -64,9 +67,6 @@ public object AiTypedEditCapabilityInventory {
         AiTypedEditInventoryEntry(
             family = "semantic-metadata",
             editTypes = setOf(
-                "add-definition",
-                "replace-definition",
-                "remove-definition",
                 "add-alternate-label",
                 "replace-alternate-label",
                 "remove-alternate-label",

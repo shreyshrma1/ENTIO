@@ -55,6 +55,31 @@ class AiConversationServiceTest {
     }
 
     @Test
+    fun definitionRequestCreatesAReviewablePrivateDraftWithoutMutatingSharedStaging(): Unit = runBlocking {
+        val definition = "An account is a record used to organize and track financial activity for a party."
+        val provider = FakeToolProvider(
+            completed(calls = listOf(addDefinitionCall("definition-1", "Account", definition))),
+            completed(text = "I drafted a definition for Account for your review."),
+        )
+        val fixture = fixture(provider)
+
+        val result = fixture.service.send(
+            fixture.scope,
+            fixture.conversation.id,
+            AiConversationTurnRequest("Add a definition for the account class that makes sense"),
+        )
+
+        assertEquals(AiRunStatus.READY_FOR_REVIEW, result.run.status, result.answer)
+        assertEquals("I drafted a definition for Account for your review.", result.answer)
+        val draft = fixture.drafts.get("alice", "simple", fixture.conversation.id, assertNotNull(result.draftId))
+        val request = (draft.items.single().operation as AiTypedDraftOperation).request
+        assertEquals("add-definition", request.editType)
+        assertEquals("Account", request.targetLabel)
+        assertEquals(definition, request.value)
+        assertTrue(fixture.staging.snapshot("simple").entries.isEmpty())
+    }
+
+    @Test
     fun runBindsOneModelAcrossToolLoopAndFutureRunUsesNewSelection(): Unit = runBlocking {
         val bindings = MutableBindingResolver("gpt-5.6-sol")
         val provider = FakeToolProvider(
@@ -509,6 +534,12 @@ class AiConversationServiceTest {
         id,
         AiTypedEditCapabilityAdapter.ADD_ONTOLOGY_CAPABILITY,
         """{"sourceId":"simple","editType":"create-object-property","rationale":"Add the reviewed relationship.","label":"$label"}""",
+    )
+
+    private fun addDefinitionCall(id: String, label: String, definition: String): OpenAiFunctionCall = simpleCall(
+        id,
+        AiTypedEditCapabilityAdapter.ADD_ONTOLOGY_CAPABILITY,
+        """{"sourceId":"simple","editType":"add-definition","rationale":"Document the reviewed concept.","targetLabel":"$label","value":"$definition"}""",
     )
 
     private fun updateClassCall(id: String, itemId: String, label: String): OpenAiFunctionCall = simpleCall(

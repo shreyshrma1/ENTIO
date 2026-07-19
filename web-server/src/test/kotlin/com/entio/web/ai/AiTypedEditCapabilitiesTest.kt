@@ -52,6 +52,20 @@ class AiTypedEditCapabilitiesTest {
                 propertyLabel = "owns account",
                 value = "A-100",
             ),
+            WebStageChangeRequest("simple", "add-definition", targetLabel = "Account", value = "A record used to organize financial activity."),
+            WebStageChangeRequest(
+                "simple",
+                "replace-definition",
+                targetLabel = "Customer",
+                existingValue = "A person or organization that holds one or more accounts.",
+                value = "A party that holds one or more accounts.",
+            ),
+            WebStageChangeRequest(
+                "simple",
+                "remove-definition",
+                targetLabel = "Invoice",
+                value = "A commercial document issued by a seller to a buyer.",
+            ),
             deletion,
             WebStageChangeRequest("shapes", "shacl-create-node-shape", shapeLabel = "Invoice Shape", targetClassLabel = "Invoice"),
             WebStageChangeRequest(
@@ -231,14 +245,6 @@ class AiTypedEditCapabilitiesTest {
         val scope = fixture.scope()
         workspace.create(scope, "draft-1")
 
-        assertDraftFailure("unsupported-typed-edit") {
-            workspace.add(
-                scope,
-                "draft-1",
-                AiTypedEditCapabilityAdapter.ADD_ONTOLOGY_CAPABILITY,
-                AiAddDraftItemArguments("simple", WebStageChangeRequest("simple", "add-definition", targetLabel = "Customer", value = "A client."), "Unsupported metadata."),
-            )
-        }
         assertDraftFailure("unsupported-typed-edit") {
             workspace.add(
                 scope,
