@@ -160,14 +160,22 @@ public class AiIntentClassifier {
             "set label",
             "add definition",
             "add a definition",
+            "add definitions",
             "set definition",
             "set a definition",
+            "set definitions",
             "write a definition",
+            "write definitions",
             "create a definition",
+            "create definitions",
             "replace definition",
+            "replace definitions",
             "update definition",
+            "update definitions",
             "change definition",
+            "change definitions",
             "remove definition",
+            "remove definitions",
             "create shape",
             "update constraint",
         )
@@ -707,6 +715,8 @@ public class AiConversationService(
             "the selected entity IRI is ${screenContext.selectedEntityIri ?: "none"}. " +
             "For semantic drafting, proactively inspect relevant local entities with project summary, search, entity detail, hierarchy, and usage tools as needed. " +
             "You may infer a plausible domain and draft wording from labels, entity kinds, hierarchy, and relationships, but keep inference reviewable and do not present it as asserted ontology fact. " +
+            "When the user requests definitions for multiple or all classes, create one ordinary typed add-definition or replace-definition draft edit per requested class. " +
+            "Include every requested class in the same current private draft, using the same typed staging path as a user-authored definition, and leave all edits unapproved for human review. " +
             "For ontology relationship or overview questions not already answered by the supplied ontology overview, inspect hierarchy and entity usage, follow every relevant hierarchy node whose childCount is greater than zero, " +
             "name the returned classes and properties, and clearly separate asserted relationships from cautious domain inference based on names and structure. " +
             "Resolve an entity named explicitly by the user and pass it as targetLabel (or targetIri) for definition edits."

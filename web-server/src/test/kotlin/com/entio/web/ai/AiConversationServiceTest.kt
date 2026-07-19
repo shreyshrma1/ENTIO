@@ -86,6 +86,38 @@ class AiConversationServiceTest {
     }
 
     @Test
+    fun pluralDefinitionRequestStagesOneOrdinaryTypedEditForEveryClass(): Unit = runBlocking {
+        val definitions = linkedMapOf(
+            "Account" to "A record used to organize financial activity for a party.",
+            "Checking Account" to "An account that supports deposits, withdrawals, and payment transactions.",
+            "Customer" to "A person or organization that receives services from the institution.",
+            "Invoice" to "A document stating amounts owed for supplied goods or services.",
+        )
+        val responses = definitions.map { (label, definition) ->
+            completed(calls = listOf(addDefinitionCall("definition-${label.lowercase().replace(' ', '-')}", "simple", label, definition)))
+        } + completed(text = "I staged definitions for all four classes for your review.")
+        val provider = FakeToolProvider(*responses.toTypedArray())
+        val fixture = fixture(provider)
+
+        val result = fixture.service.send(
+            fixture.scope,
+            fixture.conversation.id,
+            AiConversationTurnRequest("Write definitions for all classes in this ontology"),
+        )
+
+        assertEquals(AiConversationIntent.SMALL_EDIT, result.intent)
+        assertEquals(AiRunStatus.READY_FOR_REVIEW, result.run.status, result.answer)
+        val draft = fixture.drafts.get("alice", "simple", fixture.conversation.id, assertNotNull(result.draftId))
+        val requests = draft.items.map { (it.operation as AiTypedDraftOperation).request }
+        assertEquals(definitions.keys.toList(), requests.map { it.targetLabel })
+        assertEquals(definitions.values.toList(), requests.map { it.value })
+        assertTrue(requests.all { it.editType == "add-definition" && it.aiGenerated })
+        assertTrue(provider.requests.first().trustedPolicy.contains("one ordinary typed add-definition or replace-definition draft edit per requested class"))
+        assertTrue(provider.requests.first().trustedPolicy.contains("leave all edits unapproved for human review"))
+        assertTrue(fixture.staging.snapshot("simple").entries.isEmpty())
+    }
+
+    @Test
     fun currentOntologyQuestionReceivesEntioProjectAndSourceContextWithoutRedundantClarification(): Unit = runBlocking {
         val provider = FakeToolProvider(completed(text = "The current ontology contains Account and related financial concepts."))
         val fixture = fixture(provider)
