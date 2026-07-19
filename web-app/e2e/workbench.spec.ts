@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("completes the browser workbench journey through reviewable staging", async ({ page }) => {
+test("completes the browser workbench and assistant model journey through reviewable staging", async ({ page }) => {
   const stagedEditTypes: string[] = [];
   const stagedEntries: Array<Record<string, unknown>> = [];
   let approvingUser: string | undefined;
@@ -68,7 +68,7 @@ test("completes the browser workbench journey through reviewable staging", async
       directStatements: [{ key: "direct-1", kind: "DirectDefinition", subject: "https://example.com/entio/simple#Customer", subjectLabel: "Customer", predicate: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type", predicateLabel: "type", objectValue: "http://www.w3.org/2002/07/owl#Class", objectLabel: "Class" }],
       dependentStatements: [{ key: "dependent-1", kind: "IncomingReference", subject: "https://example.com/entio/simple#Shrey", subjectLabel: "Shrey", predicate: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type", predicateLabel: "type", objectValue: "https://example.com/entio/simple#Customer", objectLabel: "Customer" }],
     });
-    if (path.endsWith("/ai/credential-status")) return json(route, { apiVersion: "v1", configured: true, providerId: "openai", testStatus: "PASSED" });
+    if (path.endsWith("/ai/provider-settings")) return json(route, aiProviderSettings());
     if (path.endsWith("/ai/conversations") && request.method() === "GET") return json(route, { apiVersion: "v1", conversations: [aiConversation([])] });
     if (path.endsWith("/ai/conversations/conversation-1") && request.method() === "GET") return json(route, { apiVersion: "v1", conversation: aiConversation([]) });
     if (path.endsWith("/ai/conversations/conversation-1/messages") && request.method() === "POST") {
@@ -197,14 +197,15 @@ test("completes the browser workbench journey through reviewable staging", async
   await page.getByRole("textbox", { name: "Display name" }).fill("Shrey Sharma");
   await page.getByRole("button", { name: "Save name" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Display name updated." })).toBeVisible();
-  await expect(page.getByText("Provider credential", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "OpenAI provider", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Assistant", exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Entio AI assistant" })).toBeVisible();
   const settingsScroll = page.locator(".workspace-content");
   await expect.poll(() => settingsScroll.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
   await settingsScroll.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
   await expect.poll(() => settingsScroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-  await expect(page.getByRole("button", { name: "Save credential" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Replace key" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Selected and verified" })).toBeVisible();
   await page.getByRole("button", { name: "Close assistant" }).click();
   await page.reload();
   await expect(page.getByRole("heading", { name: "simple-ontology" })).toBeVisible();
@@ -316,6 +317,11 @@ async function json(route: import("@playwright/test").Route, body: unknown) {
 
 function aiConversation(messages: unknown[], currentDraftId: string | null = null) {
   return { id: "conversation-1", projectId: "simple", messages, currentDraftId, modelId: "gpt-5.2", status: "ACTIVE", createdAt: "2026-07-17T12:00:00Z", updatedAt: "2026-07-17T12:00:01Z" };
+}
+
+function aiProviderSettings() {
+  const model = { providerId: "openai", modelId: "gpt-5.2", displayName: "GPT-5.2", description: "Balanced model", capabilityTier: "ADVANCED", relativeSpeed: "Medium", relativeCost: "Medium", recommended: true, capabilities: ["RESPONSES", "TOOLS"] };
+  return { apiVersion: "v1", providerId: "openai", credentialStatus: "VALID", discoveryStatus: "COMPLETED", discoveredAt: "2026-07-17T12:00:00Z", policyVersion: "phase-7.5-compatibility-v1", models: [model], unsupportedProviderModelCount: 0, selectedModel: model, selectionStatus: "READY", selectedModelVerifiedAt: "2026-07-17T12:00:00Z", errorCode: null, availableActions: [] };
 }
 
 function aiMessage(id: string, role: "USER" | "ASSISTANT", content: string, operation: string | null = null, evidenceReferenceIds: string[] = []) {
