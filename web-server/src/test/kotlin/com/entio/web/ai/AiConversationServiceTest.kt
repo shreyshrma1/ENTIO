@@ -1,6 +1,7 @@
 package com.entio.web.ai
 
 import com.entio.web.StagingWorkflowService
+import com.entio.web.ReadOnlyProjectAdapter
 import com.entio.web.contract.InMemoryProjectRegistry
 import com.entio.web.contract.WebPermission
 import java.nio.file.Files
@@ -52,6 +53,94 @@ class AiConversationServiceTest {
         assertTrue(provider.requests.all { it.userInput.contains("Create class Receivable Account") })
         assertTrue(provider.requests.all { it.previousResponseId == null })
         assertTrue(fixture.staging.snapshot("simple").entries.isEmpty())
+    }
+
+    @Test
+    fun definitionRequestCreatesAReviewablePrivateDraftWithoutMutatingSharedStaging(): Unit = runBlocking {
+        val definition = "An account is a record used to organize and track financial activity for a party."
+        val provider = FakeToolProvider(
+            completed(calls = listOf(addDefinitionCall("definition-1", "ontology", "Account", definition))),
+            completed(text = "I drafted a definition for Account for your review."),
+        )
+        val fixture = fixture(provider)
+
+        val result = fixture.service.send(
+            fixture.scope,
+            fixture.conversation.id,
+            AiConversationTurnRequest("Add a definition for the account class that makes sense"),
+        )
+
+        assertEquals(AiRunStatus.READY_FOR_REVIEW, result.run.status, result.answer)
+        assertEquals("I drafted a definition for Account for your review.", result.answer)
+        val draft = fixture.drafts.get("alice", "simple", fixture.conversation.id, assertNotNull(result.draftId))
+        val request = (draft.items.single().operation as AiTypedDraftOperation).request
+        assertEquals("add-definition", request.editType)
+        assertEquals("Account", request.targetLabel)
+        assertEquals(definition, request.value)
+        assertTrue(provider.requests.first().trustedPolicy.contains("exact allowed source IDs when calling tools: simple, shapes"))
+        assertTrue(provider.requests.first().trustedPolicy.contains("proactively inspect relevant local entities"))
+        assertTrue(provider.requests.first().trustedPolicy.contains("infer a plausible domain and draft wording"))
+        assertTrue(provider.requests.first().trustedPolicy.contains("follow every relevant hierarchy node whose childCount is greater than zero"))
+        assertTrue(provider.requests.first().trustedPolicy.contains("separate asserted relationships from cautious domain inference"))
+        assertTrue(fixture.staging.snapshot("simple").entries.isEmpty())
+    }
+
+    @Test
+    fun pluralDefinitionRequestStagesOneOrdinaryTypedEditForEveryClass(): Unit = runBlocking {
+        val definitions = linkedMapOf(
+            "Account" to "A record used to organize financial activity for a party.",
+            "Checking Account" to "An account that supports deposits, withdrawals, and payment transactions.",
+            "Customer" to "A person or organization that receives services from the institution.",
+            "Invoice" to "A document stating amounts owed for supplied goods or services.",
+        )
+        val responses = definitions.map { (label, definition) ->
+            completed(calls = listOf(addDefinitionCall("definition-${label.lowercase().replace(' ', '-')}", "simple", label, definition)))
+        } + completed(text = "I staged definitions for all four classes for your review.")
+        val provider = FakeToolProvider(*responses.toTypedArray())
+        val fixture = fixture(provider)
+
+        val result = fixture.service.send(
+            fixture.scope,
+            fixture.conversation.id,
+            AiConversationTurnRequest("Write definitions for all classes in this ontology"),
+        )
+
+        assertEquals(AiConversationIntent.SMALL_EDIT, result.intent)
+        assertEquals(AiRunStatus.READY_FOR_REVIEW, result.run.status, result.answer)
+        val draft = fixture.drafts.get("alice", "simple", fixture.conversation.id, assertNotNull(result.draftId))
+        val requests = draft.items.map { (it.operation as AiTypedDraftOperation).request }
+        assertEquals(definitions.keys.toList(), requests.map { it.targetLabel })
+        assertEquals(definitions.values.toList(), requests.map { it.value })
+        assertTrue(requests.all { it.editType == "add-definition" && it.aiGenerated })
+        assertTrue(provider.requests.first().trustedPolicy.contains("use entio_draft_add_definition"))
+        assertTrue(provider.requests.first().trustedPolicy.contains("always supply the exact class targetLabel"))
+        assertTrue(provider.requests.first().trustedPolicy.contains("leave all edits unapproved for human review"))
+        assertTrue(fixture.staging.snapshot("simple").entries.isEmpty())
+    }
+
+    @Test
+    fun currentOntologyQuestionReceivesEntioProjectAndSourceContextWithoutRedundantClarification(): Unit = runBlocking {
+        val provider = FakeToolProvider(completed(text = "The current ontology contains Account and related financial concepts."))
+        val fixture = fixture(provider)
+
+        val result = fixture.service.send(
+            fixture.scope,
+            fixture.conversation.id,
+            AiConversationTurnRequest("Can you explain the classes in this ontology?"),
+        )
+
+        assertEquals(AiRunStatus.READY_FOR_REVIEW, result.run.status)
+        assertEquals(AiConversationIntent.EXPLANATION, result.intent)
+        assertTrue(provider.requests.single().trustedPolicy.contains("do not ask which ontology the user means"))
+        assertTrue(provider.requests.single().trustedPolicy.contains("ontology-first workbench"))
+        assertTrue(provider.requests.single().userInput.contains("ENTIO_CURRENT_CONTEXT_DATA"))
+        assertTrue(provider.requests.single().userInput.contains("\"projectId\":\"simple\""))
+        assertTrue(provider.requests.single().userInput.contains("\"id\":\"simple\""))
+        assertTrue(provider.requests.single().userInput.contains("\"roles\":["))
+        assertTrue(provider.requests.single().userInput.contains("\"label\":\"Checking Account\""))
+        assertTrue(provider.requests.single().userInput.contains("\"predicateLabel\":\"owns account\""))
+        assertTrue(provider.requests.single().trustedPolicy.contains("Use the bounded ontology overview"))
+        assertTrue(provider.requests.single().trustedPolicy.contains("Minimize provider and capability calls"))
     }
 
     @Test
@@ -457,6 +546,7 @@ class AiConversationServiceTest {
         val credentialStore = InMemoryAiCredentialStore()
         val credentials = AiCredentialService(credentialStore, provider)
         credentials.save("alice", AiCredentialRequest(provider.providerId, "test-key"))
+        val localReads = AiLocalReadCapabilityService(ReadOnlyProjectAdapter(projects), staging)
         val service = AiConversationService(
             conversations = conversations,
             runs = runs,
@@ -467,6 +557,7 @@ class AiConversationServiceTest {
             dispatcher = DefaultAiCapabilityDispatcher(drafts = workspace),
             provider = provider,
             credentials = credentials,
+            contextPackages = AiContextPackageBuilder(localReads),
             modelBindings = modelBindings,
             clock = clock,
             idFactory = { prefix -> "$prefix-${ids.merge(prefix, 1, Int::plus)}" },
@@ -509,6 +600,12 @@ class AiConversationServiceTest {
         id,
         AiTypedEditCapabilityAdapter.ADD_ONTOLOGY_CAPABILITY,
         """{"sourceId":"simple","editType":"create-object-property","rationale":"Add the reviewed relationship.","label":"$label"}""",
+    )
+
+    private fun addDefinitionCall(id: String, sourceId: String, label: String, definition: String): OpenAiFunctionCall = simpleCall(
+        id,
+        AiTypedEditCapabilityAdapter.ADD_DEFINITION_CAPABILITY,
+        """{"sourceId":"$sourceId","targetLabel":"$label","value":"$definition","rationale":"Document the reviewed concept."}""",
     )
 
     private fun updateClassCall(id: String, itemId: String, label: String): OpenAiFunctionCall = simpleCall(

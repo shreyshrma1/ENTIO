@@ -216,6 +216,26 @@ class OpenAiResponsesClientTest {
     }
 
     @Test
+    fun transientRateLimitWaitsForProviderWindowAndThenCompletes(): Unit = runBlocking {
+        var attempts = 0
+        val observed = mutableListOf<OpenAiProviderEvent>()
+        val engine = MockEngine {
+            attempts += 1
+            if (attempts == 1) {
+                respond("rate limited", status = HttpStatusCode.TooManyRequests, headers = headersOf(HttpHeaders.RetryAfter, "0"))
+            } else {
+                respond(completedStream("response-retry", "Completed after retry."), headers = eventStreamHeaders())
+            }
+        }
+
+        val result = client(engine).use { it.respond("key", request(), observed::add) }
+
+        assertEquals("Completed after retry.", assertIs<OpenAiResponsesResult.Completed>(result).response.text)
+        assertEquals(2, attempts)
+        assertEquals(OpenAiProviderEvent.Retrying(2, 3, 0), observed.first())
+    }
+
+    @Test
     fun timeoutMalformedRefusalIncompleteAndProviderErrorsMapToStructuredFailures(): Unit = runBlocking {
         assertFailure(OpenAiFailureCode.TIMEOUT, HttpStatusCode.RequestTimeout, "timeout")
         assertStreamFailure(OpenAiFailureCode.MALFORMED_RESPONSE, event("not-json"))
@@ -393,6 +413,8 @@ class OpenAiResponsesClientTest {
         endpoint = endpoint,
         store = store,
         requestTimeoutMillis = 1_000,
+        retryBaseDelayMillis = 1,
+        maxRetryDelayMillis = 10,
     )
 
     private fun event(json: String): String = "data: $json\n\n"

@@ -42,6 +42,7 @@ import com.entio.web.ai.AiBoundedContextBuilder
 import com.entio.web.ai.AiCapabilityRegistry
 import com.entio.web.ai.AiConversationFailure
 import com.entio.web.ai.AiConversationService
+import com.entio.web.ai.AiContextPackageBuilder
 import com.entio.web.ai.AiCredentialFailure
 import com.entio.web.ai.AiDraftAnalysisCapabilityService
 import com.entio.web.ai.AiDraftAnalysisService
@@ -142,6 +143,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
     val aiBaseline = AiProjectBaselineService(dependencies.projectRegistry)
     val aiDraftWorkspace = AiPrivateDraftWorkspace(aiDrafts, AiTypedEditCapabilityAdapter(staging))
     val aiAnalysis = AiDraftAnalysisService(aiDrafts, aiAnalyses, aiBaseline)
+    val aiLocalReads = AiLocalReadCapabilityService(readOnly, staging)
     val aiConversation = AiConversationService(
         conversations = aiConversations,
         runs = aiRuns,
@@ -150,13 +152,14 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
         draftWorkspace = aiDraftWorkspace,
         registry = AiCapabilityRegistry(),
         dispatcher = DefaultAiCapabilityDispatcher(
-            localReads = AiLocalReadCapabilityService(readOnly, staging),
+            localReads = aiLocalReads,
             semanticReads = AiSemanticReadCapabilityService(jobs, staging, collaboration, fibo),
             drafts = aiDraftWorkspace,
             draftAnalysis = AiDraftAnalysisCapabilityService(aiAnalysis),
         ),
         provider = dependencies.aiToolLoopProvider,
         credentials = aiCredentials,
+        contextPackages = AiContextPackageBuilder(aiLocalReads),
         modelBindings = SelectedAiRunModelBindingResolver(
             settingsStore = aiModelSettingsStore,
             discovery = aiModelDiscovery,

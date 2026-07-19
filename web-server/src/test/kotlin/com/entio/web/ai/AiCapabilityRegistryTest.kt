@@ -79,6 +79,31 @@ class AiCapabilityRegistryTest {
         assertTrue(arguments.request.aiGenerated)
         assertTrue(decoded.definition.inputSchema.additionalProperties.not())
 
+        val definition = registry.decode(
+            invocation(
+                snapshot,
+                AiTypedEditCapabilityAdapter.ADD_DEFINITION_CAPABILITY,
+                """{"sourceId":"simple","targetLabel":"Account","value":"A financial record.","rationale":"Document the concept."}""",
+            ),
+            snapshot,
+            privateScope,
+        )
+        val definitionArguments = assertIs<AiAddDraftItemArguments>(definition.arguments)
+        assertEquals("Account", definitionArguments.request.targetLabel)
+        assertEquals(setOf("sourceId", "targetLabel", "value", "rationale"), definition.definition.inputSchema.required)
+        assertDecodeFails(
+            """{"sourceId":"simple","value":"A financial record.","rationale":"Document the concept."}""",
+            AiTypedEditCapabilityAdapter.ADD_DEFINITION_CAPABILITY,
+            "missing-argument",
+            privateScope,
+        )
+        assertDecodeFails(
+            """{"sourceId":"simple","editType":"add-definition","targetLabel":"Account","value":"A financial record.","rationale":"Document the concept."}""",
+            AiTypedEditCapabilityAdapter.ADD_ONTOLOGY_CAPABILITY,
+            "invalid-enum-value",
+            privateScope,
+        )
+
         assertFailureCode("invalid-enum-value") {
             registry.decode(
                 invocation(
@@ -212,8 +237,7 @@ class AiCapabilityRegistryTest {
         assertFailsWith<IllegalArgumentException> { AiCapabilityRegistry(listOf(forbidden)) }
     }
 
-    private fun assertDecodeFails(json: String, capabilityName: String, code: String) {
-        val scope = scope()
+    private fun assertDecodeFails(json: String, capabilityName: String, code: String, scope: AiCapabilityScope = scope()) {
         val snapshot = registry.snapshot(scope)
         assertFailureCode(code) {
             registry.decode(invocation(snapshot, capabilityName, json), snapshot, scope)

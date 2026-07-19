@@ -24,6 +24,9 @@ All approved ontology operations use `WebStageChangeRequest`, the side-effect-fr
 | `assign-type` | `AssignTypeEdit` | Existing typed staging, preview, validation, review, apply, reload, rollback | `APPROVED` |
 | `add-object-property-assertion` | `AddObjectPropertyAssertionEdit` | Existing typed staging, preview, validation, review, apply, reload, rollback | `APPROVED` |
 | `add-datatype-property-assertion` | `AddDatatypePropertyAssertionEdit` | Existing typed staging, preview, validation, review, apply, reload, rollback | `APPROVED` |
+| `add-definition` | `SemanticEditRequest.AddDefinition` | Side-effect-free typed staging, preview, validation, review, apply, reload, rollback | `APPROVED` |
+| `replace-definition` | `SemanticEditRequest.ReplaceDefinition` | Side-effect-free typed staging, preview, validation, review, apply, reload, rollback | `APPROVED` |
+| `remove-definition` | `SemanticEditRequest.RemoveDefinition` | Side-effect-free typed staging, preview, validation, review, apply, reload, rollback | `APPROVED` |
 | `delete` | `DeletionPlan` in `StagedChangeOperation.Delete` | Existing dependency analysis, typed preview, validation, review, apply, reload, rollback; all dependent statements must be selected before private drafting | `APPROVED` |
 
 ## Approved SHACL Operations
@@ -42,13 +45,10 @@ No other SHACL operation is advertised. Raw shape graphs, SPARQL constraints, co
 
 ## Deferred Metadata Operations
 
-The semantic engine has typed `SemanticEditRequest` contracts and translator support, but the current web staging boundary does not carry these requests through a side-effect-free private preparation adapter and the complete shared proposal lifecycle. Adding that pathway would require work outside Slice 7.
+Definition edits are now approved through the side-effect-free `StagingWorkflowService.preparePrivateDraft` path. Other semantic metadata contracts remain deferred until their complete lifecycle is explicitly approved and tested.
 
 | Operation | Existing typed contract | Missing lifecycle evidence | Status |
 | --- | --- | --- | --- |
-| `add-definition` | `SemanticEditRequest.AddDefinition` | Reusable web staging and proposal adapter | `DEFERRED` |
-| `replace-definition` | `SemanticEditRequest.ReplaceDefinition` | Reusable web staging and proposal adapter | `DEFERRED` |
-| `remove-definition` | `SemanticEditRequest.RemoveDefinition` | Reusable web staging and proposal adapter | `DEFERRED` |
 | `add-alternate-label` | `SemanticEditRequest.AddAlternateLabel` | Reusable web staging and proposal adapter | `DEFERRED` |
 | `replace-alternate-label` | `SemanticEditRequest.ReplaceAlternateLabel` | Reusable web staging and proposal adapter | `DEFERRED` |
 | `remove-alternate-label` | `SemanticEditRequest.RemoveAlternateLabel` | Reusable web staging and proposal adapter | `DEFERRED` |

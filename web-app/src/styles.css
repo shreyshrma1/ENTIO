@@ -594,7 +594,10 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ai-context-details { font-size: 10px; }
 .ai-context-details summary, .ai-revisions summary, .ai-activity details summary, .ai-message details summary, .ai-analysis details summary, .ai-draft-items details summary { color: var(--text-muted); cursor: pointer; font-size: 10px; font-weight: 600; }
 .ai-context-details code { display: block; margin-top: 6px; overflow-wrap: anywhere; }
-.ai-unavailable, .ai-empty, .ai-run-status, .ai-decision, .ai-analysis, .ai-submission, .ai-warning { padding: 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-2); }
+.ai-unavailable, .ai-empty, .ai-run-status, .ai-decision, .ai-analysis, .ai-submission, .ai-warning, .ai-thinking { padding: 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-2); }
+.ai-thinking { border-color: #dbeafe; background: var(--asserted-subtle); }
+.ai-thinking strong { color: var(--asserted); font-size: 11px; }
+.ai-thinking p { margin: 4px 0 0; color: var(--text-secondary); font-size: 10px; line-height: 1.45; }
 .ai-unavailable p, .ai-empty p, .ai-run-status span, .ai-decision p, .ai-analysis p, .ai-submission p { margin: 4px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.45; }
 .ai-conversation-controls { display: flex; align-items: end; gap: 7px; }
 .ai-conversation-controls label { display: grid; flex: 1; gap: 4px; color: var(--text-secondary); font-size: 10px; font-weight: 600; }

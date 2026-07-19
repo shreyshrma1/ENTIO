@@ -42,6 +42,9 @@ public object AiTypedEditCapabilityInventory {
                 "assign-type",
                 "add-object-property-assertion",
                 "add-datatype-property-assertion",
+                "add-definition",
+                "replace-definition",
+                "remove-definition",
                 "delete",
             ),
             status = AiTypedEditLifecycleStatus.APPROVED,
@@ -64,9 +67,6 @@ public object AiTypedEditCapabilityInventory {
         AiTypedEditInventoryEntry(
             family = "semantic-metadata",
             editTypes = setOf(
-                "add-definition",
-                "replace-definition",
-                "remove-definition",
                 "add-alternate-label",
                 "replace-alternate-label",
                 "remove-alternate-label",
@@ -123,7 +123,7 @@ public data class AiAddDraftItemArguments(
     val request: WebStageChangeRequest,
     val rationale: String,
     val dependencyItemIds: List<String> = emptyList(),
-) : AiSourceScopedArguments {
+) : AiDraftSourceResolvableArguments {
     init {
         if (sourceId != request.sourceId) throw AiDraftFailure("source-argument-mismatch", "The draft request source must match its capability scope source.")
     }
@@ -135,7 +135,7 @@ public data class AiUpdateDraftItemArguments(
     val request: WebStageChangeRequest,
     val rationale: String,
     val dependencyItemIds: List<String> = emptyList(),
-) : AiSourceScopedArguments {
+) : AiDraftSourceResolvableArguments {
     init {
         if (sourceId != request.sourceId) throw AiDraftFailure("source-argument-mismatch", "The draft request source must match its capability scope source.")
     }
@@ -173,18 +173,18 @@ public class AiTypedEditCapabilityAdapter(
         request: WebStageChangeRequest,
     ): AiTypedDraftOperation {
         AiTypedEditCapabilityInventory.requireApproved(request.editType)
-        if (request.sourceId !in scope.allowedSourceIds) {
-            throw AiDraftFailure("source-scope-violation", "The requested source is outside the current AI run scope.")
-        }
         val expectedFamily = when (capabilityName) {
             ADD_ONTOLOGY_CAPABILITY, UPDATE_ONTOLOGY_CAPABILITY -> AiTypedEditCapabilityInventory.approvedOntologyEditTypes
+            ADD_DEFINITION_CAPABILITY -> setOf("add-definition")
             ADD_SHACL_CAPABILITY, UPDATE_SHACL_CAPABILITY -> AiTypedEditCapabilityInventory.approvedShaclEditTypes
             else -> throw AiDraftFailure("unsupported-draft-capability", "Capability '$capabilityName' cannot prepare a typed draft edit.")
         }
         if (request.editType !in expectedFamily) {
             throw AiDraftFailure("typed-edit-family-mismatch", "The typed edit does not match the selected draft capability.")
         }
-        val aiRequest = request.copy(aiGenerated = true, idempotencyKey = null)
+        val normalizedRequest = normalizeSemanticTarget(request)
+        val scopedRequest = resolveScopedSource(scope, normalizedRequest)
+        val aiRequest = scopedRequest.copy(aiGenerated = true, idempotencyKey = null)
         val prepared = try {
             staging.preparePrivateDraft(scope.projectId, aiRequest)
         } catch (failure: WebWorkflowFailure) {
@@ -208,8 +208,32 @@ public class AiTypedEditCapabilityAdapter(
         )
     }
 
+    private fun normalizeSemanticTarget(request: WebStageChangeRequest): WebStageChangeRequest = when (request.editType) {
+        "add-definition", "replace-definition", "remove-definition" -> request.copy(
+            targetIri = request.targetIri ?: request.resourceIri,
+            targetLabel = request.targetLabel ?: request.resourceLabel ?: request.label,
+        )
+        else -> request
+    }
+
+    private fun resolveScopedSource(scope: AiCapabilityScope, request: WebStageChangeRequest): WebStageChangeRequest {
+        if (request.sourceId in scope.allowedSourceIds) return request
+        val candidates = scope.allowedSourceIds.mapNotNull { sourceId ->
+            val candidate = request.copy(sourceId = sourceId, aiGenerated = true, idempotencyKey = null)
+            try {
+                staging.preparePrivateDraft(scope.projectId, candidate)
+                candidate
+            } catch (_: WebWorkflowFailure) {
+                null
+            }
+        }
+        if (candidates.size == 1) return candidates.single()
+        throw AiDraftFailure("source-scope-violation", "The requested source is outside the current AI run scope.")
+    }
+
     public companion object {
         public const val ADD_ONTOLOGY_CAPABILITY: String = "entio_draft_add_ontology_edit"
+        public const val ADD_DEFINITION_CAPABILITY: String = "entio_draft_add_definition"
         public const val ADD_SHACL_CAPABILITY: String = "entio_draft_add_shacl_edit"
         public const val UPDATE_ONTOLOGY_CAPABILITY: String = "entio_draft_update_ontology_edit"
         public const val UPDATE_SHACL_CAPABILITY: String = "entio_draft_update_shacl_edit"
@@ -512,9 +536,10 @@ internal fun typedEditCapabilityDefinitions(): List<AiCapabilityDefinition> = li
         AiTypedEditCapabilityAdapter.ADD_ONTOLOGY_CAPABILITY,
         AiCapabilityOperationType.DRAFT_ADD_TYPED_EDIT,
         "Add one approved ontology or deletion request to the current private AI draft.",
-        AiTypedEditCapabilityInventory.approvedOntologyEditTypes,
+        AiTypedEditCapabilityInventory.approvedOntologyEditTypes - "add-definition",
         update = false,
     ),
+    addDefinitionCapabilityDefinition(),
     typedEditDefinition(
         AiTypedEditCapabilityAdapter.ADD_SHACL_CAPABILITY,
         AiCapabilityOperationType.DRAFT_ADD_TYPED_EDIT,
@@ -573,6 +598,45 @@ internal fun typedEditCapabilityDefinitions(): List<AiCapabilityDefinition> = li
         "Clear all items from the current private AI draft.",
         ::AiClearDraftArguments,
     ),
+)
+
+private fun addDefinitionCapabilityDefinition(): AiCapabilityDefinition = AiCapabilityDefinition(
+    name = AiTypedEditCapabilityAdapter.ADD_DEFINITION_CAPABILITY,
+    operationType = AiCapabilityOperationType.DRAFT_ADD_TYPED_EDIT,
+    category = AiCapabilityCategory.PRIVATE_DRAFT,
+    description = "Stage one definition for one existing ontology entity. Call once for every class requested by the user.",
+    inputSchema = AiObjectSchema(
+        properties = listOf(
+            AiSchemaProperty("sourceId", AiStringSchema(maxLength = 128, format = AiStringFormat.SOURCE_ID), description = "Allowed writable source ID containing the target entity."),
+            textProperty("targetLabel", 2_048),
+            textProperty("value", 10_000),
+            textProperty("rationale", 4_000),
+        ),
+        required = setOf("sourceId", "targetLabel", "value", "rationale"),
+    ),
+    access = AiCapabilityAccess.PRIVATE_DRAFT_MUTATION,
+    requiredRole = AiRequiredRole.CONTRIBUTOR,
+    requiredPermissions = setOf(WebPermission.USE_AI.name, WebPermission.PREPARE_EDIT.name),
+    requiredFeature = AiCapabilityFeatures.PRIVATE_DRAFT,
+    sourceScope = AiSourceScopeRule.REQUIRED_ALLOWED_SOURCE,
+    resultLimit = 1,
+    timeoutMillis = 10_000,
+    auditClassification = AiCapabilityAuditClassification.PRIVATE_DRAFT_CHANGE,
+    decoder = AiCapabilityArgumentDecoder { input ->
+        val value = DraftStrictObject(input, setOf("sourceId", "targetLabel", "value", "rationale"), setOf("sourceId", "targetLabel", "value", "rationale"))
+        val sourceId = value.sourceId("sourceId")
+        AiAddDraftItemArguments(
+            sourceId = sourceId,
+            request = WebStageChangeRequest(
+                sourceId = sourceId,
+                editType = "add-definition",
+                targetLabel = value.string("targetLabel", 2_048),
+                value = value.string("value", 10_000),
+                aiGenerated = true,
+            ),
+            rationale = value.string("rationale", 4_000),
+        )
+    },
 )
 
 private fun typedEditDefinition(
