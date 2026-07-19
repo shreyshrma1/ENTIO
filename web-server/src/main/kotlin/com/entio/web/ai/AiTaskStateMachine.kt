@@ -106,6 +106,8 @@ public class AiTaskStateMachine {
             AiTaskStatus.READY_FOR_REVIEW to setOf(
                 AiTaskStatus.SUBMITTED_FOR_REVIEW,
                 AiTaskStatus.EXECUTING,
+                AiTaskStatus.PLANNING,
+                AiTaskStatus.VALIDATING,
                 AiTaskStatus.STALE,
                 AiTaskStatus.CANCELLED,
             ),
