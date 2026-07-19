@@ -78,6 +78,25 @@ public interface AiToolLoopProvider {
         request: OpenAiResponsesRequest,
         onEvent: suspend (OpenAiProviderEvent) -> Unit,
     ): OpenAiResponsesResult
+
+    /** Additive model-aware seam. Runtime-selected execution is enabled in Phase 7.5 Slice 7. */
+    public suspend fun respond(
+        apiKey: String,
+        selectedModelId: String,
+        request: OpenAiResponsesRequest,
+        onEvent: suspend (OpenAiProviderEvent) -> Unit,
+    ): OpenAiResponsesResult {
+        if (selectedModelId != modelId) {
+            return OpenAiResponsesResult.Failed(
+                OpenAiProviderFailure(
+                    code = OpenAiFailureCode.PROVIDER_ERROR,
+                    message = "The requested model is not bound to this provider instance.",
+                    retryable = false,
+                ),
+            )
+        }
+        return respond(apiKey, request, onEvent)
+    }
 }
 
 /** Deterministic fallback for tests that do not opt into the production OpenAI boundary. */
