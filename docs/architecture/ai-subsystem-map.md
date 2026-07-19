@@ -86,6 +86,12 @@ Phase 7.5 must preserve these separations:
 
 Model management is application infrastructure. It must not become an AI capability, project setting, ontology edit, collaboration preference, or browser-owned policy.
 
+### Compatibility policy and known metadata
+
+`web-server/src/main/kotlin/com/entio/web/ai/models/` owns the Phase 7.5 compatibility policy and optional known-model metadata. `AiModelCompatibilityPolicy` accepts only minimal provider-neutral IDs, rejects malformed IDs, moving aliases, unsupported providers, and clearly non-conversational resource families, then produces a deterministic candidate projection. Unknown discovered IDs may remain candidates but cannot become usable without later live verification.
+
+`AiKnownModelMetadataCatalog` enriches known IDs with Entio-owned display text, relative capability/speed/cost language, timeout class, ordering, and recommendation. Catalog membership does not grant availability or compatibility. The initial metadata entries describe the current GPT-5.6 Sol, Terra, and Luna variants; later metadata changes require review but do not replace per-user provider discovery or verification. The compatibility-policy version is recorded explicitly as `phase-7.5-compatibility-v1`.
+
 ## Test Doubles And Verification Seams
 
 - `DevelopmentAiProviderClient` provides deterministic credential-test behavior.
