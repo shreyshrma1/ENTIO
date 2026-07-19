@@ -11,6 +11,7 @@ import com.entio.core.CreateIndividualEdit
 import com.entio.core.CreateObjectPropertyEdit
 import com.entio.core.EntioResult
 import com.entio.core.GraphChangeKind
+import com.entio.core.GraphState
 import com.entio.core.GraphTriple
 import com.entio.core.Iri
 import com.entio.core.RdfLiteral
@@ -65,6 +66,56 @@ class TypedOntologyEditTranslatorTest {
         val changeSet = translate(SetEntityLabelEdit(entity = shape, label = label))
 
         assertEquals(listOf(added(shape, RDFS_LABEL, label)), changeSet.changes)
+    }
+
+    @Test
+    fun replacesEveryCompetingPreferredLabelWithoutAddingAnExistingReplacement(): Unit {
+        val oldLabel = RdfLiteral("Checking", datatypeIri = XSD_STRING)
+        val replacement = RdfLiteral("Checking Account", datatypeIri = XSD_STRING)
+        val translatedLabel = RdfLiteral("Compte", languageTag = "fr")
+        val graph = GraphState(
+            setOf(
+                GraphTriple(CUSTOMER, RDFS_LABEL, oldLabel),
+                GraphTriple(CUSTOMER, RDFS_LABEL, replacement),
+                GraphTriple(CUSTOMER, RDFS_LABEL, translatedLabel),
+            ),
+        )
+
+        val result = translator.translateAgainstGraph(SetEntityLabelEdit(CUSTOMER, replacement), graph)
+        val changeSet = assertIs<EntioResult.Success<ChangeSet?>>(result).value
+
+        assertEquals(
+            listOf(
+                removed(CUSTOMER, RDFS_LABEL, oldLabel),
+                removed(CUSTOMER, RDFS_LABEL, translatedLabel),
+            ),
+            changeSet?.changes,
+        )
+    }
+
+    @Test
+    fun replacesExistingPreferredLabelsWithExactlyOneNewLabel(): Unit {
+        val oldLabel = RdfLiteral("Checking", datatypeIri = XSD_STRING)
+        val translatedLabel = RdfLiteral("Compte", languageTag = "fr")
+        val replacement = RdfLiteral("Checking Account", datatypeIri = XSD_STRING)
+        val graph = GraphState(
+            setOf(
+                GraphTriple(CUSTOMER, RDFS_LABEL, oldLabel),
+                GraphTriple(CUSTOMER, RDFS_LABEL, translatedLabel),
+            ),
+        )
+
+        val result = translator.translateAgainstGraph(SetEntityLabelEdit(CUSTOMER, replacement), graph)
+        val changeSet = assertIs<EntioResult.Success<ChangeSet?>>(result).value
+
+        assertEquals(
+            listOf(
+                removed(CUSTOMER, RDFS_LABEL, oldLabel),
+                removed(CUSTOMER, RDFS_LABEL, translatedLabel),
+                added(CUSTOMER, RDFS_LABEL, replacement),
+            ),
+            changeSet?.changes,
+        )
     }
 
     @Test

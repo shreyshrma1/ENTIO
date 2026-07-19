@@ -5,6 +5,8 @@ import com.entio.core.ChangeProposalStatus
 import com.entio.core.ChangeSet
 import com.entio.core.EntioProject
 import com.entio.core.EntioResult
+import com.entio.core.GraphChange
+import com.entio.core.GraphChangeKind
 import com.entio.core.LoadedOntology
 import com.entio.core.ProposalImpactReport
 import com.entio.core.ShaclValidationMode
@@ -12,7 +14,9 @@ import com.entio.core.ShaclValidationReport
 import com.entio.core.ShaclValidationStatus
 import com.entio.core.SourceFileImpact
 import com.entio.core.StagedChange
+import com.entio.core.StagedChangeOperation
 import com.entio.core.StagedChangeSet
+import com.entio.core.SetEntityLabelEdit
 import com.entio.core.SymbolKind
 import com.entio.core.ValidationIssue
 import com.entio.core.ValidationReport
@@ -27,6 +31,7 @@ import com.entio.semantic.ShaclGraphLoader
 import com.entio.semantic.ShaclValidationService
 import com.entio.semantic.StagedChangeSetNormalizer
 import com.entio.semantic.TypedShaclEditTranslator
+import com.entio.semantic.TypedOntologyEditTranslator
 import com.entio.validation.ProposalValidator
 import java.nio.file.Files
 import java.security.MessageDigest
@@ -66,20 +71,25 @@ internal class WebProposalPlanner(
     private val shaclValidation: ShaclValidationService = ShaclValidationService(),
     private val impactAnalyzer: ProposalImpactAnalyzer = ProposalImpactAnalyzer(),
     private val shaclTranslator: TypedShaclEditTranslator = TypedShaclEditTranslator(),
+    private val ontologyEditTranslator: TypedOntologyEditTranslator = TypedOntologyEditTranslator(),
 ) {
     fun prepare(project: EntioProject, entries: List<StagedChange>): PreparedWebProposal {
         val stagingIntegrityIssues = stagedSuperclassIntegrityIssues(project, entries)
-        val materializedEntries = materializeShaclEdits(project, entries)
+        val materializedEntries = materializeGraphAwareEdits(project, entries)
         val normalized = normalize(materializedEntries)
         if (normalized.conflicts.isNotEmpty()) {
             throw WebWorkflowFailure("staging-conflict", normalized.conflicts.joinToString { it.message })
         }
-        val allChanges = normalized.changeSet
+        normalized.changeSet
             ?: throw WebWorkflowFailure("empty-staged-set", "At least one staged change is required.")
 
         val targets = materializedEntries.groupBy(StagedChange::targetSourceId)
             .toSortedMap()
-            .map { (sourceId, sourceEntries) -> sourceTarget(project, sourceId, sourceEntries) }
+            .mapNotNull { (sourceId, sourceEntries) -> sourceTarget(project, sourceId, sourceEntries) }
+        if (targets.isEmpty()) {
+            throw WebWorkflowFailure("no-effective-staged-changes", "The staged changes are already satisfied by the current project.")
+        }
+        val allChanges = ChangeSet(targets.flatMap { it.changeSet.changes })
         val primarySourceId = targets.first().sourceId
         val proposal = when (
             val result = proposalCreator.createProposal(
@@ -111,12 +121,12 @@ internal class WebProposalPlanner(
             is EntioResult.Failure -> throw WebWorkflowFailure("proposal-impact-failed", result.message)
             is EntioResult.Success -> result.value
         }
-        val ontologyEntries = materializedEntries.filter { entry ->
-            project.resolvedSources.firstOrNull { it.id == entry.targetSourceId }
+        val ontologyTargets = targets.filter { target ->
+            project.resolvedSources.firstOrNull { it.id == target.sourceId }
                 ?.roles
                 ?.contains(com.entio.core.ShaclGraphRole.Shapes) != true
         }
-        val validation = combinedValidation(project, ontologyEntries, impact, currentShacl, previewShacl, stagingIntegrityIssues)
+        val validation = combinedValidation(project, ontologyTargets, impact, currentShacl, previewShacl, stagingIntegrityIssues)
         val prepared = proposal.copy(
             status = if (validation.ok) ChangeProposalStatus.ReadyForReview else ChangeProposalStatus.VerificationFailed,
             validationReport = validation,
@@ -193,26 +203,33 @@ internal class WebProposalPlanner(
             normalizedValues["resourceIri"] == classIri ||
             normalizedValues["targetIri"] == classIri
 
-    private fun materializeShaclEdits(project: EntioProject, entries: List<StagedChange>): List<StagedChange> {
+    private fun materializeGraphAwareEdits(project: EntioProject, entries: List<StagedChange>): List<StagedChange> {
         val currentGraphs = project.ontologies.associate { it.source.id to it.graph }.toMutableMap()
-        return entries.sortedWith(compareBy<StagedChange>({ it.order }, { it.id })).map { entry ->
+        return entries.sortedWith(compareBy<StagedChange>({ it.order }, { it.id })).mapNotNull { entry ->
             val operation = entry.operation
-            if (operation !is com.entio.core.StagedChangeOperation.ShaclEdit) return@map entry
+            val requiresCurrentGraph = operation is StagedChangeOperation.ShaclEdit ||
+                operation is StagedChangeOperation.TypedEdit && operation.edit is SetEntityLabelEdit
+            if (!requiresCurrentGraph) return@mapNotNull entry
             val current = currentGraphs[entry.targetSourceId]
                 ?: throw WebWorkflowFailure("unknown-source", "Ontology source '${entry.targetSourceId}' was not loaded.")
-            val changes = when (val result = shaclTranslator.translate(operation.edit, current)) {
+            val translation = when (operation) {
+                is StagedChangeOperation.ShaclEdit -> shaclTranslator.translate(operation.edit, current)
+                is StagedChangeOperation.TypedEdit -> ontologyEditTranslator.translateAgainstGraph(operation.edit, current)
+                else -> error("Graph-aware operation changed after it was selected.")
+            }
+            val changes = when (val result = translation) {
                 is EntioResult.Failure -> throw WebWorkflowFailure(
-                    result.issues.firstOrNull()?.code ?: "shacl-edit-invalid",
+                    result.issues.firstOrNull()?.code ?: "graph-aware-edit-invalid",
                     result.message,
                 )
-                is EntioResult.Success -> result.value
+                is EntioResult.Success -> result.value ?: return@mapNotNull null
             }
             val next = when (val result = previewer.preview(current, changes)) {
-                is EntioResult.Failure -> throw WebWorkflowFailure("shacl-preview-failed", result.issues.joinToString { it.message })
+                is EntioResult.Failure -> throw WebWorkflowFailure("graph-aware-preview-failed", result.issues.joinToString { it.message })
                 is EntioResult.Success -> result.value.graph
             }
             currentGraphs[entry.targetSourceId] = next
-            entry.copy(operation = com.entio.core.StagedChangeOperation.GraphChanges(changes))
+            entry.copy(operation = StagedChangeOperation.GraphChanges(changes))
         }
     }
 
@@ -238,7 +255,7 @@ internal class WebProposalPlanner(
         project: EntioProject,
         sourceId: String,
         entries: List<StagedChange>,
-    ): MultiSourceApplyTarget {
+    ): MultiSourceApplyTarget? {
         val source = project.resolvedSources.firstOrNull { it.id == sourceId }
             ?: throw WebWorkflowFailure("unknown-source", "Ontology source '$sourceId' was not found.")
         val ontology = project.ontologies.firstOrNull { it.source.id == sourceId }
@@ -247,8 +264,11 @@ internal class WebProposalPlanner(
         if (normalized.conflicts.isNotEmpty()) {
             throw WebWorkflowFailure("staging-conflict", normalized.conflicts.joinToString { it.message })
         }
-        val changeSet = normalized.changeSet
+        val normalizedChangeSet = normalized.changeSet
             ?: throw WebWorkflowFailure("empty-source-change-set", "Source '$sourceId' has no graph changes.")
+        val effectiveChanges = effectiveChanges(ontology.graph.triples, normalizedChangeSet.changes)
+        if (effectiveChanges.isEmpty()) return null
+        val changeSet = ChangeSet(effectiveChanges)
         val preview = when (val result = previewer.preview(ontology.graph, changeSet)) {
             is EntioResult.Failure -> throw WebWorkflowFailure(
                 "source-preview-failed",
@@ -263,6 +283,19 @@ internal class WebProposalPlanner(
             changeSet = changeSet,
             expectedGraph = preview.graph,
         )
+    }
+
+    private fun effectiveChanges(
+        currentTriples: Set<com.entio.core.GraphTriple>,
+        changes: List<GraphChange>,
+    ): List<GraphChange> {
+        val previewTriples = currentTriples.toMutableSet()
+        return changes.filter { change ->
+            when (change.kind) {
+                GraphChangeKind.Addition -> previewTriples.add(change.triple)
+                GraphChangeKind.Removal -> previewTriples.remove(change.triple)
+            }
+        }
     }
 
     private fun previewOntologies(
@@ -288,7 +321,7 @@ internal class WebProposalPlanner(
 
     private fun combinedValidation(
         project: EntioProject,
-        ontologyEntries: List<StagedChange>,
+        ontologyTargets: List<MultiSourceApplyTarget>,
         impact: ProposalImpactReport,
         currentShacl: ShaclValidationReport,
         previewShacl: ShaclValidationReport,
@@ -298,11 +331,9 @@ internal class WebProposalPlanner(
         stagingIntegrityIssues.forEach { issue ->
             issues += ValidationIssue(ValidationSeverity.Error, issue.code, issue.message, issue.stagedChangeId)
         }
-        if (ontologyEntries.isNotEmpty()) {
-            val normalized = normalize(ontologyEntries)
-            val changes = normalized.changeSet
-                ?: throw WebWorkflowFailure("empty-ontology-change-set", "The ontology entries have no graph changes.")
-            val sourceId = ontologyEntries.first().targetSourceId
+        if (ontologyTargets.isNotEmpty()) {
+            val changes = ChangeSet(ontologyTargets.flatMap { it.changeSet.changes })
+            val sourceId = ontologyTargets.first().sourceId
             val ontologyProposal = when (
                 val result = proposalCreator.createProposal(project, sourceId, changes, "ontology-validation", "Ontology validation")
             ) {

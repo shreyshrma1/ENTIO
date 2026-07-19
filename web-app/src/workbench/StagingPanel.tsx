@@ -11,6 +11,7 @@ export default function StagingPanel({ projectId }: { projectId: string }) {
   const approved = proposal?.status === "APPROVED" || proposal?.status === "APPLIED";
   const entryRevision = entries.map((entry) => `${entry.id}:${entry.status}`).join("|");
   const previewedRevision = useRef<string | null>(null);
+  const failedPreviewRevision = useRef<string | null>(null);
   const previewMutation = useRef(actions.preview.mutate);
   const [notification, setNotification] = useState<string | null>(null);
   const decisionBusy = actions.approve.isPending || actions.reject.isPending || actions.apply.isPending || actions.accept.isPending;
@@ -23,10 +24,42 @@ export default function StagingPanel({ projectId }: { projectId: string }) {
   }, [actions.preview.mutate]);
 
   useEffect(() => {
-    if (!entryRevision || proposal || actions.preview.isPending || previewedRevision.current === entryRevision) return;
-    previewedRevision.current = entryRevision;
-    previewMutation.current();
+    if (!entryRevision) {
+      previewedRevision.current = null;
+      failedPreviewRevision.current = null;
+      return;
+    }
+    if (proposal) {
+      previewedRevision.current = entryRevision;
+      failedPreviewRevision.current = null;
+      return;
+    }
+    if (actions.preview.isPending || previewedRevision.current === entryRevision || failedPreviewRevision.current === entryRevision) return;
+    prepareProposal(entryRevision);
   }, [actions.preview.isPending, entryRevision, proposal]);
+
+  function prepareProposal(revision: string) {
+    previewMutation.current(undefined, {
+      onSuccess: (response) => {
+        if (response.proposal) {
+          previewedRevision.current = revision;
+          failedPreviewRevision.current = null;
+        } else {
+          failedPreviewRevision.current = revision;
+        }
+      },
+      onError: () => {
+        failedPreviewRevision.current = revision;
+      },
+    });
+  }
+
+  function retryProposal() {
+    failedPreviewRevision.current = null;
+    previewedRevision.current = null;
+    actions.preview.reset();
+    prepareProposal(entryRevision);
+  }
 
   useEffect(() => {
     if (!notification) return undefined;
@@ -66,7 +99,7 @@ export default function StagingPanel({ projectId }: { projectId: string }) {
   return (
     <section className="staging-panel" aria-labelledby="staging-heading" aria-busy={busy}>
       <div className="section-heading"><h2 id="staging-heading">Review queue</h2><span>{entries.length}</span></div>
-      {actions.preview.isError ? <p role="alert">Could not prepare proposal. {actions.preview.error.message}</p> : null}
+      {actions.preview.isError ? <div className="workflow-error"><p role="alert">Could not prepare proposal. {actions.preview.error.message}</p><button className="button small" type="button" onClick={retryProposal} disabled={actions.preview.isPending}>Retry proposal</button></div> : null}
       {actionError ? <p className="workflow-error" role="alert">{actionError}</p> : null}
       {busy ? <p role="status">Updating staged changes...</p> : null}
       {entries.length ? <ul className="staged-list">{entries.map((entry) => <li className={approved ? "staged-item-approved" : "staged-item-pending"} key={entry.id}>
@@ -107,7 +140,10 @@ function stagingActionError(actions: ReturnType<typeof useStagingActions>): stri
 }
 
 function stagedChangeTitle(entry: WebStagedEntry): string {
-  return entry.summary.split(" · ").slice(1).join(" · ") || "Untitled change";
+  return entry.summary.split(" · ").slice(1).join(" · ")
+    || entry.normalizedValues.shapeLabel
+    || entry.normalizedValues.label
+    || "Untitled change";
 }
 
 function stagedChangeType(entry: WebStagedEntry): string {

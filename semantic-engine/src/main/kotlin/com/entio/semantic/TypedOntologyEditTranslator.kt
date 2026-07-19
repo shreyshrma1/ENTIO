@@ -12,6 +12,7 @@ import com.entio.core.CreateObjectPropertyEdit
 import com.entio.core.EntioResult
 import com.entio.core.GraphChange
 import com.entio.core.GraphChangeKind
+import com.entio.core.GraphState
 import com.entio.core.GraphTriple
 import com.entio.core.Iri
 import com.entio.core.RdfLiteral
@@ -42,6 +43,32 @@ public class TypedOntologyEditTranslator {
                 changes = edit.toChanges(),
             ),
         )
+    }
+
+    /**
+     * Translates edits whose meaning depends on the current graph.
+     *
+     * A preferred-label edit replaces every existing `rdfs:label` for the entity
+     * instead of blindly adding another label. A null result means the requested
+     * state is already fully represented by the graph.
+     */
+    public fun translateAgainstGraph(
+        edit: TypedOntologyEdit,
+        currentGraph: GraphState,
+    ): EntioResult<ChangeSet?> {
+        val issues = edit.validationIssues()
+        if (issues.isNotEmpty()) {
+            return EntioResult.Failure(
+                message = "Typed ontology edit is invalid.",
+                issues = issues,
+            )
+        }
+
+        val changes = when (edit) {
+            is SetEntityLabelEdit -> edit.labelReplacementChanges(currentGraph)
+            else -> edit.toChanges()
+        }
+        return EntioResult.Success(changes.takeIf(List<GraphChange>::isNotEmpty)?.let(::ChangeSet))
     }
 
     public fun translate(
@@ -77,6 +104,18 @@ public class TypedOntologyEditTranslator {
             is AddObjectPropertyAssertionEdit -> listOf(addTriple(subject, propertyIri, objectResource))
             is AddDatatypePropertyAssertionEdit -> listOf(addTriple(subject, propertyIri, value))
         }
+
+    private fun SetEntityLabelEdit.labelReplacementChanges(currentGraph: GraphState): List<GraphChange> {
+        val replacement = GraphTriple(entity, RDFS_LABEL, label)
+        val existingLabels = currentGraph.triples.filter { triple ->
+            triple.subjectResource == entity &&
+                triple.predicate == RDFS_LABEL
+        }
+        return existingLabels
+            .filterNot { it == replacement }
+            .map { GraphChange(GraphChangeKind.Removal, it) } +
+            if (replacement in currentGraph.triples) emptyList() else listOf(GraphChange(GraphChangeKind.Addition, replacement))
+    }
 
     private fun SemanticEditRequest.toChanges(): List<GraphChange> =
         when (this) {

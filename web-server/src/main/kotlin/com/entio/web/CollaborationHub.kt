@@ -7,6 +7,8 @@ import com.entio.web.contract.WebPresenceUser
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.ktor.server.websocket.WebSocketServerSession
 import io.ktor.websocket.Frame
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -159,7 +161,17 @@ public class CollaborationHub(
             }
             room.clients.keys.toList()
         }
-        sockets.forEach { socket -> send(socket, event) }
+        sockets.forEach { socket ->
+            try {
+                // A WebSocket owns a different lifecycle from the HTTP mutation that emits this
+                // notification. Keep socket cancellation from cancelling the authoritative call.
+                withContext(NonCancellable) { send(socket, event) }
+            } catch (_: Exception) {
+                // Collaboration notifications are best-effort. A stale client must not turn an
+                // already-completed authoritative HTTP mutation into a failed response.
+                synchronized(room) { room.clients.remove(socket) }
+            }
+        }
     }
 
     private fun nextEvent(

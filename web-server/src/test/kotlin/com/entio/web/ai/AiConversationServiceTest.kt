@@ -47,8 +47,10 @@ class AiConversationServiceTest {
         assertEquals(listOf("Receivable Account", "Payable Account"), draft.items.map { (it.operation as AiTypedDraftOperation).request.label })
         assertEquals(listOf("call-1"), provider.requests[1].toolOutputs.map(OpenAiToolOutput::callId))
         assertEquals(listOf("call-2"), provider.requests[2].toolOutputs.map(OpenAiToolOutput::callId))
+        assertEquals(listOf("call-1"), provider.requests[1].functionCalls.map(OpenAiFunctionCall::callId))
+        assertEquals(listOf("call-2"), provider.requests[2].functionCalls.map(OpenAiFunctionCall::callId))
         assertTrue(provider.requests.all { it.userInput.contains("Create class Receivable Account") })
-        assertEquals("response-2", provider.requests[2].previousResponseId)
+        assertTrue(provider.requests.all { it.previousResponseId == null })
         assertTrue(fixture.staging.snapshot("simple").entries.isEmpty())
     }
 

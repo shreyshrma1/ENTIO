@@ -110,10 +110,19 @@ class ApplicationTest {
         assertContains(hierarchy.bodyAsText(), "Invoice")
         assertContains(hierarchy.bodyAsText(), "nextOffset")
         assertEquals(HttpStatusCode.OK, outline.status)
-        assertContains(outline.bodyAsText(), "received invoice")
-        assertContains(outline.bodyAsText(), "ObjectProperty")
-        assertContains(outline.bodyAsText(), "Shrey")
-        assertContains(outline.bodyAsText(), "Individual")
+        val outlineBody = outline.bodyAsText()
+        assertContains(outlineBody, "received invoice")
+        assertContains(outlineBody, "ObjectProperty")
+        assertContains(outlineBody, "Shrey")
+        assertContains(outlineBody, "Individual")
+        assertContains(
+            outlineBody,
+            "\"directType\":{\"iri\":\"https://example.com/entio/simple#Customer\",\"label\":\"Customer\"",
+        )
+        assertContains(
+            outlineBody,
+            "\"directType\":{\"iri\":\"https://example.com/entio/simple#Invoice\",\"label\":\"Invoice\"",
+        )
         assertEquals(HttpStatusCode.OK, search.status)
         assertContains(search.bodyAsText(), "Customer")
         assertContains(search.bodyAsText(), "PreferredLabel")
@@ -127,6 +136,53 @@ class ApplicationTest {
         assertContains(customerDetail.bodyAsText(), "\"direction\":\"incoming\"")
         assertContains(customerDetail.bodyAsText(), "\"value\":\"https://example.com/entio/simple#receivedInvoice\"")
         assertContains(customerDetail.bodyAsText(), "\"label\":\"received invoice\"")
+        assertContains(customerDetail.bodyAsText(), "\"entityKind\":\"ObjectProperty\"")
+    }
+
+    @Test
+    fun shaclShapeRouteExposesReadableTargetsPathsAndConstraints(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-shacl-shapes")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        Files.writeString(
+            projectRoot.resolve("entio.yaml"),
+            Files.readString(projectRoot.resolve("entio.yaml")) +
+                "\n  - id: shapes\n" +
+                "    path: ontology/shapes.ttl\n" +
+                "    format: turtle\n" +
+                "    roles:\n" +
+                "      - shapes\n",
+        )
+        Files.writeString(
+            projectRoot.resolve("ontology/shapes.ttl"),
+            """
+            @prefix ex: <https://example.com/entio/simple#> .
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+
+            ex:CustomerShape
+                a sh:NodeShape ;
+                sh:targetClass ex:Customer ;
+                sh:property ex:CustomerInvoiceShape .
+
+            ex:CustomerInvoiceShape
+                sh:path ex:receivedInvoice ;
+                sh:minCount 1 ;
+                sh:message "Each customer needs an invoice." .
+            """.trimIndent(),
+        )
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+
+        val response = client.get("/api/v1/projects/simple/shacl/shapes")
+        val body = response.bodyAsText()
+
+        assertEquals(HttpStatusCode.OK, response.status, body)
+        assertContains(body, "Customer Shape")
+        assertContains(body, "Customer")
+        assertContains(body, "received invoice")
+        assertContains(body, "MinCount")
+        assertContains(body, "Each customer needs an invoice.")
     }
 
     @Test
@@ -398,6 +454,51 @@ class ApplicationTest {
     }
 
     @Test
+    fun stagingPreservesTheRequestedDatatypeForLiteralAssertions(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-typed-literal")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        Files.writeString(
+            projectRoot.resolve("ontology/simple.ttl"),
+            Files.readString(projectRoot.resolve("ontology/simple.ttl")) +
+                """
+
+                <https://example.com/entio/simple#balance>
+                    a <http://www.w3.org/2002/07/owl#DatatypeProperty> ;
+                    <http://www.w3.org/2000/01/rdf-schema#label> "balance" .
+                """.trimIndent(),
+        )
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+
+        val staged = client.post("/api/v1/projects/simple/staged") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                """
+                {
+                  "sourceId":"simple",
+                  "editType":"add-datatype-property-assertion",
+                  "subjectIri":"https://example.com/entio/simple#Shrey",
+                  "subjectLabel":"Shrey",
+                  "propertyIri":"https://example.com/entio/simple#balance",
+                  "propertyLabel":"balance",
+                  "value":"42",
+                  "datatypeIri":"http://www.w3.org/2001/XMLSchema#integer"
+                }
+                """.trimIndent(),
+            )
+        }
+        val stagedBody = staged.bodyAsText()
+        assertEquals(HttpStatusCode.OK, staged.status, stagedBody)
+        assertContains(stagedBody, "http://www.w3.org/2001/XMLSchema#integer")
+
+        val preview = client.post("/api/v1/projects/simple/proposal/preview")
+        val previewBody = preview.bodyAsText()
+        assertEquals(HttpStatusCode.OK, preview.status, previewBody)
+        assertContains(previewBody, "http://www.w3.org/2001/XMLSchema#integer")
+    }
+
+    @Test
     fun synchronizedFieldEditsReplaceAndRemoveTheSameStagedEntry(): Unit = testApplication {
         val allowedRoot = Files.createTempDirectory("entio-web-synchronized-fields")
         val projectRoot = createReadOnlyFixture(allowedRoot)
@@ -579,6 +680,14 @@ class ApplicationTest {
                 send(Frame.Text("""{"type":"stage-change"}"""))
                 assertEquals("mutation.rejected", nextEvent(incoming.receive())["eventType"])
                 assertEquals("mutation.rejected", nextEvent(incomingA.receive())["eventType"])
+
+                val staged = client.post("/api/v1/projects/simple/staged") {
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"sourceId":"simple","editType":"create-class","label":"Account"}""")
+                }
+                assertEquals(HttpStatusCode.OK, staged.status, staged.bodyAsText())
+                assertEquals("staged-change.updated", nextEvent(incoming.receive())["eventType"])
+                assertEquals("staged-change.updated", nextEvent(incomingA.receive())["eventType"])
             }
 
             val leftA = nextEvent(incomingA.receive())

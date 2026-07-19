@@ -33,6 +33,7 @@ describe("AI credential settings", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Test credential" }));
     expect(await screen.findByText("Credential test passed.")).toBeInTheDocument();
+    expect(await screen.findByText("PASSED")).toBeInTheDocument();
   });
 });
 

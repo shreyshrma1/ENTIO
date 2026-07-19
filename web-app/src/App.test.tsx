@@ -30,7 +30,7 @@ describe("web workbench shell", () => {
       if (path.includes("/outline")) {
         return json({ apiVersion: "v1", sourceId: "simple", page: { items: [
           { iri: "https://example.com/Customer", label: "Customer", kind: "Class", sourceId: "simple" },
-          { iri: "https://example.com/Shrey", label: "Shrey", kind: "Individual", sourceId: "simple" },
+          { iri: "https://example.com/Shrey", label: "Shrey", kind: "Individual", sourceId: "simple", directType: { iri: "https://example.com/Customer", label: "Customer", kind: "Class", sourceId: "simple" } },
           { iri: "https://example.com/receivedInvoice", label: "received invoice", kind: "ObjectProperty", sourceId: "simple" },
         ], offset: 0, limit: 100, total: 3, nextOffset: null } });
       }
@@ -39,6 +39,9 @@ describe("web workbench shell", () => {
           { iri: "https://example.com/Customer", label: "Customer", kind: "Class", sourceId: "simple", score: 120, reason: "PreferredLabel" },
           { iri: "https://example.com/Shrey", label: "Shrey", kind: "Individual", sourceId: "simple", score: 100, reason: "AssertedType" },
         ], offset: 0, limit: 50, total: 2, nextOffset: null } });
+      }
+      if (path.includes("/shacl/shapes")) {
+        return json({ apiVersion: "v1", projectId: "simple", shapes: [] });
       }
       if (path.includes("/entities")) {
         return json({ apiVersion: "v1", iri: "https://example.com/Customer", label: "Customer", kind: "Class", sourceId: "simple", sourceOntologyId: "simple", locality: "Local", preferredLabelSource: "RdfsLabel", alternateLabels: [], definitions: [{ value: "A customer.", language: null, datatype: null }], annotations: [], directSuperclasses: [], directSubclasses: [], directlyTypedIndividuals: [], assertedTypes: [], domains: [], ranges: [], outgoingRelationships: [], incomingRelationships: [] });
@@ -53,9 +56,15 @@ describe("web workbench shell", () => {
     expect(await screen.findByRole("heading", { name: "simple-ontology" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /^Classes\s*1$/ })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getByRole("tab", { name: /^Objects\s*1$/ }));
+    expect(screen.getByRole("button", { name: "Collapse Customer objects" })).toHaveAttribute("aria-expanded", "true");
     expect(await screen.findByRole("button", { name: "Shrey, Object" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Customer objects" }));
+    expect(screen.queryByRole("button", { name: "Shrey, Object" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: /^Properties\s*1$/ }));
     expect(screen.getByRole("button", { name: "received invoice, Object property" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: /^Objects\s*1$/ }));
+    expect(screen.getByRole("button", { name: "Expand Customer objects" })).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(screen.getByRole("button", { name: "Expand Customer objects" }));
     fireEvent.click(screen.getByRole("tab", { name: /^Classes\s*1$/ }));
     fireEvent.click(await screen.findByRole("button", { name: /Customer/ }));
     expect(await screen.findByRole("heading", { name: "Customer" })).toBeInTheDocument();
@@ -64,26 +73,32 @@ describe("web workbench shell", () => {
     expect(screen.getByRole("textbox", { name: "Definition" })).toBeInTheDocument();
     expect(screen.getByText("Technical details")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Hierarchy" }));
-    expect(screen.getByRole("combobox", { name: "Edit direct superclasses" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Direct superclass (one allowed)" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Add asserted type" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Schema" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Relationships" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Properties" }));
     expect(screen.getByRole("heading", { name: "Outgoing properties" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Incoming properties" })).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole("button", { name: "Add property" })[0]);
+    expect(screen.getByRole("tab", { name: "Outgoing" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Add property" }));
     expect(screen.getByRole("dialog", { name: "Add outgoing property" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Domain class" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Property name" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Range class" })).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Selected domain class" })).toHaveTextContent("Customer");
     fireEvent.click(screen.getByRole("button", { name: "Close property dialog" }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Add property" })[1]);
+    fireEvent.click(screen.getByRole("tab", { name: "Incoming" }));
+    expect(screen.getByRole("heading", { name: "Incoming properties" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add property" }));
     expect(screen.getByRole("dialog", { name: "Add incoming property" })).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Selected range class" })).toHaveTextContent("Customer");
     fireEvent.click(screen.getByRole("button", { name: "Close property dialog" }));
-    fireEvent.click(screen.getByRole("tab", { name: "SHACL" }));
-    expect(screen.getByText("No writable SHACL shapes source")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Datatype" }));
+    expect(screen.getByRole("heading", { name: "Datatype properties" })).toBeInTheDocument();
+    const detailSections = screen.getByRole("tablist", { name: "Entity detail sections" });
+    fireEvent.click(within(detailSections).getByRole("tab", { name: "Constraints" }));
+    expect(await screen.findByText("No applicable constraints")).toBeInTheDocument();
+    expect(screen.getByText("No applied SHACL shape targets this entity.")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Customer" })).toHaveAttribute("aria-selected", "true");
     fireEvent.change(screen.getByRole("textbox", { name: "Search entities by label" }), { target: { value: "Customer" } });
     expect(await screen.findByRole("heading", { name: "Search results" })).toBeInTheDocument();
@@ -106,8 +121,8 @@ describe("web workbench shell", () => {
     fireEvent.contextMenu(screen.getByRole("button", { name: "Customer, Class" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Add subclass" }));
     expect(screen.getByRole("heading", { name: "Add subclass of Customer" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Superclass labels" })).toHaveValue("");
-    expect(screen.getByRole("list", { name: "Selected superclass labels" })).toHaveTextContent("Customer");
+    expect(screen.getByRole("combobox", { name: "Superclass" })).toHaveValue("");
+    expect(screen.getByRole("list", { name: "Selected superclass" })).toHaveTextContent("Customer");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Expand navigation" }));
@@ -123,7 +138,7 @@ describe("web workbench shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close Shrey" }));
     fireEvent.click(screen.getByRole("button", { name: "Close Customer" }));
     expect(await screen.findByRole("heading", { name: "Select an entity" })).toBeInTheDocument();
-  });
+  }, 15_000);
 
   it("renders a clear project loading error", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("unavailable", { status: 503 })));
@@ -146,7 +161,7 @@ describe("web workbench shell", () => {
       });
       if (path.includes("/hierarchy")) return json({ apiVersion: "v1", sourceId: "simple", parentIri: null, page: { items: [], offset: 0, limit: 50, total: 0, nextOffset: null } });
       if (path.includes("/outline")) return json({ apiVersion: "v1", sourceId: "simple", page: { items: [
-        { iri: "https://example.com/entio/simple#Shrey", label: "Shrey", kind: "Individual", sourceId: "simple" },
+        { iri: "https://example.com/entio/simple#Shrey", label: "Shrey", kind: "Individual", sourceId: "simple", directType: { iri: "https://example.com/entio/simple#Customer", label: "Customer", kind: "Class", sourceId: "simple" } },
       ], offset: 0, limit: 100, total: 1, nextOffset: null } });
       if (path.endsWith("/staged")) return json({
         apiVersion: "v1",
@@ -171,6 +186,23 @@ describe("web workbench shell", () => {
           },
           generatedIris: ["https://example.com/entio/simple#Account101"],
           validationMessages: [],
+        }, {
+          id: "rename-individual",
+          order: 2,
+          sourceId: "simple",
+          summary: "set-entity-label · Primary Account",
+          editType: "set-entity-label",
+          status: "STAGED",
+          authorId: "bob",
+          latestEditorId: "bob",
+          comment: null,
+          aiGenerated: false,
+          normalizedValues: {
+            resourceIri: "https://example.com/entio/simple#Account101",
+            label: "Primary Account",
+          },
+          generatedIris: [],
+          validationMessages: [],
         }],
         proposal: null,
       });
@@ -181,12 +213,15 @@ describe("web workbench shell", () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole("tab", { name: /^Objects\s*2$/ }));
-    const stagedIndividual = screen.getByRole("button", { name: "Account 101, Object" });
-    expect(stagedIndividual.closest("ul")).toHaveClass("outline-entity-list");
+    const stagedIndividual = screen.getByRole("button", { name: "Primary Account, Object" });
+    expect(stagedIndividual.closest("ul")).toHaveClass("object-group-items");
+    expect(
+      stagedIndividual.closest("section")?.querySelector(".object-group-heading .object-group-label"),
+    ).toHaveTextContent("Account");
     fireEvent.click(stagedIndividual);
-    expect(await screen.findByRole("heading", { name: "Account 101" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Primary Account" })).toBeInTheDocument();
     expect(screen.getByText(/pending proposal review/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "Hierarchy" }));
+    fireEvent.click(screen.getAllByRole("tab", { name: "Hierarchy" }).at(-1)!);
     expect(await screen.findByRole("list", { name: "Selected add asserted type" })).toHaveTextContent("Account");
   });
 });

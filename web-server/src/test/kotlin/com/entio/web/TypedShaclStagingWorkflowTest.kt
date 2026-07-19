@@ -35,6 +35,85 @@ class TypedShaclStagingWorkflowTest {
     }
 
     @Test
+    fun alreadySatisfiedOntologyEditDoesNotBlockAValidShapeProposal(): Unit {
+        val fixture = fixture()
+        val service = StagingWorkflowService(fixture.registry)
+        service.stage(
+            "simple",
+            WebStageChangeRequest(
+                sourceId = "simple",
+                editType = "set-entity-label",
+                resourceLabel = "Customer",
+                label = "Customer",
+            ),
+            "alice",
+        )
+        service.stage("simple", createBorrowerShape(severity = "Warning"), "alice")
+
+        val snapshot = service.preview("simple", "alice")
+
+        assertEquals("READYFORREVIEW", snapshot.proposal?.status)
+        assertEquals(listOf("shapes"), snapshot.proposal?.targetSourceIds)
+        assertTrue(snapshot.proposal?.diff.orEmpty().any { it.description.contains("minimum count") })
+        assertTrue(snapshot.proposal?.diff.orEmpty().none { it.description.contains("Customer · label · Customer") })
+    }
+
+    @Test
+    fun labelReplacementRemovesACompetingLabelWhenTheRequestedLabelAlreadyExists(): Unit {
+        val fixture = fixture(duplicateCheckingLabels = true)
+        val service = StagingWorkflowService(fixture.registry)
+        service.stage(
+            "simple",
+            WebStageChangeRequest(
+                sourceId = "simple",
+                editType = "set-entity-label",
+                resourceLabel = "Checking",
+                label = "Checking Account",
+            ),
+            "alice",
+        )
+
+        val snapshot = service.preview("simple", "alice")
+
+        assertEquals("READYFORREVIEW", snapshot.proposal?.status)
+        assertEquals(listOf("simple"), snapshot.proposal?.targetSourceIds)
+        assertTrue(snapshot.proposal?.diff.orEmpty().any { it.description.contains("Checking") })
+        assertTrue(snapshot.proposal?.diff.orEmpty().none { it.description.contains("Added · Checking Account · label · Checking Account") })
+    }
+
+    @Test
+    fun labelReplacementAppliesAndReloadsWithExactlyOnePreferredLabel(): Unit {
+        val fixture = fixture(checkingLabel = "Checking")
+        val service = StagingWorkflowService(fixture.registry)
+        service.stage(
+            "simple",
+            WebStageChangeRequest(
+                sourceId = "simple",
+                editType = "set-entity-label",
+                resourceLabel = "Checking",
+                label = "Checking Account",
+            ),
+            "alice",
+        )
+
+        val preview = service.preview("simple", "alice")
+
+        assertEquals("READYFORREVIEW", preview.proposal?.status)
+        val descriptions = preview.proposal?.diff.orEmpty().map { it.description }
+        assertTrue(
+            descriptions.any { it.contains("Changed label") && it.contains("Checking Account") },
+            descriptions.joinToString(),
+        )
+
+        service.approve("simple", "bob")
+        assertEquals("APPLIED", service.apply("simple", "bob").status)
+
+        val appliedSource = Files.readString(fixture.data)
+        assertTrue(!appliedSource.contains("\"Checking\""))
+        assertEquals(1, "\"Checking Account\"".toRegex().findAll(appliedSource).count())
+    }
+
+    @Test
     fun rejectionPreservesStagingAndApprovalAppliesOnlyTheShapeSource(): Unit {
         val fixture = fixture()
         val service = StagingWorkflowService(fixture.registry)
@@ -115,6 +194,32 @@ class TypedShaclStagingWorkflowTest {
         service.approve("simple", "bob")
         assertEquals("APPLIED", service.apply("simple", "bob").status)
         assertTrue(!Files.readString(fixture.shapes).contains("CustomerShape"))
+    }
+
+    @Test
+    fun renamesAnExistingShapeThroughTheShapesWorkflow(): Unit {
+        val fixture = fixture(existingShape = true)
+        val service = StagingWorkflowService(fixture.registry)
+
+        service.stage(
+            "simple",
+            WebStageChangeRequest(
+                sourceId = "shapes",
+                editType = "shacl-update-shape-label",
+                shapeLabel = "Customer shape",
+                label = "Customer account requirement",
+            ),
+            "alice",
+        )
+
+        val preview = service.preview("simple", "alice")
+        assertEquals("READYFORREVIEW", preview.proposal?.status)
+        assertEquals(listOf("shapes"), preview.proposal?.targetSourceIds)
+        assertTrue(preview.proposal?.diff.orEmpty().any { it.description.contains("Customer account requirement") })
+
+        service.approve("simple", "bob")
+        assertEquals("APPLIED", service.apply("simple", "bob").status)
+        assertContains(Files.readString(fixture.shapes), "Customer account requirement")
     }
 
     @Test
@@ -213,7 +318,11 @@ class TypedShaclStagingWorkflowTest {
         }
     }
 
-    private fun fixture(existingShape: Boolean = false): Fixture {
+    private fun fixture(
+        existingShape: Boolean = false,
+        duplicateCheckingLabels: Boolean = false,
+        checkingLabel: String? = null,
+    ): Fixture {
         val allowed = Files.createTempDirectory("entio-shacl-workflow")
         val root = Files.createDirectory(allowed.resolve("simple"))
         val ontology = Files.createDirectories(root.resolve("ontology"))
@@ -241,6 +350,11 @@ class TypedShaclStagingWorkflowTest {
             @prefix owl: <http://www.w3.org/2002/07/owl#> .
             @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
             ex:Customer a owl:Class ; rdfs:label "Customer" .
+            ${when {
+                duplicateCheckingLabels -> "ex:Checking a owl:Class ; rdfs:label \"Checking\", \"Checking Account\" ."
+                checkingLabel != null -> "ex:Checking a owl:Class ; rdfs:label \"$checkingLabel\" ."
+                else -> ""
+            }}
             ex:ownsAccount a owl:ObjectProperty ; rdfs:label "owns account" ; rdfs:domain ex:Customer .
             ex:Shrey a ex:Customer ; rdfs:label "Shrey" .
             """.trimIndent(),

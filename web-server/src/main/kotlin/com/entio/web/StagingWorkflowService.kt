@@ -709,12 +709,12 @@ public class StagingWorkflowService(
     }
 
     private fun WebStageChangeRequest.toTypedEdit(): TypedOntologyEdit = when (editType) {
-        "create-class" -> CreateClassEdit(requiredIri(classIri, "classIri"), label?.let(::literal))
+        "create-class" -> CreateClassEdit(requiredIri(classIri, "classIri"), label?.let { literal(it) })
         "set-entity-label" -> SetEntityLabelEdit(requiredResource(resourceIri ?: targetIri, "resourceIri"), requiredLiteral(label, "label"))
         "add-superclass" -> AddSuperclassEdit(requiredIri(classIri, "classIri"), requiredIri(superclassIri, "superclassIri"))
         "remove-superclass" -> com.entio.core.RemoveSuperclassEdit(requiredIri(classIri, "classIri"), requiredIri(superclassIri, "superclassIri"))
-        "create-object-property" -> CreateObjectPropertyEdit(requiredIri(propertyIri, "propertyIri"), label?.let(::literal))
-        "create-datatype-property" -> CreateDatatypePropertyEdit(requiredIri(propertyIri, "propertyIri"), label?.let(::literal))
+        "create-object-property" -> CreateObjectPropertyEdit(requiredIri(propertyIri, "propertyIri"), label?.let { literal(it) })
+        "create-datatype-property" -> CreateDatatypePropertyEdit(requiredIri(propertyIri, "propertyIri"), label?.let { literal(it) })
         "set-property-domain" -> SetPropertyDomainEdit(requiredIri(propertyIri, "propertyIri"), requiredIri(domainClassIri, "domainClassIri"))
         "set-property-range" -> SetPropertyRangeEdit(requiredIri(propertyIri, "propertyIri"), requiredIri(rangeIri, "rangeIri"))
         "remove-property-domain" -> RemovePropertyDomainEdit(requiredIri(propertyIri, "propertyIri"), requiredIri(domainClassIri, "domainClassIri"))
@@ -760,7 +760,7 @@ public class StagingWorkflowService(
         "domainClassIri" to domainClassIri, "rangeIri" to rangeIri, "individualIri" to individualIri,
         "resourceIri" to (resourceIri ?: targetIri), "typeIri" to typeIri, "subjectIri" to subjectIri,
         "objectIri" to objectIri, "targetIri" to targetIri, "label" to label, "value" to value,
-        "existingValue" to existingValue,
+        "existingValue" to existingValue, "datatypeIri" to datatypeIri,
         "classLabel" to classLabel, "superclassLabel" to superclassLabel, "propertyLabel" to propertyLabel,
         "domainClassLabel" to domainClassLabel, "rangeLabel" to rangeLabel, "individualLabel" to individualLabel,
         "resourceLabel" to resourceLabel, "typeLabel" to typeLabel, "subjectLabel" to subjectLabel,
@@ -773,11 +773,15 @@ public class StagingWorkflowService(
 
     private fun requiredIri(value: String?, field: String): Iri = value?.takeIf(String::isNotBlank)?.let(::Iri) ?: throw WebWorkflowFailure("missing-field", "Field '$field' is required.")
     private fun requiredResource(value: String?, field: String): RdfResource = requiredIri(value, field)
-    private fun requiredLiteral(value: String?, field: String): RdfLiteral = value?.takeIf(String::isNotBlank)?.let(::literal) ?: throw WebWorkflowFailure("missing-field", "Field '$field' is required.")
-    private fun literal(value: String): RdfLiteral = RdfLiteral(value, datatypeIri = datatypeIri, languageTag = null)
+    private fun WebStageChangeRequest.requiredLiteral(value: String?, field: String): RdfLiteral =
+        value?.takeIf(String::isNotBlank)?.let { literal(it, datatypeIri) }
+            ?: throw WebWorkflowFailure("missing-field", "Field '$field' is required.")
+
+    private fun literal(value: String, requestedDatatypeIri: String? = null): RdfLiteral =
+        RdfLiteral(value, datatypeIri = Iri(requestedDatatypeIri?.takeIf(String::isNotBlank) ?: XSD_STRING), languageTag = null)
 
     private companion object {
-        private val datatypeIri = Iri("http://www.w3.org/2001/XMLSchema#string")
+        private const val XSD_STRING = "http://www.w3.org/2001/XMLSchema#string"
         private val STANDARD_DATATYPES: Map<String, String> = mapOf(
             "string" to "http://www.w3.org/2001/XMLSchema#string",
             "integer" to "http://www.w3.org/2001/XMLSchema#integer",

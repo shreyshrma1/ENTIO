@@ -32,6 +32,12 @@ public sealed interface TypedShaclEdit {
         val constraint: EditableShaclConstraint,
     ) : TypedShaclEdit
 
+    public data class UpdateShapeLabel(
+        override val sourceId: String,
+        override val shapeIri: Iri,
+        val label: String,
+    ) : TypedShaclEdit
+
     public data class RemoveConstraint(
         override val sourceId: String,
         override val shapeIri: Iri,

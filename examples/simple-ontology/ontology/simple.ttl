@@ -3,6 +3,13 @@
         <http://www.w3.org/2000/01/rdf-schema#label>
                 "Account" .
 
+<https://example.com/entio/simple#Checking>
+        a       <http://www.w3.org/2002/07/owl#Class>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "Checking Account";
+        <http://www.w3.org/2000/01/rdf-schema#subClassOf>
+                <https://example.com/entio/simple#Account> .
+
 <https://example.com/entio/simple#Invoice>
         a       <http://www.w3.org/2002/07/owl#Class>;
         <http://www.w3.org/2000/01/rdf-schema#label>
@@ -16,7 +23,7 @@
 <https://example.com/entio/simple#ownsAccount>
         a       <http://www.w3.org/1999/02/22-rdf-syntax-ns#Property>;
         <http://www.w3.org/2000/01/rdf-schema#domain>
-                <https://example.com/entio/simple#Customer>;
+                <https://example.com/entio/simple#Checking> , <https://example.com/entio/simple#Customer>;
         <http://www.w3.org/2000/01/rdf-schema#label>
                 "owns account";
         <http://www.w3.org/2000/01/rdf-schema#range>
@@ -27,6 +34,15 @@
         <http://www.w3.org/2000/01/rdf-schema#label>
                 "Customer" .
 
+<https://example.com/entio/simple#dateOpened>
+        a       <http://www.w3.org/2002/07/owl#DatatypeProperty>;
+        <http://www.w3.org/2000/01/rdf-schema#domain>
+                <https://example.com/entio/simple#Account>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "date opened";
+        <http://www.w3.org/2000/01/rdf-schema#range>
+                <http://www.w3.org/2001/XMLSchema#date> .
+
 <https://example.com/entio/simple#Shrey>
         a       <https://example.com/entio/simple#Customer> , <http://www.w3.org/2002/07/owl#NamedIndividual>;
         <http://www.w3.org/2000/01/rdf-schema#label>
@@ -35,4 +51,8 @@
                 <https://example.com/entio/simple#Account101> .
 
 <https://example.com/entio/simple#Account101>
-        a       <https://example.com/entio/simple#Account> , <http://www.w3.org/2002/07/owl#NamedIndividual> .
+        a       <https://example.com/entio/simple#Account> , <http://www.w3.org/2002/07/owl#NamedIndividual>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "Account 101";
+        <https://example.com/entio/simple#dateOpened>
+                "2026-07-17"^^<http://www.w3.org/2001/XMLSchema#date> .

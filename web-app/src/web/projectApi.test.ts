@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadEntityDetails, loadHierarchy, loadProjectOutline, searchProject, stageChange, previewStagedChanges, streamAiRunEvents } from "./projectApi";
+import { loadEntityDetails, loadHierarchy, loadProjectOutline, loadShaclShapes, searchProject, stageChange, previewStagedChanges, streamAiRunEvents } from "./projectApi";
 
 function response(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -48,6 +48,17 @@ describe("read-only project API", () => {
 
     expect(requestedPath).toContain("/outline?offset=0&limit=100&sourceId=simple");
     expect(result.sourceId).toBe("simple");
+  });
+
+  it("loads the applied SHACL shape graph through a typed helper", async () => {
+    let requestedPath = "";
+    const result = await loadShaclShapes("simple", async (input) => {
+      requestedPath = String(input);
+      return response({ apiVersion: "v1", projectId: "simple", shapes: [] });
+    });
+
+    expect(requestedPath).toBe("/api/v1/projects/simple/shacl/shapes");
+    expect(result.shapes).toEqual([]);
   });
 
   it("keeps staging and proposal actions behind typed HTTP helpers", async () => {

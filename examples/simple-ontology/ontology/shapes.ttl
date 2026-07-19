@@ -1,12 +1,16 @@
-@prefix ex: <https://example.com/entio/simple#> .
-@prefix sh: <http://www.w3.org/ns/shacl#> .
+<https://example.com/entio/simple#CustomerShape>
+        a       <http://www.w3.org/ns/shacl#NodeShape>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "Minimum Accounts";
+        <http://www.w3.org/ns/shacl#property>
+                <https://example.com/entio/simple#CustomerOwnsAccountShape>;
+        <http://www.w3.org/ns/shacl#targetClass>
+                <https://example.com/entio/simple#Customer> .
 
-ex:CustomerShape
-    a sh:NodeShape ;
-    sh:targetClass ex:Customer ;
-    sh:property ex:CustomerOwnsAccountShape .
-
-ex:CustomerOwnsAccountShape
-    sh:path ex:ownsAccount ;
-    sh:minCount 1 ;
-    sh:message "Each customer must own at least one account." .
+<https://example.com/entio/simple#CustomerOwnsAccountShape>
+        <http://www.w3.org/ns/shacl#message>
+                "Each customer must own at least one account.";
+        <http://www.w3.org/ns/shacl#minCount>
+                1;
+        <http://www.w3.org/ns/shacl#path>
+                <https://example.com/entio/simple#ownsAccount> .
