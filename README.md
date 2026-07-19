@@ -18,13 +18,13 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository contains the completed Phase 1 Kotlin/JVM Core Semantic Engine, Phase 1.5 stabilization, Phase 2 controlled ontology editing, Phase 2.5 and Phase 2.5+ workbench completion, Phase 3 semantic descriptions, Phase 4 reasoning and SHACL foundation, Phase 5 external ontology catalog, and Phase 6 collaborative web workbench and native AI foundation.
+This repository contains the completed Phase 1 Kotlin/JVM Core Semantic Engine, Phase 1.5 stabilization, Phase 2 controlled ontology editing, Phase 2.5 and Phase 2.5+ workbench completion, Phase 3 semantic descriptions, Phase 4 reasoning and SHACL foundation, Phase 5 external ontology catalog, Phase 6 collaborative web workbench and native AI foundation, Phase 7 tool-driven native AI ontology copilot, and Phase 7.5 OpenAI model discovery and selection work.
 
 Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because the core work is ontology loading, RDF/Turtle parsing, deterministic validation, semantic diffing, and CLI behavior.
 
 The current implementation supports small local Entio projects, Turtle/RDF parsing through Apache Jena, RDF-term-aware graph triples, deterministic validation reports, semantic graph diffs, reusable project loading, and a thin CLI.
 
-Phases 2 through 6 are complete. Phases 2 through 2.5+ add safe ontology mutation, label-first selection, deterministic IRI generation, deletion review, multi-edit staging, combined preview and approval workflows, source-file persistence, and a VS Code workbench. Phase 3 adds semantic descriptors, deterministic label policy, semantic metadata editing, and semantic search. Phase 4 adds bounded OWL reasoning, import-aware reasoning views, SHACL shape and validation support, and proposal impact integration. Phase 5 adds a pinned, deterministic FIBO catalog with browsing, search, dependency review, and controlled external reuse. Phase 6 adds a Ktor web boundary, React workbench, shared staging, collaboration, asynchronous semantic jobs, browser FIBO workflows, and a provider-neutral AI foundation. The Kotlin semantic engine remains responsible for RDF and ontology behavior.
+Phases 2 through 7.5 are complete. Phases 2 through 2.5+ add safe ontology mutation, label-first selection, deterministic IRI generation, deletion review, multi-edit staging, combined preview and approval workflows, source-file persistence, and a VS Code workbench. Phase 3 adds semantic descriptors, deterministic label policy, semantic metadata editing, and semantic search. Phase 4 adds bounded OWL reasoning, import-aware reasoning views, SHACL shape and validation support, and proposal impact integration. Phase 5 adds a pinned, deterministic FIBO catalog with browsing, search, dependency review, and controlled external reuse. Phase 6 adds a Ktor web boundary, React workbench, shared staging, collaboration, asynchronous semantic jobs, browser FIBO workflows, and a provider-neutral AI foundation. Phase 7 adds the production tool-driven OpenAI copilot with private typed drafts and deterministic review boundaries. Phase 7.5 adds current-user model discovery, explicit verification and selection, immutable run binding, and safe unavailable-model recovery. Phase 8 is the active stage for scalable AI ontology workflow orchestration. The Kotlin semantic engine remains responsible for RDF and ontology behavior.
 
 ## Workspace Structure
 
@@ -42,7 +42,7 @@ The repository contains the Kotlin/Gradle semantic workspace, a Ktor web adapter
 
 The VS Code extension consumes the Kotlin/JVM core engine through the machine-readable CLI boundary. The React web application consumes versioned Ktor HTTP and WebSocket contracts. Neither client duplicates RDF or semantic policy.
 
-## Current Capabilities
+## Current Capabilities Through Phase 7.5
 
 The Phase 1 through Phase 6 implementation currently supports:
 
@@ -76,6 +76,8 @@ The Phase 1 through Phase 6 implementation currently supports:
 - Coordinating collaboration presence, shared activity, baseline conflicts, and asynchronous reasoning and SHACL jobs.
 - Browsing FIBO content and staging supported external reuse intents from the browser.
 - Storing optional per-user AI credentials in server memory and returning bounded deterministic assistant suggestions through a provider-neutral Phase 6 boundary.
+- Running a tool-driven OpenAI ontology copilot with bounded project context, strict server-owned capabilities, private typed drafts, deterministic analysis, and explicit human-review submission.
+- Discovering models available to the current user's OpenAI API project, requiring explicit select-and-test, and binding verified model configuration immutably to each AI run.
 
 Implemented CLI commands:
 
@@ -149,7 +151,8 @@ npm test
 - Jena serialization does not preserve original Turtle source formatting or comments.
 - Proposal and staged-change state is process/session scoped rather than a durable review store.
 - Web project registration, development identity, collaboration, semantic jobs, staging, and AI credentials are in-memory development boundaries rather than production persistence or authentication.
-- The Phase 6 assistant uses a deterministic provider-neutral adapter. It does not call OpenAI or another production model; the real tool-driven copilot is planned for Phase 7.
+- AI credentials, model settings, conversations, runs, drafts, audits, and related development state remain in memory and are cleared on server restart.
+- Phase 8 task/workspace orchestration, large-task batching, incremental repair workflows, and large-ontology evaluation behavior are active-stage plans and are not implemented until their approved slices are completed and verified.
 
 ## Implemented Phase 2 Through Phase 6 Workflow
 
@@ -218,6 +221,8 @@ Phase 2 should not include:
 
 Phases 7 and 7.5 are complete and summarized in [the Phase 7 implementation summary](docs/phase-summaries/phase-7-summary.md) and [the Phase 7.5 implementation summary](docs/phase-summaries/phase-7.5-summary.md). Entio now provides a tool-driven native AI ontology copilot with user-specific OpenAI model discovery, explicit select-and-test, verified run-bound model execution, safe unavailable-model recovery, and deterministic human-review boundaries.
 
+Phase 8 is the active stage. Its [scope](docs/architecture/phase-8-scope.md), [Spec Document](docs/specs/0014-phase-8-scalable-ai-ontology-workflow-orchestration.md), and [ExecPlan](docs/execplans/0014-phase-8-scalable-ai-ontology-workflow-orchestration.md) define Scalable AI Ontology Workflow Orchestration. Those documents describe proposed behavior and must not be treated as implemented until the approved slices are completed and verified.
+
 ## Technical Principle
 
 Entio should not reinvent RDF, OWL, or SHACL.
@@ -237,6 +242,8 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 5 Scope](docs/architecture/phase-5-scope.md)
 - [Phase 6 Scope](docs/architecture/phase-6-scope.md)
 - [Phase 7 Scope](docs/architecture/phase-7-scope.md)
+- [Phase 7.5 Scope](docs/architecture/phase-7.5-scope.md)
+- [Phase 8 Scope](docs/architecture/phase-8-scope.md)
 - [Technical Approach](docs/architecture/002-technical-approach.md)
 - [Kotlin Engine Guidelines](docs/architecture/003-kotlin-engine-guidelines.md)
 - [Phase 1.5 Spec](docs/specs/0002-phase-1.5-core-semantic-engine-stabilization.md)
@@ -258,3 +265,7 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 6 Implementation Summary](docs/phase-summaries/phase-6-summary.md)
 - [Phase 7 Spec](docs/specs/0012-phase-7-tool-driven-native-ai-ontology-copilot.md)
 - [Phase 7 ExecPlan](docs/execplans/0012-phase-7-tool-driven-native-ai-ontology-copilot.md)
+- [Phase 7.5 Spec](docs/specs/0013-phase-7.5-openai-model-discovery-selection-ai-boundary-cleanup.md)
+- [Phase 7.5 ExecPlan](docs/execplans/0013-phase-7.5-openai-model-discovery-selection-ai-boundary-cleanup.md)
+- [Phase 8 Spec](docs/specs/0014-phase-8-scalable-ai-ontology-workflow-orchestration.md)
+- [Phase 8 ExecPlan](docs/execplans/0014-phase-8-scalable-ai-ontology-workflow-orchestration.md)

@@ -4,7 +4,7 @@ This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engi
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
-Phases 1 through 7.5 are complete. Phase 7 delivered the Tool-Driven Native AI Ontology Copilot, and Phase 7.5 delivered user-specific OpenAI model discovery, explicit verification and selection, run-bound model execution, and bounded AI boundary cleanup. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
+Phases 1 through 7.5 are complete. Phase 7 delivered the Tool-Driven Native AI Ontology Copilot, and Phase 7.5 delivered user-specific OpenAI model discovery, explicit verification and selection, run-bound model execution, and bounded AI boundary cleanup. Phase 8 is the active planning and implementation stage for Scalable AI Ontology Workflow Orchestration. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
 
 ## Product Context
 
@@ -22,7 +22,7 @@ If a task seems to require later-phase infrastructure, stop and explain why befo
 
 ## Current Scope
 
-Phase 1, Phase 1.5, Phase 2, Phase 2.5, Phase 2.5+, Phase 3, Phase 4, Phase 5, and Phase 6 are complete. The current Entio foundation supports:
+Phase 1, Phase 1.5, Phase 2, Phase 2.5, Phase 2.5+, Phase 3, Phase 4, Phase 5, Phase 6, Phase 7, and Phase 7.5 are complete. The current Entio foundation supports:
 
 - Loading an Entio project.
 - Parsing small Turtle/RDF ontology files with existing libraries.
@@ -44,6 +44,8 @@ Phase 1, Phase 1.5, Phase 2, Phase 2.5, Phase 2.5+, Phase 3, Phase 4, Phase 5, a
 - Using a React web workbench for project navigation, entity inspection, label-first typed editing, shared staging, proposal review, reasoning, SHACL, FIBO, collaboration, and bounded AI assistance.
 - Coordinating shared staged state, collaboration presence/activity, asynchronous semantic jobs, and in-memory development sessions through explicit server-owned contracts.
 - Storing per-user AI credentials in server memory and exposing a provider-neutral, deterministic Phase 6 assistant foundation. Phase 6 does not call a production AI provider.
+- Running the Phase 7 tool-driven OpenAI copilot through strict server-owned capabilities, bounded context, private typed drafts, deterministic analysis, and explicit review submission.
+- Discovering, selecting, and verifying current-user OpenAI models through the Phase 7.5 server boundary and binding the verified model immutably to each AI run.
 
 Current implementation notes:
 
@@ -129,6 +131,8 @@ Do not add the following in Phase 2 unless the project direction changes explici
 Phase 6 is complete and summarized in `docs/phase-summaries/phase-6-summary.md`.
 
 Phase 7 and Phase 7.5 are complete and summarized in `docs/phase-summaries/phase-7-summary.md` and `docs/phase-summaries/phase-7.5-summary.md`. Later planning documents must not be treated as implemented until their approved slices are completed and verified.
+
+Phase 8 is the active stage. Its scope, Spec Document, and ExecPlan define Scalable AI Ontology Workflow Orchestration. Phase 8 behavior remains proposed until its approved implementation slices are completed, verified, and recorded in the Phase 8 summary.
 
 ## Software Architecture Rules
 
