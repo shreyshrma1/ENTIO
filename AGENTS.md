@@ -4,7 +4,7 @@ This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engi
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
-Phases 1 through 7.5 are complete. Phase 7 delivered the Tool-Driven Native AI Ontology Copilot, and Phase 7.5 delivered user-specific OpenAI model discovery, explicit verification and selection, run-bound model execution, and bounded AI boundary cleanup. Phase 8 is the active planning and implementation stage for Scalable AI Ontology Workflow Orchestration. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
+Phases 1 through 8 are complete. Phase 8 delivered Scalable AI Ontology Workflow Orchestration with bounded task workspaces, retrieval, planning, batching, deterministic analysis and repair, and human-review handoff. No later phase is active until separately scoped and approved. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
 
 ## Product Context
 
@@ -132,7 +132,7 @@ Phase 6 is complete and summarized in `docs/phase-summaries/phase-6-summary.md`.
 
 Phase 7 and Phase 7.5 are complete and summarized in `docs/phase-summaries/phase-7-summary.md` and `docs/phase-summaries/phase-7.5-summary.md`. Later planning documents must not be treated as implemented until their approved slices are completed and verified.
 
-Phase 8 is the active stage. Its scope, Spec Document, and ExecPlan define Scalable AI Ontology Workflow Orchestration. Phase 8 behavior remains proposed until its approved implementation slices are completed, verified, and recorded in the Phase 8 summary.
+Phase 8 is complete and summarized in `docs/phase-summaries/phase-8-summary.md`. Its scope, Spec Document, ExecPlan, slice completion artifacts, and summary are the approved delivery record. Do not infer a later active phase without approved planning documents.
 
 ## Software Architecture Rules
 
