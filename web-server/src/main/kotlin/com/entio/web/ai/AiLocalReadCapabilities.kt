@@ -195,9 +195,21 @@ public data class AiCapabilityExecution(
 
 public data class AiContextPackage(
     val project: AiProjectSummaryPayload,
+    val ontologyOverview: AiOntologyOverview,
     val selectedEntity: AiEntityPayload?,
     val screen: AiCurrentScreenContext,
     val workflow: AiWorkflowStatePayload,
+)
+
+public data class AiOntologyOverview(
+    val entities: List<AiOntologyContextEntity>,
+    val truncated: Boolean,
+)
+
+public data class AiOntologyContextEntity(
+    val entity: AiEntitySnapshot,
+    val incoming: List<AiUsageStatement>,
+    val outgoing: List<AiUsageStatement>,
 )
 
 public class AiContextPackageBuilder(
@@ -209,7 +221,7 @@ public class AiContextPackageBuilder(
         val entity = context.selectedEntityIri?.let {
             capabilities.entity(scope, AiEntityDetailArguments(it, context.selectedSourceId))
         }
-        return AiContextPackage(project, entity, context, capabilities.workflow(scope))
+        return AiContextPackage(project, capabilities.ontologyOverview(scope), entity, context, capabilities.workflow(scope))
     }
 
     private fun validateContextScope(scope: AiCapabilityScope, context: AiCurrentScreenContext) {
@@ -225,6 +237,22 @@ public class AiLocalReadCapabilityService(
     private val staging: StagingWorkflowService,
     private val help: EntioHelpService = EntioHelpService(),
 ) {
+    public fun ontologyOverview(scope: AiCapabilityScope): AiOntologyOverview {
+        val items = scope.allowedSourceIds.flatMap { sourceId ->
+            readOnly.outline(scope.projectId, sourceId, WebPageRequest(limit = 100)).page.items
+        }.distinctBy { listOf(it.sourceId, it.iri) }
+            .sortedWith(compareBy<com.entio.web.WebOutlineItem> { it.kind }.thenBy { it.label.lowercase() }.thenBy { it.iri })
+        val visible = items.take(MAX_CONTEXT_ENTITIES).map { item ->
+            val detail = readEntity(scope, item.iri, item.sourceId)
+            AiOntologyContextEntity(
+                entity = detail.snapshot(),
+                incoming = detail.incomingRelationships.take(MAX_CONTEXT_RELATIONSHIPS).map(WebRelationship::usage),
+                outgoing = detail.outgoingRelationships.take(MAX_CONTEXT_RELATIONSHIPS).map(WebRelationship::usage),
+            )
+        }
+        return AiOntologyOverview(visible, truncated = items.size > visible.size)
+    }
+
     public fun execute(
         invocation: AiDecodedCapabilityInvocation,
         scope: AiCapabilityScope,
@@ -478,6 +506,8 @@ public class AiLocalReadCapabilityService(
     )
 
     private companion object {
+        const val MAX_CONTEXT_ENTITIES: Int = 20
+        const val MAX_CONTEXT_RELATIONSHIPS: Int = 20
         const val MAX_DEFINITIONS: Int = 3
         const val MAX_RELATED: Int = 10
         const val MAX_WORKFLOW_ITEMS: Int = 20

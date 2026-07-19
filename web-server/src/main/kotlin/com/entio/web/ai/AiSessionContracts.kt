@@ -81,7 +81,7 @@ public data class AiRunPolicy(
     val maxActiveRunsPerUserProject: Int = 1,
     val maxLocalEntitiesInContext: Int = 20,
     val maxFiboCandidatesPerSearch: Int = 10,
-    val maxProviderRequestsPerTurn: Int = 8,
+    val maxProviderRequestsPerTurn: Int = 12,
     val maxConversationMessagesInContext: Int = 20,
     val maxElapsedMillis: Long = 120_000,
     val maxInputTokens: Long = 100_000,

@@ -104,6 +104,10 @@ class AiConversationServiceTest {
         assertTrue(provider.requests.single().userInput.contains("\"projectId\":\"simple\""))
         assertTrue(provider.requests.single().userInput.contains("\"id\":\"simple\""))
         assertTrue(provider.requests.single().userInput.contains("\"roles\":["))
+        assertTrue(provider.requests.single().userInput.contains("\"label\":\"Checking Account\""))
+        assertTrue(provider.requests.single().userInput.contains("\"predicateLabel\":\"owns account\""))
+        assertTrue(provider.requests.single().trustedPolicy.contains("Use the bounded ontology overview"))
+        assertTrue(provider.requests.single().trustedPolicy.contains("Minimize provider and capability calls"))
     }
 
     @Test
