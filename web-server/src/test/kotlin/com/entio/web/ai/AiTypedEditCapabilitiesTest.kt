@@ -181,7 +181,7 @@ class AiTypedEditCapabilitiesTest {
             WebStageChangeRequest(
                 sourceId = "ontology",
                 editType = "add-definition",
-                targetLabel = "Account",
+                label = "Account",
                 value = "A record used to organize financial activity.",
             ),
         )

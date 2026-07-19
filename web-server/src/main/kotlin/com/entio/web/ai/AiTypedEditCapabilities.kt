@@ -181,7 +181,8 @@ public class AiTypedEditCapabilityAdapter(
         if (request.editType !in expectedFamily) {
             throw AiDraftFailure("typed-edit-family-mismatch", "The typed edit does not match the selected draft capability.")
         }
-        val scopedRequest = resolveScopedSource(scope, request)
+        val normalizedRequest = normalizeSemanticTarget(request)
+        val scopedRequest = resolveScopedSource(scope, normalizedRequest)
         val aiRequest = scopedRequest.copy(aiGenerated = true, idempotencyKey = null)
         val prepared = try {
             staging.preparePrivateDraft(scope.projectId, aiRequest)
@@ -204,6 +205,14 @@ public class AiTypedEditCapabilityAdapter(
             normalizedValues = prepared.normalizedValues.toSortedMap(),
             generatedIris = prepared.generatedIris.map { it.iri.value }.sorted(),
         )
+    }
+
+    private fun normalizeSemanticTarget(request: WebStageChangeRequest): WebStageChangeRequest = when (request.editType) {
+        "add-definition", "replace-definition", "remove-definition" -> request.copy(
+            targetIri = request.targetIri ?: request.resourceIri,
+            targetLabel = request.targetLabel ?: request.resourceLabel ?: request.label,
+        )
+        else -> request
     }
 
     private fun resolveScopedSource(scope: AiCapabilityScope, request: WebStageChangeRequest): WebStageChangeRequest {

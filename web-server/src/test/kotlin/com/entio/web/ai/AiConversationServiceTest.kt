@@ -76,6 +76,9 @@ class AiConversationServiceTest {
         assertEquals("add-definition", request.editType)
         assertEquals("Account", request.targetLabel)
         assertEquals(definition, request.value)
+        assertTrue(provider.requests.first().trustedPolicy.contains("exact allowed source IDs when calling tools: simple, shapes"))
+        assertTrue(provider.requests.first().trustedPolicy.contains("proactively inspect relevant local entities"))
+        assertTrue(provider.requests.first().trustedPolicy.contains("infer a plausible domain and draft wording"))
         assertTrue(fixture.staging.snapshot("simple").entries.isEmpty())
     }
 
@@ -539,7 +542,7 @@ class AiConversationServiceTest {
     private fun addDefinitionCall(id: String, sourceId: String, label: String, definition: String): OpenAiFunctionCall = simpleCall(
         id,
         AiTypedEditCapabilityAdapter.ADD_ONTOLOGY_CAPABILITY,
-        """{"sourceId":"$sourceId","editType":"add-definition","rationale":"Document the reviewed concept.","targetLabel":"$label","value":"$definition"}""",
+        """{"sourceId":"$sourceId","editType":"add-definition","rationale":"Document the reviewed concept.","label":"$label","value":"$definition"}""",
     )
 
     private fun updateClassCall(id: String, itemId: String, label: String): OpenAiFunctionCall = simpleCall(
