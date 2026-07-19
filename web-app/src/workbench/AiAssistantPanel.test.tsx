@@ -39,6 +39,30 @@ describe("AI assistant panel", () => {
     expect(activity[1]).toHaveTextContent("Answer completed");
   });
 
+  it("shows a working status while a longer assistant request is in progress", async () => {
+    const initial = conversation([]);
+    let completeRequest: ((response: Response) => void) | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/ai/provider-settings")) return json(providerSettings(true));
+      if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [initial] });
+      if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) return json({ apiVersion: "v1", conversation: initial });
+      if (path.endsWith("/messages") && init?.method === "POST") {
+        return new Promise<Response>((resolve) => { completeRequest = resolve; });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    renderPanel();
+    await screen.findByText("Ready when you are");
+    fireEvent.change(screen.getByLabelText("Ask about this ontology context"), { target: { value: "Define every class." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText("Entio AI is working…")).toBeInTheDocument();
+    expect(screen.getByText(/waiting briefly for provider capacity/i)).toBeInTheDocument();
+    completeRequest?.(json(turn({ answer: "Drafted definitions." })));
+  });
+
   it("supports plan confirmation and sends the explicit decision", async () => {
     const decisions: string[] = [];
     const initial = conversation([]);

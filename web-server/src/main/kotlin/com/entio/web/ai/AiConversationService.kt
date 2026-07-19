@@ -462,7 +462,15 @@ public class AiConversationService(
                                 functionCalls = pendingFunctionCalls,
                                 toolOutputs = outputs,
                             ),
-                        ) {}
+                        ) { providerEvent ->
+                            if (providerEvent is OpenAiProviderEvent.Retrying) {
+                                event(
+                                    run,
+                                    AiRunEventType.STATUS_CHANGED,
+                                    "OpenAI is temporarily rate limited; retrying request ${providerEvent.attempt} of ${providerEvent.maxAttempts} after ${providerEvent.delayMillis} ms.",
+                                )
+                            }
+                        }
                     }
                 } ?: throw AiConversationFailure("missing-credential", "Configure an AI provider credential before starting a conversation.")
                 val completed = when (providerResult) {

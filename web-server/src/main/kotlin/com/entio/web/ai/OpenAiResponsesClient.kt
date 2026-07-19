@@ -25,6 +25,7 @@ import io.ktor.utils.io.readUTF8Line
 import java.io.IOException
 import java.net.URI
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.delay
 
 public data class OpenAiProviderConfiguration(
     val providerId: String = PROVIDER_ID,
@@ -35,6 +36,8 @@ public data class OpenAiProviderConfiguration(
     val connectTimeoutMillis: Long = 10_000,
     val requestTimeoutMillis: Long = 120_000,
     val maxRetries: Int = 2,
+    val retryBaseDelayMillis: Long = 1_000,
+    val maxRetryDelayMillis: Long = 30_000,
 ) {
     init {
         require(providerId == PROVIDER_ID) { "openai-provider-id-required" }
@@ -45,6 +48,8 @@ public data class OpenAiProviderConfiguration(
         require(connectTimeoutMillis > 0)
         require(requestTimeoutMillis > 0)
         require(maxRetries in 0..2)
+        require(retryBaseDelayMillis >= 0)
+        require(maxRetryDelayMillis >= retryBaseDelayMillis)
     }
 
     public companion object {
@@ -133,6 +138,7 @@ public data class OpenAiUsage(
 )
 
 public sealed interface OpenAiProviderEvent {
+    public data class Retrying(val attempt: Int, val maxAttempts: Int, val delayMillis: Long) : OpenAiProviderEvent
     public data class TextDelta(val delta: String) : OpenAiProviderEvent
     public data class FunctionArgumentsDelta(val callId: String?, val delta: String) : OpenAiProviderEvent
     public data class FunctionCall(val call: OpenAiFunctionCall) : OpenAiProviderEvent
@@ -293,12 +299,23 @@ public class OpenAiResponsesClient(
                 if (!response.status.isSuccess()) {
                     val mapped = mapHttpFailure(response.status, response.bodyAsText(), selectedModelId)
                     if (mapped.retryable && attempt < configuration.maxRetries) {
+                        val delayMillis = retryDelayMillis(response, attempt)
                         attempt += 1
+                        onEvent(OpenAiProviderEvent.Retrying(attempt + 1, configuration.maxRetries + 1, delayMillis))
+                        delay(delayMillis)
                         continue
                     }
                     return OpenAiResponsesResult.Failed(mapped)
                 }
-                return parseEvents(response, selectedModelId, onEvent)
+                val parsed = parseEvents(response, selectedModelId, onEvent)
+                if (parsed is OpenAiResponsesResult.Failed && parsed.failure.retryable && attempt < configuration.maxRetries) {
+                    val delayMillis = exponentialRetryDelayMillis(attempt)
+                    attempt += 1
+                    onEvent(OpenAiProviderEvent.Retrying(attempt + 1, configuration.maxRetries + 1, delayMillis))
+                    delay(delayMillis)
+                    continue
+                }
+                return parsed
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: HttpRequestTimeoutException) {
@@ -310,6 +327,29 @@ public class OpenAiResponsesClient(
             } catch (_: Exception) {
                 return failure(OpenAiFailureCode.PROVIDER_ERROR, false)
             }
+        }
+    }
+
+    private fun retryDelayMillis(response: HttpResponse, attempt: Int): Long {
+        val retryAfterMillis = response.headers[HttpHeaders.RetryAfter]
+            ?.trim()
+            ?.toLongOrNull()
+            ?.times(1_000)
+        val requestResetMillis = response.headers["x-ratelimit-reset-requests"]?.let(::parseProviderDurationMillis)
+        return (retryAfterMillis ?: requestResetMillis ?: exponentialRetryDelayMillis(attempt))
+            .coerceIn(0, configuration.maxRetryDelayMillis)
+    }
+
+    private fun exponentialRetryDelayMillis(attempt: Int): Long =
+        (configuration.retryBaseDelayMillis * (1L shl attempt.coerceAtMost(20)))
+            .coerceAtMost(configuration.maxRetryDelayMillis)
+
+    private fun parseProviderDurationMillis(value: String): Long? {
+        val normalized = value.trim().lowercase()
+        return when {
+            normalized.endsWith("ms") -> normalized.removeSuffix("ms").toDoubleOrNull()?.toLong()
+            normalized.endsWith("s") -> normalized.removeSuffix("s").toDoubleOrNull()?.times(1_000)?.toLong()
+            else -> null
         }
     }
 
@@ -395,6 +435,7 @@ public class OpenAiResponsesClient(
                 OpenAiProviderEvent.Cancelled -> return failure(OpenAiFailureCode.CANCELLED, false)
                 is OpenAiProviderEvent.Error -> return OpenAiResponsesResult.Failed(mapStreamFailure(event, selectedModelId))
                 is OpenAiProviderEvent.FunctionArgumentsDelta -> Unit
+                is OpenAiProviderEvent.Retrying -> Unit
             }
         }
         if (!terminal) return failure(OpenAiFailureCode.MALFORMED_RESPONSE, false)
