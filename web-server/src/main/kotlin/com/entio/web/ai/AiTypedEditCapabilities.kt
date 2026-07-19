@@ -298,6 +298,49 @@ public class AiPrivateDraftWorkspace(
         return saveMutation(draft, draft.items + item, "add", "Added ${operation.summary}.", now)
     }
 
+    /** Prepares and validates a complete task batch before making one draft revision visible. */
+    @Synchronized
+    internal fun addBatch(
+        scope: AiCapabilityScope,
+        draftId: String,
+        entries: List<AiDraftBatchEntry>,
+        attribution: AiDraftAttribution,
+    ): AiDraft {
+        if (entries.isEmpty() || entries.size > 20) {
+            throw AiDraftFailure("draft-batch-limit", "A draft batch requires between 1 and 20 items.")
+        }
+        val draft = mutableDraft(scope, draftId)
+        val prepared = mutableListOf<Pair<AiAddDraftItemArguments, AiTypedDraftOperation>>()
+        entries.forEach { entry ->
+            validateRationale(entry.arguments.rationale)
+            validateDependencies(draft.items, entry.arguments.dependencyItemIds)
+            val operation = adapter.prepare(scope, entry.capabilityName, entry.arguments.request)
+            rejectDuplicateOrConflict(draft.items, operation, ignoredItemId = null)
+            rejectDuplicateOrConflict(
+                prepared.mapIndexed { index, (_, current) ->
+                    AiDraftItem("prepared-$index", index + 1, current, "prepared", createdAt = clock.instant(), updatedAt = clock.instant())
+                },
+                operation,
+                ignoredItemId = null,
+            )
+            prepared += entry.arguments to operation
+        }
+        val now = clock.instant()
+        val added = prepared.mapIndexed { index, (arguments, operation) ->
+            AiDraftItem(
+                id = itemIdFactory(),
+                order = draft.items.size + index + 1,
+                operation = operation,
+                rationale = arguments.rationale.trim(),
+                dependencyItemIds = arguments.dependencyItemIds.distinct(),
+                attribution = attribution,
+                createdAt = now,
+                updatedAt = now,
+            )
+        }
+        return saveMutation(draft, draft.items + added, "task-batch-add", "Added ${added.size} task draft items.", now)
+    }
+
     @Synchronized
     public fun update(
         scope: AiCapabilityScope,

@@ -189,6 +189,9 @@ public data class AiDraftAttribution(
     val acceptingUserId: String,
     val conversationId: String,
     val runId: String? = null,
+    val taskId: String? = null,
+    val workPackageId: String? = null,
+    val executionSegmentId: String? = null,
 )
 
 public data class AiDraftItem(
