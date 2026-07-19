@@ -23,6 +23,10 @@ interface SemanticEntityPickerProps {
   includeStaged?: boolean;
   selectedValueInInput?: boolean;
   required?: boolean;
+  selectionPresentation?: "chips" | "list" | "hidden";
+  appliedIris?: readonly string[];
+  removableApplied?: boolean;
+  onCommit?: () => void;
 }
 
 export default function SemanticEntityPicker({
@@ -39,6 +43,10 @@ export default function SemanticEntityPicker({
   includeStaged = true,
   selectedValueInInput = false,
   required = false,
+  selectionPresentation = "chips",
+  appliedIris,
+  removableApplied = true,
+  onCommit,
 }: SemanticEntityPickerProps) {
   const root = useRef<HTMLDivElement>(null);
   const editingSelectedValue = useRef(false);
@@ -93,6 +101,63 @@ export default function SemanticEntityPicker({
     setOpen(false);
   }
 
+  const applied = new Set(appliedIris ?? []);
+  const selectionList = selected.length && selectionPresentation !== "hidden" ? <ul
+    className={`entity-selection-list${selectionPresentation === "list" ? " entity-selection-list-rows" : ""}`}
+    aria-label={`Selected ${label.toLocaleLowerCase()}`}
+  >
+    {selected.map((choice) => {
+      const pending = choice.staged || (appliedIris !== undefined && !applied.has(choice.iri));
+      const removable = pending || removableApplied;
+      return <li key={choice.iri} className={pending ? "entity-selection-staged" : undefined}>
+        <span className="entity-selection-copy"><strong>{choice.label}</strong><small>{pending ? "Staged" : displayKind(choice.kind)}</small></span>
+        {removable ? <button type="button" aria-label={`Remove ${choice.label}`} onClick={() => onChange(selected.filter((item) => item.iri !== choice.iri))}>×</button> : null}
+      </li>;
+    })}
+  </ul> : null;
+
+  const combobox = <div className="semantic-entity-combobox">
+    <input
+      id={id}
+      role="combobox"
+      aria-autocomplete="list"
+      aria-expanded={open && input.trim().length > 0}
+      aria-controls={`${id}-options`}
+      value={input}
+      onChange={(event) => {
+        if (selectedValueInInput && selected.length) {
+          editingSelectedValue.current = true;
+          onChange([]);
+        }
+        setInput(event.target.value);
+        setOpen(true);
+      }}
+      onFocus={() => setOpen(true)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          if (options[0] && (!selectedValueInInput || selected.length === 0 || editingSelectedValue.current)) {
+            event.preventDefault();
+            select(options[0]);
+          } else if (onCommit && selected.length > 0) {
+            event.preventDefault();
+            onCommit();
+          }
+        }
+        if (event.key === "Escape") setOpen(false);
+      }}
+      placeholder={placeholder}
+      required={required}
+    />
+    {open && input.trim() ? <div className="semantic-entity-options" id={`${id}-options`} role="listbox">
+      {search.isPending ? <p role="status">Searching…</p> : null}
+      {search.isError ? <p role="alert">Semantic search is unavailable.</p> : null}
+      {!search.isPending && options.length === 0 ? <p>No matching applied or staged entities.</p> : null}
+      {options.map((choice) => <button key={choice.iri} type="button" role="option" aria-selected="false" onClick={() => select(choice)}>
+        <span>{choice.label}</span><small>{choice.staged ? `Staged ${displayKind(choice.kind)}` : displayKind(choice.kind)}</small>
+      </button>)}
+    </div> : null}
+  </div>;
+
   return <div
     className="semantic-entity-picker"
     ref={root}
@@ -101,49 +166,8 @@ export default function SemanticEntityPicker({
     }}
   >
     <label htmlFor={id}>{label}</label>
-    {selected.length && !selectedValueInInput ? <ul className="entity-selection-list" aria-label={`Selected ${label.toLocaleLowerCase()}`}>
-      {selected.map((choice) => <li key={choice.iri} className={choice.staged ? "entity-selection-staged" : undefined}>
-        <span>{choice.label}</span>
-        {choice.staged ? <small>Staged</small> : null}
-        <button type="button" aria-label={`Remove ${choice.label}`} onClick={() => onChange(selected.filter((item) => item.iri !== choice.iri))}>×</button>
-      </li>)}
-    </ul> : null}
-    <div className="semantic-entity-combobox">
-      <input
-        id={id}
-        role="combobox"
-        aria-autocomplete="list"
-        aria-expanded={open && input.trim().length > 0}
-        aria-controls={`${id}-options`}
-        value={input}
-        onChange={(event) => {
-          if (selectedValueInInput && selected.length) {
-            editingSelectedValue.current = true;
-            onChange([]);
-          }
-          setInput(event.target.value);
-          setOpen(true);
-        }}
-        onFocus={() => setOpen(true)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && options[0]) {
-            event.preventDefault();
-            select(options[0]);
-          }
-          if (event.key === "Escape") setOpen(false);
-        }}
-        placeholder={placeholder}
-        required={required}
-      />
-      {open && input.trim() ? <div className="semantic-entity-options" id={`${id}-options`} role="listbox">
-        {search.isPending ? <p role="status">Searching…</p> : null}
-        {search.isError ? <p role="alert">Semantic search is unavailable.</p> : null}
-        {!search.isPending && options.length === 0 ? <p>No matching applied or staged entities.</p> : null}
-        {options.map((choice) => <button key={choice.iri} type="button" role="option" aria-selected="false" onClick={() => select(choice)}>
-          <span>{choice.label}</span><small>{choice.staged ? `Staged ${displayKind(choice.kind)}` : displayKind(choice.kind)}</small>
-        </button>)}
-      </div> : null}
-    </div>
+    {selectionPresentation === "list" ? combobox : !selectedValueInInput ? selectionList : null}
+    {selectionPresentation !== "list" ? combobox : selectionList}
     <small>{help}</small>
   </div>;
 }

@@ -12,6 +12,9 @@ interface SemanticClassPickerProps {
   excludeIri?: string;
   selectedValueInInput?: boolean;
   required?: boolean;
+  selectionPresentation?: "chips" | "list" | "hidden";
+  appliedIris?: readonly string[];
+  removableApplied?: boolean;
 }
 
 export default function SemanticClassPicker({
@@ -24,6 +27,9 @@ export default function SemanticClassPicker({
   excludeIri,
   selectedValueInInput = false,
   required = false,
+  selectionPresentation = "chips",
+  appliedIris,
+  removableApplied = true,
 }: SemanticClassPickerProps) {
   return <SemanticEntityPicker
     projectId={projectId}
@@ -38,5 +44,8 @@ export default function SemanticClassPicker({
     excludeIri={excludeIri}
     selectedValueInInput={selectedValueInInput}
     required={required}
+    selectionPresentation={selectionPresentation}
+    appliedIris={appliedIris}
+    removableApplied={removableApplied}
   />;
 }

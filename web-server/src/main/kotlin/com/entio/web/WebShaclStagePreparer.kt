@@ -142,6 +142,12 @@ internal class WebShaclStagePreparer(
                 existing(request.pathIri, request.pathLabel, SymbolKind.Property, "property path"),
                 constraint(),
             )
+            "shacl-update-shape-label" -> TypedShaclEdit.UpdateShapeLabel(
+                request.sourceId,
+                shapeIri,
+                request.label?.takeIf(String::isNotBlank)
+                    ?: throw WebWorkflowFailure("missing-field", "A replacement shape label is required."),
+            )
             "shacl-remove-constraint" -> TypedShaclEdit.RemoveConstraint(
                 request.sourceId,
                 shapeIri,
@@ -165,6 +171,7 @@ internal class WebShaclStagePreparer(
                 request.pathIri?.let { put("pathIri", it) }
                 request.constraintKind?.let { put("constraintKind", it) }
                 request.constraintValue?.let { put("constraintValue", it) }
+                request.label?.let { put("label", it) }
             },
             resolvedCandidates = resolved,
             generatedIris = generated,
@@ -200,6 +207,7 @@ private fun WebStageChangeRequest.shaclSummary(): String = when (editType) {
     "shacl-create-node-shape" -> "Create SHACL node shape '${shapeLabel.orEmpty()}'"
     "shacl-create-property-shape" -> "Create SHACL property shape '${shapeLabel.orEmpty()}'"
     "shacl-update-constraint" -> "Update SHACL ${constraintKind.orEmpty()} constraint"
+    "shacl-update-shape-label" -> "Rename SHACL shape '${shapeLabel ?: shapeIri.orEmpty()}'"
     "shacl-remove-constraint" -> "Remove SHACL ${constraintKind.orEmpty()} constraint"
     "shacl-delete-shape" -> "Delete SHACL shape '${shapeLabel ?: shapeIri.orEmpty()}'"
     else -> editType

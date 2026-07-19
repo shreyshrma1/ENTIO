@@ -77,6 +77,7 @@ public class TypedShaclEditTranslator(
                 )
             }
             is TypedShaclEdit.UpdateConstraint -> return updateConstraint(edit, currentShapesGraph, existing)
+            is TypedShaclEdit.UpdateShapeLabel -> return updateShapeLabel(edit, currentShapesGraph, existing)
             is TypedShaclEdit.RemoveConstraint -> return removeConstraint(edit, currentShapesGraph, existing)
             is TypedShaclEdit.DeleteShape -> return deleteShape(edit, currentShapesGraph, existing)
         }
@@ -111,6 +112,23 @@ public class TypedShaclEditTranslator(
         val replacement = com.entio.core.GraphTriple(propertyNode, predicate, edit.constraint.toRdfTerm())
         if (current.size == 1 && current.single() == replacement) {
             return failure("The replacement constraint is identical to the current value.", "shacl-constraint-unchanged")
+        }
+        return EntioResult.Success(
+            ChangeSet(current.map { GraphChange(GraphChangeKind.Removal, it) } + GraphChange(GraphChangeKind.Addition, replacement)),
+        )
+    }
+
+    private fun updateShapeLabel(
+        edit: TypedShaclEdit.UpdateShapeLabel,
+        graph: GraphState,
+        existing: ShaclNodeShape?,
+    ): EntioResult<ChangeSet> {
+        existing ?: return failure("Shape '${edit.shapeIri.value}' was not found.", "shacl-shape-not-found")
+        val label = edit.label.required("A shape label is required.")
+        val current = graph.triples.filter { it.subjectResource == edit.shapeIri && it.predicate == RDFS_LABEL }
+        val replacement = com.entio.core.GraphTriple(edit.shapeIri, RDFS_LABEL, RdfLiteral(label, Iri(XSD_STRING)))
+        if (current.size == 1 && current.single() == replacement) {
+            return failure("The replacement shape label is identical to the current value.", "shacl-label-unchanged")
         }
         return EntioResult.Success(
             ChangeSet(current.map { GraphChange(GraphChangeKind.Removal, it) } + GraphChange(GraphChangeKind.Addition, replacement)),
@@ -240,5 +258,6 @@ public class TypedShaclEditTranslator(
         const val XSD_STRING: String = "http://www.w3.org/2001/XMLSchema#string"
         val SH_PROPERTY: Iri = Iri("$SH" + "property")
         val SH_PATH: Iri = Iri("$SH" + "path")
+        val RDFS_LABEL: Iri = Iri("http://www.w3.org/2000/01/rdf-schema#label")
     }
 }

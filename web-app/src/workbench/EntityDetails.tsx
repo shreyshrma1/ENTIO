@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useEntityDetails, useProjectSources, useStagedChanges, useStagingActions } from "../web/queries";
+import { useEntityDetails, useProjectSources, useShaclShapes, useStagedChanges, useStagingActions } from "../web/queries";
 import type {
   WebEntityDetailResponse,
   WebEntityReference,
@@ -7,6 +7,9 @@ import type {
   WebRelationship,
   WebStageChangeRequest,
   WebStagedEntry,
+  WebShaclConstraintSummary,
+  WebShaclPropertyShapeSummary,
+  WebShaclShapeSummary,
 } from "../web/projectApi";
 import StatusBadge from "../components/ui/StatusBadge";
 import SemanticClassPicker, { type SemanticClassChoice } from "./SemanticClassPicker";
@@ -16,12 +19,17 @@ interface EntityDetailsProps {
   projectId: string;
   iri: string;
   stagedEntity?: WebEntityDetailResponse;
+  directType?: WebEntityReference | null;
+  initialSection?: EntitySectionTarget;
+  sectionRequestId?: number;
+  onOpenEntity?: (entity: WebEntityReference, section?: EntitySectionTarget) => void;
 }
 
+export type EntitySectionTarget = "overview" | "shacl";
 type EditorSectionId = "overview" | "hierarchy" | "properties" | "schema" | "relationships" | "shacl";
-type ClassPropertyDirection = "outgoing" | "incoming";
+type ClassPropertyDirection = "outgoing" | "incoming" | "datatype";
 
-export default function EntityDetails({ projectId, iri, stagedEntity }: EntityDetailsProps) {
+export default function EntityDetails({ projectId, iri, stagedEntity, directType, initialSection, sectionRequestId, onOpenEntity }: EntityDetailsProps) {
   const details = useEntityDetails(projectId, iri, !stagedEntity);
 
   if (!stagedEntity && details.isPending) return <p role="status">Loading entity details...</p>;
@@ -43,13 +51,20 @@ export default function EntityDetails({ projectId, iri, stagedEntity }: EntityDe
       </div>
       <p className="entity-meta">Source: {entity.sourceId} · {stagedEntity ? "pending proposal review" : entity.locality.toLowerCase()}</p>
       {entity.locality !== "External"
-        ? <EntityDetailWorkspace projectId={projectId} entity={entity} />
+        ? <EntityDetailWorkspace projectId={projectId} entity={entity} directType={directType} initialSection={initialSection} sectionRequestId={sectionRequestId} onOpenEntity={onOpenEntity} />
         : <ExternalEntityOverview entity={entity} />}
     </article>
   );
 }
 
-function EntityDetailWorkspace({ projectId, entity }: { projectId: string; entity: WebEntityDetailResponse }) {
+function EntityDetailWorkspace({ projectId, entity, directType, initialSection, sectionRequestId, onOpenEntity }: {
+  projectId: string;
+  entity: WebEntityDetailResponse;
+  directType?: WebEntityReference | null;
+  initialSection?: EntitySectionTarget;
+  sectionRequestId?: number;
+  onOpenEntity?: (entity: WebEntityReference, section?: EntitySectionTarget) => void;
+}) {
   const actions = useStagingActions(projectId);
   const stagedChanges = useStagedChanges(projectId);
   const sources = useProjectSources(projectId);
@@ -57,9 +72,9 @@ function EntityDetailWorkspace({ projectId, entity }: { projectId: string; entit
   const [preferredLabel, setPreferredLabel] = useState(entity.label);
   const [definition, setDefinition] = useState(entity.definitions[0]?.value ?? "");
   const [alternateLabel, setAlternateLabel] = useState(entity.alternateLabels[0]?.value ?? "");
-  const [superclasses, setSuperclasses] = useState<SemanticClassChoice[]>(() => entity.directSuperclasses.map(classChoice));
-  const [subclass, setSubclass] = useState<SemanticClassChoice[]>([]);
-  const [type, setType] = useState<SemanticClassChoice[]>([]);
+  const [superclasses, setSuperclasses] = useState<SemanticClassChoice[]>(() => entity.directSuperclasses.slice(0, 1).map(classChoice));
+  const [subclass, setSubclass] = useState<SemanticClassChoice[]>(() => entity.directSubclasses.map(classChoice));
+  const [type, setType] = useState<SemanticClassChoice[]>(() => entity.assertedTypes.map(classChoice));
   const [domain, setDomain] = useState<SemanticClassChoice[]>(() => entity.domains[0] ? [classChoice(entity.domains[0])] : []);
   const [range, setRange] = useState<SemanticClassChoice[]>(() => entity.ranges[0] ? [classChoice(entity.ranges[0])] : []);
   const [datatypeRange, setDatatypeRange] = useState(entity.ranges[0]?.label ?? "string");
@@ -67,6 +82,7 @@ function EntityDetailWorkspace({ projectId, entity }: { projectId: string; entit
   const [outgoingObject, setOutgoingObject] = useState<SemanticEntityChoice[]>([]);
   const [datatypeProperty, setDatatypeProperty] = useState<SemanticEntityChoice[]>([]);
   const [literalValue, setLiteralValue] = useState("");
+  const [literalDatatype, setLiteralDatatype] = useState(XSD_STRING);
   const [incomingSubject, setIncomingSubject] = useState<SemanticEntityChoice[]>([]);
   const [incomingProperty, setIncomingProperty] = useState<SemanticEntityChoice[]>([]);
   const [shapeLabel, setShapeLabel] = useState(`${entity.label} constraint`);
@@ -91,8 +107,35 @@ function EntityDetailWorkspace({ projectId, entity }: { projectId: string; entit
   const shapesSourceId = (sources.data?.items ?? []).find((source) => source.roles.some((role) => role.toLocaleLowerCase() === "shapes"))?.id;
 
   useEffect(() => {
-    stagedEntries.current = stagedChanges.data?.entries ?? [];
-  }, [stagedChanges.data?.entries]);
+    const entries = stagedChanges.data?.entries ?? [];
+    stagedEntries.current = entries;
+    const stagedTypes = entries
+      .filter((entry) => entry.editType === "assign-type" && entry.normalizedValues.resourceIri === entity.iri)
+      .map((entry) => stagedChoice(entry, "typeIri", "typeLabel", "Class"));
+    setType(mergeChoices(entity.assertedTypes.map(classChoice), stagedTypes));
+
+    const removedSuperclasses = new Set(entries
+      .filter((entry) => entry.editType === "remove-superclass" && entry.normalizedValues.classIri === entity.iri)
+      .map((entry) => entry.normalizedValues.superclassIri));
+    const stagedSuperclasses = entries
+      .filter((entry) => entry.editType === "add-superclass" && entry.normalizedValues.classIri === entity.iri)
+      .map((entry) => stagedChoice(entry, "superclassIri", "superclassLabel", "Class"));
+    setSuperclasses(mergeChoices(
+      entity.directSuperclasses.filter((item) => !removedSuperclasses.has(item.iri)).map(classChoice),
+      stagedSuperclasses,
+    ).slice(-1));
+
+    const removedSubclasses = new Set(entries
+      .filter((entry) => entry.editType === "remove-superclass" && entry.normalizedValues.superclassIri === entity.iri)
+      .map((entry) => entry.normalizedValues.classIri));
+    const stagedSubclasses = entries
+      .filter((entry) => entry.editType === "add-superclass" && entry.normalizedValues.superclassIri === entity.iri)
+      .map((entry) => stagedChoice(entry, "classIri", "classLabel", "Class"));
+    setSubclass(mergeChoices(
+      entity.directSubclasses.filter((item) => !removedSubclasses.has(item.iri)).map(classChoice),
+      stagedSubclasses,
+    ));
+  }, [entity, stagedChanges.data?.entries]);
 
   useEffect(() => () => {
     autoStageTimers.current.forEach((timer) => window.clearTimeout(timer));
@@ -100,12 +143,15 @@ function EntityDetailWorkspace({ projectId, entity }: { projectId: string; entit
   }, []);
 
   useEffect(() => {
-    setActiveSection("overview");
+    setActiveSection(initialSection ?? "overview");
+  }, [entity.iri, initialSection, sectionRequestId]);
+
+  useEffect(() => {
     setPreferredLabel(entity.label);
     setDefinition(entity.definitions[0]?.value ?? "");
     setAlternateLabel(entity.alternateLabels[0]?.value ?? "");
-    setSuperclasses(entity.directSuperclasses.map(classChoice));
-    setSubclass([]);
+    setSuperclasses(entity.directSuperclasses.slice(0, 1).map(classChoice));
+    setSubclass(entity.directSubclasses.map(classChoice));
     setType(entity.assertedTypes.map(classChoice));
     setDomain(entity.domains[0] ? [classChoice(entity.domains[0])] : []);
     setRange(entity.ranges[0] ? [classChoice(entity.ranges[0])] : []);
@@ -114,6 +160,7 @@ function EntityDetailWorkspace({ projectId, entity }: { projectId: string; entit
     setOutgoingObject([]);
     setDatatypeProperty([]);
     setLiteralValue("");
+    setLiteralDatatype(XSD_STRING);
     setIncomingSubject([]);
     setIncomingProperty([]);
     setShapeLabel(`${entity.label} constraint`);
@@ -135,6 +182,7 @@ function EntityDetailWorkspace({ projectId, entity }: { projectId: string; entit
     successMessage: string,
     delay = 450,
     sourceId = entity.sourceId,
+    onSynchronized?: () => void,
   ) {
     const previousTimer = autoStageTimers.current.get(slot);
     if (previousTimer !== undefined) window.clearTimeout(previousTimer);
@@ -159,6 +207,7 @@ function EntityDetailWorkspace({ projectId, entity }: { projectId: string; entit
           });
           stagedEntries.current = response.entries;
           setMessage(successMessage);
+          onSynchronized?.();
         } catch (failure) {
           setError(failure instanceof Error ? failure.message : "The field change could not be synchronized with the review queue.");
         }
@@ -275,19 +324,26 @@ function EntityDetailWorkspace({ projectId, entity }: { projectId: string; entit
         idempotencyKey: `web-details-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       });
       setMessage(successMessage);
+      return true;
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "The detail change could not be staged.");
+      return false;
     }
   }
 
-  async function stageClassProperty(label: string, domainClass: SemanticClassChoice, rangeClass: SemanticClassChoice) {
+  async function stageClassProperty(
+    label: string,
+    domainClass: SemanticClassChoice,
+    range: SemanticClassChoice | { iri: string; label: string },
+    propertyKind: "object" | "datatype",
+  ) {
     setMessage(null);
     setError(null);
     const batchKey = `web-class-property-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     try {
       const created = await actions.stage.mutateAsync({
         sourceId: entity.sourceId,
-        editType: "create-object-property",
+        editType: propertyKind === "datatype" ? "create-datatype-property" : "create-object-property",
         label,
         idempotencyKey: `${batchKey}-create`,
       });
@@ -307,8 +363,8 @@ function EntityDetailWorkspace({ projectId, entity }: { projectId: string; entit
         editType: "set-property-range",
         propertyIri,
         propertyLabel: label,
-        rangeIri: rangeClass.iri,
-        rangeLabel: rangeClass.label,
+        rangeIri: range.iri,
+        rangeLabel: range.label,
         idempotencyKey: `${batchKey}-range`,
       });
       setPropertyDialog(null);
@@ -362,49 +418,59 @@ function EntityDetailWorkspace({ projectId, entity }: { projectId: string; entit
     );
   }
 
-  function synchronizeOutgoing(nextProperty: SemanticEntityChoice[], nextObject: SemanticEntityChoice[]) {
-    const property = nextProperty[0];
-    const object = nextObject[0];
+  function commitOutgoing() {
+    const property = outgoingProperty[0];
+    const object = outgoingObject[0];
+    if (!property || !object) return;
     scheduleAutoChange(
-      "outgoing-relationship",
-      property && object ? { editType: "add-object-property-assertion", subjectIri: entity.iri, subjectLabel: entity.label, propertyIri: property.iri, propertyLabel: property.label, objectIri: object.iri, objectLabel: object.label } : null,
-      (entry) => entry.editType === "add-object-property-assertion" && entry.normalizedValues.subjectIri === entity.iri,
+      `outgoing-relationship-${property.iri}-${object.iri}`,
+      { editType: "add-object-property-assertion", subjectIri: entity.iri, subjectLabel: entity.label, propertyIri: property.iri, propertyLabel: property.label, objectIri: object.iri, objectLabel: object.label },
+      (entry) => entry.editType === "add-object-property-assertion" && entry.normalizedValues.subjectIri === entity.iri && entry.normalizedValues.propertyIri === property.iri && entry.normalizedValues.objectIri === object.iri,
       "Outgoing relationship synchronized with the review queue.",
       0,
+      entity.sourceId,
+      () => { setOutgoingProperty([]); setOutgoingObject([]); },
     );
   }
 
-  function synchronizeDatatypeValue(nextProperty: SemanticEntityChoice[], nextValue: string) {
-    const property = nextProperty[0];
-    const value = nextValue.trim();
+  function commitDatatypeValue() {
+    const property = datatypeProperty[0];
+    const value = literalValue.trim();
+    if (!property || !value) return;
     scheduleAutoChange(
-      "datatype-value",
-      property && value ? { editType: "add-datatype-property-assertion", subjectIri: entity.iri, subjectLabel: entity.label, propertyIri: property.iri, propertyLabel: property.label, value } : null,
-      (entry) => entry.editType === "add-datatype-property-assertion" && entry.normalizedValues.subjectIri === entity.iri,
+      `datatype-value-${property.iri}`,
+      { editType: "add-datatype-property-assertion", subjectIri: entity.iri, subjectLabel: entity.label, propertyIri: property.iri, propertyLabel: property.label, value, datatypeIri: literalDatatype },
+      (entry) => entry.editType === "add-datatype-property-assertion" && entry.normalizedValues.subjectIri === entity.iri && entry.normalizedValues.propertyIri === property.iri,
       "Datatype value synchronized with the review queue.",
+      450,
+      entity.sourceId,
+      () => { setDatatypeProperty([]); setLiteralValue(""); setLiteralDatatype(XSD_STRING); },
     );
   }
 
-  function synchronizeIncoming(nextSubject: SemanticEntityChoice[], nextProperty: SemanticEntityChoice[]) {
-    const subject = nextSubject[0];
-    const property = nextProperty[0];
+  function commitIncoming() {
+    const subject = incomingSubject[0];
+    const property = incomingProperty[0];
+    if (!subject || !property) return;
     scheduleAutoChange(
-      "incoming-relationship",
-      subject && property ? { editType: "add-object-property-assertion", subjectIri: subject.iri, subjectLabel: subject.label, propertyIri: property.iri, propertyLabel: property.label, objectIri: entity.iri, objectLabel: entity.label } : null,
-      (entry) => entry.editType === "add-object-property-assertion" && entry.normalizedValues.objectIri === entity.iri,
+      `incoming-relationship-${subject.iri}-${property.iri}`,
+      { editType: "add-object-property-assertion", subjectIri: subject.iri, subjectLabel: subject.label, propertyIri: property.iri, propertyLabel: property.label, objectIri: entity.iri, objectLabel: entity.label },
+      (entry) => entry.editType === "add-object-property-assertion" && entry.normalizedValues.subjectIri === subject.iri && entry.normalizedValues.propertyIri === property.iri && entry.normalizedValues.objectIri === entity.iri,
       "Incoming relationship synchronized with the review queue.",
       0,
+      entity.sourceId,
+      () => { setIncomingSubject([]); setIncomingProperty([]); },
     );
   }
 
   return <section className="entity-tab-workspace" aria-label={`${entity.label} details and editing`}>
     <div className="entity-editor-tabs" role="tablist" aria-label="Entity detail sections">
       <EditorTab id="overview" label="Overview" active={activeSection} onSelect={setActiveSection} />
-      <EditorTab id="hierarchy" label="Hierarchy" active={activeSection} onSelect={setActiveSection} />
+      {!isProperty ? <EditorTab id="hierarchy" label="Hierarchy" active={activeSection} onSelect={setActiveSection} /> : null}
       {isClass ? <EditorTab id="properties" label="Properties" active={activeSection} onSelect={setActiveSection} /> : null}
       {isProperty ? <EditorTab id="schema" label="Schema" active={activeSection} onSelect={setActiveSection} /> : null}
       {isObject ? <EditorTab id="relationships" label="Relationships" active={activeSection} onSelect={setActiveSection} /> : null}
-      <EditorTab id="shacl" label="SHACL" active={activeSection} onSelect={setActiveSection} />
+      <EditorTab id="shacl" label={isClass ? "Constraints" : isProperty ? "Constraint usage" : "Validation"} active={activeSection} onSelect={setActiveSection} />
     </div>
 
     <div className="entity-tab-panel" role="tabpanel">
@@ -413,31 +479,35 @@ function EntityDetailWorkspace({ projectId, entity }: { projectId: string; entit
         preferredLabel={preferredLabel}
         definition={definition}
         alternateLabel={alternateLabel}
+        directType={directType}
+        onOpenEntity={onOpenEntity}
         onPreferredLabelChange={changePreferredLabel}
         onDefinitionChange={changeDefinition}
         onAlternateLabelChange={changeAlternateLabel}
       /> : null}
 
-      {activeSection === "hierarchy" ? <div className="entity-tab-sections">
-        {isObject ? <EditableFactSection title="Types" values={entity.assertedTypes.map((item) => item.label)}>
+      {activeSection === "hierarchy" && !isProperty ? <div className="entity-tab-sections">
+        {isObject ? <SemanticListSection title="Types">
           <div className="inline-semantic-editor auto-staged-editor">
             <SemanticClassPicker projectId={projectId} id="entity-type" label="Add asserted type" selected={type} onChange={(next) => {
               setType(next);
-              const selected = next[0];
-              scheduleAutoChange(
-                "asserted-type",
-                selected ? { editType: "assign-type", resourceIri: entity.iri, resourceLabel: entity.label, typeIri: selected.iri, typeLabel: selected.label } : null,
+              const original = new Set(entity.assertedTypes.map((item) => item.iri));
+              const requests = next
+                .filter((item) => !original.has(item.iri))
+                .map((item) => ({ editType: "assign-type", resourceIri: entity.iri, resourceLabel: entity.label, typeIri: item.iri, typeLabel: item.label }));
+              void synchronizeOperations(
+                "asserted-types",
+                requests,
                 (entry) => entry.editType === "assign-type" && entry.normalizedValues.resourceIri === entity.iri,
-                "Type synchronized with the review queue.",
-                0,
+                requestTypeKey,
               );
-            }} multiple={false} excludeIri={entity.iri} />
+            }} excludeIri={entity.iri} selectionPresentation="list" appliedIris={entity.assertedTypes.map((item) => item.iri)} removableApplied={false} />
           </div>
-        </EditableFactSection> : null}
+        </SemanticListSection> : null}
 
-        {isClass ? <EditableFactSection title="Superclasses" values={entity.directSuperclasses.map((item) => item.label)}>
+        {isClass ? <SemanticListSection title="Superclass">
           <div className="inline-semantic-editor auto-staged-editor">
-            <SemanticClassPicker projectId={projectId} id="entity-superclasses" label="Edit direct superclasses" selected={superclasses} onChange={(next) => {
+            <SemanticClassPicker projectId={projectId} id="entity-superclasses" label="Direct superclass (one allowed)" selected={superclasses} onChange={(next) => {
               setSuperclasses(next);
               const original = new Map(entity.directSuperclasses.map((item) => [item.iri, item]));
               const current = new Map(next.map((item) => [item.iri, item]));
@@ -450,28 +520,29 @@ function EntityDetailWorkspace({ projectId, entity }: { projectId: string; entit
                 (entry) => ["add-superclass", "remove-superclass"].includes(entry.editType) && entry.normalizedValues.classIri === entity.iri,
                 requestHierarchyKey,
               );
-            }} excludeIri={entity.iri} />
+            }} excludeIri={entity.iri} multiple={false} selectionPresentation="list" appliedIris={entity.directSuperclasses.map((item) => item.iri)} />
           </div>
-        </EditableFactSection> : null}
+        </SemanticListSection> : null}
 
-        {isClass ? <EditableFactSection title="Subclasses" values={entity.directSubclasses.map((item) => item.label)}>
+        {isClass ? <SemanticListSection title="Subclasses">
           <div className="inline-semantic-editor auto-staged-editor">
             <SemanticClassPicker projectId={projectId} id="entity-subclass" label="Add existing or staged subclass" selected={subclass} onChange={(next) => {
               setSubclass(next);
-              const selected = next[0];
-              scheduleAutoChange(
-                "subclass",
-                selected ? { editType: "add-superclass", classIri: selected.iri, classLabel: selected.label, superclassIri: entity.iri, superclassLabel: entity.label } : null,
-                (entry) => entry.editType === "add-superclass" && entry.normalizedValues.superclassIri === entity.iri && entry.normalizedValues.classIri !== entity.iri,
-                "Subclass synchronized with the review queue.",
-                0,
-                selected?.sourceId === "staged" || !selected?.sourceId ? entity.sourceId : selected.sourceId,
+              const original = new Map(entity.directSubclasses.map((item) => [item.iri, item]));
+              const current = new Map(next.map((item) => [item.iri, item]));
+              const requests: Array<Omit<WebStageChangeRequest, "sourceId">> = [];
+              next.filter((item) => !original.has(item.iri)).forEach((item) => requests.push({ editType: "add-superclass", classIri: item.iri, classLabel: item.label, superclassIri: entity.iri, superclassLabel: entity.label }));
+              entity.directSubclasses.filter((item) => !current.has(item.iri)).forEach((item) => requests.push({ editType: "remove-superclass", classIri: item.iri, classLabel: item.label, superclassIri: entity.iri, superclassLabel: entity.label }));
+              void synchronizeOperations(
+                "subclasses",
+                requests,
+                (entry) => ["add-superclass", "remove-superclass"].includes(entry.editType) && entry.normalizedValues.superclassIri === entity.iri && entry.normalizedValues.classIri !== entity.iri,
+                requestHierarchyKey,
               );
-            }} multiple={false} excludeIri={entity.iri} />
+            }} excludeIri={entity.iri} selectionPresentation="list" appliedIris={entity.directSubclasses.map((item) => item.iri)} />
           </div>
-        </EditableFactSection> : null}
+        </SemanticListSection> : null}
 
-        {isProperty ? <div className="entity-tab-empty"><strong>Properties do not have ontology types or superclasses.</strong><span>Use Schema to edit this property&apos;s domain and range.</span></div> : null}
       </div> : null}
 
       {activeSection === "schema" ? <SchemaTab
@@ -489,9 +560,11 @@ function EntityDetailWorkspace({ projectId, entity }: { projectId: string; entit
 
       {activeSection === "properties" && isClass ? <ClassPropertiesTab
         entity={entity}
+        stagedEntries={stagedChanges.data?.entries ?? []}
         pending={actions.stage.isPending}
         onAdd={setPropertyDialog}
-        onRemove={(property, direction) => void stage(direction === "outgoing" ? {
+        onDiscard={(entryId) => actions.discard.mutateAsync(entryId).then(() => undefined)}
+        onRemove={(property, direction) => void stage(direction === "outgoing" || direction === "datatype" ? {
           editType: "remove-property-domain",
           propertyIri: property.iri,
           propertyLabel: property.label,
@@ -503,7 +576,7 @@ function EntityDetailWorkspace({ projectId, entity }: { projectId: string; entit
           propertyLabel: property.label,
           rangeIri: entity.iri,
           rangeLabel: entity.label,
-        }, `${property.label} ${direction === "outgoing" ? "domain" : "range"} association staged for removal.`, property.sourceId ?? entity.sourceId)}
+        }, `${property.label} ${direction === "outgoing" || direction === "datatype" ? "domain" : "range"} association staged for removal.`, property.sourceId ?? entity.sourceId)}
       /> : null}
 
       {activeSection === "relationships" ? <RelationshipsTab
@@ -514,14 +587,21 @@ function EntityDetailWorkspace({ projectId, entity }: { projectId: string; entit
         outgoingObject={outgoingObject}
         datatypeProperty={datatypeProperty}
         literalValue={literalValue}
+        literalDatatype={literalDatatype}
         incomingSubject={incomingSubject}
         incomingProperty={incomingProperty}
-        onOutgoingPropertyChange={(next) => { setOutgoingProperty(next); synchronizeOutgoing(next, outgoingObject); }}
-        onOutgoingObjectChange={(next) => { setOutgoingObject(next); synchronizeOutgoing(outgoingProperty, next); }}
-        onDatatypePropertyChange={(next) => { setDatatypeProperty(next); synchronizeDatatypeValue(next, literalValue); }}
-        onLiteralValueChange={(next) => { setLiteralValue(next); synchronizeDatatypeValue(datatypeProperty, next); }}
-        onIncomingSubjectChange={(next) => { setIncomingSubject(next); synchronizeIncoming(next, incomingProperty); }}
-        onIncomingPropertyChange={(next) => { setIncomingProperty(next); synchronizeIncoming(incomingSubject, next); }}
+        onOutgoingPropertyChange={setOutgoingProperty}
+        onOutgoingObjectChange={setOutgoingObject}
+        onDatatypePropertyChange={setDatatypeProperty}
+        onLiteralValueChange={setLiteralValue}
+        onLiteralDatatypeChange={setLiteralDatatype}
+        onIncomingSubjectChange={setIncomingSubject}
+        onIncomingPropertyChange={setIncomingProperty}
+        onCommitOutgoing={commitOutgoing}
+        onCommitDatatype={commitDatatypeValue}
+        onCommitIncoming={commitIncoming}
+        stagedEntries={stagedChanges.data?.entries ?? []}
+        onDiscard={(entryId) => actions.discard.mutateAsync(entryId).then(() => undefined)}
       /> : null}
 
       {activeSection === "shacl" ? <ShaclTab
@@ -543,6 +623,7 @@ function EntityDetailWorkspace({ projectId, entity }: { projectId: string; entit
         onConstraintValueChange={setConstraintValue}
         onSeverityChange={setSeverity}
         onValidationMessageChange={setValidationMessage}
+        onOpenEntity={onOpenEntity}
         onStage={stage}
       /> : null}
     </div>
@@ -565,12 +646,18 @@ interface OverviewTabProps {
   preferredLabel: string;
   definition: string;
   alternateLabel: string;
+  directType?: WebEntityReference | null;
+  onOpenEntity?: (entity: WebEntityReference, section?: EntitySectionTarget) => void;
   onPreferredLabelChange: (value: string) => void;
   onDefinitionChange: (value: string) => void;
   onAlternateLabelChange: (value: string) => void;
 }
 
 function OverviewTab(props: OverviewTabProps) {
+  const kind = props.entity.kind.toLowerCase().replaceAll(" ", "");
+  const isClass = kind === "class";
+  const isProperty = kind.endsWith("property");
+  const directType = props.directType ?? props.entity.assertedTypes.find((type) => !isBuiltInIndividualType(type.iri)) ?? null;
   return <div className="entity-tab-sections">
     <EditableFactSection title="Preferred label" values={[props.entity.label]}>
       <div className="inline-value-editor auto-staged-editor">
@@ -590,7 +677,9 @@ function OverviewTab(props: OverviewTabProps) {
         <input id="entity-alternate-label" value={props.alternateLabel} onChange={(event) => props.onAlternateLabelChange(event.target.value)} placeholder="Add an alternate label" />
       </div>
     </EditableFactSection>
-    <EditableFactSection title="Annotations" values={props.entity.annotations.map((item) => `${item.property.label}: ${formatValue(item.value)}`)} />
+    <ReadOnlyFactSection title="Annotations" values={props.entity.annotations.map((item) => `${item.property.label}: ${formatValue(item.value)}`)} />
+    {isClass ? <ReferenceFactSection title="Direct objects" items={props.entity.directlyTypedIndividuals} onOpen={props.onOpenEntity} /> : null}
+    {!isClass && !isProperty ? <ReferenceFactSection title="Direct class type" items={directType ? [directType] : []} onOpen={props.onOpenEntity} /> : null}
     <details className="technical-details">
       <summary>Technical details</summary>
       <dl>
@@ -602,38 +691,68 @@ function OverviewTab(props: OverviewTabProps) {
   </div>;
 }
 
+function ReferenceFactSection({ title, items, onOpen }: {
+  title: string;
+  items: WebEntityReference[];
+  onOpen?: (entity: WebEntityReference, section?: EntitySectionTarget) => void;
+}) {
+  return <section className="editable-fact-section entity-reference-section">
+    <div className="editable-fact-summary"><strong>{title}</strong></div>
+    {items.length ? <ul className="entity-reference-list">{items.map((item) => <li key={item.iri}>
+      {onOpen ? <button type="button" className="entity-reference-button" onClick={() => onOpen(item)}>{item.label}</button> : <span className="entity-reference-value">{item.label}</span>}
+    </li>)}</ul> : <p className="fact-empty">N/A</p>}
+  </section>;
+}
+
+function ReadOnlyFactSection({ title, values }: { title: string; values: string[] }) {
+  return <section className="editable-fact-section entity-reference-section">
+    <div className="editable-fact-summary"><strong>{title}</strong></div>
+    {values.length ? <ul className="entity-reference-list">{values.map((value, index) => <li key={`${value}:${index}`}>
+      <span className="entity-reference-value">{value}</span>
+    </li>)}</ul> : <p className="fact-empty">N/A</p>}
+  </section>;
+}
+
+function isBuiltInIndividualType(iri: string): boolean {
+  return iri === "http://www.w3.org/2002/07/owl#NamedIndividual"
+    || iri === "http://www.w3.org/2000/01/rdf-schema#Resource";
+}
+
 function ClassPropertiesTab({
   entity,
+  stagedEntries,
   pending,
   onAdd,
+  onDiscard,
   onRemove,
 }: {
   entity: WebEntityDetailResponse;
+  stagedEntries: WebStagedEntry[];
   pending: boolean;
   onAdd: (direction: ClassPropertyDirection) => void;
+  onDiscard: (entryId: string) => Promise<void>;
   onRemove: (property: WebEntityReference, direction: ClassPropertyDirection) => void;
 }) {
-  const outgoing = classProperties(entity, RDFS_DOMAIN);
-  const incoming = classProperties(entity, RDFS_RANGE);
-  return <div className="entity-tab-sections class-properties-tab">
-    <ClassPropertySection
-      title="Outgoing properties"
-      description={`Properties whose domain is ${entity.label}.`}
-      empty="No properties use this class as their domain."
-      properties={outgoing}
-      pending={pending}
-      onAdd={() => onAdd("outgoing")}
-      onRemove={(property) => onRemove(property, "outgoing")}
-    />
-    <ClassPropertySection
-      title="Incoming properties"
-      description={`Properties whose range is ${entity.label}.`}
-      empty="No properties use this class as their range."
-      properties={incoming}
-      pending={pending}
-      onAdd={() => onAdd("incoming")}
-      onRemove={(property) => onRemove(property, "incoming")}
-    />
+  const [activePropertyKind, setActivePropertyKind] = useState<ClassPropertyDirection>("outgoing");
+  const properties = classPropertyRows(entity, stagedEntries, activePropertyKind);
+  const copy = CLASS_PROPERTY_SECTIONS[activePropertyKind];
+  return <div className="relationship-workspace class-properties-workspace">
+    <div className="relationship-subtabs" role="tablist" aria-label="Class property kinds">
+      <EditorTab id="outgoing" label="Outgoing" active={activePropertyKind} onSelect={setActivePropertyKind} />
+      <EditorTab id="incoming" label="Incoming" active={activePropertyKind} onSelect={setActivePropertyKind} />
+      <EditorTab id="datatype" label="Datatype" active={activePropertyKind} onSelect={setActivePropertyKind} />
+    </div>
+    <div className="relationship-subtab-panel" role="tabpanel">
+      <ClassPropertySection
+        title={copy.title}
+        description={copy.description(entity.label)}
+        empty={copy.empty}
+        properties={properties}
+        pending={pending}
+        onAdd={() => onAdd(activePropertyKind)}
+        onRemove={(property) => property.stagedId ? void onDiscard(property.stagedId) : onRemove(property, activePropertyKind)}
+      />
+    </div>
   </div>;
 }
 
@@ -649,10 +768,10 @@ function ClassPropertySection({
   title: string;
   description: string;
   empty: string;
-  properties: WebEntityReference[];
+  properties: ClassPropertyRow[];
   pending: boolean;
   onAdd: () => void;
-  onRemove: (property: WebEntityReference) => void;
+  onRemove: (property: ClassPropertyRow) => void;
 }) {
   return <section className="class-property-section">
     <header>
@@ -660,8 +779,8 @@ function ClassPropertySection({
       <button className="button small" type="button" onClick={onAdd}>Add property</button>
     </header>
     {properties.length ? <ul className="class-property-list">
-      {properties.map((property) => <li key={property.iri}>
-        <div><strong>{property.label}</strong><span>Property</span></div>
+      {properties.map((property) => <li className={property.staged ? "class-property-staged" : undefined} key={`${property.iri}:${property.stagedId ?? "applied"}`}>
+        <div><strong>{property.label}</strong><span>{property.kind === "DatatypeProperty" ? "Datatype property" : "Object property"}{property.staged ? " · Staged" : ""}</span></div>
         <button className="button small danger" type="button" disabled={pending} onClick={() => onRemove(property)}>Remove</button>
       </li>)}
     </ul> : <p className="class-property-empty">{empty}</p>}
@@ -681,12 +800,13 @@ function ClassPropertyDialog({
   direction: ClassPropertyDirection;
   pending: boolean;
   onClose: () => void;
-  onSubmit: (label: string, domainClass: SemanticClassChoice, rangeClass: SemanticClassChoice) => Promise<void>;
+  onSubmit: (label: string, domainClass: SemanticClassChoice, range: SemanticClassChoice | { iri: string; label: string }, propertyKind: "object" | "datatype") => Promise<void>;
 }) {
   const currentClass: SemanticClassChoice = { iri: entity.iri, label: entity.label, kind: "Class", sourceId: entity.sourceId, staged: entity.locality.toLocaleLowerCase() === "staged" };
   const [label, setLabel] = useState("");
-  const [domain, setDomain] = useState<SemanticClassChoice[]>(direction === "outgoing" ? [currentClass] : []);
+  const [domain, setDomain] = useState<SemanticClassChoice[]>(direction === "incoming" ? [] : [currentClass]);
   const [range, setRange] = useState<SemanticClassChoice[]>(direction === "incoming" ? [currentClass] : []);
+  const [datatypeRange, setDatatypeRange] = useState(XSD_STRING);
 
   useEffect(() => {
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
@@ -703,14 +823,18 @@ function ClassPropertyDialog({
       <form onSubmit={(event) => {
         event.preventDefault();
         const propertyLabel = label.trim();
-        if (propertyLabel && domain[0] && range[0]) void onSubmit(propertyLabel, domain[0], range[0]);
+        const selectedRange = direction === "datatype"
+          ? { iri: datatypeRange, label: datatypeLabel(datatypeRange) }
+          : range[0];
+        if (propertyLabel && domain[0] && selectedRange) void onSubmit(propertyLabel, domain[0], selectedRange, direction === "datatype" ? "datatype" : "object");
       }}>
         <SemanticClassPicker projectId={projectId} id="class-property-domain" label="Domain class" selected={domain} onChange={setDomain} multiple={false} />
         <label htmlFor="class-property-label">Property name<input id="class-property-label" autoFocus value={label} onChange={(event) => setLabel(event.target.value)} placeholder="owns account" required /></label>
-        <SemanticClassPicker projectId={projectId} id="class-property-range" label="Range class" selected={range} onChange={setRange} multiple={false} />
+        {direction === "datatype" ? <label htmlFor="class-property-datatype">Datatype range<select id="class-property-datatype" value={datatypeRange} onChange={(event) => setDatatypeRange(event.target.value)}>{LITERAL_DATATYPES.map((datatype) => <option key={datatype.iri} value={datatype.iri}>{datatype.label}</option>)}</select></label>
+          : <SemanticClassPicker projectId={projectId} id="class-property-range" label="Range class" selected={range} onChange={setRange} multiple={false} />}
         <div className="dialog-actions">
           <button className="button" type="button" onClick={onClose}>Cancel</button>
-          <button className="button primary" type="submit" disabled={pending || !label.trim() || domain.length === 0 || range.length === 0}>{pending ? "Adding…" : "Add property"}</button>
+          <button className="button primary" type="submit" disabled={pending || !label.trim() || domain.length === 0 || (direction !== "datatype" && range.length === 0)}>{pending ? "Adding…" : "Add property"}</button>
         </div>
       </form>
     </section>
@@ -760,46 +884,107 @@ interface RelationshipsTabProps {
   outgoingObject: SemanticEntityChoice[];
   datatypeProperty: SemanticEntityChoice[];
   literalValue: string;
+  literalDatatype: string;
   incomingSubject: SemanticEntityChoice[];
   incomingProperty: SemanticEntityChoice[];
   onOutgoingPropertyChange: (value: SemanticEntityChoice[]) => void;
   onOutgoingObjectChange: (value: SemanticEntityChoice[]) => void;
   onDatatypePropertyChange: (value: SemanticEntityChoice[]) => void;
   onLiteralValueChange: (value: string) => void;
+  onLiteralDatatypeChange: (value: string) => void;
   onIncomingSubjectChange: (value: SemanticEntityChoice[]) => void;
   onIncomingPropertyChange: (value: SemanticEntityChoice[]) => void;
+  onCommitOutgoing: () => void;
+  onCommitDatatype: () => void;
+  onCommitIncoming: () => void;
+  stagedEntries: WebStagedEntry[];
+  onDiscard: (entryId: string) => Promise<void>;
 }
 
 function RelationshipsTab(props: RelationshipsTabProps) {
-  const outgoing = relationshipLabels(props.entity.outgoingRelationships.filter(isResourceRelationship));
-  const datatype = relationshipLabels(props.entity.outgoingRelationships.filter((relationship) => !isResourceRelationship(relationship)));
-  const incoming = relationshipLabels(props.entity.incomingRelationships);
-  return <div className="entity-tab-sections">
-    <EditableFactSection title="Outgoing object relationships" values={outgoing}>
-      {props.editable ? <div className="individual-relationship-editor">
-        <SemanticEntityPicker projectId={props.projectId} id="entity-outgoing-property" label="Object property" selected={props.outgoingProperty} onChange={props.onOutgoingPropertyChange} accepts={acceptsObjectProperty} placeholder="Search object properties" help="Choose the relationship predicate." selectedValueInInput />
-        <SemanticEntityPicker projectId={props.projectId} id="entity-outgoing-object" label="Object" selected={props.outgoingObject} onChange={props.onOutgoingObjectChange} accepts={acceptsIndividual} placeholder="Search individuals" help="Choose the individual that receives this relationship." excludeIri={props.entity.iri} selectedValueInInput />
-      </div> : <p className="fact-guidance">Outgoing relationships connect this individual to another individual.</p>}
-    </EditableFactSection>
-
-    <EditableFactSection title="Incoming object relationships" values={incoming}>
-      {props.editable ? <div className="individual-relationship-editor">
-        <SemanticEntityPicker projectId={props.projectId} id="entity-incoming-subject" label="Subject" selected={props.incomingSubject} onChange={props.onIncomingSubjectChange} accepts={acceptsIndividual} placeholder="Search individuals" help="Choose the individual that points here." excludeIri={props.entity.iri} selectedValueInInput />
-        <SemanticEntityPicker projectId={props.projectId} id="entity-incoming-property" label="Object property" selected={props.incomingProperty} onChange={props.onIncomingPropertyChange} accepts={acceptsObjectProperty} placeholder="Search object properties" help="Choose the relationship predicate." selectedValueInInput />
-      </div> : <p className="fact-guidance">Incoming object relationships are edited from the subject object.</p>}
-    </EditableFactSection>
-
-    <EditableFactSection title="Datatype values" values={datatype}>
-      {props.editable ? <div className="individual-relationship-editor">
-        <SemanticEntityPicker projectId={props.projectId} id="entity-datatype-property" label="Datatype property" selected={props.datatypeProperty} onChange={props.onDatatypePropertyChange} accepts={acceptsDatatypeProperty} placeholder="Search datatype properties" help="Choose the literal-valued property." selectedValueInInput />
-        <label className="relationship-value-field" htmlFor="entity-literal-value">
-          <span>Value</span>
-          <input id="entity-literal-value" value={props.literalValue} onChange={(event) => props.onLiteralValueChange(event.target.value)} placeholder="Enter a string value" />
-          <small>Enter the value stored for this individual.</small>
-        </label>
-      </div> : <p className="fact-guidance">Datatype values attach literal values to this individual.</p>}
-    </EditableFactSection>
+  const [activeRelationship, setActiveRelationship] = useState<"outgoing" | "incoming" | "datatype">("outgoing");
+  const rows = relationshipRows(props.entity, props.stagedEntries, activeRelationship);
+  return <div className="relationship-workspace">
+    <div className="relationship-subtabs" role="tablist" aria-label="Relationship kinds">
+      <EditorTab id="outgoing" label="Outgoing" active={activeRelationship} onSelect={setActiveRelationship} />
+      <EditorTab id="incoming" label="Incoming" active={activeRelationship} onSelect={setActiveRelationship} />
+      <EditorTab id="datatype" label="Datatype" active={activeRelationship} onSelect={setActiveRelationship} />
+    </div>
+    <div className="relationship-subtab-panel" role="tabpanel">
+      {activeRelationship === "outgoing" ? <>
+        {props.editable ? <form className="individual-relationship-editor relationship-search-editor" onSubmit={(event) => { event.preventDefault(); props.onCommitOutgoing(); }}>
+          <SemanticEntityPicker projectId={props.projectId} id="entity-outgoing-property" label="Object property" selected={props.outgoingProperty} onChange={props.onOutgoingPropertyChange} onCommit={props.onCommitOutgoing} accepts={acceptsObjectProperty} placeholder="Search object properties" help="Choose the relationship predicate." multiple={false} selectedValueInInput selectionPresentation="hidden" appliedIris={[]} />
+          <SemanticEntityPicker projectId={props.projectId} id="entity-outgoing-object" label="Object" selected={props.outgoingObject} onChange={props.onOutgoingObjectChange} onCommit={props.onCommitOutgoing} accepts={acceptsIndividual} placeholder="Search individuals" help="Choose the individual that receives this relationship." multiple={false} excludeIri={props.entity.iri} selectedValueInInput selectionPresentation="hidden" appliedIris={[]} />
+        </form> : null}
+        <RelationshipRows title="Outgoing relationships" empty="No outgoing object relationships." rows={rows} onDiscard={props.onDiscard} />
+      </> : null}
+      {activeRelationship === "incoming" ? <>
+        {props.editable ? <form className="individual-relationship-editor relationship-search-editor" onSubmit={(event) => { event.preventDefault(); props.onCommitIncoming(); }}>
+          <SemanticEntityPicker projectId={props.projectId} id="entity-incoming-subject" label="Subject" selected={props.incomingSubject} onChange={props.onIncomingSubjectChange} onCommit={props.onCommitIncoming} accepts={acceptsIndividual} placeholder="Search individuals" help="Choose the individual that points here." multiple={false} excludeIri={props.entity.iri} selectedValueInInput selectionPresentation="hidden" appliedIris={[]} />
+          <SemanticEntityPicker projectId={props.projectId} id="entity-incoming-property" label="Object property" selected={props.incomingProperty} onChange={props.onIncomingPropertyChange} onCommit={props.onCommitIncoming} accepts={acceptsObjectProperty} placeholder="Search object properties" help="Choose the relationship predicate." multiple={false} selectedValueInInput selectionPresentation="hidden" appliedIris={[]} />
+        </form> : null}
+        <RelationshipRows title="Incoming relationships" empty="No incoming object relationships." rows={rows} onDiscard={props.onDiscard} />
+      </> : null}
+      {activeRelationship === "datatype" ? <>
+        {props.editable ? <form className="individual-relationship-editor relationship-search-editor" onSubmit={(event) => { event.preventDefault(); props.onCommitDatatype(); }}>
+          <SemanticEntityPicker projectId={props.projectId} id="entity-datatype-property" label="Datatype property" selected={props.datatypeProperty} onChange={props.onDatatypePropertyChange} onCommit={props.onCommitDatatype} accepts={acceptsDatatypeProperty} placeholder="Search datatype properties" help="Choose the literal-valued property." multiple={false} selectedValueInInput selectionPresentation="hidden" appliedIris={[]} />
+          <label className="relationship-value-field" htmlFor="entity-literal-value">
+            <span>Value</span>
+            <span className="typed-literal-control">
+              <input
+                id="entity-literal-value"
+                aria-label="Value"
+                type={datatypeInputType(props.literalDatatype)}
+                step={isNumericDatatype(props.literalDatatype) ? "any" : undefined}
+                value={props.literalValue}
+                onChange={(event) => props.onLiteralValueChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    props.onCommitDatatype();
+                  }
+                }}
+                placeholder={datatypePlaceholder(props.literalDatatype)}
+              />
+              <select aria-label="Datatype" value={props.literalDatatype} onChange={(event) => props.onLiteralDatatypeChange(event.target.value)}>
+                {LITERAL_DATATYPES.map((datatype) => <option key={datatype.iri} value={datatype.iri}>{datatype.label}</option>)}
+              </select>
+            </span>
+            <small>Enter the lexical value and choose its RDF datatype.</small>
+          </label>
+        </form> : null}
+        <RelationshipRows title="Datatype values" empty="No datatype values." rows={rows} onDiscard={props.onDiscard} />
+      </> : null}
+    </div>
   </div>;
+}
+
+interface RelationshipRow {
+  id: string;
+  predicate: string;
+  value: string;
+  staged: boolean;
+  stagedId?: string;
+}
+
+interface ClassPropertyRow extends WebEntityReference {
+  staged: boolean;
+  stagedId?: string;
+}
+
+function RelationshipRows({ title, empty, rows, onDiscard }: { title: string; empty: string; rows: RelationshipRow[]; onDiscard: (entryId: string) => Promise<void> }) {
+  return <section className="relationship-row-section">
+    <header><h3>{title}</h3><span>{rows.length}</span></header>
+    {rows.length ? <ul className="relationship-row-list">
+      {rows.map((row) => <li key={row.id} className={row.staged ? "relationship-row-staged" : undefined}>
+        <div><strong>{row.predicate}</strong><span>{row.value}</span></div>
+        <div className="relationship-row-status">
+          <small>{row.staged ? "Staged" : "Applied"}</small>
+          {row.stagedId ? <button type="button" className="icon-button" aria-label={`Remove staged ${row.predicate} relationship`} onClick={() => void onDiscard(row.stagedId!)}>×</button> : null}
+        </div>
+      </li>)}
+    </ul> : <p className="relationship-row-empty">{empty}</p>}
+  </section>;
 }
 
 interface ShaclTabProps {
@@ -821,45 +1006,258 @@ interface ShaclTabProps {
   onConstraintValueChange: (value: string) => void;
   onSeverityChange: (value: string) => void;
   onValidationMessageChange: (value: string) => void;
-  onStage: (request: Omit<WebStageChangeRequest, "sourceId">, message: string, sourceId?: string) => Promise<void>;
+  onStage: (request: Omit<WebStageChangeRequest, "sourceId">, message: string, sourceId?: string) => Promise<boolean>;
+  onOpenEntity?: (entity: WebEntityReference, section?: EntitySectionTarget) => void;
 }
 
+type ShaclConstraintDialogState =
+  | { mode: "add" }
+  | {
+      mode: "edit";
+      shape: WebShaclShapeSummary;
+      propertyShape?: WebShaclPropertyShapeSummary;
+      constraint: WebShaclConstraintSummary;
+      individualReadOnly: boolean;
+      targetClass?: WebEntityReference;
+    };
+
 function ShaclTab(props: ShaclTabProps) {
-  if (!props.shapesSourceId) return <div className="entity-tab-empty"><strong>No writable SHACL shapes source</strong><span>Add a source with the shapes role before authoring constraints.</span></div>;
-  return <div className="entity-tab-sections">
-    <EditableFactSection title="SHACL constraints" values={[]}>
-      <div className="shacl-authoring-panel">
-        <p className="fact-guidance">Create a typed property constraint here. Existing constraints remain available in the Constraints workspace.</p>
-        <form className="shacl-inline-editor" onSubmit={(event) => {
-        event.preventDefault();
-        const target = props.target[0];
-        const path = props.path[0];
-        if (!target || !path) return;
-        void props.onStage({
-          editType: "shacl-create-property-shape",
-          shapeLabel: props.shapeLabel.trim(),
-          targetClassIri: target.iri,
-          targetClassLabel: target.label,
-          pathIri: path.iri,
-          pathLabel: path.label,
-          constraintKind: props.constraintKind,
-          constraintValue: props.constraintValue.trim(),
-          severity: props.severity,
-          validationMessage: props.validationMessage.trim() || undefined,
-        }, "SHACL constraint staged for proposal review.", props.shapesSourceId);
-        }}>
-          <label>Shape label<input value={props.shapeLabel} onChange={(event) => props.onShapeLabelChange(event.target.value)} /></label>
-          <SemanticClassPicker projectId={props.projectId} id="shacl-target-class" label="Target class" selected={props.target} onChange={props.onTargetChange} multiple={false} />
-          <SemanticEntityPicker projectId={props.projectId} id="shacl-property-path" label="Property path" selected={props.path} onChange={props.onPathChange} accepts={acceptsProperty} placeholder="Search properties" help="Choose a direct property path." multiple={false} includeStaged={false} />
-          <label>Constraint<select value={props.constraintKind} onChange={(event) => props.onConstraintKindChange(event.target.value)}>{SHACL_CONSTRAINTS.map((constraint) => <option key={constraint.value} value={constraint.value}>{constraint.label}</option>)}</select></label>
-          <label>Constraint value<input value={props.constraintValue} onChange={(event) => props.onConstraintValueChange(event.target.value)} placeholder="1" /></label>
-          <label>Severity<select value={props.severity} onChange={(event) => props.onSeverityChange(event.target.value)}><option>Violation</option><option>Warning</option><option>Info</option></select></label>
-          <label className="shacl-message-field">Validation message<input value={props.validationMessage} onChange={(event) => props.onValidationMessageChange(event.target.value)} placeholder={`Explain the ${props.entity.label} constraint`} /></label>
-          <button className="button small primary" type="submit" disabled={props.pending || !props.shapeLabel.trim() || props.target.length === 0 || props.path.length === 0 || !props.constraintValue.trim()}>Add SHACL constraint</button>
-        </form>
-      </div>
-    </EditableFactSection>
+  const shapes = useShaclShapes(props.projectId);
+  const staged = useStagedChanges(props.projectId);
+  const [dialog, setDialog] = useState<ShaclConstraintDialogState | null>(null);
+  const kind = props.entity.kind.toLowerCase().replaceAll(" ", "");
+  const isClass = kind === "class";
+  const isProperty = kind.endsWith("property");
+  const isIndividual = !isClass && !isProperty;
+  const typeIris = new Set(props.entity.assertedTypes.map((type) => type.iri));
+  const contextualShapes = (shapes.data?.shapes ?? []).filter((shape) => {
+    if (isClass) return shape.targets.some((target) => target.kind === "TargetClass" && target.iri === props.entity.iri);
+    if (isProperty) return shape.propertyShapes.some((propertyShape) => propertyShape.path.iri === props.entity.iri)
+      || shape.targets.some((target) => ["TargetSubjectsOf", "TargetObjectsOf"].includes(target.kind) && target.iri === props.entity.iri);
+    return shape.targets.some((target) =>
+      (target.kind === "TargetNode" && target.iri === props.entity.iri)
+      || (target.kind === "TargetClass" && typeIris.has(target.iri)));
+  });
+  const contextualStaged = (staged.data?.entries ?? []).filter((entry) => {
+    if (!entry.editType.startsWith("shacl-")) return false;
+    if (isClass) return entry.normalizedValues.targetClassIri === props.entity.iri;
+    if (isProperty) return entry.normalizedValues.pathIri === props.entity.iri;
+    return entry.normalizedValues.targetIri === props.entity.iri || typeIris.has(entry.normalizedValues.targetClassIri);
+  });
+
+  const title = isClass ? "Class constraints" : isProperty ? "Constraint usage" : "Applicable validation rules";
+  const description = isClass
+    ? `Rules shown here target ${props.entity.label}. New property constraints use this class automatically.`
+    : isProperty
+      ? `Rules shown here use ${props.entity.label} as a SHACL property path.`
+      : "Individuals inherit class-targeted rules through their asserted types. Author and manage shapes from the Constraints workspace.";
+
+  if (shapes.isPending) return <p role="status" className="entity-tab-loading">Loading constraints...</p>;
+  if (shapes.isError) return <p role="alert" className="workflow-error">Could not load constraints. {shapes.error.message}</p>;
+
+  const selectedTarget = isClass ? [{ iri: props.entity.iri, label: props.entity.label, kind: "Class", sourceId: props.entity.sourceId, staged: false }] : props.target;
+  const selectedPath = isProperty ? [{ iri: props.entity.iri, label: props.entity.label, kind: props.entity.kind, sourceId: props.entity.sourceId, staged: false }] : props.path;
+  const canAuthor = (isClass || isProperty) && Boolean(props.shapesSourceId);
+  const constraintRows = contextualShapes.flatMap((shape) => {
+    const nodeRows = shape.constraints.map((constraint, index) => ({
+      id: `${shape.iri}:node:${constraint.kind}:${index}`,
+      shape,
+      constraint,
+      propertyShape: undefined,
+      context: "Node shape",
+    }));
+    const propertyRows = shape.propertyShapes
+      .filter((propertyShape) => !isProperty || propertyShape.path.iri === props.entity.iri)
+      .flatMap((propertyShape) => propertyShape.constraints.map((constraint, index) => ({
+        id: `${shape.iri}:${propertyShape.iri}:${constraint.kind}:${index}`,
+        shape,
+        constraint,
+        propertyShape,
+        context: propertyShape.path.label,
+      })));
+    return [...nodeRows, ...propertyRows];
+  });
+
+  return <div className="contextual-shacl-workspace">
+    <header className="contextual-shacl-header">
+      <div><h3>{title}</h3><p>{description}</p></div>
+      <div className="contextual-shacl-actions"><span>{constraintRows.length + contextualStaged.length}</span>{canAuthor ? <button className="button small" type="button" onClick={() => setDialog({ mode: "add" })}>Add constraint</button> : null}</div>
+    </header>
+    {constraintRows.length || contextualStaged.length ? <div className="contextual-shacl-list">
+      {constraintRows.map((row) => <button className="contextual-constraint-row" type="button" key={row.id} onClick={() => setDialog({
+        mode: "edit",
+        shape: row.shape,
+        propertyShape: row.propertyShape,
+        constraint: row.constraint,
+        individualReadOnly: isIndividual,
+        targetClass: isIndividual ? targetClassReference(row.shape, typeIris, props.entity.sourceId) : undefined,
+      })}>
+        <div><strong>{row.shape.label}</strong><span>{row.context}</span></div>
+        <div className="contextual-constraint-summary"><strong>{formatConstraintKind(row.constraint.kind)}</strong><span>{row.constraint.valueLabel ?? row.constraint.value ?? "Enabled"}</span></div>
+        <StatusBadge tone={row.shape.severity === "Violation" ? "danger" : "neutral"}>{row.shape.severity}</StatusBadge>
+      </button>)}
+      {contextualStaged.map((entry) => <article className="shacl-shape-card shacl-shape-card-staged" key={entry.id}>
+        <div><strong>{entry.normalizedValues.shapeLabel || entry.summary}</strong><span>Staged for proposal review</span></div>
+        <StatusBadge tone="staged">Staged</StatusBadge>
+      </article>)}
+    </div> : <div className="entity-tab-empty"><strong>No applicable constraints</strong><span>{isProperty ? "This property is not used by an applied SHACL shape." : "No applied SHACL shape targets this entity."}</span></div>}
+    {dialog ? <ShaclConstraintDialog
+      state={dialog}
+      projectId={props.projectId}
+      entity={props.entity}
+      shapesSourceId={props.shapesSourceId}
+      selectedTarget={selectedTarget}
+      selectedPath={selectedPath}
+      shapeLabel={props.shapeLabel}
+      constraintKind={props.constraintKind}
+      constraintValue={props.constraintValue}
+      severity={props.severity}
+      validationMessage={props.validationMessage}
+      pending={props.pending}
+      onShapeLabelChange={props.onShapeLabelChange}
+      onTargetChange={props.onTargetChange}
+      onPathChange={props.onPathChange}
+      onConstraintKindChange={props.onConstraintKindChange}
+      onConstraintValueChange={props.onConstraintValueChange}
+      onSeverityChange={props.onSeverityChange}
+      onValidationMessageChange={props.onValidationMessageChange}
+      onStage={props.onStage}
+      onOpenEntity={props.onOpenEntity}
+      onClose={() => setDialog(null)}
+    /> : null}
   </div>;
+}
+
+interface ShaclConstraintDialogProps extends Omit<ShaclTabProps, "target" | "path"> {
+  state: ShaclConstraintDialogState;
+  selectedTarget: SemanticClassChoice[];
+  selectedPath: SemanticEntityChoice[];
+  onClose: () => void;
+}
+
+function ShaclConstraintDialog(props: ShaclConstraintDialogProps) {
+  const editing = props.state.mode === "edit" ? props.state : null;
+  const [shapeName, setShapeName] = useState(editing?.shape.label ?? props.shapeLabel);
+  const [value, setValue] = useState(editing?.constraint.valueLabel ?? editing?.constraint.value ?? props.constraintValue);
+  const individualReadOnly = Boolean(editing?.individualReadOnly);
+  const editable = Boolean(editing?.propertyShape) && !individualReadOnly;
+  const originalValue = editing?.constraint.valueLabel ?? editing?.constraint.value ?? "";
+  const shapeNameChanged = Boolean(editing && shapeName.trim() !== editing.shape.label);
+  const constraintValueChanged = Boolean(editing && editable && value.trim() !== originalValue);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") props.onClose(); };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [props.onClose]);
+
+  async function addConstraint(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const target = props.selectedTarget[0];
+    const path = props.selectedPath[0];
+    if (!target || !path || !props.shapesSourceId) return;
+    const staged = await props.onStage({
+      editType: "shacl-create-property-shape",
+      shapeLabel: props.shapeLabel.trim(),
+      targetClassIri: target.iri,
+      targetClassLabel: target.label,
+      pathIri: path.iri,
+      pathLabel: path.label,
+      constraintKind: props.constraintKind,
+      constraintValue: props.constraintValue.trim(),
+      severity: props.severity,
+      validationMessage: props.validationMessage.trim() || undefined,
+    }, "SHACL constraint staged for proposal review.", props.shapesSourceId);
+    if (staged) props.onClose();
+  }
+
+  async function updateConstraint(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editing || !shapeName.trim() || (!shapeNameChanged && !constraintValueChanged)) return;
+
+    if (shapeNameChanged) {
+      const renamed = await props.onStage({
+        editType: "shacl-update-shape-label",
+        shapeIri: editing.shape.iri,
+        shapeLabel: editing.shape.label,
+        label: shapeName.trim(),
+      }, "SHACL shape name update staged for proposal review.", editing.shape.sourceId);
+      if (!renamed) return;
+    }
+
+    if (constraintValueChanged && editing.propertyShape) {
+      const updated = await props.onStage({
+        editType: "shacl-update-constraint",
+        shapeIri: editing.shape.iri,
+        shapeLabel: shapeName.trim(),
+        pathIri: editing.propertyShape.path.iri,
+        pathLabel: editing.propertyShape.path.label,
+        constraintKind: editing.constraint.kind,
+        constraintValue: value.trim(),
+      }, "SHACL constraint update staged for proposal review.", editing.shape.sourceId);
+      if (!updated) return;
+    }
+
+    props.onClose();
+  }
+
+  async function removeConstraint() {
+    if (!editing?.propertyShape || individualReadOnly) return;
+    const staged = await props.onStage({
+      editType: "shacl-remove-constraint",
+      shapeIri: editing.shape.iri,
+      shapeLabel: editing.shape.label,
+      pathIri: editing.propertyShape.path.iri,
+      pathLabel: editing.propertyShape.path.label,
+      constraintKind: editing.constraint.kind,
+    }, "SHACL constraint removal staged for proposal review.", editing.shape.sourceId);
+    if (staged) props.onClose();
+  }
+
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) props.onClose(); }}>
+    <section className="edit-dialog shacl-constraint-dialog" role="dialog" aria-modal="true" aria-label={editing ? shapeName || "Constraint edit" : "Add constraint"}>
+      <header className="edit-dialog-header"><div><span className="overline">Constraint edit</span><h2>{editing ? <input className="shacl-shape-name-input" aria-label="Shape name" value={shapeName} disabled={individualReadOnly} onChange={(event) => setShapeName(event.target.value)} /> : "Add constraint"}</h2></div><button className="icon-button" type="button" aria-label="Close constraint dialog" onClick={props.onClose}>×</button></header>
+      {editing ? <form onSubmit={updateConstraint}>
+        <div className="shacl-dialog-context">
+          <ReadOnlyShaclContext label="Target" value={editing.shape.targets.map((target) => target.label).join(", ") || "No target"} />
+          <ReadOnlyShaclContext label="Property path" value={editing.propertyShape?.path.label ?? "Node shape"} />
+          <ReadOnlyShaclContext label="Constraint" value={formatConstraintKind(editing.constraint.kind)} />
+          <ReadOnlyShaclContext label="Severity" value={editing.propertyShape?.severity ?? editing.shape.severity} />
+        </div>
+        <label>Constraint value<input value={value} onChange={(event) => setValue(event.target.value)} disabled={!editable} /></label>
+        {!editable && !individualReadOnly ? <p className="workflow-warning" role="note">This node-level rule can be inspected here, but the current typed edit contract only updates direct property constraints.</p> : null}
+        <details className="technical-details"><summary>Technical details</summary><dl><div><dt>Shape IRI</dt><dd><code>{editing.shape.iri}</code></dd></div>{editing.propertyShape ? <div><dt>Property shape</dt><dd><code>{editing.propertyShape.iri}</code></dd></div> : null}</dl></details>
+        {individualReadOnly ? <div className="constraint-target-guidance" role="note">
+          {editing.targetClass && props.onOpenEntity ? <>To edit or remove this constraint, see <button className="inline-link-button" type="button" onClick={() => { props.onClose(); props.onOpenEntity?.(editing.targetClass!, "shacl"); }}>{editing.targetClass.label}</button>.</> : "This inherited constraint must be managed from its target class."}
+        </div> : <div className="dialog-actions"><button className="button" type="button" onClick={props.onClose}>Cancel</button>{editable ? <button className="button danger" type="button" disabled={props.pending} onClick={() => void removeConstraint()}>Remove constraint</button> : null}<button className="button primary" type="submit" disabled={props.pending || !shapeName.trim() || (!shapeNameChanged && !constraintValueChanged)}>Stage update</button></div>}
+      </form> : <form onSubmit={addConstraint}>
+        <p className="edit-dialog-description">The new rule enters the shared review queue. The shapes graph changes only after proposal approval.</p>
+        <label>Shape label<input autoFocus value={props.shapeLabel} onChange={(event) => props.onShapeLabelChange(event.target.value)} /></label>
+        {props.entity.kind.toLowerCase() === "class" ? <ReadOnlyShaclContext label="Target class" value={props.entity.label} /> : <SemanticClassPicker projectId={props.projectId} id="shacl-target-class" label="Target class" selected={props.selectedTarget} onChange={props.onTargetChange} multiple={false} />}
+        {props.entity.kind.toLowerCase() === "class" ? <SemanticEntityPicker projectId={props.projectId} id="shacl-property-path" label="Property path" selected={props.selectedPath} onChange={props.onPathChange} accepts={acceptsProperty} placeholder="Search properties" help="Choose a direct property path." multiple={false} selectedValueInInput selectionPresentation="hidden" includeStaged={false} /> : <ReadOnlyShaclContext label="Property path" value={props.entity.label} />}
+        <div className="shacl-dialog-grid"><label>Constraint<select value={props.constraintKind} onChange={(event) => props.onConstraintKindChange(event.target.value)}>{SHACL_CONSTRAINTS.map((constraint) => <option key={constraint.value} value={constraint.value}>{constraint.label}</option>)}</select></label><label>Constraint value<input value={props.constraintValue} onChange={(event) => props.onConstraintValueChange(event.target.value)} placeholder="1" /></label><label>Severity<select value={props.severity} onChange={(event) => props.onSeverityChange(event.target.value)}><option>Violation</option><option>Warning</option><option>Info</option></select></label></div>
+        <label>Validation message<input value={props.validationMessage} onChange={(event) => props.onValidationMessageChange(event.target.value)} placeholder={`Explain the ${props.entity.label} constraint`} /></label>
+        <div className="dialog-actions"><button className="button" type="button" onClick={props.onClose}>Cancel</button><button className="button primary" type="submit" disabled={props.pending || !props.shapeLabel.trim() || props.selectedTarget.length === 0 || props.selectedPath.length === 0 || !props.constraintValue.trim()}>Add to review queue</button></div>
+      </form>}
+    </section>
+  </div>;
+}
+
+function ReadOnlyShaclContext({ label, value }: { label: string; value: string }) {
+  return <div className="shacl-readonly-context"><span>{label}</span><strong>{value}</strong></div>;
+}
+
+function targetClassReference(shape: WebShaclShapeSummary, assertedTypeIris: ReadonlySet<string>, sourceId: string): WebEntityReference | undefined {
+  const target = shape.targets.find((candidate) => candidate.kind === "TargetClass" && assertedTypeIris.has(candidate.iri));
+  return target ? { iri: target.iri, label: target.label, kind: "Class", sourceId } : undefined;
+}
+
+function formatConstraintKind(value: string): string {
+  return value.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (character) => character.toUpperCase());
+}
+
+function formatShaclTarget(value: string): string {
+  return formatConstraintKind(value.replace(/^Target/, "Target "));
 }
 
 function EditableFactSection({ title, values, unavailable, children }: { title: string; values: string[]; unavailable?: string; children?: React.ReactNode }) {
@@ -869,6 +1267,13 @@ function EditableFactSection({ title, values, unavailable, children }: { title: 
       <FactValues values={values} />
     </div>
     {unavailable ? <p className="fact-guidance">{unavailable}</p> : children}
+  </section>;
+}
+
+function SemanticListSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return <section className="semantic-list-section" aria-labelledby={`${slug(title)}-heading`}>
+    <h3 id={`${slug(title)}-heading`}>{title}</h3>
+    {children}
   </section>;
 }
 
@@ -886,7 +1291,7 @@ function ExternalEntityOverview({ entity }: { entity: WebEntityDetailResponse })
   </div>;
 }
 
-function EditorTab({ id, label, active, onSelect }: { id: EditorSectionId; label: string; active: EditorSectionId; onSelect: (id: EditorSectionId) => void }) {
+function EditorTab<T extends string>({ id, label, active, onSelect }: { id: T; label: string; active: T; onSelect: (id: T) => void }) {
   return <button type="button" role="tab" aria-selected={active === id} className={active === id ? "active" : undefined} onClick={() => onSelect(id)}>{label}</button>;
 }
 
@@ -933,7 +1338,14 @@ function requestPropertyRelationKey(request: Omit<WebStageChangeRequest, "source
   return [request.editType, request.propertyIri, request.domainClassIri ?? request.rangeIri ?? request.rangeLabel].join("|");
 }
 
+function requestTypeKey(request: Omit<WebStageChangeRequest, "sourceId">) {
+  return [request.editType, request.resourceIri, request.typeIri].join("|");
+}
+
 function stagedEntryKey(entry: WebStagedEntry) {
+  if (entry.editType === "assign-type") {
+    return [entry.editType, entry.normalizedValues.resourceIri, entry.normalizedValues.typeIri].join("|");
+  }
   return [
     entry.editType,
     entry.normalizedValues.classIri ?? entry.normalizedValues.propertyIri,
@@ -944,14 +1356,64 @@ function stagedEntryKey(entry: WebStagedEntry) {
   ].join("|");
 }
 
+function stagedChoice(entry: WebStagedEntry, iriKey: string, labelKey: string, kind: string): SemanticEntityChoice {
+  return {
+    iri: entry.normalizedValues[iriKey],
+    label: entry.normalizedValues[labelKey],
+    kind,
+    sourceId: entry.sourceId,
+    staged: true,
+  };
+}
+
+function mergeChoices(applied: SemanticEntityChoice[], staged: SemanticEntityChoice[]) {
+  const choices = new Map(applied.map((choice) => [choice.iri, choice]));
+  staged.forEach((choice) => choices.set(choice.iri, choice));
+  return [...choices.values()];
+}
+
 function readableDatatype(reference: WebEntityReference) {
   return reference.iri.split(/[#/]/).filter(Boolean).at(-1) ?? reference.label;
 }
 
-function relationshipLabels(relationships: WebRelationship[]) {
-  return relationships
+function relationshipRows(entity: WebEntityDetailResponse, entries: WebStagedEntry[], kind: "outgoing" | "incoming" | "datatype"): RelationshipRow[] {
+  const appliedRelationships = kind === "incoming" ? entity.incomingRelationships : entity.outgoingRelationships;
+  const applied = appliedRelationships
     .filter((relationship) => !STRUCTURAL_PREDICATES.has(relationship.predicate.iri))
-    .map((relationship) => `${relationship.predicate.label} → ${formatValue(relationship.value)}`);
+    .filter((relationship) => kind === "datatype" ? !isResourceRelationship(relationship) : isResourceRelationship(relationship))
+    .map((relationship) => ({
+      id: `applied:${kind}:${relationship.predicate.iri}:${relationship.value.value}`,
+      predicate: relationship.predicate.label,
+      value: kind === "datatype" ? formatLiteralValue(relationship.value) : formatValue(relationship.value),
+      staged: false,
+    }));
+  const staged = entries.flatMap((entry): RelationshipRow[] => {
+    if (kind === "outgoing" && entry.editType === "add-object-property-assertion" && entry.normalizedValues.subjectIri === entity.iri) {
+      return [stagedRelationshipRow(entry, entry.normalizedValues.propertyLabel, entry.normalizedValues.objectLabel)];
+    }
+    if (kind === "incoming" && entry.editType === "add-object-property-assertion" && entry.normalizedValues.objectIri === entity.iri) {
+      return [stagedRelationshipRow(entry, entry.normalizedValues.propertyLabel, entry.normalizedValues.subjectLabel)];
+    }
+    if (kind === "datatype" && entry.editType === "add-datatype-property-assertion" && entry.normalizedValues.subjectIri === entity.iri) {
+      return [stagedRelationshipRow(
+        entry,
+        entry.normalizedValues.propertyLabel,
+        formatStagedLiteral(entry.normalizedValues.value, entry.normalizedValues.datatypeIri),
+      )];
+    }
+    return [];
+  });
+  return [...staged, ...applied];
+}
+
+function stagedRelationshipRow(entry: WebStagedEntry, predicate?: string, value?: string): RelationshipRow {
+  return {
+    id: `staged:${entry.id}`,
+    predicate: predicate || "Relationship",
+    value: value || "Pending value",
+    staged: true,
+    stagedId: entry.id,
+  };
 }
 
 function isResourceRelationship(relationship: WebRelationship) {
@@ -966,14 +1428,74 @@ function classProperties(entity: WebEntityDetailResponse, predicateIri: string):
     .forEach((relationship) => byIri.set(relationship.value.value, {
       iri: relationship.value.value,
       label: formatValue(relationship.value),
-      kind: null,
+      kind: relationship.value.entityKind ?? null,
       sourceId: relationship.sourceId,
     }));
   return [...byIri.values()].sort((left, right) => left.label.localeCompare(right.label));
 }
 
+function classPropertyRows(
+  entity: WebEntityDetailResponse,
+  entries: WebStagedEntry[],
+  direction: ClassPropertyDirection,
+): ClassPropertyRow[] {
+  const predicate = direction === "incoming" ? RDFS_RANGE : RDFS_DOMAIN;
+  const rows = new Map<string, ClassPropertyRow>(
+    classProperties(entity, predicate).map((property) => [property.iri, { ...property, staged: false }]),
+  );
+  const stagedKinds = stagedPropertyKinds(entries);
+
+  entries.forEach((entry) => {
+    const values = entry.normalizedValues;
+    const relevant = direction === "incoming"
+      ? ["set-property-range", "remove-property-range"].includes(entry.editType) && values.rangeIri === entity.iri
+      : ["set-property-domain", "remove-property-domain"].includes(entry.editType) && values.domainClassIri === entity.iri;
+    if (!relevant || !values.propertyIri) return;
+    const existing = rows.get(values.propertyIri);
+    rows.set(values.propertyIri, {
+      iri: values.propertyIri,
+      label: values.propertyLabel ?? existing?.label ?? readableIriLabel(values.propertyIri),
+      kind: existing?.kind ?? stagedKinds.get(values.propertyIri) ?? "ObjectProperty",
+      sourceId: entry.sourceId,
+      staged: true,
+      stagedId: entry.id,
+    });
+  });
+
+  return [...rows.values()]
+    .filter((property) => direction === "datatype"
+      ? property.kind?.toLocaleLowerCase() === "datatypeproperty"
+      : property.kind?.toLocaleLowerCase() !== "datatypeproperty")
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function stagedPropertyKinds(entries: WebStagedEntry[]): Map<string, string> {
+  const kinds = new Map<string, string>();
+  entries.forEach((entry) => {
+    if (entry.editType === "create-object-property") entry.generatedIris.forEach((iri) => kinds.set(iri, "ObjectProperty"));
+    if (entry.editType === "create-datatype-property") entry.generatedIris.forEach((iri) => kinds.set(iri, "DatatypeProperty"));
+    if (entry.editType === "set-property-range" && entry.normalizedValues.propertyIri?.startsWith("http") && entry.normalizedValues.rangeIri?.startsWith(XSD_NAMESPACE)) {
+      kinds.set(entry.normalizedValues.propertyIri, "DatatypeProperty");
+    }
+  });
+  return kinds;
+}
+
 function formatValue(value: WebRdfValue) {
   return value.label ?? KNOWN_RESOURCE_LABELS.get(value.value) ?? readableIriLabel(value.value);
+}
+
+function formatLiteralValue(value: WebRdfValue) {
+  return formatStagedLiteral(formatValue(value), value.datatype ?? undefined);
+}
+
+function formatStagedLiteral(value?: string, datatypeIri?: string) {
+  const lexicalValue = value || "Pending value";
+  return datatypeIri ? `${lexicalValue} · ${datatypeLabel(datatypeIri)}` : lexicalValue;
+}
+
+function datatypeLabel(datatypeIri: string) {
+  return datatypeIri.startsWith(XSD_NAMESPACE) ? `xsd:${datatypeIri.slice(XSD_NAMESPACE.length)}` : readableIriLabel(datatypeIri);
 }
 
 function readableIriLabel(value: string) {
@@ -987,8 +1509,60 @@ function slug(value: string) {
 }
 
 const STANDARD_DATATYPES = ["string", "boolean", "integer", "decimal", "date", "dateTime"];
+
+const XSD_NAMESPACE = "http://www.w3.org/2001/XMLSchema#";
+const XSD_STRING = `${XSD_NAMESPACE}string`;
+const LITERAL_DATATYPES = [
+  { label: "xsd:string", iri: XSD_STRING },
+  { label: "xsd:integer", iri: `${XSD_NAMESPACE}integer` },
+  { label: "xsd:decimal", iri: `${XSD_NAMESPACE}decimal` },
+  { label: "xsd:float", iri: `${XSD_NAMESPACE}float` },
+  { label: "xsd:double", iri: `${XSD_NAMESPACE}double` },
+  { label: "xsd:boolean", iri: `${XSD_NAMESPACE}boolean` },
+  { label: "xsd:date", iri: `${XSD_NAMESPACE}date` },
+  { label: "xsd:dateTime", iri: `${XSD_NAMESPACE}dateTime` },
+  { label: "xsd:anyURI", iri: `${XSD_NAMESPACE}anyURI` },
+] as const;
+
+function datatypeInputType(datatypeIri: string): "text" | "number" | "date" | "datetime-local" {
+  if (datatypeIri === `${XSD_NAMESPACE}date`) return "date";
+  if (datatypeIri === `${XSD_NAMESPACE}dateTime`) return "datetime-local";
+  if (isNumericDatatype(datatypeIri)) return "number";
+  return "text";
+}
+
+function isNumericDatatype(datatypeIri: string): boolean {
+  return ["integer", "decimal", "float", "double"].some((name) => datatypeIri === `${XSD_NAMESPACE}${name}`);
+}
+
+function datatypePlaceholder(datatypeIri: string): string {
+  if (datatypeIri === `${XSD_NAMESPACE}boolean`) return "true or false";
+  if (datatypeIri === `${XSD_NAMESPACE}anyURI`) return "https://example.com/resource";
+  return isNumericDatatype(datatypeIri) ? "Enter a numeric value" : "Enter a value";
+}
 const RDFS_DOMAIN = "http://www.w3.org/2000/01/rdf-schema#domain";
 const RDFS_RANGE = "http://www.w3.org/2000/01/rdf-schema#range";
+const CLASS_PROPERTY_SECTIONS: Record<ClassPropertyDirection, {
+  title: string;
+  description: (classLabel: string) => string;
+  empty: string;
+}> = {
+  outgoing: {
+    title: "Outgoing properties",
+    description: (classLabel) => `Object properties whose domain is ${classLabel}.`,
+    empty: "No object properties use this class as their domain.",
+  },
+  incoming: {
+    title: "Incoming properties",
+    description: (classLabel) => `Object properties whose range is ${classLabel}.`,
+    empty: "No object properties use this class as their range.",
+  },
+  datatype: {
+    title: "Datatype properties",
+    description: (classLabel) => `Datatype properties whose domain is ${classLabel}.`,
+    empty: "No datatype properties use this class as their domain.",
+  },
+};
 const STRUCTURAL_PREDICATES = new Set([
   "http://www.w3.org/2000/01/rdf-schema#subClassOf",
   "http://www.w3.org/2000/01/rdf-schema#domain",

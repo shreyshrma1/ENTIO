@@ -6,6 +6,7 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
@@ -56,6 +57,7 @@ class OpenAiResponsesClientTest {
             assertEquals("function", tool.path("type").asText())
             assertTrue(tool.path("strict").asBoolean())
             assertFalse(tool.path("parameters").path("additionalProperties").asBoolean(true))
+            assertFalse(tool.toString().contains("uniqueItems"))
             val propertyNames = tool.path("parameters").path("properties").fieldNames().asSequence().toSet()
             val required = tool.path("parameters").path("required").map { it.asText() }.toSet()
             assertEquals(propertyNames, required)
@@ -76,6 +78,10 @@ class OpenAiResponsesClientTest {
         }
         val request = request().copy(
             previousResponseId = "resp-previous",
+            functionCalls = listOf(
+                OpenAiFunctionCall("call-1", "entio_project_summary", "{}"),
+                OpenAiFunctionCall("call-2", "entio_entity_search", "{\"query\":\"Account\"}"),
+            ),
             toolOutputs = listOf(
                 OpenAiToolOutput("call-1", "{\"status\":\"ok\"}"),
                 OpenAiToolOutput("call-2", "{\"status\":\"safe\"}"),
@@ -85,7 +91,13 @@ class OpenAiResponsesClientTest {
         client(engine).use { provider -> assertIs<OpenAiResponsesResult.Completed>(provider.respond("key", request)) }
 
         val body = mapper.readTree(capturedBody)
-        assertEquals("resp-previous", body.path("previous_response_id").asText())
+        assertFalse(body.has("previous_response_id"))
+        val calls = body.path("input").filter { it.path("type").asText() == "function_call" }
+        assertEquals(listOf("call-1", "call-2"), calls.map { it.path("call_id").asText() })
+        assertEquals(
+            listOf("entio_project_summary", "entio_entity_search"),
+            calls.map { it.path("name").asText() },
+        )
         val outputs = body.path("input").filter { it.path("type").asText() == "function_call_output" }
         assertEquals(listOf("call-1", "call-2"), outputs.map { it.path("call_id").asText() })
         assertEquals(listOf("{\"status\":\"ok\"}", "{\"status\":\"safe\"}"), outputs.map { it.path("output").asText() })
@@ -194,7 +206,21 @@ class OpenAiResponsesClientTest {
             event("""{"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}"""),
         )
         assertStreamFailure(OpenAiFailureCode.CANCELLED, event("""{"type":"response.cancelled"}"""))
-        assertStreamFailure(OpenAiFailureCode.PROVIDER_ERROR, event("""{"type":"error","error":{"code":"internal"}}"""))
+        val topLevelFailure = assertStreamFailure(
+            OpenAiFailureCode.PROVIDER_ERROR,
+            event("""{"type":"error","code":"model_not_found","message":"secret-key","param":"model"}"""),
+        )
+        assertTrue(topLevelFailure.message.contains(OpenAiProviderConfiguration.MODEL_ID))
+        assertFalse(topLevelFailure.message.contains("secret-key"))
+        val nestedFailure = assertStreamFailure(
+            OpenAiFailureCode.PROVIDER_ERROR,
+            event(
+                """{"type":"response.failed","response":{"error":{"type":"invalid_request_error","code":"invalid_function_parameters","param":"tools[3].parameters","message":"secret-key"}}}""",
+            ),
+        )
+        assertTrue(nestedFailure.message.contains("invalid_function_parameters"))
+        assertTrue(nestedFailure.message.contains("tools[3].parameters"))
+        assertFalse(nestedFailure.message.contains("secret-key"))
         assertStreamFailure(OpenAiFailureCode.MALFORMED_RESPONSE, event("""{"type":"response.output_text.delta","delta":"unterminated"}"""))
     }
 
@@ -214,15 +240,82 @@ class OpenAiResponsesClientTest {
 
     @Test
     fun safeCredentialTestUsesProviderBoundaryAndNeverReturnsCredential(): Unit = runBlocking {
-        val accepted = MockEngine { respond(completedStream("resp-test", "OK"), headers = eventStreamHeaders()) }
-        val result = client(accepted).use { it.test("secret-key") }
+        var capturedAuthorization: String? = null
+        var capturedAccept: String? = null
+        var capturedMethod: HttpMethod? = null
+        var capturedUrl: String? = null
+        var capturedBody: String? = null
+        val accepted = MockEngine { request ->
+            capturedAuthorization = request.headers[HttpHeaders.Authorization]
+            capturedAccept = request.headers[HttpHeaders.Accept]
+            capturedMethod = request.method
+            capturedUrl = request.url.toString()
+            capturedBody = (request.body as TextContent).text
+            respond("{}", headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()))
+        }
+        val result = client(accepted).use { it.test("  secret-key\n") }
 
         val passed = assertIs<AiProviderTestResult.Passed>(result)
         assertFalse(passed.message.contains("secret-key"))
+        assertTrue(passed.message.contains("approved model"))
+        assertEquals(HttpMethod.Post, capturedMethod)
+        assertEquals(OpenAiProviderConfiguration.ENDPOINT, capturedUrl)
+        assertEquals("Bearer secret-key", capturedAuthorization)
+        assertEquals(ContentType.Application.Json.toString(), capturedAccept)
+        val body = mapper.readTree(capturedBody)
+        assertEquals(OpenAiProviderConfiguration.MODEL_ID, body.path("model").asText())
+        assertFalse(body.path("store").asBoolean(true))
+        assertFalse(body.path("stream").asBoolean(true))
+        assertEquals(16, body.path("max_output_tokens").asInt())
+        assertFalse(capturedBody.orEmpty().contains("secret-key"))
 
         val rejected = MockEngine { respond("secret-key", status = HttpStatusCode.Unauthorized) }
         val failure = client(rejected).use { it.test("secret-key") }
         assertFalse(assertIs<AiProviderTestResult.Failed>(failure).message.contains("secret-key"))
+
+        val forbidden = MockEngine { respond("{}", status = HttpStatusCode.Forbidden) }
+        val permissionFailure = client(forbidden).use { it.test("secret-key") }
+        val permissionMessage = assertIs<AiProviderTestResult.Failed>(permissionFailure).message
+        assertTrue(permissionMessage.contains("accepted the credential"))
+        assertFalse(permissionMessage.contains("rejected"))
+    }
+
+    @Test
+    fun providerErrorBodiesProduceSpecificRedactedCredentialMessages(): Unit = runBlocking {
+        val insufficientQuota = MockEngine {
+            respond(
+                """{"error":{"code":"insufficient_quota","message":"secret-key"}}""",
+                status = HttpStatusCode.TooManyRequests,
+            )
+        }
+        val quotaFailure = client(insufficientQuota).use { it.test("secret-key") }
+        val quotaMessage = assertIs<AiProviderTestResult.Failed>(quotaFailure).message
+        assertTrue(quotaMessage.contains("no available quota"))
+        assertFalse(quotaMessage.contains("secret-key"))
+
+        val missingModel = MockEngine {
+            respond(
+                """{"error":{"code":"model_not_found","message":"secret-key"}}""",
+                status = HttpStatusCode.NotFound,
+            )
+        }
+        val modelFailure = client(missingModel).use { it.respond("secret-key", request()) }
+        val modelMessage = assertIs<OpenAiResponsesResult.Failed>(modelFailure).failure.message
+        assertTrue(modelMessage.contains(OpenAiProviderConfiguration.MODEL_ID))
+        assertFalse(modelMessage.contains("secret-key"))
+
+        val invalidRequest = MockEngine {
+            respond(
+                """{"error":{"type":"invalid_request_error","code":"invalid_function_parameters","param":"tools[3].parameters","message":"secret-key"}}""",
+                status = HttpStatusCode.BadRequest,
+            )
+        }
+        val requestFailure = client(invalidRequest).use { it.respond("secret-key", request()) }
+        val requestMessage = assertIs<OpenAiResponsesResult.Failed>(requestFailure).failure.message
+        assertTrue(requestMessage.contains("request as invalid"))
+        assertTrue(requestMessage.contains("invalid_function_parameters"))
+        assertTrue(requestMessage.contains("tools[3].parameters"))
+        assertFalse(requestMessage.contains("secret-key"))
     }
 
     private suspend fun assertFailure(code: OpenAiFailureCode, status: HttpStatusCode, body: String) {
@@ -231,12 +324,13 @@ class OpenAiResponsesClientTest {
         assertEquals(code, assertIs<OpenAiResponsesResult.Failed>(result).failure.code)
     }
 
-    private suspend fun assertStreamFailure(code: OpenAiFailureCode, stream: String) {
+    private suspend fun assertStreamFailure(code: OpenAiFailureCode, stream: String): OpenAiProviderFailure {
         val engine = MockEngine { respond(stream, headers = eventStreamHeaders()) }
         val result = client(engine).use { it.respond("key", request()) }
         val failure = assertIs<OpenAiResponsesResult.Failed>(result).failure
         assertEquals(code, failure.code)
         assertNull(result.failure.message.takeIf { it.contains("secret-key") })
+        return failure
     }
 
     private fun request(): OpenAiResponsesRequest {

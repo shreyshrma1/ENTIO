@@ -137,7 +137,7 @@ function ClassEditDialog({ projectId, sourceId, parent, onClose }: { projectId: 
     <DialogHeader eyebrow="Ontology edit" title={parent ? `Add subclass of ${parent.label}` : "Add class"} headingId="class-edit-heading" onClose={onClose} />
     <form onSubmit={submit}>
       <label htmlFor="context-class-label">Class label<input id="context-class-label" autoFocus value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Checking Account" required /></label>
-      <SemanticClassPicker projectId={projectId} id="context-superclasses" label="Superclass labels" selected={superclasses} onChange={setSuperclasses} />
+      <SemanticClassPicker projectId={projectId} id="context-superclasses" label="Superclass" selected={superclasses} onChange={setSuperclasses} multiple={false} />
       <fieldset className="property-associations"><legend>Property associations</legend>
         {associations.map((association) => <div className="property-association-row" key={association.id}>
           <input aria-label="Property label" value={association.propertyLabel} onChange={(event) => setAssociations((current) => current.map((item) => item.id === association.id ? { ...item, propertyLabel: event.target.value } : item))} placeholder="owns account" />
@@ -157,8 +157,12 @@ function TypedEditDialog({ projectId, sourceId, editType, initialValues = {}, on
   const definition = useMemo(() => stagingEditDefinition(editType), [editType]);
   const [values, setValues] = useState<StagingFormValues>(initialValues);
   const [individualClass, setIndividualClass] = useState<SemanticClassChoice[]>([]);
+  const [propertyDomain, setPropertyDomain] = useState<SemanticClassChoice[]>([]);
+  const [propertyRange, setPropertyRange] = useState<SemanticClassChoice[]>([]);
+  const [datatypeRange, setDatatypeRange] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [idempotencyKey] = useState(() => `web-context-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const createsProperty = editType === "create-object-property" || editType === "create-datatype-property";
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -172,11 +176,48 @@ function TypedEditDialog({ projectId, sourceId, editType, initialValues = {}, on
         selectedClass ? { ...values, classLabel: selectedClass.label } : values,
         idempotencyKey,
       );
-      await actions.stage.mutateAsync(selectedClass ? {
+      const staged = await actions.stage.mutateAsync(selectedClass ? {
         ...request,
         classIri: selectedClass.iri,
         classLabel: selectedClass.label,
       } : request);
+      if (createsProperty) {
+        const propertyLabel = values.label?.trim();
+        const propertyIri = staged.entries.find((entry) =>
+          entry.editType === editType &&
+          entry.normalizedValues.label === propertyLabel &&
+          entry.generatedIris.length > 0
+        )?.generatedIris[0];
+        if (!propertyIri || !propertyLabel) throw new Error("Entio did not return the generated property identifier.");
+        const domain = propertyDomain[0];
+        if (domain) {
+          await actions.stage.mutateAsync({
+            sourceId,
+            editType: "set-property-domain",
+            propertyIri,
+            propertyLabel,
+            domainClassIri: domain.iri,
+            domainClassLabel: domain.label,
+            idempotencyKey: `${idempotencyKey}-domain`,
+          });
+        }
+        const range = propertyRange[0];
+        const selectedRangeIri = editType === "create-datatype-property" ? datatypeRange : range?.iri;
+        const selectedRangeLabel = editType === "create-datatype-property"
+          ? PROPERTY_DATATYPES.find((datatype) => datatype.iri === datatypeRange)?.label
+          : range?.label;
+        if (selectedRangeIri && selectedRangeLabel) {
+          await actions.stage.mutateAsync({
+            sourceId,
+            editType: "set-property-range",
+            propertyIri,
+            propertyLabel,
+            rangeIri: selectedRangeIri,
+            rangeLabel: selectedRangeLabel,
+            idempotencyKey: `${idempotencyKey}-range`,
+          });
+        }
+      }
       onClose();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "The change could not be staged.");
@@ -199,12 +240,51 @@ function TypedEditDialog({ projectId, sourceId, editType, initialValues = {}, on
           selectedValueInInput
           required
         /> : null}
+        {createsProperty ? <SemanticClassPicker
+          projectId={projectId}
+          id="context-property-domain"
+          label="Domain class"
+          selected={propertyDomain}
+          onChange={setPropertyDomain}
+          multiple={false}
+          selectedValueInInput
+        /> : null}
+        {editType === "create-object-property" ? <SemanticClassPicker
+          projectId={projectId}
+          id="context-property-range"
+          label="Range class"
+          selected={propertyRange}
+          onChange={setPropertyRange}
+          multiple={false}
+          selectedValueInInput
+        /> : null}
+        {editType === "create-datatype-property" ? <label htmlFor="context-property-datatype-range">Range datatype<select
+          id="context-property-datatype-range"
+          value={datatypeRange}
+          onChange={(event) => setDatatypeRange(event.target.value)}
+        >
+          <option value="">No asserted range</option>
+          {PROPERTY_DATATYPES.map((datatype) => <option key={datatype.iri} value={datatype.iri}>{datatype.label}</option>)}
+        </select></label> : null}
       </div>
       {error ? <p className="workflow-error" role="alert">{error}</p> : null}
       <div className="dialog-actions"><button className="button" type="button" onClick={onClose}>Cancel</button><button className="button primary" type="submit" disabled={actions.stage.isPending}>{actions.stage.isPending ? "Adding…" : "Add to review queue"}</button></div>
     </form>
   </section>;
 }
+
+const XSD_NAMESPACE = "http://www.w3.org/2001/XMLSchema#";
+const PROPERTY_DATATYPES = [
+  { label: "xsd:string", iri: `${XSD_NAMESPACE}string` },
+  { label: "xsd:integer", iri: `${XSD_NAMESPACE}integer` },
+  { label: "xsd:decimal", iri: `${XSD_NAMESPACE}decimal` },
+  { label: "xsd:float", iri: `${XSD_NAMESPACE}float` },
+  { label: "xsd:double", iri: `${XSD_NAMESPACE}double` },
+  { label: "xsd:boolean", iri: `${XSD_NAMESPACE}boolean` },
+  { label: "xsd:date", iri: `${XSD_NAMESPACE}date` },
+  { label: "xsd:dateTime", iri: `${XSD_NAMESPACE}dateTime` },
+  { label: "xsd:anyURI", iri: `${XSD_NAMESPACE}anyURI` },
+] as const;
 
 function DeletionDialog({ projectId, sourceId, entity, onClose }: { projectId: string; sourceId: string; entity: WebEntityReference; onClose: () => void }) {
   const actions = useStagingActions(projectId);

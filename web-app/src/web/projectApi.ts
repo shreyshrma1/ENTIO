@@ -67,6 +67,7 @@ export interface WebOutlineItem {
   label: string;
   kind: string;
   sourceId: string;
+  directType?: WebEntityReference | null;
 }
 
 export interface WebOutlineResponse {
@@ -92,6 +93,7 @@ export interface WebRdfValue {
   kind: string;
   value: string;
   label: string | null;
+  entityKind?: string | null;
   datatype: string | null;
   language: string | null;
 }
@@ -145,6 +147,45 @@ export interface WebSemanticSearchResponse {
   apiVersion: "v1";
   query: string;
   page: WebPage<WebSemanticSearchHit>;
+}
+
+export interface WebShaclConstraintSummary {
+  kind: string;
+  value: string | null;
+  valueIri: string | null;
+  valueLabel: string | null;
+}
+
+export interface WebShaclTargetSummary {
+  kind: "TargetClass" | "TargetNode" | "TargetSubjectsOf" | "TargetObjectsOf";
+  iri: string;
+  label: string;
+}
+
+export interface WebShaclPropertyShapeSummary {
+  iri: string;
+  path: WebEntityReference;
+  constraints: WebShaclConstraintSummary[];
+  severity: string;
+  message: string | null;
+}
+
+export interface WebShaclShapeSummary {
+  iri: string;
+  label: string;
+  sourceId: string;
+  targets: WebShaclTargetSummary[];
+  constraints: WebShaclConstraintSummary[];
+  propertyShapes: WebShaclPropertyShapeSummary[];
+  closed: boolean;
+  severity: string;
+  message: string | null;
+}
+
+export interface WebShaclShapeListResponse {
+  apiVersion: "v1";
+  projectId: string;
+  shapes: WebShaclShapeSummary[];
 }
 
 export interface WebStageChangeRequest {
@@ -458,7 +499,14 @@ export async function discardStagedChange(projectId: string, stagedId: string, f
 }
 
 export async function previewStagedChanges(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
-  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/proposal/preview`, "POST", undefined, fetcher);
+  return sendJson(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/proposal/preview`,
+    "POST",
+    undefined,
+    fetcher,
+    {},
+    30_000,
+  );
 }
 
 export async function approveProposal(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
@@ -773,6 +821,13 @@ export async function loadEntityDetails(
   );
 }
 
+export async function loadShaclShapes(
+  projectId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebShaclShapeListResponse> {
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/shacl/shapes`, fetcher);
+}
+
 export async function searchProject(
   projectId: string,
   text: string,
@@ -801,16 +856,29 @@ async function sendJson<T>(
   body: unknown,
   fetcher: WebFetcher,
   extraHeaders: Record<string, string> = {},
+  timeoutMs?: number,
 ): Promise<T> {
-  const response = await fetcher(path, {
-    method,
-    headers: body === undefined ? extraHeaders : { "Content-Type": "application/json", ...extraHeaders },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!response.ok) {
-    throw await webRequestError(response);
+  const controller = timeoutMs === undefined ? null : new AbortController();
+  const timeout = controller === null ? null : window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetcher(path, {
+      method,
+      headers: body === undefined ? extraHeaders : { "Content-Type": "application/json", ...extraHeaders },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller?.signal,
+    });
+    if (!response.ok) {
+      throw await webRequestError(response);
+    }
+    return response.json() as Promise<T>;
+  } catch (error) {
+    if (controller?.signal.aborted) {
+      throw new Error("Proposal preparation timed out. Retry when the semantic engine is available.");
+    }
+    throw error;
+  } finally {
+    if (timeout !== null) window.clearTimeout(timeout);
   }
-  return response.json() as Promise<T>;
 }
 
 function dispatchAiEventBlock(block: string, options: AiRunStreamOptions) {

@@ -125,10 +125,11 @@ public class AiCredentialService(
         if (request.providerId != provider.providerId) {
             throw AiCredentialFailure("unsupported-provider", "The requested provider is not available in this server boundary.")
         }
-        if (request.apiKey.isBlank()) {
+        val normalizedApiKey = request.apiKey.trim()
+        if (normalizedApiKey.isEmpty()) {
             throw AiCredentialFailure("missing-credential", "A non-empty credential is required.")
         }
-        store.save(userId, request.providerId, request.apiKey)
+        store.save(userId, request.providerId, normalizedApiKey)
         lastTests.remove(userId)
         return status(userId)
     }

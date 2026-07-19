@@ -13,8 +13,15 @@ import com.entio.core.RdfLiteral
 import com.entio.core.RdfResource
 import com.entio.core.RdfTerm
 import com.entio.core.SemanticSearchQuery
+import com.entio.core.ShaclConstraint
+import com.entio.core.ShaclConstraintValue
+import com.entio.core.ShaclGraphRole
+import com.entio.core.ShaclNodeShape
+import com.entio.core.ShaclPath
+import com.entio.core.ShaclTarget
 import com.entio.semantic.ProjectLoader
 import com.entio.semantic.SemanticDescriptionService
+import com.entio.semantic.ShaclShapeAuthoringService
 import com.entio.web.contract.ProjectRegistry
 import com.entio.web.contract.WebPage
 import com.entio.web.contract.WebPageRequest
@@ -64,6 +71,7 @@ public data class WebOutlineItem(
     val label: String,
     val kind: String,
     val sourceId: String,
+    val directType: WebEntityReference? = null,
 )
 
 public data class WebOutlineResponse(
@@ -89,6 +97,7 @@ public data class WebRdfValue(
     val kind: String,
     val value: String,
     val label: String? = null,
+    val entityKind: String? = null,
     val datatype: String? = null,
     val language: String? = null,
 )
@@ -144,6 +153,45 @@ public data class WebSemanticSearchResponse(
     val page: WebPage<WebSemanticSearchHit>,
 )
 
+public data class WebShaclShapeListResponse(
+    val apiVersion: String = WEB_API_VERSION,
+    val projectId: String,
+    val shapes: List<WebShaclShapeSummary>,
+)
+
+public data class WebShaclShapeSummary(
+    val iri: String,
+    val label: String,
+    val sourceId: String,
+    val targets: List<WebShaclTargetSummary>,
+    val constraints: List<WebShaclConstraintSummary>,
+    val propertyShapes: List<WebShaclPropertyShapeSummary>,
+    val closed: Boolean,
+    val severity: String,
+    val message: String?,
+)
+
+public data class WebShaclTargetSummary(
+    val kind: String,
+    val iri: String,
+    val label: String,
+)
+
+public data class WebShaclPropertyShapeSummary(
+    val iri: String,
+    val path: WebEntityReference,
+    val constraints: List<WebShaclConstraintSummary>,
+    val severity: String,
+    val message: String?,
+)
+
+public data class WebShaclConstraintSummary(
+    val kind: String,
+    val value: String?,
+    val valueIri: String? = null,
+    val valueLabel: String? = null,
+)
+
 public class ProjectReadFailure(
     public val code: String,
     message: String,
@@ -154,6 +202,7 @@ public class ReadOnlyProjectAdapter(
     private val projectRegistry: ProjectRegistry,
     private val projectLoader: ProjectLoader = ProjectLoader(),
     private val descriptionService: SemanticDescriptionService = SemanticDescriptionService(),
+    private val shaclAuthoringService: ShaclShapeAuthoringService = ShaclShapeAuthoringService(),
 ) {
     public fun summary(projectId: String): WebProjectSummaryResponse {
         val project = load(projectId)
@@ -221,15 +270,23 @@ public class ReadOnlyProjectAdapter(
         sourceId: String?,
         request: WebPageRequest,
     ): WebOutlineResponse {
-        val items = descriptionService.describeAll(load(projectId))
-            .map(OntologyEntityDescriptor::common)
-            .filter { sourceId == null || it.sourceId == sourceId }
+        val descriptors = descriptionService.describeAll(load(projectId))
+        val classDescriptors = descriptors
+            .filterIsInstance<OntologyEntityDescriptor.Class>()
+            .associateBy { it.common.entity.value }
+        val labels = descriptors.associate { it.common.entity.value to it.common.displayLabel() }
+        val kinds = descriptors.associate { it.common.entity.value to it.common.kind.name }
+        val items = descriptors
+            .filter { sourceId == null || it.common.sourceId == sourceId }
             .map { descriptor ->
                 WebOutlineItem(
-                    iri = descriptor.entity.value,
-                    label = descriptor.displayLabel(),
-                    kind = descriptor.kind.name,
-                    sourceId = descriptor.sourceId,
+                    iri = descriptor.common.entity.value,
+                    label = descriptor.common.displayLabel(),
+                    kind = descriptor.common.kind.name,
+                    sourceId = descriptor.common.sourceId,
+                    directType = (descriptor as? OntologyEntityDescriptor.Individual)
+                        ?.mostDirectAssertedType(classDescriptors)
+                        ?.reference(labels, kinds),
                 )
             }
             .sortedWith(
@@ -242,6 +299,28 @@ public class ReadOnlyProjectAdapter(
             sourceId = sourceId,
             page = items.toWebPage(request),
         )
+    }
+
+    private fun OntologyEntityDescriptor.Individual.mostDirectAssertedType(
+        classes: Map<String, OntologyEntityDescriptor.Class>,
+    ): Iri? {
+        val candidates = assertedTypes.filter { classes.containsKey(it.value) }
+        return candidates
+            .filterNot { candidate ->
+                candidates.any { other -> other != candidate && other.hasSuperclass(candidate, classes) }
+            }
+            .minByOrNull { classes[it.value]?.common?.displayLabel()?.lowercase() ?: it.value }
+            ?: candidates.minByOrNull { classes[it.value]?.common?.displayLabel()?.lowercase() ?: it.value }
+    }
+
+    private fun Iri.hasSuperclass(
+        superclass: Iri,
+        classes: Map<String, OntologyEntityDescriptor.Class>,
+        visited: MutableSet<String> = mutableSetOf(),
+    ): Boolean {
+        if (!visited.add(value)) return false
+        val direct = classes[value]?.directSuperclasses.orEmpty()
+        return superclass in direct || direct.any { it.hasSuperclass(superclass, classes, visited) }
     }
 
     public fun entity(
@@ -284,6 +363,25 @@ public class ReadOnlyProjectAdapter(
         return WebSemanticSearchResponse(query = query.text, page = results.toWebPage(request))
     }
 
+    public fun shaclShapes(projectId: String): WebShaclShapeListResponse {
+        val project = load(projectId)
+        val descriptors = descriptionService.describeAll(project)
+        val labels = descriptors.associate { it.common.entity.value to it.common.displayLabel() }
+        val kinds = descriptors.associate { it.common.entity.value to it.common.kind.name }
+        val shapes = project.ontologies
+            .filter { ontology -> ShaclGraphRole.Shapes in ontology.source.roles }
+            .flatMap { ontology ->
+                when (val result = shaclAuthoringService.load(ontology.source.id, ontology.graph)) {
+                    is EntioResult.Success -> result.value.nodeShapes
+                    is EntioResult.Failure -> throw ProjectReadFailure("shacl-shapes-invalid", result.message)
+                }
+            }
+            .map { shape -> shape.toWebSummary(labels, kinds) }
+            .sortedWith(compareBy<WebShaclShapeSummary> { it.label.lowercase() }.thenBy(WebShaclShapeSummary::iri))
+
+        return WebShaclShapeListResponse(projectId = projectId, shapes = shapes)
+    }
+
     private fun load(projectId: String): EntioProject {
         if (projectRegistry.find(projectId) == null) {
             throw ProjectReadFailure("unknown-project", "The requested project is not registered.")
@@ -303,6 +401,76 @@ public class ReadOnlyProjectAdapter(
         "ObjectProperty", "DatatypeProperty", "AnnotationProperty" -> 2
         else -> 3
     }
+
+    private fun ShaclNodeShape.toWebSummary(
+        labels: Map<String, String>,
+        kinds: Map<String, String>,
+    ): WebShaclShapeSummary = WebShaclShapeSummary(
+        iri = id.iri.value,
+        label = label ?: readableIri(id.iri.value),
+        sourceId = id.sourceId,
+        targets = targets.map { target -> target.toWebSummary(labels) }
+            .sortedWith(compareBy<WebShaclTargetSummary> { it.kind }.thenBy { it.label.lowercase() }.thenBy(WebShaclTargetSummary::iri)),
+        constraints = constraints.map { it.toWebSummary(labels) },
+        propertyShapes = propertyShapes.map { propertyShape ->
+            val path = (propertyShape.path as ShaclPath.DirectProperty).propertyIri
+            WebShaclPropertyShapeSummary(
+                iri = propertyShape.id.iri.value,
+                path = WebEntityReference(
+                    iri = path.value,
+                    label = labels[path.value] ?: readableIri(path.value),
+                    kind = kinds[path.value],
+                    sourceId = null,
+                ),
+                constraints = propertyShape.constraints.map { it.toWebSummary(labels) },
+                severity = propertyShape.severity.name,
+                message = propertyShape.message,
+            )
+        }.sortedWith(compareBy<WebShaclPropertyShapeSummary> { it.path.label.lowercase() }.thenBy(WebShaclPropertyShapeSummary::iri)),
+        closed = closed,
+        severity = severity.name,
+        message = message,
+    )
+
+    private fun ShaclTarget.toWebSummary(labels: Map<String, String>): WebShaclTargetSummary = when (this) {
+        is ShaclTarget.TargetClass -> target("TargetClass", classIri.value, labels)
+        is ShaclTarget.TargetNode -> target("TargetNode", node.value, labels)
+        is ShaclTarget.TargetSubjectsOf -> target("TargetSubjectsOf", propertyIri.value, labels)
+        is ShaclTarget.TargetObjectsOf -> target("TargetObjectsOf", propertyIri.value, labels)
+    }
+
+    private fun target(kind: String, iri: String, labels: Map<String, String>): WebShaclTargetSummary =
+        WebShaclTargetSummary(kind, iri, labels[iri] ?: readableIri(iri))
+
+    private fun ShaclConstraint.toWebSummary(labels: Map<String, String>): WebShaclConstraintSummary {
+        val term = (value as? ShaclConstraintValue.TermValue)?.value
+        val termIri = (term as? Iri)?.value
+        return WebShaclConstraintSummary(
+            kind = kind.name,
+            value = when (val constraintValue = value) {
+                null -> null
+                is ShaclConstraintValue.IntegerValue -> constraintValue.value.toString()
+                is ShaclConstraintValue.TextValue -> constraintValue.value
+                is ShaclConstraintValue.BooleanValue -> constraintValue.value.toString()
+                is ShaclConstraintValue.TermValue -> constraintValue.value.readable(labels)
+                is ShaclConstraintValue.TermListValue -> constraintValue.values.joinToString(", ") { it.readable(labels) }
+            },
+            valueIri = termIri,
+            valueLabel = termIri?.let { labels[it] ?: readableIri(it) },
+        )
+    }
+
+    private fun RdfTerm.readable(labels: Map<String, String>): String = when (this) {
+        is Iri -> labels[value] ?: readableIri(value)
+        is RdfLiteral -> lexicalForm
+        is RdfResource -> labels[value] ?: readableIri(value)
+    }
+
+    private fun readableIri(value: String): String = value
+        .substringAfterLast('#', value.substringAfterLast('/'))
+        .takeIf(String::isNotBlank)
+        ?.replace(Regex("([a-z])([A-Z])"), "$1 $2")
+        ?: value
 
     private fun OntologyEntityDescriptor.toResponse(
         labels: Map<String, String>,
@@ -410,15 +578,19 @@ public class ReadOnlyProjectAdapter(
     ): WebRelationship = WebRelationship(
         direction = direction,
         predicate = predicate.reference(labels, kinds),
-        value = if (direction == "incoming") subject.toWebValue(labels) else objectTerm.toWebValue(labels),
+        value = if (direction == "incoming") subject.toWebValue(labels, kinds) else objectTerm.toWebValue(labels, kinds),
         sourceId = sourceId,
     )
 
-    private fun RdfTerm.toWebValue(labels: Map<String, String>): WebRdfValue = when (this) {
+    private fun RdfTerm.toWebValue(
+        labels: Map<String, String>,
+        kinds: Map<String, String> = emptyMap(),
+    ): WebRdfValue = when (this) {
         is RdfResource -> WebRdfValue(
             kind = if (this is com.entio.core.BlankNodeResource) "blank-node" else "iri",
             value = value,
             label = labels[value],
+            entityKind = kinds[value],
         )
         is RdfLiteral -> WebRdfValue(
             kind = "literal",

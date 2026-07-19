@@ -398,7 +398,7 @@ public class AiConversationService(
         var providerRequests = 0
         var inputTokens = 0L
         var outputTokens = 0L
-        var previousResponseId = conversation.providerResponseIds.lastOrNull()
+        var pendingFunctionCalls = emptyList<OpenAiFunctionCall>()
         var outputs = emptyList<OpenAiToolOutput>()
         val currentJob = currentCoroutineContext()[Job]
         if (currentJob != null) synchronized(this) { activeJobs[run.id] = currentJob }
@@ -426,7 +426,7 @@ public class AiConversationService(
                                 trustedPolicy = trustedPolicy(),
                                 userInput = reconstructConversation(conversation, run.policy.maxConversationMessagesInContext),
                                 capabilities = snapshot,
-                                previousResponseId = previousResponseId,
+                                functionCalls = pendingFunctionCalls,
                                 toolOutputs = outputs,
                             ),
                         ) {}
@@ -440,7 +440,6 @@ public class AiConversationService(
                     is OpenAiResponsesResult.Completed -> providerResult.response
                 }
                 completed.responseId?.let { responseId ->
-                    previousResponseId = responseId
                     conversation = conversations.update(
                         conversation.copy(providerResponseIds = conversation.providerResponseIds + responseId, updatedAt = clock.instant()),
                     )
@@ -463,7 +462,8 @@ public class AiConversationService(
                     appendAudit(terminal, capabilityCalls, resultReferences, OpenAiUsage(inputTokens, outputTokens, inputTokens + outputTokens))
                     return AiConversationTurnResult(updated, terminal, classification.intent, answer, draftId = updated.currentDraftId)
                 }
-                outputs = executeCalls(completed.functionCalls, snapshot, run, screenContext, conversation.currentDraftId, capabilityCalls, resultReferences)
+                pendingFunctionCalls = completed.functionCalls
+                outputs = executeCalls(pendingFunctionCalls, snapshot, run, screenContext, conversation.currentDraftId, capabilityCalls, resultReferences)
                 run = runs.get(run.userId, run.projectId, run.id)
             }
         } catch (cancelled: CancellationException) {

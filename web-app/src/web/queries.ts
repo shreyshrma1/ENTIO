@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   loadEntityDetails,
+  loadShaclShapes,
   loadHierarchy,
   loadProjectOutline,
   loadProjectSources,
@@ -51,6 +52,7 @@ import {
   type WebOutlineResponse,
   type WebProjectSummaryResponse,
   type WebSemanticSearchResponse,
+  type WebShaclShapeListResponse,
 } from "./projectApi";
 import type {
   WebAiConversationListResponse,
@@ -74,6 +76,7 @@ export const queryKeys = {
   outline: (projectId: string, sourceId?: string) =>
     ["project", projectId, "outline", sourceId ?? null] as const,
   entity: (projectId: string, iri: string) => ["project", projectId, "entity", iri] as const,
+  shaclShapes: (projectId: string) => ["project", projectId, "shacl", "shapes"] as const,
   search: (projectId: string, text: string) => ["project", projectId, "search", text] as const,
   staged: (projectId: string) => ["project", projectId, "staged"] as const,
   semanticJob: (projectId: string, jobId: string) => ["project", projectId, "semantic-job", jobId] as const,
@@ -134,6 +137,14 @@ export function useEntityDetails(projectId: string, iri: string, enabled = true)
   });
 }
 
+export function useShaclShapes(projectId: string) {
+  return useQuery<WebShaclShapeListResponse>({
+    queryKey: queryKeys.shaclShapes(projectId),
+    queryFn: () => loadShaclShapes(projectId),
+    enabled: projectId.length > 0,
+  });
+}
+
 export function useProjectSearch(projectId: string, text: string) {
   return useQuery<WebSemanticSearchResponse>({
     queryKey: queryKeys.search(projectId, text),
@@ -155,6 +166,7 @@ export function useStagingActions(projectId: string) {
   const refreshApplied = async (data: Awaited<ReturnType<typeof loadStagedChanges>>) => {
     queryClient.setQueryData(queryKeys.staged(projectId), data);
     await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.shaclShapes(projectId) });
   };
   return {
     stage: useMutation({ mutationFn: (request: Parameters<typeof stageChange>[1]) => stageChange(projectId, request), onSuccess: refresh }),
@@ -252,7 +264,15 @@ export function useAiCredentialActions() {
   const refresh = (status: WebAiCredentialStatus) => queryClient.setQueryData(queryKeys.aiCredentialStatus, status);
   return {
     save: useMutation({ mutationFn: ({ providerId, apiKey }: { providerId: string; apiKey: string }) => saveAiCredential(providerId, apiKey), onSuccess: refresh }),
-    test: useMutation<WebAiCredentialTestResponse, Error, void>({ mutationFn: () => testAiCredential() }),
+    test: useMutation<WebAiCredentialTestResponse, Error, void>({
+      mutationFn: () => testAiCredential(),
+      onSuccess: (result) => queryClient.setQueryData<WebAiCredentialStatus>(queryKeys.aiCredentialStatus, (current) => ({
+        apiVersion: "v1",
+        configured: current?.configured ?? true,
+        providerId: current?.providerId ?? "openai",
+        testStatus: result.status,
+      })),
+    }),
     remove: useMutation({ mutationFn: () => removeAiCredential(), onSuccess: refresh }),
   };
 }

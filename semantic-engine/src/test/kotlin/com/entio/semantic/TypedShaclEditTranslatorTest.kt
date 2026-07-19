@@ -74,6 +74,24 @@ class TypedShaclEditTranslatorTest {
     }
 
     @Test
+    fun updatesTheNodeShapeLabelWithoutChangingItsIri(): Unit {
+        val graph = GraphState(
+            existingGraph().triples + GraphTriple(shape, Iri(RDFS_LABEL), RdfLiteral("Customer shape", Iri(XSD_STRING))),
+        )
+
+        val result = translator.translate(
+            TypedShaclEdit.UpdateShapeLabel("shapes", shape, "Customer account requirement"),
+            graph,
+        )
+
+        val changes = assertIs<EntioResult.Success<com.entio.core.ChangeSet>>(result).value
+        assertEquals(shape, changes.removals.single().triple.subjectResource)
+        assertEquals("Customer shape", changes.removals.single().triple.objectValue)
+        assertEquals(shape, changes.additions.single().triple.subjectResource)
+        assertEquals("Customer account requirement", changes.additions.single().triple.objectValue)
+    }
+
+    @Test
     fun deletesTheNodeShapeAndItsBoundedPropertyShapeSubgraph(): Unit {
         val result = translator.translate(TypedShaclEdit.DeleteShape("shapes", shape), existingGraph())
 
@@ -99,6 +117,8 @@ class TypedShaclEditTranslatorTest {
         const val SH_PROPERTY = "http://www.w3.org/ns/shacl#property"
         const val SH_PATH = "http://www.w3.org/ns/shacl#path"
         const val SH_MIN_COUNT = "http://www.w3.org/ns/shacl#minCount"
+        const val RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
         const val XSD_INTEGER = "http://www.w3.org/2001/XMLSchema#integer"
+        const val XSD_STRING = "http://www.w3.org/2001/XMLSchema#string"
     }
 }

@@ -1,6 +1,6 @@
 import { type DragEvent, type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import EntityDetails from "./EntityDetails";
+import EntityDetails, { type EntitySectionTarget } from "./EntityDetails";
 import HierarchyNode from "./HierarchyNode";
 import StagingPanel from "./StagingPanel";
 import CollaborationPresence from "./CollaborationPresence";
@@ -11,8 +11,8 @@ import AiCredentialSettings from "./AiCredentialSettings";
 import ProfileSettings from "./ProfileSettings";
 import Icon from "../components/ui/Icon";
 import StatusBadge from "../components/ui/StatusBadge";
-import { useHierarchy, useProjectOutline, useProjectSearch, useProjectSummary, useStagedChanges } from "../web/queries";
-import type { WebEntityDetailResponse, WebEntityReference, WebHierarchyItem, WebOutlineItem, WebStagedEntry } from "../web/projectApi";
+import { useHierarchy, useProjectOutline, useProjectSearch, useProjectSummary, useShaclShapes, useStagedChanges } from "../web/queries";
+import type { WebEntityDetailResponse, WebEntityReference, WebHierarchyItem, WebOutlineItem, WebShaclConstraintSummary, WebShaclShapeSummary, WebStagedEntry } from "../web/projectApi";
 import { entityKindPresentation } from "./entityKindPresentation";
 import {
   ContextMenu,
@@ -28,6 +28,9 @@ type OutlineTabId = "classes" | "objects" | "properties";
 
 interface EntityTab extends WebEntityReference {
   openedAt: number;
+  directType?: WebEntityReference | null;
+  requestedSection?: EntitySectionTarget;
+  sectionRequestId?: number;
 }
 
 interface OpenEditor {
@@ -38,6 +41,7 @@ interface OpenEditor {
 interface StagedEntityReference extends WebEntityReference {
   kind: string;
   sourceId: string;
+  directType?: WebEntityReference | null;
 }
 
 const modules: Array<{ id: ModuleId; label: string; icon: Parameters<typeof Icon>[0]["name"] }> = [
@@ -99,6 +103,8 @@ export default function ProjectWorkspace() {
   const [searchInput, setSearchInput] = useState("");
   const [searchText, setSearchText] = useState("");
   const [outlineTab, setOutlineTab] = useState<OutlineTabId>("classes");
+  const [expandedClassIris, setExpandedClassIris] = useState<Set<string>>(() => new Set());
+  const [collapsedObjectGroupIris, setCollapsedObjectGroupIris] = useState<Set<string>>(() => new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [openEditor, setOpenEditor] = useState<OpenEditor | null>(null);
   const [clipboardMessage, setClipboardMessage] = useState<string | null>(null);
@@ -116,6 +122,7 @@ export default function ProjectWorkspace() {
   const stagedEntries = staged.data?.entries ?? [];
   const proposalStatus = staged.data?.proposal?.status;
   const stagedIsPendingReview = proposalStatus !== "APPROVED" && proposalStatus !== "APPLIED";
+  const stagedLabels = useMemo(() => stagedEntityLabelOverrides(stagedEntries), [stagedEntries]);
   const stagedIris = useMemo(() => stagedEntityIris(stagedEntries), [stagedEntries]);
   const stagedCreated = useMemo(() => proposalStatus === "APPLIED" ? [] : stagedCreatedEntities(stagedEntries), [proposalStatus, stagedEntries]);
   const stagedClassHierarchy = useMemo(() => proposalStatus === "APPLIED" ? emptyStagedClassHierarchy() : buildStagedClassHierarchy(stagedEntries), [proposalStatus, stagedEntries]);
@@ -138,6 +145,14 @@ export default function ProjectWorkspace() {
   }, [clipboardMessage]);
 
   useEffect(() => {
+    if (!stagedIsPendingReview || stagedLabels.size === 0) return;
+    setTabs((current) => current.map((tab) => {
+      const stagedLabel = stagedLabels.get(tab.iri);
+      return stagedLabel && stagedLabel !== tab.label ? { ...tab, label: stagedLabel } : tab;
+    }));
+  }, [stagedIsPendingReview, stagedLabels]);
+
+  useEffect(() => {
     function resize(event: PointerEvent) {
       if (!resizingSidebar.current) return;
       setSidebarWidth(Math.min(420, Math.max(240, event.clientX - 64)));
@@ -151,10 +166,37 @@ export default function ProjectWorkspace() {
     };
   }, []);
 
-  function openEntity(entity: WebEntityReference) {
-    setTabs((existing) => existing.some((tab) => tab.iri === entity.iri) ? existing : [...existing, { ...entity, openedAt: Date.now() }]);
+  function openEntity(entity: WebEntityReference, section?: EntitySectionTarget) {
+    setTabs((existing) => {
+      const current = existing.find((tab) => tab.iri === entity.iri);
+      if (!current) return [...existing, { ...entity, openedAt: Date.now(), requestedSection: section, sectionRequestId: section ? Date.now() : undefined }];
+      return existing.map((tab) => tab.iri === entity.iri ? {
+        ...tab,
+        ...entity,
+        requestedSection: section ?? tab.requestedSection,
+        sectionRequestId: section ? Date.now() : tab.sectionRequestId,
+      } : tab);
+    });
     setActiveModule("explore");
     navigate(`/projects/${encodeURIComponent(projectId)}?iri=${encodeURIComponent(entity.iri)}`);
+  }
+
+  function setClassExpanded(iri: string, expanded: boolean) {
+    setExpandedClassIris((current) => {
+      const next = new Set(current);
+      if (expanded) next.add(iri);
+      else next.delete(iri);
+      return next;
+    });
+  }
+
+  function setObjectGroupExpanded(iri: string, expanded: boolean) {
+    setCollapsedObjectGroupIris((current) => {
+      const next = new Set(current);
+      if (expanded) next.delete(iri);
+      else next.add(iri);
+      return next;
+    });
   }
 
   function closeTab(iri: string) {
@@ -249,10 +291,10 @@ export default function ProjectWorkspace() {
   const classCount = outlineItems.filter((item) => item.kind === "Class").length + createdClasses.length;
   const objects = outlineItems.filter((item) => item.kind === "Individual");
   const properties = outlineItems.filter((item) => item.kind.endsWith("Property"));
-  const objectItems = mergeOutlineEntities(objects, createdObjects);
-  const propertyItems = mergeOutlineEntities(properties, createdProperties);
+  const objectItems = mergeOutlineEntities(applyStagedLabels(objects, stagedLabels), createdObjects);
+  const propertyItems = mergeOutlineEntities(applyStagedLabels(properties, stagedLabels), createdProperties);
   const rootClassItems = [
-    ...(rootHierarchy.data?.page.items ?? []).filter((item) => !stagedClassHierarchy.childIris.has(item.iri)),
+    ...applyStagedLabels(rootHierarchy.data?.page.items ?? [], stagedLabels).filter((item) => !stagedClassHierarchy.childIris.has(item.iri)),
     ...stagedClassHierarchy.rootItems.filter((stagedItem) => !(rootHierarchy.data?.page.items ?? []).some((item) => item.iri === stagedItem.iri)),
   ].sort((left, right) => left.label.localeCompare(right.label) || left.iri.localeCompare(right.iri));
 
@@ -317,9 +359,9 @@ export default function ProjectWorkspace() {
                 {outlineTab === "classes" ? <>
                   {rootHierarchy.isPending ? <p role="status">Loading hierarchy...</p> : null}
                   {rootHierarchy.isError ? <p role="alert">Hierarchy unavailable.</p> : null}
-                  {rootClassItems.length ? <ul className="hierarchy-list">{rootClassItems.map((item) => <HierarchyNode key={`${item.sourceId}:${item.iri}`} projectId={projectId} item={item} depth={0} onOpen={openEntity} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} stagedChildrenByParent={stagedIsPendingReview ? stagedClassHierarchy.childrenByParent : undefined} />)}</ul> : null}
+                  {rootClassItems.length ? <ul className="hierarchy-list">{rootClassItems.map((item) => <HierarchyNode key={`${item.sourceId}:${item.iri}`} projectId={projectId} item={item} depth={0} onOpen={openEntity} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} stagedChildrenByParent={stagedIsPendingReview ? stagedClassHierarchy.childrenByParent : undefined} expandedIris={expandedClassIris} onExpandedChange={setClassExpanded} />)}</ul> : null}
                 </> : null}
-                {outlineTab === "objects" ? <OutlineEntityList title="Objects" marker="O" items={objectItems} loading={outline.isPending} error={outline.isError} onOpen={openEntity} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} /> : null}
+                {outlineTab === "objects" ? <GroupedObjectOutline items={objectItems} loading={outline.isPending} error={outline.isError} onOpen={openEntity} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} collapsedGroupIris={collapsedObjectGroupIris} onExpandedChange={setObjectGroupExpanded} /> : null}
                 {outlineTab === "properties" ? <OutlineEntityList title="Properties" marker="P" items={propertyItems} loading={outline.isPending} error={outline.isError} onOpen={openEntity} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} /> : null}
                 {outlineTab !== "classes" && outline.data?.page.nextOffset != null ? <p className="outline-limit-note">Showing the first {outline.data.page.items.length} of {outline.data.page.total} symbols.</p> : null}
               </div>
@@ -349,7 +391,7 @@ export default function ProjectWorkspace() {
               <span className="visually-hidden" role="status" aria-live="polite">{tabOrderMessage}</span>
             </> : null}
             <div className={`workspace-content ${activeModule === "explore" && activeIri && stagedIsPendingReview && stagedIris.has(activeIri) ? "workspace-content-staged" : ""}`} id="entity-workspace-panel" role="tabpanel" aria-label={activeModule === "explore" ? activeTab ? `${activeTab.label} details` : "Entity details" : `${module.label} workspace`} aria-live="polite">
-              {renderModule(activeModule, projectId, sourceId, shapesSourceId, activeTab, semanticJobIds, (kind, status) => setSemanticJobIds((current) => ({ ...current, [kind]: status.id })), activeTab ? <EntityDetails projectId={projectId} iri={activeTab.iri} stagedEntity={stagedDetails.get(activeTab.iri)} /> : <EmptyWorkspace />, displayName, saveDisplayName, launchEditor)}
+              {renderModule(activeModule, projectId, sourceId, shapesSourceId, activeTab, semanticJobIds, (kind, status) => setSemanticJobIds((current) => ({ ...current, [kind]: status.id })), activeTab ? <EntityDetails projectId={projectId} iri={activeTab.iri} stagedEntity={stagedDetails.get(activeTab.iri)} directType={activeTab.directType} initialSection={activeTab.requestedSection} sectionRequestId={activeTab.sectionRequestId} onOpenEntity={openEntity} /> : <EmptyWorkspace />, displayName, saveDisplayName, launchEditor)}
             </div>
             {activeModule !== "changes" ? <div className={`staged-dock ${stagedCount && stagedIsPendingReview ? "staged-dock-pending" : ""}`} aria-label="Shared staged changes"><div><span className="overline">Shared review queue</span><strong>{stagedCount ? `${stagedCount} change${stagedCount === 1 ? "" : "s"} staged` : "No staged changes"}</strong></div><span className="dock-meta">Review the complete proposal, then accept or reject it.</span><button type="button" onClick={() => openModule("changes")}>{stagedCount ? "Review proposal" : "Open proposal"}</button></div> : null}
           </div>
@@ -367,7 +409,7 @@ function renderModule(module: ModuleId, projectId: string, sourceId: string | un
   if (module === "explore") return <div className="explore-layout"><div className="entity-surface">{exploreContent}</div></div>;
   if (module === "changes") return sourceId ? <div className="module-page proposal-page"><PageIntro eyebrow="Review" title="Proposal" description="Review all staged edits together, then accept and apply them or reject the proposal." /><StagingPanel projectId={projectId} /></div> : <Unavailable />;
   if (module === "reasoning") return <div className="module-page"><PageIntro eyebrow="Semantic status" title="Reasoning" description="Deterministic reasoning against the applied graph or the current proposal." /><SemanticJobPanel projectId={projectId} initialJobId={semanticJobIds.reasoning} onJobSubmitted={(kind, status) => onSemanticJobSubmitted(kind, status)} /></div>;
-  if (module === "constraints") return <div className="module-page"><PageIntro eyebrow="Constraint checks" title="SHACL validation" description="Inspect validation status without losing the distinction between asserted graph and proposal graph." />{shapesSourceId ? <ConstraintAuthoring onOpen={(editType) => onOpenEditor({ kind: "typed", editType }, shapesSourceId)} /> : null}<SemanticJobPanel projectId={projectId} initialJobId={semanticJobIds.shacl} onJobSubmitted={(kind, status) => onSemanticJobSubmitted(kind, status)} /></div>;
+  if (module === "constraints") return <ConstraintsWorkspace projectId={projectId} shapesSourceId={shapesSourceId} initialJobId={semanticJobIds.shacl} onJobSubmitted={(kind, status) => onSemanticJobSubmitted(kind, status)} onOpen={(editType) => onOpenEditor({ kind: "typed", editType }, shapesSourceId)} />;
   if (module === "fibo") return sourceId ? <div className="module-page"><PageIntro eyebrow="External ontology" title="FIBO" description="Browse the pinned, read-only catalog and stage reuse proposals through the shared review queue." /><ExternalOntologyPanel projectId={projectId} sourceId={sourceId} /></div> : <Unavailable />;
   if (module === "activity") return <div className="module-page"><PageIntro eyebrow="Collaboration" title="Activity" description="Quiet presence and activity signals keep shared work understandable." /><CollaborationActivity projectId={projectId} activeEntityIri={activeTab?.iri ?? null} /></div>;
   return <div className="module-page"><PageIntro eyebrow="Workspace" title="Settings" description="Manage your local profile and the optional AI provider credential." /><div className="settings-grid"><ProfileSettings displayName={displayName} onSave={onDisplayNameSave} /><AiCredentialSettings /></div></div>;
@@ -381,17 +423,79 @@ function CollaborationActivity({ projectId, activeEntityIri }: { projectId: stri
   return <section className="activity-surface"><CollaborationPresence projectId={projectId} activeEntityIri={activeEntityIri} /><p className="muted">Activity is delivered by the collaboration channel and reflects server-authoritative project events.</p></section>;
 }
 
-function ConstraintAuthoring({ onOpen }: { onOpen: (editType: WebStagingEditType) => void }) {
-  return <section className="constraint-authoring" aria-labelledby="constraint-authoring-heading">
-    <div className="section-heading"><div><span className="overline">Shape authoring</span><h2 id="constraint-authoring-heading">Constraints</h2></div></div>
-    <div className="button-row">
-      <button className="button primary" type="button" onClick={() => onOpen("shacl-create-node-shape")}>Add node shape</button>
-      <button className="button" type="button" onClick={() => onOpen("shacl-create-property-shape")}>Add property constraint</button>
-      <button className="button" type="button" onClick={() => onOpen("shacl-update-constraint")}>Update constraint</button>
-      <button className="button" type="button" onClick={() => onOpen("shacl-remove-constraint")}>Remove constraint</button>
-      <button className="button danger" type="button" onClick={() => onOpen("shacl-delete-shape")}>Delete shape</button>
+interface ConstraintsWorkspaceProps {
+  projectId: string;
+  shapesSourceId?: string;
+  initialJobId: string | null;
+  onJobSubmitted: (kind: "reasoning" | "shacl", status: { id: string }) => void;
+  onOpen: (editType: WebStagingEditType) => void;
+}
+
+function ConstraintsWorkspace({ projectId, shapesSourceId, initialJobId, onJobSubmitted, onOpen }: ConstraintsWorkspaceProps) {
+  const shapes = useShaclShapes(projectId);
+  const staged = useStagedChanges(projectId);
+  const stagedShapes = (staged.data?.entries ?? []).filter((entry) => entry.editType.startsWith("shacl-"));
+
+  return <div className="module-page constraints-page">
+    <PageIntro eyebrow="Constraints" title="SHACL workspace" description="Author reviewed shapes, inspect applied rules, and validate the applied graph or current proposal." />
+    <section className="constraints-toolbar" aria-labelledby="constraint-authoring-heading">
+      <div><span className="overline">Shape authoring</span><h2 id="constraint-authoring-heading">Manage constraints</h2><p>Every edit enters the shared review queue. Source files change only after proposal approval.</p></div>
+      {shapesSourceId ? <div className="button-row">
+        <button className="button primary" type="button" onClick={() => onOpen("shacl-create-node-shape")}>Add node shape</button>
+        <button className="button" type="button" onClick={() => onOpen("shacl-create-property-shape")}>Add property constraint</button>
+        <button className="button" type="button" onClick={() => onOpen("shacl-update-constraint")}>Update constraint</button>
+        <button className="button" type="button" onClick={() => onOpen("shacl-remove-constraint")}>Remove constraint</button>
+        <button className="button danger" type="button" onClick={() => onOpen("shacl-delete-shape")}>Delete shape</button>
+      </div> : <p role="note" className="workflow-warning">No writable SHACL shapes source is configured.</p>}
+    </section>
+
+    <section className="constraints-library" aria-labelledby="constraints-library-heading">
+      <div className="section-heading compact"><div><span className="overline">Shape graph</span><h2 id="constraints-library-heading">Applied and staged shapes</h2></div><span>{(shapes.data?.shapes.length ?? 0) + stagedShapes.length}</span></div>
+      {shapes.isPending ? <p role="status">Loading shapes...</p> : null}
+      {shapes.isError ? <p role="alert" className="workflow-error">Could not load shapes. {shapes.error.message}</p> : null}
+      {!shapes.isPending && !shapes.isError && !shapes.data?.shapes.length && !stagedShapes.length ? <div className="constraints-empty"><strong>No SHACL shapes</strong><span>Add a node shape to begin defining validation rules.</span></div> : null}
+      <div className="constraints-shape-list">
+        {shapes.data?.shapes.map((shape) => <ConstraintShapeSummary key={shape.iri} shape={shape} />)}
+        {stagedShapes.map((entry) => <article className="constraint-shape-summary constraint-shape-staged" key={entry.id}>
+          <header><div><strong>{entry.normalizedValues.shapeLabel || entry.summary}</strong><span>{humanizeShaclEdit(entry.editType)}</span></div><StatusBadge tone="staged">Staged</StatusBadge></header>
+          <p>Pending proposal review in {entry.sourceId}.</p>
+        </article>)}
+      </div>
+    </section>
+
+    <section className="constraints-validation" aria-labelledby="constraints-validation-heading">
+      <div className="section-heading compact"><div><span className="overline">Validation</span><h2 id="constraints-validation-heading">Run SHACL validation</h2></div></div>
+      <SemanticJobPanel projectId={projectId} initialJobId={initialJobId} onJobSubmitted={onJobSubmitted} />
+    </section>
+  </div>;
+}
+
+function ConstraintShapeSummary({ shape }: { shape: WebShaclShapeSummary }) {
+  return <article className="constraint-shape-summary">
+    <header><div><strong>{shape.label}</strong><span>{shape.targets.map((target) => `${humanizeShaclTarget(target.kind)}: ${target.label}`).join(" · ") || "No target"}</span></div><StatusBadge tone={shape.severity === "Violation" ? "danger" : "neutral"}>{shape.severity}</StatusBadge></header>
+    {shape.message ? <p>{shape.message}</p> : null}
+    <div className="constraint-shape-rules">
+      {shape.constraints.map((constraint, index) => <ConstraintRule key={`node-${constraint.kind}-${index}`} constraint={constraint} context="Node" />)}
+      {shape.propertyShapes.flatMap((propertyShape) => propertyShape.constraints.map((constraint, index) => <ConstraintRule key={`${propertyShape.iri}-${constraint.kind}-${index}`} constraint={constraint} context={propertyShape.path.label} />))}
     </div>
-  </section>;
+    <details><summary>Technical details</summary><code>{shape.iri}</code></details>
+  </article>;
+}
+
+function ConstraintRule({ constraint, context }: { constraint: WebShaclConstraintSummary; context: string }) {
+  return <div className="constraint-rule"><span>{context}</span><strong>{humanizeShaclName(constraint.kind)}</strong><span>{constraint.valueLabel ?? constraint.value ?? "Enabled"}</span></div>;
+}
+
+function humanizeShaclEdit(value: string): string {
+  return value.replace(/^shacl-/, "").split("-").map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`).join(" ");
+}
+
+function humanizeShaclTarget(value: string): string {
+  return humanizeShaclName(value.replace(/^Target/, "Target "));
+}
+
+function humanizeShaclName(value: string): string {
+  return value.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (character) => character.toUpperCase());
 }
 
 function Unavailable() { return <div className="empty-state"><h2>Source unavailable</h2><p>This workspace needs an ontology source before it can open.</p></div>; }
@@ -426,6 +530,66 @@ function OutlineEntityList({ title, marker, items, loading, error, onOpen, onCon
   </section>;
 }
 
+function GroupedObjectOutline({ items, loading, error, onOpen, onContextMenu, stagedIris, collapsedGroupIris, onExpandedChange }: {
+  items: WebOutlineItem[];
+  loading: boolean;
+  error: boolean;
+  onOpen: (entity: WebEntityReference) => void;
+  onContextMenu: (event: MouseEvent, entity: WebEntityReference) => void;
+  stagedIris?: ReadonlySet<string>;
+  collapsedGroupIris: ReadonlySet<string>;
+  onExpandedChange: (iri: string, expanded: boolean) => void;
+}) {
+  const groups = new Map<string, { type: WebEntityReference | null; items: WebOutlineItem[] }>();
+  items.forEach((item) => {
+    const key = item.directType?.iri ?? "__unclassified__";
+    const group = groups.get(key) ?? { type: item.directType ?? null, items: [] };
+    group.items.push(item);
+    groups.set(key, group);
+  });
+  const sortedGroups = [...groups.values()]
+    .map((group) => ({ ...group, items: [...group.items].sort(compareOutlineItems) }))
+    .sort((left, right) => (left.type?.label ?? "Unclassified").localeCompare(right.type?.label ?? "Unclassified"));
+
+  return <section aria-label="Objects">
+    {error ? <p role="alert">Objects unavailable.</p> : null}
+    {loading ? <p className="tree-status" role="status">Loading objects...</p> : null}
+    {!loading && !error && !items.length ? <p className="outline-empty">No objects.</p> : null}
+    {sortedGroups.length ? <ul className="object-group-list">{sortedGroups.map((group) => {
+      const heading = group.type?.label ?? "Unclassified";
+      const groupIri = group.type?.iri ?? "__unclassified__";
+      const expanded = !collapsedGroupIris.has(groupIri);
+      return <li className="object-group" key={groupIri}>
+        <div className="object-group-heading">
+          <div className="object-group-title">
+            <button className="object-group-toggle" type="button" aria-label={`${expanded ? "Collapse" : "Expand"} ${heading} objects`} aria-expanded={expanded} onClick={() => onExpandedChange(groupIri, !expanded)}>
+              <span className={`hierarchy-chevron ${expanded ? "hierarchy-chevron-expanded" : ""}`} aria-hidden="true" />
+            </button>
+            {group.type ? <button className="object-group-label" type="button" onClick={() => onOpen(group.type!)}>{heading}</button> : <span className="object-group-label">{heading}</span>}
+          </div>
+          <small>{group.items.length}</small>
+        </div>
+        {expanded ? <ul className="object-group-items">{group.items.map((item) => <li
+          className={stagedIris?.has(item.iri) ? "entity-staged" : undefined}
+          key={`${item.sourceId}:${item.iri}`}
+          onContextMenu={(event) => onContextMenu(event, item)}
+        >
+          <button className="entity-link object-group-entity" type="button" aria-label={`${item.label}, Object`} onClick={() => onOpen(item)}>
+            <span className="object-group-elbow" aria-hidden="true" />
+            <span className="entity-type-marker entity-type-object" aria-hidden="true">O</span>
+            <span className="entity-link-label">{item.label}</span>
+            <small>Object</small>
+          </button>
+        </li>)}</ul> : null}
+      </li>;
+    })}</ul> : null}
+  </section>;
+}
+
+function compareOutlineItems(left: WebOutlineItem, right: WebOutlineItem): number {
+  return left.label.localeCompare(right.label) || left.iri.localeCompare(right.iri);
+}
+
 function mergeOutlineEntities(applied: WebOutlineItem[], staged: StagedEntityReference[]): WebOutlineItem[] {
   const byIri = new Map<string, WebOutlineItem>();
   [...applied, ...staged].forEach((item) => byIri.set(item.iri, {
@@ -433,6 +597,7 @@ function mergeOutlineEntities(applied: WebOutlineItem[], staged: StagedEntityRef
     label: item.label,
     kind: item.kind,
     sourceId: item.sourceId,
+    directType: item.directType,
   }));
   return [...byIri.values()].sort((left, right) => left.label.localeCompare(right.label) || left.iri.localeCompare(right.iri));
 }
@@ -451,12 +616,39 @@ function stagedCreatedEntities(entries: WebStagedEntry[]): StagedEntityReference
     "create-object-property": "ObjectProperty",
     "create-datatype-property": "DatatypeProperty",
   };
+  const labels = stagedEntityLabelOverrides(entries);
   return entries.flatMap((entry) => {
     const editType = entry.summary.split(" · ")[0];
     const kind = kinds[editType];
     const iri = entry.generatedIris[0];
     const label = entry.normalizedValues.label ?? entry.normalizedValues.individualLabel;
-    return kind && iri && label ? [{ iri, label, kind, sourceId: entry.sourceId }] : [];
+    const directType = kind === "Individual" && entry.normalizedValues.classIri
+      ? {
+          iri: entry.normalizedValues.classIri,
+          label: entry.normalizedValues.classLabel ?? iriLocalName(entry.normalizedValues.classIri),
+          kind: "Class",
+          sourceId: entry.sourceId,
+        }
+      : null;
+    return kind && iri && label ? [{ iri, label: labels.get(iri) ?? label, kind, sourceId: entry.sourceId, directType }] : [];
+  });
+}
+
+function stagedEntityLabelOverrides(entries: WebStagedEntry[]): Map<string, string> {
+  const labels = new Map<string, string>();
+  entries.forEach((entry) => {
+    const editType = entry.editType || entry.summary.split(" · ")[0];
+    const iri = entry.normalizedValues.resourceIri;
+    const label = entry.normalizedValues.label;
+    if (editType === "set-entity-label" && iri && label) labels.set(iri, label);
+  });
+  return labels;
+}
+
+function applyStagedLabels<T extends WebEntityReference>(items: readonly T[], labels: ReadonlyMap<string, string>): T[] {
+  return items.map((item) => {
+    const stagedLabel = labels.get(item.iri);
+    return stagedLabel && stagedLabel !== item.label ? { ...item, label: stagedLabel } : item;
   });
 }
 
@@ -546,6 +738,7 @@ function buildStagedClassHierarchy(entries: WebStagedEntry[]): StagedClassHierar
     if (values.superclassIri && values.superclassLabel) labels.set(values.superclassIri, values.superclassLabel);
     if (values.classIri) sources.set(values.classIri, entry.sourceId);
   });
+  stagedEntityLabelOverrides(entries).forEach((label, iri) => labels.set(iri, label));
 
   const childIris = new Set<string>();
   const childrenByParent = new Map<string, WebHierarchyItem[]>();

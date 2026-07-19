@@ -420,6 +420,10 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
             }
         }
 
+        get("/api/v1/projects/{projectId}/shacl/shapes") {
+            call.respondReadOnly { readOnly.shaclShapes(call.requiredProjectId()) }
+        }
+
         get("/api/v1/projects/{projectId}/external/fibo/modules") {
             call.respondExternal {
                 fibo.modules(
