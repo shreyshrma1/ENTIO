@@ -75,7 +75,7 @@ public class AiTaskContextPackageBuilder(
         projectMap: AiProjectMap,
         evidence: AiTaskContextEvidence,
     ) {
-        if (projectMap.projectFingerprint != workspace.task.scope.projectFingerprint) {
+        if (projectMap.projectFingerprint != workspace.currentProjectFingerprint) {
             throw AiTaskContextFailure("stale-task-context", "The project map no longer matches the task scope.")
         }
         if (projectMap.retrievalPolicyVersion != AI_RETRIEVAL_POLICY_VERSION) {
