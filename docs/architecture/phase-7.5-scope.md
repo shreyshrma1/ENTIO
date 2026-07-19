@@ -1,5 +1,7 @@
 # Phase 7.5 Scope
 
+> Implementation status: complete. The approved scope was delivered and verified slice by slice; see `docs/phase-summaries/phase-7.5-summary.md`. The remainder of this document preserves the approved planning baseline.
+
 ## Phase Name
 
 **Phase 7.5: OpenAI Model Discovery, Selection, And AI Boundary Cleanup**
