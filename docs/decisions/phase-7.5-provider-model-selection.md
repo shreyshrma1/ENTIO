@@ -21,6 +21,10 @@ OpenAI model families and aliases change over time. Current official OpenAI guid
 - Live verification through the fixed Responses endpoint and harmless custom function contract is required before readiness. That behavior is implemented in later approved slices.
 - React receives only the server projection and never reconstructs the policy, submits an arbitrary endpoint, or expands the discovered candidate set.
 - Provider and compatibility policy versions are recorded so later settings and runs can preserve provenance.
+- A verified selection is captured immutably when each run starts; later selection changes affect only future runs.
+- Model-not-found or access-denied failures stop the run, preserve conversation and private-draft state, mark the matching credential generation unavailable, and force a discovery refresh without fallback.
+- Discovery and verification are locally bounded per user. Credential replacement does not reset those abuse controls.
+- Logout, removal, replacement, and in-memory restart cleanup invalidate the applicable selection state with the credential.
 
 ## Consequences
 
@@ -29,6 +33,8 @@ OpenAI model families and aliases change over time. Current official OpenAI guid
 - Models incorrectly named like a supported conversational family may reach verification, but they still cannot become ready merely from their name.
 - Category filtering remains intentionally bounded. Broader remote taxonomy, pricing, benchmarking, and automatic routing services are unnecessary and out of scope.
 - Provider inventory and raw provider fields remain confined to the provider adapter introduced in Slice 3.
+- Verification uses a harmless Responses request and may incur a small provider charge; Entio communicates this before the action.
+- Stable redacted states distinguish invalid credentials, no compatible models, rate limiting, timeout, provider outage, stale discovery, and unavailable selection without returning raw provider bodies or headers.
 
 ## Sources
 

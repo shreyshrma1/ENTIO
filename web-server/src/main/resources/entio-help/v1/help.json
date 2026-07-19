@@ -103,9 +103,12 @@
   "errorCodes": {
     "assistant-provider-failed": "The configured assistant provider failed without changing ontology state.",
     "AI_CREDENTIAL_MISSING": "Configure an OpenAI credential before discovering or selecting models.",
+    "AI_CREDENTIAL_INVALID": "Replace or remove the rejected OpenAI credential. Entio does not retain it in browser storage.",
     "AI_MODEL_NOT_AVAILABLE": "Refresh the available models and select an ID returned by Entio.",
     "AI_MODEL_SELECTION_REQUIRED": "Select and verify an available model before starting the assistant.",
     "AI_PROVIDER_RATE_LIMITED": "Wait before repeating model discovery or verification.",
+    "AI_PROVIDER_TIMEOUT": "The provider did not respond in time. Retry discovery or verification later.",
+    "AI_PROVIDER_UNAVAILABLE": "The provider is temporarily unavailable. Non-AI Entio features remain available.",
     "forbidden": "The current user does not have the permission required for this action.",
     "invalid-search-query": "The local semantic search text is missing or invalid.",
     "missing-credential": "Configure and test a provider credential before starting an assistant run.",
