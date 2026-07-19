@@ -93,6 +93,13 @@
       "relatedPermissions": ["USE_AI"]
     },
     {
+      "id": "TASKS",
+      "title": "AI task workspaces",
+      "content": "Task statuses, package stages, limits, staleness, checkpoints, and review handoff are server-owned. Pause or resume current work, resolve requested clarification, confirm material plans explicitly, and submit only a complete current review package. A submitted task still requires ordinary human review and approval.",
+      "relatedActions": ["USE_AI", "STAGE_OWN_CHANGE"],
+      "relatedPermissions": ["USE_AI", "STAGE_OWN_CHANGE"]
+    },
+    {
       "id": "ERRORS",
       "title": "Errors",
       "content": "Entio error codes identify deterministic boundary failures. Resolve the reported scope, input, permission, baseline, or validation condition before retrying.",
@@ -118,6 +125,9 @@
     "source-scope-violation": "The requested source is outside the current project run scope.",
     "staging-conflict": "The staged changes cannot be normalized into one safe proposal.",
     "stale-capability-registry": "The run capability set changed; start or refresh the run before retrying.",
+    "ai-task-revision-conflict": "Refresh the authoritative task workspace before retrying the command with its current revision.",
+    "ai-task-concurrency-limit": "Pause, cancel, or finish an active task before creating another mutating task.",
+    "task-not-ready-for-review": "Complete required packages and current deterministic analysis before review handoff.",
     "unknown-project": "The requested project is not registered in the web server allowlist."
   }
 }
