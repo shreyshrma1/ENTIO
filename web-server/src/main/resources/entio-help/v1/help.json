@@ -81,7 +81,7 @@
     {
       "id": "CREDENTIALS",
       "title": "AI credentials",
-      "content": "OpenAI credentials stay in server memory and are never returned to the browser. Entio discovers candidate models for the current key; you must explicitly select and test one before assistant use. The harmless verification request may incur a small provider charge.",
+      "content": "Provider credentials stay in server memory, are never returned to the browser, and must be tested before assistant use.",
       "relatedActions": ["USE_AI"],
       "relatedPermissions": ["USE_AI"]
     },
@@ -102,10 +102,6 @@
   ],
   "errorCodes": {
     "assistant-provider-failed": "The configured assistant provider failed without changing ontology state.",
-    "AI_CREDENTIAL_MISSING": "Configure an OpenAI credential before discovering or selecting models.",
-    "AI_MODEL_NOT_AVAILABLE": "Refresh the available models and select an ID returned by Entio.",
-    "AI_MODEL_SELECTION_REQUIRED": "Select and verify an available model before starting the assistant.",
-    "AI_PROVIDER_RATE_LIMITED": "Wait before repeating model discovery or verification.",
     "forbidden": "The current user does not have the permission required for this action.",
     "invalid-search-query": "The local semantic search text is missing or invalid.",
     "missing-credential": "Configure and test a provider credential before starting an assistant run.",

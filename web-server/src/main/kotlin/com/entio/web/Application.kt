@@ -54,7 +54,6 @@ import com.entio.web.ai.AiPrivateDraftWorkspace
 import com.entio.web.ai.AiLocalReadCapabilityService
 import com.entio.web.ai.AiSemanticReadCapabilityService
 import com.entio.web.ai.AiWebBoundary
-import com.entio.web.ai.AiModelWebBoundary
 import com.entio.web.ai.DefaultAiCapabilityDispatcher
 import com.entio.web.ai.InMemoryAiAuditStore
 import com.entio.web.ai.InMemoryAiConversationStore
@@ -62,20 +61,10 @@ import com.entio.web.ai.InMemoryAiDraftAnalysisStore
 import com.entio.web.ai.InMemoryAiDraftStore
 import com.entio.web.ai.InMemoryAiReviewSubmissionAuditStore
 import com.entio.web.ai.InMemoryAiRunStore
-import com.entio.web.ai.models.AiModelCompatibilityPolicy
-import com.entio.web.ai.models.AiModelDiscoveryService
-import com.entio.web.ai.models.AiModelSelectionService
-import com.entio.web.ai.models.AiModelSettingsFailure
-import com.entio.web.ai.models.AiModelVerificationService
-import com.entio.web.ai.models.AiProviderCallLimiter
-import com.entio.web.ai.models.AiProviderSettingsService
-import com.entio.web.ai.models.InMemoryAiUserProviderSettingsStore
-import com.entio.web.contract.WebAiModelSelectionRequest
 import com.entio.web.contract.WebAiMessageRequest
 import com.entio.web.contract.WebAiReviewSubmissionRequest
 import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.coroutines.delay
-import java.time.Clock
 
 /**
  * Installs the smallest server boundary needed before semantic web contracts are added.
@@ -92,34 +81,6 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
     val collaboration = CollaborationHub(dependencies.projectRegistry, staging::snapshot)
     val fibo = FiboWebService(dependencies.projectRegistry, staging)
     val aiCredentials = AiCredentialService(dependencies.aiCredentials, dependencies.aiProvider)
-    val aiModelPolicy = AiModelCompatibilityPolicy()
-    val aiModelSettingsStore = InMemoryAiUserProviderSettingsStore()
-    val aiModelClock = Clock.systemUTC()
-    val aiModelLimiter = AiProviderCallLimiter(aiModelClock)
-    val aiModelDiscovery = AiModelDiscoveryService(
-        dependencies.aiCredentials,
-        aiModelSettingsStore,
-        dependencies.aiModelProvider,
-        aiModelPolicy,
-        aiModelLimiter,
-        aiModelClock,
-    )
-    val aiProviderSettings = AiProviderSettingsService(
-        dependencies.aiCredentials,
-        aiModelSettingsStore,
-        aiModelDiscovery,
-        dependencies.aiModelProvider.providerId,
-        aiModelPolicy.version,
-    )
-    val aiModelVerification = AiModelVerificationService(
-        dependencies.aiCredentials,
-        aiModelSettingsStore,
-        dependencies.aiModelProvider,
-        aiModelLimiter,
-        aiModelClock,
-    )
-    val aiModelSelection = AiModelSelectionService(aiModelSettingsStore, aiModelDiscovery, aiModelVerification)
-    val aiModelWeb = AiModelWebBoundary(aiProviderSettings, aiModelDiscovery, aiModelSelection)
     val aiAssistant = AiAssistantService(
         credentials = aiCredentials,
         provider = dependencies.aiAssistant,
@@ -216,19 +177,10 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
             call.respondAi { aiCredentials.status(call.requireUser(dependencies).id) }
         }
 
-        get("/api/v1/ai/provider-settings") {
-            call.respondAiModels { aiModelWeb.status(call.requireUser(dependencies).id) }
-        }
-
         put("/api/v1/ai/credentials") {
             call.respondAi {
                 val user = call.requireUser(dependencies)
-                val request = call.receive<AiCredentialRequest>()
-                if (request.providerId == dependencies.aiModelProvider.providerId) {
-                    aiModelWeb.saveCredential(user.id, request)
-                } else {
-                    aiCredentials.save(user.id, request)
-                }
+                aiCredentials.save(user.id, call.receive<AiCredentialRequest>())
             }
         }
 
@@ -237,50 +189,13 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
         }
 
         delete("/api/v1/ai/credentials") {
-            call.respondAi {
-                val userId = call.requireUser(dependencies).id
-                if (aiProviderSettings.settings(userId).providerId == dependencies.aiModelProvider.providerId) {
-                    aiModelWeb.removeCredential(userId)
-                } else {
-                    aiCredentials.remove(userId)
-                }
-            }
-        }
-
-        post("/api/v1/ai/models/discover") {
-            call.respondAiModels { aiModelWeb.discover(call.requireUser(dependencies).id) }
-        }
-
-        get("/api/v1/ai/models") {
-            call.respondAiModels { aiModelWeb.status(call.requireUser(dependencies).id) }
-        }
-
-        put("/api/v1/ai/model-selection") {
-            call.respondAiModels {
-                val request = call.receive<WebAiModelSelectionRequest>()
-                aiModelWeb.select(
-                    call.requireUser(dependencies).id,
-                    request.modelId,
-                    call.requiredIdempotencyKey(),
-                )
-            }
-        }
-
-        post("/api/v1/ai/model-selection/test") {
-            call.respondAiModels {
-                aiModelWeb.retest(call.requireUser(dependencies).id, call.requiredIdempotencyKey())
-            }
-        }
-
-        delete("/api/v1/ai/model-selection") {
-            call.respondAiModels { aiModelWeb.clearSelection(call.requireUser(dependencies).id) }
+            call.respondAi { aiCredentials.remove(call.requireUser(dependencies).id) }
         }
 
         post("/api/v1/session/logout") {
             call.respondAi {
                 val user = call.requireUser(dependencies)
                 aiCredentials.logout(user.id)
-                aiProviderSettings.logout(user.id)
                 mapOf("apiVersion" to "v1", "status" to "LOGGED_OUT")
             }
         }
@@ -821,48 +736,6 @@ private suspend fun ApplicationCall.respondAi(block: suspend () -> Any): Unit = 
             message = failure.message ?: "The AI credential request could not be completed.",
         ),
     )
-}
-
-private suspend fun ApplicationCall.respondAiModels(block: suspend () -> Any): Unit = try {
-    respond(block())
-} catch (failure: AiModelSettingsFailure) {
-    val publicCode = when (failure.code) {
-        "ai-credential-missing" -> "AI_CREDENTIAL_MISSING"
-        "ai-provider-not-supported" -> "AI_MODEL_NOT_APPROVED"
-        "ai-model-not-available" -> "AI_MODEL_NOT_AVAILABLE"
-        "ai-model-selection-required" -> "AI_MODEL_SELECTION_REQUIRED"
-        "ai-provider-local-rate-limited" -> "AI_PROVIDER_RATE_LIMITED"
-        "ai-provider-call-in-progress", "ai-verification-in-progress" -> "AI_MODEL_VERIFICATION_FAILED"
-        "ai-idempotency-key-invalid", "ai-idempotency-conflict" -> "AI_MODEL_VERIFICATION_FAILED"
-        else -> "AI_MODEL_VERIFICATION_FAILED"
-    }
-    val status = when (failure.code) {
-        "ai-provider-local-rate-limited" -> HttpStatusCode.TooManyRequests
-        "ai-provider-call-in-progress", "ai-verification-in-progress", "ai-idempotency-conflict" -> HttpStatusCode.Conflict
-        "ai-model-not-available", "ai-model-selection-required" -> HttpStatusCode.UnprocessableEntity
-        else -> HttpStatusCode.BadRequest
-    }
-    respond(
-        status,
-        WebErrorResponse(
-            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
-            code = publicCode,
-            message = aiModelErrorMessage(publicCode),
-        ),
-    )
-} catch (failure: AiConversationFailure) {
-    respondAiV7Failure(failure.code, failure.message)
-} catch (failure: WebWorkflowFailure) {
-    respondAiV7Failure(failure.code, failure.message)
-}
-
-private fun aiModelErrorMessage(code: String): String = when (code) {
-    "AI_CREDENTIAL_MISSING" -> "Configure an OpenAI credential before managing models."
-    "AI_MODEL_NOT_AVAILABLE" -> "The requested model is not available in the current discovered candidate set."
-    "AI_MODEL_SELECTION_REQUIRED" -> "Select and verify a model before testing it."
-    "AI_PROVIDER_RATE_LIMITED" -> "Entio temporarily limited repeated provider model requests."
-    "AI_MODEL_NOT_APPROVED" -> "The requested provider or model is not approved for this server boundary."
-    else -> "The model selection request could not be completed safely."
 }
 
 private suspend fun ApplicationCall.respondAiV7(block: suspend () -> Any): Unit = try {
