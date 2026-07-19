@@ -175,6 +175,7 @@ public class AiTypedEditCapabilityAdapter(
         AiTypedEditCapabilityInventory.requireApproved(request.editType)
         val expectedFamily = when (capabilityName) {
             ADD_ONTOLOGY_CAPABILITY, UPDATE_ONTOLOGY_CAPABILITY -> AiTypedEditCapabilityInventory.approvedOntologyEditTypes
+            ADD_DEFINITION_CAPABILITY -> setOf("add-definition")
             ADD_SHACL_CAPABILITY, UPDATE_SHACL_CAPABILITY -> AiTypedEditCapabilityInventory.approvedShaclEditTypes
             else -> throw AiDraftFailure("unsupported-draft-capability", "Capability '$capabilityName' cannot prepare a typed draft edit.")
         }
@@ -232,6 +233,7 @@ public class AiTypedEditCapabilityAdapter(
 
     public companion object {
         public const val ADD_ONTOLOGY_CAPABILITY: String = "entio_draft_add_ontology_edit"
+        public const val ADD_DEFINITION_CAPABILITY: String = "entio_draft_add_definition"
         public const val ADD_SHACL_CAPABILITY: String = "entio_draft_add_shacl_edit"
         public const val UPDATE_ONTOLOGY_CAPABILITY: String = "entio_draft_update_ontology_edit"
         public const val UPDATE_SHACL_CAPABILITY: String = "entio_draft_update_shacl_edit"
@@ -534,9 +536,10 @@ internal fun typedEditCapabilityDefinitions(): List<AiCapabilityDefinition> = li
         AiTypedEditCapabilityAdapter.ADD_ONTOLOGY_CAPABILITY,
         AiCapabilityOperationType.DRAFT_ADD_TYPED_EDIT,
         "Add one approved ontology or deletion request to the current private AI draft.",
-        AiTypedEditCapabilityInventory.approvedOntologyEditTypes,
+        AiTypedEditCapabilityInventory.approvedOntologyEditTypes - "add-definition",
         update = false,
     ),
+    addDefinitionCapabilityDefinition(),
     typedEditDefinition(
         AiTypedEditCapabilityAdapter.ADD_SHACL_CAPABILITY,
         AiCapabilityOperationType.DRAFT_ADD_TYPED_EDIT,
@@ -595,6 +598,45 @@ internal fun typedEditCapabilityDefinitions(): List<AiCapabilityDefinition> = li
         "Clear all items from the current private AI draft.",
         ::AiClearDraftArguments,
     ),
+)
+
+private fun addDefinitionCapabilityDefinition(): AiCapabilityDefinition = AiCapabilityDefinition(
+    name = AiTypedEditCapabilityAdapter.ADD_DEFINITION_CAPABILITY,
+    operationType = AiCapabilityOperationType.DRAFT_ADD_TYPED_EDIT,
+    category = AiCapabilityCategory.PRIVATE_DRAFT,
+    description = "Stage one definition for one existing ontology entity. Call once for every class requested by the user.",
+    inputSchema = AiObjectSchema(
+        properties = listOf(
+            AiSchemaProperty("sourceId", AiStringSchema(maxLength = 128, format = AiStringFormat.SOURCE_ID), description = "Allowed writable source ID containing the target entity."),
+            textProperty("targetLabel", 2_048),
+            textProperty("value", 10_000),
+            textProperty("rationale", 4_000),
+        ),
+        required = setOf("sourceId", "targetLabel", "value", "rationale"),
+    ),
+    access = AiCapabilityAccess.PRIVATE_DRAFT_MUTATION,
+    requiredRole = AiRequiredRole.CONTRIBUTOR,
+    requiredPermissions = setOf(WebPermission.USE_AI.name, WebPermission.PREPARE_EDIT.name),
+    requiredFeature = AiCapabilityFeatures.PRIVATE_DRAFT,
+    sourceScope = AiSourceScopeRule.REQUIRED_ALLOWED_SOURCE,
+    resultLimit = 1,
+    timeoutMillis = 10_000,
+    auditClassification = AiCapabilityAuditClassification.PRIVATE_DRAFT_CHANGE,
+    decoder = AiCapabilityArgumentDecoder { input ->
+        val value = DraftStrictObject(input, setOf("sourceId", "targetLabel", "value", "rationale"), setOf("sourceId", "targetLabel", "value", "rationale"))
+        val sourceId = value.sourceId("sourceId")
+        AiAddDraftItemArguments(
+            sourceId = sourceId,
+            request = WebStageChangeRequest(
+                sourceId = sourceId,
+                editType = "add-definition",
+                targetLabel = value.string("targetLabel", 2_048),
+                value = value.string("value", 10_000),
+                aiGenerated = true,
+            ),
+            rationale = value.string("rationale", 4_000),
+        )
+    },
 )
 
 private fun typedEditDefinition(

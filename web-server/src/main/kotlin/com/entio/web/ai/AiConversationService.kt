@@ -715,7 +715,8 @@ public class AiConversationService(
             "the selected entity IRI is ${screenContext.selectedEntityIri ?: "none"}. " +
             "For semantic drafting, proactively inspect relevant local entities with project summary, search, entity detail, hierarchy, and usage tools as needed. " +
             "You may infer a plausible domain and draft wording from labels, entity kinds, hierarchy, and relationships, but keep inference reviewable and do not present it as asserted ontology fact. " +
-            "When the user requests definitions for multiple or all classes, create one ordinary typed add-definition or replace-definition draft edit per requested class. " +
+            "For every new definition, use entio_draft_add_definition and always supply the exact class targetLabel from the ontology overview. " +
+            "When the user requests definitions for multiple or all classes, call it once per requested class; never send an untargeted definition edit. " +
             "Include every requested class in the same current private draft, using the same typed staging path as a user-authored definition, and leave all edits unapproved for human review. " +
             "For ontology relationship or overview questions not already answered by the supplied ontology overview, inspect hierarchy and entity usage, follow every relevant hierarchy node whose childCount is greater than zero, " +
             "name the returned classes and properties, and clearly separate asserted relationships from cautious domain inference based on names and structure. " +

@@ -112,7 +112,8 @@ class AiConversationServiceTest {
         assertEquals(definitions.keys.toList(), requests.map { it.targetLabel })
         assertEquals(definitions.values.toList(), requests.map { it.value })
         assertTrue(requests.all { it.editType == "add-definition" && it.aiGenerated })
-        assertTrue(provider.requests.first().trustedPolicy.contains("one ordinary typed add-definition or replace-definition draft edit per requested class"))
+        assertTrue(provider.requests.first().trustedPolicy.contains("use entio_draft_add_definition"))
+        assertTrue(provider.requests.first().trustedPolicy.contains("always supply the exact class targetLabel"))
         assertTrue(provider.requests.first().trustedPolicy.contains("leave all edits unapproved for human review"))
         assertTrue(fixture.staging.snapshot("simple").entries.isEmpty())
     }
@@ -603,8 +604,8 @@ class AiConversationServiceTest {
 
     private fun addDefinitionCall(id: String, sourceId: String, label: String, definition: String): OpenAiFunctionCall = simpleCall(
         id,
-        AiTypedEditCapabilityAdapter.ADD_ONTOLOGY_CAPABILITY,
-        """{"sourceId":"$sourceId","editType":"add-definition","rationale":"Document the reviewed concept.","label":"$label","value":"$definition"}""",
+        AiTypedEditCapabilityAdapter.ADD_DEFINITION_CAPABILITY,
+        """{"sourceId":"$sourceId","targetLabel":"$label","value":"$definition","rationale":"Document the reviewed concept."}""",
     )
 
     private fun updateClassCall(id: String, itemId: String, label: String): OpenAiFunctionCall = simpleCall(
