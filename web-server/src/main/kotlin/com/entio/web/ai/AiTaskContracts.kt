@@ -61,8 +61,8 @@ public data class AiTaskPolicy(
     val maxShaclFindingsInContext: Int = 20,
     val maxActiveMutatingTasksPerUserProject: Int = 1,
     val maxConcurrentReadOnlyTasksPerUserProject: Int = 3,
-    val maxPackageElapsedMillis: Long = 120_000,
-    val maxTaskElapsedMillis: Long = 900_000,
+    val maxPackageElapsedMillis: Long = 300_000,
+    val maxTaskElapsedMillis: Long = 1_800_000,
 ) {
     init {
         require(maxWorkPackages > 0)

@@ -2,7 +2,7 @@
 
 ## Status
 
-This map began as the Phase 7 implementation inventory and now records the delivered Phase 7.5 ownership boundary. It describes implemented ownership; it does not independently authorize later product behavior.
+This map began as the Phase 7 implementation inventory and now records the delivered Phase 8 ownership boundary. It describes implemented ownership; it does not independently authorize later product behavior.
 
 The server AI implementation currently uses one Kotlin package, `com.entio.web.ai`. The responsibilities inside that package are distinguishable by file and stable service boundaries. Phase 7.5 Slice 1 therefore keeps the files in place instead of creating a behavior-neutral package-move diff. Later slices may introduce focused `provider`, `provider.openai`, `credentials`, or `models` packages when new code gives those packages concrete ownership.
 
@@ -20,7 +20,10 @@ The server AI implementation currently uses one Kotlin package, `com.entio.web.a
 | Typed draft edits | `AiTypedEditCapabilities.kt` | `AiPrivateDraftWorkspace` and `AiDraftStore` | Uses existing typed edit preparation; never writes RDF or shared staging directly. |
 | Conversation and run orchestration | `AiConversationService.kt` | `AiConversationStore`, `AiRunStore`, run event state | Owns intent, bounded tool loops, clarification/plan states, cancellation, and run lifecycle. |
 | Conversation, run, draft, and audit records | `AiSessionContracts.kt`, `AiSessionStores.kt` | Per-user in-memory stores | Enforces user/project ownership and session-scoped persistence. |
-| Phase 8 task and workspace state | `AiTaskContracts.kt`, `AiTaskStateMachine.kt`, `AiTaskStore.kt` | `InMemoryAiTaskStore` | Owns immutable task scope/model provenance, legal lifecycle transitions, revision-checked workspace updates, and process-memory task state. Later Phase 8 slices compose this boundary rather than making chat history authoritative. |
+| Task and workspace state | `AiTaskContracts.kt`, `AiTaskStateMachine.kt`, `AiTaskStore.kt`, `AiTaskLifecycleService.kt` | `InMemoryAiTaskStore` | Owns immutable task scope/model provenance, legal lifecycle transitions, revision-checked workspace updates, limits, and process-memory task state. Chat history is not authoritative. |
+| Retrieval, context, and planning | `AiBoundedRetrievalContracts.kt`, `AiProjectMapService.kt`, `AiOntologyNeighborhoodService.kt`, `AiTaskContextPackageBuilder.kt`, `AiWorkflowPlan.kt` | Fingerprint-scoped caches and task workspace | Owns bounded deterministic retrieval, frozen capability bundles, versioned plans, clarification, confirmation, and checkpoints. |
+| Task execution and repair | `AiWorkPackageExecutor.kt`, `AiCompositeCapabilityService.kt`, `AiDraftBatchService.kt`, `AiIncrementalValidationService.kt`, `AiRepairService.kt` | Private task draft and analysis stores | Executes packages serially, emits only approved typed edits, analyzes incrementally, and permits only inventoried bounded repairs. |
+| Task review and audit | `AiTaskReviewService.kt`, `AiTaskAudit.kt`, `AiTaskWebBoundary.kt` | Task audit and ordinary proposal workflow | Builds complete review evidence, submits the exact private draft, exposes redacted task contracts/events, and never grants AI reviewer authority. |
 | Draft analysis and correction | `AiDraftAnalysis.kt` | `AiDraftAnalysisStore` and draft workspace | Reuses deterministic validation, preview, reasoning, SHACL, and impact services without changing their authority. |
 | Human-review handoff | `AiReviewSubmissionService.kt` | Submission service and in-memory attribution audit | Submits a verified AI draft into the existing review workflow; it cannot approve, reject, or apply. |
 | Web mapping and idempotency | `AiWebBoundary.kt` | Boundary-local idempotency store | Maps authenticated project AI requests to Entio web DTOs and redacted errors. |
@@ -34,6 +37,7 @@ The server AI implementation currently uses one Kotlin package, `com.entio.web.a
 | Conversation shell | `web-app/src/workbench/AiAssistantPanel.tsx` | Renders conversation, plan, clarification, run, and draft states from versioned Entio contracts. |
 | Run events | `web-app/src/workbench/ai/AiRunTimeline.tsx` | Displays server-owned SSE lifecycle events and resynchronization state. |
 | Draft review | `web-app/src/workbench/ai/AiDraftReview.tsx` | Displays typed draft items and deterministic analysis; final authority remains in the ordinary proposal workflow. |
+| Task workspace | `web-app/src/workbench/ai/AiTaskWorkspace.tsx` | Displays authoritative plan, package, checkpoint, analysis, repair, stale/limit, cancellation, and review-handoff state with accessible status and event recovery. |
 | Transport contracts | `web-app/src/web/contracts.ts`, `projectApi.ts`, and `queries.ts` | Owns typed HTTP/query adaptation only. It must not reconstruct server policy. |
 
 ## Main Flows
@@ -71,7 +75,7 @@ Provider requests are initiated only by the conversation service through the pro
 
 - Credentials: per-user server memory in `AiCredentialStore`; secret values never enter conversation, draft, audit, event, or web DTO state.
 - Conversations, runs, drafts, and AI audits: per-user and per-project server memory with ownership checks in the session stores.
-- Phase 8 tasks and workspaces: per-user and per-project server memory with non-disclosing ownership checks, immutable initial scope/model provenance, and compare-and-set workspace revisions. Server restart intentionally clears this state.
+- Phase 8 tasks and workspaces: per-user and per-project server memory with non-disclosing ownership checks, immutable initial scope/model provenance, compare-and-set workspace revisions, bounded caches, and private events. Server restart intentionally clears this state.
 - Shared staging and proposals: existing server-owned workbench services outside the AI subsystem; AI reaches them only through the bounded submission service.
 - Semantic project state: existing Kotlin engine and service modules; the AI subsystem is an adapter and consumer.
 - Browser cache: redacted status and versioned response data only; it is never authoritative for permissions, capability schemas, validity, or model compatibility.
