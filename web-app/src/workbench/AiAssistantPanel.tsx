@@ -8,6 +8,7 @@ import {
   useAiProviderSettings,
   useAiDraft,
   useAiDraftActions,
+  useAiTaskActions,
 } from "../web/queries";
 import { streamAiRunEvents } from "../web/projectApi";
 import type {
@@ -19,6 +20,7 @@ import type {
 import type { WebEntityReference } from "../web/projectApi";
 import AiDraftReview from "./ai/AiDraftReview";
 import AiRunTimeline, { type AiStreamState } from "./ai/AiRunTimeline";
+import AiTaskWorkspace from "./ai/AiTaskWorkspace";
 
 export default function AiAssistantPanel({ projectId, entity }: { projectId: string; entity?: WebEntityReference | null }) {
   const queryClient = useQueryClient();
@@ -26,6 +28,7 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
   const conversations = useAiConversations(projectId);
   const conversationActions = useAiConversationActions(projectId);
   const draftActions = useAiDraftActions(projectId);
+  const taskActions = useAiTaskActions(projectId);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const conversation = useAiConversation(projectId, activeConversationId);
   const [message, setMessage] = useState("");
@@ -33,6 +36,7 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
   const [planRevision, setPlanRevision] = useState("");
   const [latestTurn, setLatestTurn] = useState<WebAiConversationTurnResponse | null>(null);
   const [activeRun, setActiveRun] = useState<WebAiRun | null>(null);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [runEvents, setRunEvents] = useState<WebAiRunEvent[]>([]);
   const [streamState, setStreamState] = useState<AiStreamState>("idle");
   const [streamError, setStreamError] = useState<string | null>(null);
@@ -44,6 +48,7 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
     setActiveConversationId(null);
     setLatestTurn(null);
     setActiveRun(null);
+    setActiveTaskId(null);
     setRunEvents([]);
     setStreamState("idle");
     activeRunId.current = null;
@@ -114,6 +119,20 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
   function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     sendDecision("MESSAGE", message);
+  }
+
+  function startTask() {
+    const objective = message.trim();
+    if (!activeConversationId || !objective) return;
+    taskActions.create.mutate({
+      request: { conversationId: activeConversationId, objective, allowedSourceIds: [entity?.sourceId ?? projectId] },
+      idempotencyKey: requestId("task"),
+    }, {
+      onSuccess: (response) => {
+        setActiveTaskId(response.task.id);
+        setMessage("");
+      },
+    });
   }
 
   function sendDecision(decision: WebAiConversationDecision, content: string) {
@@ -207,13 +226,15 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
         {conversationActions.send.isPending ? <div className="ai-thinking" role="status" aria-live="polite"><strong>Entio AI is working…</strong><p>It may be inspecting ontology entities, preparing draft changes, or waiting briefly for provider capacity.</p></div> : null}
         {latestTurn?.plan ? <PlanConfirmation plan={latestTurn.plan} revision={planRevision} onRevisionChange={setPlanRevision} onConfirm={() => sendDecision("CONFIRM_PLAN", "Confirm this plan.")} onRevise={() => sendDecision("REVISE_PLAN", planRevision)} onCancel={cancelRun} busy={conversationActions.send.isPending || conversationActions.cancel.isPending} /> : null}
         {latestTurn?.clarificationQuestion ? <Clarification question={latestTurn.clarificationQuestion} answer={clarification} onAnswerChange={setClarification} onSubmit={() => sendDecision("ANSWER_CLARIFICATION", clarification)} onCancel={cancelRun} busy={conversationActions.send.isPending || conversationActions.cancel.isPending} /> : null}
-        <form className="ai-composer" onSubmit={send}><label htmlFor="ai-message">Ask about this ontology context</label><textarea ref={composer} id="ai-message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Explain a concept or describe an ontology change..." rows={3} disabled={!aiReady || conversationActions.send.isPending || runActive && activeRun?.status !== "AWAITING_PLAN_CONFIRMATION" && activeRun?.status !== "AWAITING_CLARIFICATION"} /><div className="ai-composer-actions"><span>Structured project context only</span>{runActive ? <button className="button" type="button" onClick={cancelRun} disabled={conversationActions.cancel.isPending}>Cancel run</button> : null}<button className="button primary" type="submit" disabled={!aiReady || !message.trim() || conversationActions.send.isPending || runActive}>{conversationActions.send.isPending ? "Sending..." : "Send"}</button></div></form>
+        <form className="ai-composer" onSubmit={send}><label htmlFor="ai-message">Ask about this ontology context</label><textarea ref={composer} id="ai-message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Explain a concept or describe an ontology change..." rows={3} disabled={!aiReady || conversationActions.send.isPending || taskActions.create.isPending || runActive && activeRun?.status !== "AWAITING_PLAN_CONFIRMATION" && activeRun?.status !== "AWAITING_CLARIFICATION"} /><div className="ai-composer-actions"><span>Structured project context only</span>{runActive ? <button className="button" type="button" onClick={cancelRun} disabled={conversationActions.cancel.isPending}>Cancel run</button> : null}<button className="button" type="button" onClick={startTask} disabled={!aiReady || !message.trim() || taskActions.create.isPending || runActive}>{taskActions.create.isPending ? "Starting task…" : "Start task"}</button><button className="button primary" type="submit" disabled={!aiReady || !message.trim() || conversationActions.send.isPending || taskActions.create.isPending || runActive}>{conversationActions.send.isPending ? "Sending..." : "Send"}</button></div></form>
+        {taskActions.create.isError ? <p role="alert">Could not start the task. {taskActions.create.error.message}</p> : null}
         {conversationActions.send.isError ? <p role="alert">Assistant request failed. {conversationActions.send.error.message}</p> : null}
         {conversationActions.cancel.isError ? <p role="alert">Could not cancel the run. {conversationActions.cancel.error.message}</p> : null}
         {activeRun ? <div className="ai-run-status"><strong>{activeRun.status.replaceAll("_", " ")}</strong><span>{activeRun.capabilityCallCount} capabilities · {activeRun.draftEditCount} draft edits · {activeRun.correctionCycleCount} corrections</span></div> : null}
         {latestTurn?.limits.length ? <ul className="ai-limits" aria-label="Run limits">{latestTurn.limits.map((limit) => <li key={limit.kind}>{limit.kind}: {limit.observed} of {limit.maximum}</li>)}</ul> : null}
         {streamError ? <p role="alert">Activity stream disconnected. {streamError}</p> : null}
         <AiRunTimeline events={runEvents} streamState={streamState} />
+        {activeTaskId ? <AiTaskWorkspace projectId={projectId} taskId={activeTaskId} /> : null}
         <AiDraftReview
           draft={draft.data?.draft ?? null}
           draftPending={draft.isPending && Boolean(draftId)}
