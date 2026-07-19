@@ -193,6 +193,33 @@ public data class AiTaskCounters(
     }
 }
 
+public data class AiTaskPause(
+    val code: String,
+    val message: String,
+    val resumeStatus: AiTaskStatus,
+    val requiresModelRebind: Boolean = false,
+    val createdAt: Instant,
+) {
+    init {
+        require(code.isNotBlank())
+        require(message.isNotBlank())
+        require(resumeStatus != AiTaskStatus.PAUSED)
+    }
+}
+
+public data class AiTaskLimitRecord(
+    val kind: String,
+    val maximum: Long,
+    val observed: Long,
+    val recordedAt: Instant,
+) {
+    init {
+        require(kind.isNotBlank())
+        require(maximum >= 0)
+        require(observed >= maximum)
+    }
+}
+
 public data class AiTaskWorkspace(
     val task: AiTask,
     val revision: Long = 0,
@@ -207,12 +234,15 @@ public data class AiTaskWorkspace(
     val analysisReferences: AiTaskAnalysisReferences = AiTaskAnalysisReferences(),
     val executionSegments: List<AiTaskExecutionSegment> = listOf(task.initialExecutionSegment),
     val counters: AiTaskCounters = AiTaskCounters(),
+    val pause: AiTaskPause? = null,
+    val limits: List<AiTaskLimitRecord> = emptyList(),
     val createdAt: Instant = task.createdAt,
     val updatedAt: Instant = task.updatedAt,
 ) {
     init {
         require(revision >= 0)
         require(executionSegments.isNotEmpty())
-        require(executionSegments.first() == task.initialExecutionSegment)
+        require(executionSegments.first().copy(completedAt = task.initialExecutionSegment.completedAt) == task.initialExecutionSegment)
+        require(executionSegments.map(AiTaskExecutionSegment::ordinal) == (1..executionSegments.size).toList())
     }
 }

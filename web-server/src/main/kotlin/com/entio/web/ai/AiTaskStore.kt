@@ -126,5 +126,7 @@ public class InMemoryAiTaskStore(
             semanticDiffReferenceIds = workspace.analysisReferences.semanticDiffReferenceIds.distinct().sorted(),
         ),
         executionSegments = workspace.executionSegments.sortedBy(AiTaskExecutionSegment::ordinal),
+        limits = workspace.limits.distinctBy { listOf(it.kind, it.recordedAt) }
+            .sortedWith(compareBy(AiTaskLimitRecord::recordedAt, AiTaskLimitRecord::kind)),
     )
 }
