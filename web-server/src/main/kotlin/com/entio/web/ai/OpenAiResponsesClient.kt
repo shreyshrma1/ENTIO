@@ -166,6 +166,8 @@ public enum class OpenAiFailureCode {
     INCOMPLETE,
     CANCELLED,
     PROVIDER_ERROR,
+    MODEL_UNAVAILABLE,
+    ACCESS_DENIED,
 }
 
 public data class OpenAiProviderFailure(
@@ -258,9 +260,28 @@ public class OpenAiResponsesClient(
         request: OpenAiResponsesRequest,
         onEvent: suspend (OpenAiProviderEvent) -> Unit,
     ): OpenAiResponsesResult {
+        return respondWithModel(apiKey, configuration.modelId, request, onEvent)
+    }
+
+    override suspend fun respond(
+        apiKey: String,
+        selectedModelId: String,
+        request: OpenAiResponsesRequest,
+        onEvent: suspend (OpenAiProviderEvent) -> Unit,
+    ): OpenAiResponsesResult {
+        if (!isSafeRuntimeModelId(selectedModelId)) return failure(OpenAiFailureCode.MODEL_UNAVAILABLE, false)
+        return respondWithModel(apiKey, selectedModelId, request, onEvent)
+    }
+
+    private suspend fun respondWithModel(
+        apiKey: String,
+        selectedModelId: String,
+        request: OpenAiResponsesRequest,
+        onEvent: suspend (OpenAiProviderEvent) -> Unit,
+    ): OpenAiResponsesResult {
         val normalizedApiKey = apiKey.trim()
         if (normalizedApiKey.isEmpty()) return failure(OpenAiFailureCode.INVALID_CREDENTIAL, false)
-        val payload = serializeRequest(request)
+        val payload = serializeRequest(request, selectedModelId)
         var attempt = 0
         while (true) {
             try {
@@ -270,14 +291,14 @@ public class OpenAiResponsesClient(
                     setBody(TextContent(payload, ContentType.Application.Json))
                 }
                 if (!response.status.isSuccess()) {
-                    val mapped = mapHttpFailure(response.status, response.bodyAsText())
+                    val mapped = mapHttpFailure(response.status, response.bodyAsText(), selectedModelId)
                     if (mapped.retryable && attempt < configuration.maxRetries) {
                         attempt += 1
                         continue
                     }
                     return OpenAiResponsesResult.Failed(mapped)
                 }
-                return parseEvents(response, onEvent)
+                return parseEvents(response, selectedModelId, onEvent)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: HttpRequestTimeoutException) {
@@ -292,9 +313,12 @@ public class OpenAiResponsesClient(
         }
     }
 
-    public fun serializeRequest(request: OpenAiResponsesRequest): String {
+    public fun serializeRequest(request: OpenAiResponsesRequest): String = serializeRequest(request, configuration.modelId)
+
+    public fun serializeRequest(request: OpenAiResponsesRequest, selectedModelId: String): String {
+        require(isSafeRuntimeModelId(selectedModelId)) { "approved-runtime-model-required" }
         val root = objectMapper.createObjectNode()
-        root.put("model", configuration.modelId)
+        root.put("model", selectedModelId)
         root.put("store", false)
         root.put("stream", true)
         root.set<ArrayNode>("input", objectMapper.createArrayNode().apply {
@@ -338,6 +362,7 @@ public class OpenAiResponsesClient(
 
     private suspend fun parseEvents(
         response: HttpResponse,
+        selectedModelId: String,
         onEvent: suspend (OpenAiProviderEvent) -> Unit,
     ): OpenAiResponsesResult {
         val text = StringBuilder()
@@ -368,7 +393,7 @@ public class OpenAiResponsesClient(
                 is OpenAiProviderEvent.Refused -> return failure(OpenAiFailureCode.REFUSAL, false)
                 is OpenAiProviderEvent.Incomplete -> return failure(OpenAiFailureCode.INCOMPLETE, false)
                 OpenAiProviderEvent.Cancelled -> return failure(OpenAiFailureCode.CANCELLED, false)
-                is OpenAiProviderEvent.Error -> return OpenAiResponsesResult.Failed(mapStreamFailure(event))
+                is OpenAiProviderEvent.Error -> return OpenAiResponsesResult.Failed(mapStreamFailure(event, selectedModelId))
                 is OpenAiProviderEvent.FunctionArgumentsDelta -> Unit
             }
         }
@@ -479,7 +504,7 @@ public class OpenAiResponsesClient(
         if (nullable) node.set<ArrayNode>("type", objectMapper.createArrayNode().add(type).add("null")) else node.put("type", type)
     }
 
-    private fun mapHttpFailure(status: HttpStatusCode, responseBody: String): OpenAiProviderFailure {
+    private fun mapHttpFailure(status: HttpStatusCode, responseBody: String, selectedModelId: String = configuration.modelId): OpenAiProviderFailure {
         val providerError = runCatching { objectMapper.readTree(responseBody).path("error") }.getOrNull()
         val providerCode = providerError?.path("code")?.textOrNull()
         val providerType = providerError?.path("type")?.textOrNull()
@@ -488,7 +513,7 @@ public class OpenAiResponsesClient(
             status.value == 401 || providerCode == "invalid_api_key" ->
                 OpenAiProviderFailure(OpenAiFailureCode.INVALID_CREDENTIAL, "The OpenAI credential was rejected.", false)
             status.value == 403 -> OpenAiProviderFailure(
-                OpenAiFailureCode.PROVIDER_ERROR,
+                OpenAiFailureCode.ACCESS_DENIED,
                 "OpenAI accepted the credential, but its API project does not permit this request.",
                 false,
             )
@@ -498,8 +523,8 @@ public class OpenAiResponsesClient(
                 false,
             )
             providerCode == "model_not_found" -> OpenAiProviderFailure(
-                OpenAiFailureCode.PROVIDER_ERROR,
-                "The approved OpenAI model '${configuration.modelId}' is not available to this API project.",
+                OpenAiFailureCode.MODEL_UNAVAILABLE,
+                "The selected OpenAI model '$selectedModelId' is not available to this API project.",
                 false,
             )
             status.value == 400 -> OpenAiProviderFailure(
@@ -508,8 +533,8 @@ public class OpenAiResponsesClient(
                 false,
             )
             status.value == 404 -> OpenAiProviderFailure(
-                OpenAiFailureCode.PROVIDER_ERROR,
-                "The approved OpenAI model or endpoint is unavailable to this API project.",
+                OpenAiFailureCode.MODEL_UNAVAILABLE,
+                "The selected OpenAI model or approved endpoint is unavailable to this API project.",
                 false,
             )
             status.value == 408 -> OpenAiProviderFailure(OpenAiFailureCode.TIMEOUT, "The OpenAI request timed out.", true)
@@ -524,6 +549,9 @@ public class OpenAiResponsesClient(
         }
     }
 
+    private fun isSafeRuntimeModelId(modelId: String): Boolean =
+        modelId.matches(Regex("^[a-z0-9][a-z0-9._-]{1,127}$")) && !modelId.contains("latest")
+
     private fun invalidRequestMessage(code: String?, type: String?, parameter: String?): String {
         val classification = code ?: type
         val details = listOfNotNull(
@@ -537,7 +565,7 @@ public class OpenAiResponsesClient(
         }
     }
 
-    private fun mapStreamFailure(error: OpenAiProviderEvent.Error): OpenAiProviderFailure = when {
+    private fun mapStreamFailure(error: OpenAiProviderEvent.Error, selectedModelId: String): OpenAiProviderFailure = when {
         error.code == "invalid_api_key" || error.type == "authentication_error" -> OpenAiProviderFailure(
             OpenAiFailureCode.INVALID_CREDENTIAL,
             "The OpenAI credential was rejected.",
@@ -554,8 +582,8 @@ public class OpenAiResponsesClient(
             true,
         )
         error.code == "model_not_found" -> OpenAiProviderFailure(
-            OpenAiFailureCode.PROVIDER_ERROR,
-            "The approved OpenAI model '${configuration.modelId}' is not available to this API project.",
+            OpenAiFailureCode.MODEL_UNAVAILABLE,
+            "The selected OpenAI model '$selectedModelId' is not available to this API project.",
             false,
         )
         error.type == "invalid_request_error" -> OpenAiProviderFailure(
@@ -631,6 +659,8 @@ private fun failure(code: OpenAiFailureCode, retryable: Boolean): OpenAiResponse
                 OpenAiFailureCode.INCOMPLETE -> "OpenAI could not complete the request."
                 OpenAiFailureCode.CANCELLED -> "The OpenAI request was cancelled."
                 OpenAiFailureCode.PROVIDER_ERROR -> "The OpenAI request failed safely."
+                OpenAiFailureCode.MODEL_UNAVAILABLE -> "The selected OpenAI model is unavailable."
+                OpenAiFailureCode.ACCESS_DENIED -> "The OpenAI API project does not permit the selected model request."
             },
             retryable = retryable,
         ),

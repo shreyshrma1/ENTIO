@@ -99,7 +99,7 @@ class AiSessionContractsTest {
         val fieldNames = (AiResponse::class.java.declaredFields + AiAuditRecord::class.java.declaredFields)
             .map { it.name.lowercase() }
 
-        assertFalse(fieldNames.any { it.contains("apikey") || it.contains("credential") || it.contains("authorization") || it == "secret" })
+        assertFalse(fieldNames.any { it.contains("apikey") || (it.contains("credential") && it != "credentialgeneration") || it.contains("authorization") || it == "secret" })
         assertFalse(AiRunStatus.READY_FOR_REVIEW.canTransitionTo(AiRunStatus.RUNNING))
         assertTrue(AiRunStatus.QUEUED.canTransitionTo(AiRunStatus.CANCELLED))
     }

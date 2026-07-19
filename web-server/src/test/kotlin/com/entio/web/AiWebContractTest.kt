@@ -15,6 +15,9 @@ import com.entio.web.ai.OpenAiProviderEvent
 import com.entio.web.ai.OpenAiResponsesRequest
 import com.entio.web.ai.OpenAiResponsesResult
 import com.entio.web.ai.OpenAiUsage
+import com.entio.web.ai.models.AiProviderModelDescriptor
+import com.entio.web.ai.provider.AiModelVerificationResult
+import com.entio.web.ai.provider.DevelopmentAiModelProviderClient
 import com.entio.web.contract.InMemoryProjectRegistry
 import com.entio.web.contract.WebApplicationDependencies
 import com.fasterxml.jackson.databind.JsonNode
@@ -23,6 +26,7 @@ import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -58,6 +62,7 @@ class AiWebContractTest {
         )
         val setup = setup(provider)
         application { module(setup.dependencies) }
+        configureModel()
 
         val created = client.post("/api/v1/projects/simple/ai/conversations")
         assertEquals(HttpStatusCode.OK, created.status)
@@ -177,6 +182,7 @@ class AiWebContractTest {
         val provider = FakeAiProvider(completed(text = "Customer is an asserted class in the approved project."))
         val setup = setup(provider)
         application { module(setup.dependencies) }
+        configureModel()
 
         val created = client.post("/api/v1/projects/simple/ai/conversations")
         val createdBody = created.bodyAsText()
@@ -277,8 +283,26 @@ class AiWebContractTest {
                 aiProvider = provider,
                 aiAssistant = provider,
                 aiToolLoopProvider = provider,
+                aiModelProvider = DevelopmentAiModelProviderClient(
+                    models = listOf(AiProviderModelDescriptor("openai", provider.modelId)),
+                    verificationByModelId = mapOf(provider.modelId to AiModelVerificationResult.Verified),
+                ),
             ),
         )
+    }
+
+    private suspend fun io.ktor.server.testing.ApplicationTestBuilder.configureModel() {
+        val credential = client.put("/api/v1/ai/credentials") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"providerId":"openai","apiKey":"server-only-test-secret"}""")
+        }
+        assertEquals(HttpStatusCode.OK, credential.status)
+        val selected = client.put("/api/v1/ai/model-selection") {
+            contentType(ContentType.Application.Json)
+            header("Idempotency-Key", "web-contract-model")
+            setBody("""{"modelId":"gpt-5.2"}""")
+        }
+        assertEquals(HttpStatusCode.OK, selected.status, selected.bodyAsText())
     }
 
     private fun createFixture(allowedRoot: Path): Path {

@@ -70,6 +70,25 @@ class OpenAiResponsesClientTest {
     }
 
     @Test
+    fun runtimeSelectedModelIsUsedWithoutChangingServerOwnedRequestPolicy(): Unit = runBlocking {
+        var capturedBody: String? = null
+        val engine = MockEngine { request ->
+            capturedBody = (request.body as TextContent).text
+            respond(completedStream("resp-runtime", "Ready"), headers = eventStreamHeaders())
+        }
+
+        client(engine).use { provider ->
+            assertIs<OpenAiResponsesResult.Completed>(provider.respond("secret-key", "gpt-5.6-sol", request()) {})
+        }
+
+        val body = mapper.readTree(capturedBody)
+        assertEquals("gpt-5.6-sol", body.path("model").asText())
+        assertFalse(body.path("store").asBoolean(true))
+        assertEquals("phase-7-v1", body.path("metadata").path("prompt_version").asText())
+        assertFalse(capturedBody.orEmpty().contains("secret-key"))
+    }
+
+    @Test
     fun requestSerializesSequentialToolOutputsWithoutMakingResponseIdsAuthoritative(): Unit = runBlocking {
         var capturedBody: String? = null
         val engine = MockEngine { request ->
@@ -207,7 +226,7 @@ class OpenAiResponsesClientTest {
         )
         assertStreamFailure(OpenAiFailureCode.CANCELLED, event("""{"type":"response.cancelled"}"""))
         val topLevelFailure = assertStreamFailure(
-            OpenAiFailureCode.PROVIDER_ERROR,
+            OpenAiFailureCode.MODEL_UNAVAILABLE,
             event("""{"type":"error","code":"model_not_found","message":"secret-key","param":"model"}"""),
         )
         assertTrue(topLevelFailure.message.contains(OpenAiProviderConfiguration.MODEL_ID))

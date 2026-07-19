@@ -70,6 +70,7 @@ import com.entio.web.ai.models.AiModelVerificationService
 import com.entio.web.ai.models.AiProviderCallLimiter
 import com.entio.web.ai.models.AiProviderSettingsService
 import com.entio.web.ai.models.InMemoryAiUserProviderSettingsStore
+import com.entio.web.ai.models.SelectedAiRunModelBindingResolver
 import com.entio.web.contract.WebAiModelSelectionRequest
 import com.entio.web.contract.WebAiMessageRequest
 import com.entio.web.contract.WebAiReviewSubmissionRequest
@@ -156,6 +157,12 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
         ),
         provider = dependencies.aiToolLoopProvider,
         credentials = aiCredentials,
+        modelBindings = SelectedAiRunModelBindingResolver(
+            settingsStore = aiModelSettingsStore,
+            discovery = aiModelDiscovery,
+            providerId = dependencies.aiToolLoopProvider.providerId,
+            promptVersion = dependencies.aiToolLoopProvider.promptVersion,
+        ),
     )
     val aiSubmissions = AiReviewSubmissionService(
         drafts = aiDrafts,
