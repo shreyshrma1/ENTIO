@@ -9,6 +9,8 @@ import com.entio.web.ai.DevelopmentAiAssistantProvider
 import com.entio.web.ai.AiToolLoopProvider
 import com.entio.web.ai.DevelopmentAiToolLoopProvider
 import com.entio.web.ai.defaultOpenAiResponsesClient
+import com.entio.web.ai.provider.AiModelProviderClient
+import com.entio.web.ai.provider.openai.OpenAiModelDiscoveryClient
 
 public const val WEB_API_VERSION: String = "v1"
 
@@ -108,6 +110,7 @@ public data class WebApplicationDependencies(
     val aiProvider: AiProviderClient = defaultOpenAiResponsesClient(),
     val aiAssistant: AiAssistantProvider = aiProvider as? AiAssistantProvider ?: DevelopmentAiAssistantProvider(),
     val aiToolLoopProvider: AiToolLoopProvider = aiProvider as? AiToolLoopProvider ?: DevelopmentAiToolLoopProvider(),
+    val aiModelProvider: AiModelProviderClient = OpenAiModelDiscoveryClient(),
 )
 
 public fun normalizeProjectRoot(path: Path): Path = path.toAbsolutePath().normalize()
