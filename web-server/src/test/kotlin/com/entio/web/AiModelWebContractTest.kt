@@ -90,6 +90,19 @@ class AiModelWebContractTest {
         val bob = client.get("/api/v1/ai/provider-settings") { header("X-Entio-User", "bob") }
         assertContains(bob.bodyAsText(), "NOT_CONFIGURED")
 
+        val bobDiscovery = client.post("/api/v1/ai/models/discover") { header("X-Entio-User", "bob") }
+        assertEquals(HttpStatusCode.BadRequest, bobDiscovery.status)
+        assertContains(bobDiscovery.bodyAsText(), "AI_CREDENTIAL_MISSING")
+        val bobSelection = client.put("/api/v1/ai/model-selection") {
+            header("X-Entio-User", "bob")
+            header("Idempotency-Key", "bob-selection")
+            contentType(ContentType.Application.Json)
+            setBody("""{"modelId":"gpt-5.6-sol"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, bobSelection.status)
+        assertContains(bobSelection.bodyAsText(), "AI_CREDENTIAL_MISSING")
+        assertContains(client.get("/api/v1/ai/provider-settings").bodyAsText(), "gpt-5.6-sol")
+
         val missingKey = client.put("/api/v1/ai/model-selection") {
             contentType(ContentType.Application.Json)
             setBody("""{"modelId":"gpt-5.6-sol"}""")
@@ -153,6 +166,27 @@ class AiModelWebContractTest {
         assertContains(saved.bodyAsText(), "NOT_TESTED")
         assertContains(client.post("/api/v1/ai/credentials/test").bodyAsText(), "PASSED")
         assertContains(client.get("/api/v1/ai/credential-status").bodyAsText(), "configured")
+    }
+
+    @Test
+    fun logoutClearsCredentialDiscoveryAndSelectionTogether(): Unit = testApplication {
+        application { module(modelDependencies()) }
+        client.put("/api/v1/ai/credentials") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"providerId":"openai","apiKey":"logout-secret"}""")
+        }
+        client.put("/api/v1/ai/model-selection") {
+            header("Idempotency-Key", "logout-selection")
+            contentType(ContentType.Application.Json)
+            setBody("""{"modelId":"gpt-5.6-sol"}""")
+        }
+
+        assertContains(client.get("/api/v1/ai/provider-settings").bodyAsText(), "READY")
+        client.post("/api/v1/session/logout")
+        val status = client.get("/api/v1/ai/provider-settings").bodyAsText()
+        assertContains(status, "NOT_CONFIGURED")
+        assertFalse(status.contains("logout-secret"))
+        assertFalse(status.contains("gpt-5.6-sol"))
     }
 
     private fun modelDependencies(

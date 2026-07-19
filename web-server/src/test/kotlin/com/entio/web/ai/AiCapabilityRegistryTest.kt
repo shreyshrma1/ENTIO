@@ -259,7 +259,7 @@ class AiCapabilityRegistryTest {
     )
 
     private fun isForbiddenName(name: String): Boolean = listOf(
-        "file", "shell", "sparql", "turtle", "network", "secret", "credential", "config", "permission",
+        "file", "shell", "sparql", "turtle", "network", "secret", "credential", "config", "permission", "model",
         "approve", "reject", "apply", "rollback",
     ).any(name::contains)
 }
