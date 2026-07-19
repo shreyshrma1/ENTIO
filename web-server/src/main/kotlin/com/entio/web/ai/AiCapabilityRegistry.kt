@@ -283,10 +283,17 @@ private fun hierarchyDefinition(): AiCapabilityDefinition {
     return localReadDefinition(
         name = "entio_hierarchy_neighborhood",
         operationType = AiCapabilityOperationType.READ_HIERARCHY,
-        description = "Read one bounded level of the local class hierarchy.",
+        description = "Read one bounded level of the local class hierarchy. With no parentIri this returns root classes. " +
+            "A node childCount greater than zero means named children exist but are not included in that result; " +
+            "call this capability again with that node IRI as parentIri to retrieve and name its direct subclasses.",
         inputSchema = objectSchema(
             listOf(
-                property("parentIri", AiStringSchema(maxLength = 2_048, format = AiStringFormat.HTTP_IRI), "Optional parent class HTTP IRI.", nullable = true),
+                property(
+                    "parentIri",
+                    AiStringSchema(maxLength = 2_048, format = AiStringFormat.HTTP_IRI),
+                    "Optional parent class HTTP IRI. Omit for roots; pass a returned node IRI to retrieve its named direct subclasses.",
+                    nullable = true,
+                ),
                 property("sourceId", AiStringSchema(maxLength = 128, format = AiStringFormat.SOURCE_ID), "Optional allowed source ID.", nullable = true),
                 property("limit", AiIntegerSchema(1, 20), "Maximum result count."),
             ),

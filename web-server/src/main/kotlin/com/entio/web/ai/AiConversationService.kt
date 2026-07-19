@@ -684,6 +684,8 @@ public class AiConversationService(
             "the selected entity IRI is ${screenContext.selectedEntityIri ?: "none"}. " +
             "For semantic drafting, proactively inspect relevant local entities with project summary, search, entity detail, hierarchy, and usage tools as needed. " +
             "You may infer a plausible domain and draft wording from labels, entity kinds, hierarchy, and relationships, but keep inference reviewable and do not present it as asserted ontology fact. " +
+            "For ontology relationship or overview questions, inspect hierarchy and entity usage, follow every relevant hierarchy node whose childCount is greater than zero, " +
+            "name the returned classes and properties, and clearly separate asserted relationships from cautious domain inference based on names and structure. " +
             "Resolve an entity named explicitly by the user and pass it as targetLabel (or targetIri) for definition edits."
 
     private fun appendAudit(

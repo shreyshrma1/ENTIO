@@ -79,6 +79,8 @@ class AiConversationServiceTest {
         assertTrue(provider.requests.first().trustedPolicy.contains("exact allowed source IDs when calling tools: simple, shapes"))
         assertTrue(provider.requests.first().trustedPolicy.contains("proactively inspect relevant local entities"))
         assertTrue(provider.requests.first().trustedPolicy.contains("infer a plausible domain and draft wording"))
+        assertTrue(provider.requests.first().trustedPolicy.contains("follow every relevant hierarchy node whose childCount is greater than zero"))
+        assertTrue(provider.requests.first().trustedPolicy.contains("separate asserted relationships from cautious domain inference"))
         assertTrue(fixture.staging.snapshot("simple").entries.isEmpty())
     }
 
