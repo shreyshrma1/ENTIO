@@ -172,7 +172,7 @@ Phase 7 does not add:
 ## Known Limitations And Follow-Up Work
 
 - AI conversations, runs, drafts, audits, credentials, idempotency entries, and retained SSE events are process-memory state and disappear on server restart.
-- The production adapter supports the single allowlisted OpenAI model and endpoint. Provider choice, model policy, quota management, and production credential storage need later approved infrastructure.
+- Phase 7.5 replaced the single pinned model with server-filtered discovery, explicit verification and selection, and immutable per-run model binding. Multi-provider choice, production quota management, and production credential storage remain deferred.
 - Message submission currently waits for the server-side turn result. SSE exposes safe retained run activity and reconnection, but the implementation does not stream model text deltas into the UI while the message request is in flight.
 - The browser can review draft items and revision history, run analysis, and submit. Direct graphical item editing, reordering, and undo are available through typed conversation capabilities rather than dedicated draft-row controls.
 - Self-correction is bounded and supports only corrections representable by approved typed operations.

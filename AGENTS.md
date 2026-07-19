@@ -4,7 +4,7 @@ This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engi
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
-Phases 1 through 6 are complete. Phase 7 is the active planning boundary for the Tool-Driven Native AI Ontology Copilot. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
+Phases 1 through 7.5 are complete. Phase 7 delivered the Tool-Driven Native AI Ontology Copilot, and Phase 7.5 delivered user-specific OpenAI model discovery, explicit verification and selection, run-bound model execution, and bounded AI boundary cleanup. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
 
 ## Product Context
 
@@ -128,7 +128,7 @@ Do not add the following in Phase 2 unless the project direction changes explici
 
 Phase 6 is complete and summarized in `docs/phase-summaries/phase-6-summary.md`.
 
-Phase 7 is the active planning boundary. Its scope, spec, and ExecPlan describe proposed behavior and must not be treated as implemented until the approved slices are completed and verified.
+Phase 7 and Phase 7.5 are complete and summarized in `docs/phase-summaries/phase-7-summary.md` and `docs/phase-summaries/phase-7.5-summary.md`. Later planning documents must not be treated as implemented until their approved slices are completed and verified.
 
 ## Software Architecture Rules
 

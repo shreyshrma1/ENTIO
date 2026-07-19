@@ -2,7 +2,7 @@
 
 ## Status
 
-This map records the Phase 7 implementation boundary immediately before Phase 7.5 model discovery and selection. It describes ownership; it does not add or authorize product behavior.
+This map began as the Phase 7 implementation inventory and now records the delivered Phase 7.5 ownership boundary. It describes implemented ownership; it does not independently authorize later product behavior.
 
 The server AI implementation currently uses one Kotlin package, `com.entio.web.ai`. The responsibilities inside that package are distinguishable by file and stable service boundaries. Phase 7.5 Slice 1 therefore keeps the files in place instead of creating a behavior-neutral package-move diff. Later slices may introduce focused `provider`, `provider.openai`, `credentials`, or `models` packages when new code gives those packages concrete ownership.
 
@@ -76,7 +76,7 @@ Provider requests are initiated only by the conversation service through the pro
 
 ## Phase 7.5 Provider, Credential, And Model Boundaries
 
-Phase 7.5 must preserve these separations:
+Phase 7.5 preserves these separations:
 
 - `provider`: provider-neutral discovery, verification, and run execution contracts.
 - `provider.openai`: fixed-host HTTP requests and immediate mapping of OpenAI payloads and failures.
@@ -88,7 +88,7 @@ Model management is application infrastructure. It must not become an AI capabil
 
 ### Compatibility policy and known metadata
 
-`web-server/src/main/kotlin/com/entio/web/ai/models/` owns the Phase 7.5 compatibility policy and optional known-model metadata. `AiModelCompatibilityPolicy` accepts only minimal provider-neutral IDs, rejects malformed IDs, moving aliases, unsupported providers, and clearly non-conversational resource families, then produces a deterministic candidate projection. Unknown discovered IDs may remain candidates but cannot become usable without later live verification.
+`web-server/src/main/kotlin/com/entio/web/ai/models/` owns the Phase 7.5 compatibility policy, optional known-model metadata, per-user settings, discovery, verification, selection, and runtime binding resolver. `AiModelCompatibilityPolicy` accepts only minimal provider-neutral IDs, rejects malformed IDs, moving aliases, unsupported providers, and clearly non-conversational resource families, then produces a deterministic candidate projection. Unknown discovered IDs may remain candidates but cannot become usable without live verification.
 
 `AiKnownModelMetadataCatalog` enriches known IDs with Entio-owned display text, relative capability/speed/cost language, timeout class, ordering, and recommendation. Catalog membership does not grant availability or compatibility. The initial metadata entries describe the current GPT-5.6 Sol, Terra, and Luna variants; later metadata changes require review but do not replace per-user provider discovery or verification. The compatibility-policy version is recorded explicitly as `phase-7.5-compatibility-v1`.
 
@@ -101,7 +101,7 @@ Model management is application infrastructure. It must not become an AI capabil
 - Application and service tests construct in-memory credential, conversation, run, draft, analysis, audit, and review stores.
 - React tests mock the Entio transport boundary; browser tests never call OpenAI.
 
-New Phase 7.5 discovery and verification behavior must extend these deterministic seams and remain runnable without a real API key.
+Phase 7.5 discovery, verification, runtime recovery, and end-to-end tests extend these deterministic seams and remain runnable without a real API key.
 
 ## Forbidden Dependency Directions
 

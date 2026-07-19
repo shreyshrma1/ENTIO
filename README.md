@@ -216,7 +216,7 @@ Phase 2 should not include:
 
 ## Current Planning Boundary
 
-Phase 6 is complete and summarized in [the Phase 6 implementation summary](docs/phase-summaries/phase-6-summary.md). Phase 7 is the active planning phase for a tool-driven native AI ontology copilot. Phase 7 planning documents describe proposed behavior and are not implemented behavior.
+Phases 7 and 7.5 are complete and summarized in [the Phase 7 implementation summary](docs/phase-summaries/phase-7-summary.md) and [the Phase 7.5 implementation summary](docs/phase-summaries/phase-7.5-summary.md). Entio now provides a tool-driven native AI ontology copilot with user-specific OpenAI model discovery, explicit select-and-test, verified run-bound model execution, safe unavailable-model recovery, and deterministic human-review boundaries.
 
 ## Technical Principle
 

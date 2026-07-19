@@ -9,6 +9,7 @@ test("completes the browser workbench and assistant model journey through review
   let proposalApplied = false;
   let hierarchyRequests = 0;
   let currentProposal: Record<string, unknown> | null = null;
+  let providerSettings = aiProviderSettings();
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -68,7 +69,24 @@ test("completes the browser workbench and assistant model journey through review
       directStatements: [{ key: "direct-1", kind: "DirectDefinition", subject: "https://example.com/entio/simple#Customer", subjectLabel: "Customer", predicate: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type", predicateLabel: "type", objectValue: "http://www.w3.org/2002/07/owl#Class", objectLabel: "Class" }],
       dependentStatements: [{ key: "dependent-1", kind: "IncomingReference", subject: "https://example.com/entio/simple#Shrey", subjectLabel: "Shrey", predicate: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type", predicateLabel: "type", objectValue: "https://example.com/entio/simple#Customer", objectLabel: "Customer" }],
     });
-    if (path.endsWith("/ai/provider-settings")) return json(route, aiProviderSettings());
+    if (path.endsWith("/ai/provider-settings")) return json(route, providerSettings);
+    if (path.endsWith("/ai/credentials") && request.method() === "PUT") {
+      providerSettings = aiProviderSettings("NO_COMPATIBLE_MODELS");
+      return json(route, providerSettings);
+    }
+    if (path.endsWith("/ai/models/discover") && request.method() === "POST") {
+      providerSettings = aiProviderSettings("NOT_SELECTED");
+      return json(route, providerSettings);
+    }
+    if (path.endsWith("/ai/model-selection") && request.method() === "PUT") {
+      const modelId = (request.postDataJSON() as { modelId: string }).modelId;
+      providerSettings = aiProviderSettings("READY", modelId);
+      return json(route, providerSettings);
+    }
+    if (path.endsWith("/ai/model-selection/test") && request.method() === "POST") {
+      providerSettings = aiProviderSettings("UNAVAILABLE");
+      return json(route, providerSettings);
+    }
     if (path.endsWith("/ai/conversations") && request.method() === "GET") return json(route, { apiVersion: "v1", conversations: [aiConversation([])] });
     if (path.endsWith("/ai/conversations/conversation-1") && request.method() === "GET") return json(route, { apiVersion: "v1", conversation: aiConversation([]) });
     if (path.endsWith("/ai/conversations/conversation-1/messages") && request.method() === "POST") {
@@ -198,6 +216,22 @@ test("completes the browser workbench and assistant model journey through review
   await page.getByRole("button", { name: "Save name" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Display name updated." })).toBeVisible();
   await expect(page.getByRole("heading", { name: "OpenAI provider", exact: true })).toBeVisible();
+  await expect(page.getByText(/may incur a small API charge/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Select and test GPT-5.6 Terra" })).toBeVisible();
+  await page.getByRole("button", { name: "Select and test GPT-5.6 Terra" }).click();
+  await expect(page.getByText("Ready with GPT-5.6 Terra.")).toBeVisible();
+  await page.getByRole("button", { name: "Retest selected model" }).click();
+  await expect(page.getByText(/model is no longer available/i)).toBeVisible();
+  await page.getByRole("button", { name: "Select and test GPT-5.6 Sol" }).click();
+  await expect(page.getByText("Ready with GPT-5.6 Sol.")).toBeVisible();
+  await page.getByLabel("Credential").fill("replacement-key-not-retained");
+  await page.getByRole("button", { name: "Replace key" }).click();
+  await expect(page.getByText("No compatible models", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Refresh models" }).click();
+  await expect(page.getByText(/Select and test a model to enable/i)).toBeVisible();
+  await page.getByRole("button", { name: "Select and test GPT-5.6 Sol" }).click();
+  await expect(page.getByText("Ready with GPT-5.6 Sol.")).toBeVisible();
   await page.getByRole("button", { name: "Assistant", exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Entio AI assistant" })).toBeVisible();
   const settingsScroll = page.locator(".workspace-content");
@@ -319,9 +353,14 @@ function aiConversation(messages: unknown[], currentDraftId: string | null = nul
   return { id: "conversation-1", projectId: "simple", messages, currentDraftId, modelId: "gpt-5.2", status: "ACTIVE", createdAt: "2026-07-17T12:00:00Z", updatedAt: "2026-07-17T12:00:01Z" };
 }
 
-function aiProviderSettings() {
-  const model = { providerId: "openai", modelId: "gpt-5.2", displayName: "GPT-5.2", description: "Balanced model", capabilityTier: "ADVANCED", relativeSpeed: "Medium", relativeCost: "Medium", recommended: true, capabilities: ["RESPONSES", "TOOLS"] };
-  return { apiVersion: "v1", providerId: "openai", credentialStatus: "VALID", discoveryStatus: "COMPLETED", discoveredAt: "2026-07-17T12:00:00Z", policyVersion: "phase-7.5-compatibility-v1", models: [model], unsupportedProviderModelCount: 0, selectedModel: model, selectionStatus: "READY", selectedModelVerifiedAt: "2026-07-17T12:00:00Z", errorCode: null, availableActions: [] };
+function aiProviderSettings(state: "READY" | "NOT_SELECTED" | "UNAVAILABLE" | "NO_COMPATIBLE_MODELS" = "READY", selectedId = "gpt-5.6-sol") {
+  const models = [
+    { providerId: "openai", modelId: "gpt-5.6-sol", displayName: "GPT-5.6 Sol", description: "Advanced balanced model", capabilityTier: "ADVANCED", relativeSpeed: "Medium", relativeCost: "Medium", recommended: true, capabilities: ["RESPONSES", "TOOLS"] },
+    { providerId: "openai", modelId: "gpt-5.6-terra", displayName: "GPT-5.6 Terra", description: "Fast model", capabilityTier: "STANDARD", relativeSpeed: "Fast", relativeCost: "Low", recommended: false, capabilities: ["RESPONSES", "TOOLS"] },
+  ];
+  const visibleModels = state === "NO_COMPATIBLE_MODELS" ? [] : models;
+  const selectedModel = state === "READY" || state === "UNAVAILABLE" ? models.find((model) => model.modelId === selectedId) ?? models[0] : null;
+  return { apiVersion: "v1", providerId: "openai", credentialStatus: "VALID", discoveryStatus: state === "NO_COMPATIBLE_MODELS" ? "NO_COMPATIBLE_MODELS" : "COMPLETED", discoveredAt: "2026-07-17T12:00:00Z", policyVersion: "phase-7.5-compatibility-v1", models: visibleModels, unsupportedProviderModelCount: 0, selectedModel, selectionStatus: state === "NO_COMPATIBLE_MODELS" ? "NOT_SELECTED" : state, selectedModelVerifiedAt: state === "READY" ? "2026-07-17T12:00:00Z" : null, errorCode: state === "UNAVAILABLE" ? "AI_MODEL_NOT_AVAILABLE" : null, availableActions: [] };
 }
 
 function aiMessage(id: string, role: "USER" | "ASSISTANT", content: string, operation: string | null = null, evidenceReferenceIds: string[] = []) {
