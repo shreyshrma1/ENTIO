@@ -20,6 +20,7 @@ The server AI implementation currently uses one Kotlin package, `com.entio.web.a
 | Typed draft edits | `AiTypedEditCapabilities.kt` | `AiPrivateDraftWorkspace` and `AiDraftStore` | Uses existing typed edit preparation; never writes RDF or shared staging directly. |
 | Conversation and run orchestration | `AiConversationService.kt` | `AiConversationStore`, `AiRunStore`, run event state | Owns intent, bounded tool loops, clarification/plan states, cancellation, and run lifecycle. |
 | Conversation, run, draft, and audit records | `AiSessionContracts.kt`, `AiSessionStores.kt` | Per-user in-memory stores | Enforces user/project ownership and session-scoped persistence. |
+| Phase 8 task and workspace state | `AiTaskContracts.kt`, `AiTaskStateMachine.kt`, `AiTaskStore.kt` | `InMemoryAiTaskStore` | Owns immutable task scope/model provenance, legal lifecycle transitions, revision-checked workspace updates, and process-memory task state. Later Phase 8 slices compose this boundary rather than making chat history authoritative. |
 | Draft analysis and correction | `AiDraftAnalysis.kt` | `AiDraftAnalysisStore` and draft workspace | Reuses deterministic validation, preview, reasoning, SHACL, and impact services without changing their authority. |
 | Human-review handoff | `AiReviewSubmissionService.kt` | Submission service and in-memory attribution audit | Submits a verified AI draft into the existing review workflow; it cannot approve, reject, or apply. |
 | Web mapping and idempotency | `AiWebBoundary.kt` | Boundary-local idempotency store | Maps authenticated project AI requests to Entio web DTOs and redacted errors. |
@@ -70,6 +71,7 @@ Provider requests are initiated only by the conversation service through the pro
 
 - Credentials: per-user server memory in `AiCredentialStore`; secret values never enter conversation, draft, audit, event, or web DTO state.
 - Conversations, runs, drafts, and AI audits: per-user and per-project server memory with ownership checks in the session stores.
+- Phase 8 tasks and workspaces: per-user and per-project server memory with non-disclosing ownership checks, immutable initial scope/model provenance, and compare-and-set workspace revisions. Server restart intentionally clears this state.
 - Shared staging and proposals: existing server-owned workbench services outside the AI subsystem; AI reaches them only through the bounded submission service.
 - Semantic project state: existing Kotlin engine and service modules; the AI subsystem is an adapter and consumer.
 - Browser cache: redacted status and versioned response data only; it is never authoritative for permissions, capability schemas, validity, or model compatibility.
