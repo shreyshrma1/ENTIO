@@ -204,6 +204,7 @@ public enum class AiHelpTopic {
     PERMISSIONS,
     CREDENTIALS,
     AI_LIMITS,
+    TASKS,
     ERRORS,
 }
 
