@@ -123,7 +123,7 @@ public data class AiAddDraftItemArguments(
     val request: WebStageChangeRequest,
     val rationale: String,
     val dependencyItemIds: List<String> = emptyList(),
-) : AiSourceScopedArguments {
+) : AiDraftSourceResolvableArguments {
     init {
         if (sourceId != request.sourceId) throw AiDraftFailure("source-argument-mismatch", "The draft request source must match its capability scope source.")
     }
@@ -135,7 +135,7 @@ public data class AiUpdateDraftItemArguments(
     val request: WebStageChangeRequest,
     val rationale: String,
     val dependencyItemIds: List<String> = emptyList(),
-) : AiSourceScopedArguments {
+) : AiDraftSourceResolvableArguments {
     init {
         if (sourceId != request.sourceId) throw AiDraftFailure("source-argument-mismatch", "The draft request source must match its capability scope source.")
     }
@@ -173,9 +173,6 @@ public class AiTypedEditCapabilityAdapter(
         request: WebStageChangeRequest,
     ): AiTypedDraftOperation {
         AiTypedEditCapabilityInventory.requireApproved(request.editType)
-        if (request.sourceId !in scope.allowedSourceIds) {
-            throw AiDraftFailure("source-scope-violation", "The requested source is outside the current AI run scope.")
-        }
         val expectedFamily = when (capabilityName) {
             ADD_ONTOLOGY_CAPABILITY, UPDATE_ONTOLOGY_CAPABILITY -> AiTypedEditCapabilityInventory.approvedOntologyEditTypes
             ADD_SHACL_CAPABILITY, UPDATE_SHACL_CAPABILITY -> AiTypedEditCapabilityInventory.approvedShaclEditTypes
@@ -184,7 +181,8 @@ public class AiTypedEditCapabilityAdapter(
         if (request.editType !in expectedFamily) {
             throw AiDraftFailure("typed-edit-family-mismatch", "The typed edit does not match the selected draft capability.")
         }
-        val aiRequest = request.copy(aiGenerated = true, idempotencyKey = null)
+        val scopedRequest = resolveScopedSource(scope, request)
+        val aiRequest = scopedRequest.copy(aiGenerated = true, idempotencyKey = null)
         val prepared = try {
             staging.preparePrivateDraft(scope.projectId, aiRequest)
         } catch (failure: WebWorkflowFailure) {
@@ -206,6 +204,21 @@ public class AiTypedEditCapabilityAdapter(
             normalizedValues = prepared.normalizedValues.toSortedMap(),
             generatedIris = prepared.generatedIris.map { it.iri.value }.sorted(),
         )
+    }
+
+    private fun resolveScopedSource(scope: AiCapabilityScope, request: WebStageChangeRequest): WebStageChangeRequest {
+        if (request.sourceId in scope.allowedSourceIds) return request
+        val candidates = scope.allowedSourceIds.mapNotNull { sourceId ->
+            val candidate = request.copy(sourceId = sourceId, aiGenerated = true, idempotencyKey = null)
+            try {
+                staging.preparePrivateDraft(scope.projectId, candidate)
+                candidate
+            } catch (_: WebWorkflowFailure) {
+                null
+            }
+        }
+        if (candidates.size == 1) return candidates.single()
+        throw AiDraftFailure("source-scope-violation", "The requested source is outside the current AI run scope.")
     }
 
     public companion object {

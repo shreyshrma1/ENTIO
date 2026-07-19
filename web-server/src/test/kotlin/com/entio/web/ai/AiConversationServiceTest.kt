@@ -58,7 +58,7 @@ class AiConversationServiceTest {
     fun definitionRequestCreatesAReviewablePrivateDraftWithoutMutatingSharedStaging(): Unit = runBlocking {
         val definition = "An account is a record used to organize and track financial activity for a party."
         val provider = FakeToolProvider(
-            completed(calls = listOf(addDefinitionCall("definition-1", "Account", definition))),
+            completed(calls = listOf(addDefinitionCall("definition-1", "ontology", "Account", definition))),
             completed(text = "I drafted a definition for Account for your review."),
         )
         val fixture = fixture(provider)
@@ -536,10 +536,10 @@ class AiConversationServiceTest {
         """{"sourceId":"simple","editType":"create-object-property","rationale":"Add the reviewed relationship.","label":"$label"}""",
     )
 
-    private fun addDefinitionCall(id: String, label: String, definition: String): OpenAiFunctionCall = simpleCall(
+    private fun addDefinitionCall(id: String, sourceId: String, label: String, definition: String): OpenAiFunctionCall = simpleCall(
         id,
         AiTypedEditCapabilityAdapter.ADD_ONTOLOGY_CAPABILITY,
-        """{"sourceId":"simple","editType":"add-definition","rationale":"Document the reviewed concept.","targetLabel":"$label","value":"$definition"}""",
+        """{"sourceId":"$sourceId","editType":"add-definition","rationale":"Document the reviewed concept.","targetLabel":"$label","value":"$definition"}""",
     )
 
     private fun updateClassCall(id: String, itemId: String, label: String): OpenAiFunctionCall = simpleCall(

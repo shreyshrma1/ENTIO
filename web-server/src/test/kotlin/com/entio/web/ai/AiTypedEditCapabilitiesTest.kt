@@ -172,6 +172,26 @@ class AiTypedEditCapabilitiesTest {
     }
 
     @Test
+    fun invalidModelSourceResolvesOnlyToTheSingleAllowedSourceThatCanPrepareTheEdit(): Unit {
+        val fixture = fixture()
+
+        val operation = fixture.adapter.prepare(
+            fixture.scope(),
+            AiTypedEditCapabilityAdapter.ADD_ONTOLOGY_CAPABILITY,
+            WebStageChangeRequest(
+                sourceId = "ontology",
+                editType = "add-definition",
+                targetLabel = "Account",
+                value = "A record used to organize financial activity.",
+            ),
+        )
+
+        assertEquals("simple", operation.targetSourceId)
+        assertEquals("simple", operation.request.sourceId)
+        assertTrue(fixture.staging.snapshot("simple").entries.isEmpty())
+    }
+
+    @Test
     fun ownershipBaselineDuplicateConflictAndDependencyChecksFailWithoutMutation(): Unit {
         val fixture = fixture()
         val workspace = fixture.workspace()

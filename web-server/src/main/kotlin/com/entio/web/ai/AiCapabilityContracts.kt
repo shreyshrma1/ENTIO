@@ -141,6 +141,9 @@ public sealed interface AiSourceScopedArguments : AiCapabilityArguments {
     public val sourceId: String?
 }
 
+/** Typed private-draft edits may resolve a model-supplied alias to one uniquely valid allowed source. */
+public sealed interface AiDraftSourceResolvableArguments : AiSourceScopedArguments
+
 public data object AiProjectSummaryArguments : AiCapabilityArguments
 
 public data class AiEntityDetailArguments(

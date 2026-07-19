@@ -124,7 +124,7 @@ public class AiCapabilityRegistry(
         if (definition.sourceScope == AiSourceScopeRule.REQUIRED_ALLOWED_SOURCE && sourceId == null) {
             throw AiCapabilityFailure("source-required", "This capability requires an allowed source.")
         }
-        if (sourceId != null && sourceId !in scope.allowedSourceIds) {
+        if (sourceId != null && sourceId !in scope.allowedSourceIds && arguments !is AiDraftSourceResolvableArguments) {
             throw AiCapabilityFailure("source-scope-violation", "The requested source is outside the current run scope.")
         }
     }
