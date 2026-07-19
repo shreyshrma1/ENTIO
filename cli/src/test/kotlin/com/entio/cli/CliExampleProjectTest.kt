@@ -25,11 +25,13 @@ class CliExampleProjectTest {
             """
                 Individual https://example.com/entio/simple#20874 "Invoice 20874" [simple]
                 Class https://example.com/entio/simple#Account "Account" [simple]
-                Individual https://example.com/entio/simple#Account101 [simple]
+                Individual https://example.com/entio/simple#Account101 "Account 101" [simple]
+                Class https://example.com/entio/simple#Checking "Checking Account" [simple]
                 Class https://example.com/entio/simple#Customer "Customer" [simple]
-                Shape https://example.com/entio/simple#CustomerShape [shapes]
+                Shape https://example.com/entio/simple#CustomerShape "Minimum Accounts" [shapes]
                 Class https://example.com/entio/simple#Invoice "Invoice" [simple]
                 Individual https://example.com/entio/simple#Shrey "Shrey" [simple]
+                Property https://example.com/entio/simple#dateOpened "date opened" [simple]
                 Property https://example.com/entio/simple#ownsAccount "owns account" [simple]
             """.trimIndent() + "\n",
             symbols.out,
