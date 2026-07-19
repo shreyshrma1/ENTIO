@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadEntityDetails, loadHierarchy, loadProjectOutline, loadShaclShapes, searchProject, stageChange, previewStagedChanges, streamAiRunEvents } from "./projectApi";
+import { loadEntityDetails, loadHierarchy, loadProjectOutline, loadShaclShapes, searchProject, stageChange, previewStagedChanges, streamAiRunEvents, loadAiProviderSettings, discoverAiModels, selectAiModel, retestAiModel, clearAiModelSelection } from "./projectApi";
 
 function response(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -95,5 +95,30 @@ describe("read-only project API", () => {
 
     expect(requestedHeaders).toMatchObject({ Accept: "text/event-stream", "Last-Event-ID": "run-1:1" });
     expect(events).toEqual([2, 3]);
+  });
+
+  it("uses the provider settings and explicit model-selection contracts", async () => {
+    const requests: Array<{ path: string; init?: RequestInit }> = [];
+    const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ path: String(input), init });
+      return response({ apiVersion: "v1", models: [] });
+    };
+
+    await loadAiProviderSettings(fetcher);
+    await discoverAiModels(fetcher);
+    await selectAiModel("gpt-5.2", "select-one", fetcher);
+    await retestAiModel("test-one", fetcher);
+    await clearAiModelSelection(fetcher);
+
+    expect(requests.map(({ path }) => path)).toEqual([
+      "/api/v1/ai/provider-settings",
+      "/api/v1/ai/models/discover",
+      "/api/v1/ai/model-selection",
+      "/api/v1/ai/model-selection/test",
+      "/api/v1/ai/model-selection",
+    ]);
+    expect(requests.map(({ init }) => init?.method)).toEqual([undefined, "POST", "PUT", "POST", "DELETE"]);
+    expect(requests[2].init?.headers).toMatchObject({ "Idempotency-Key": "select-one" });
+    expect(requests[3].init?.headers).toMatchObject({ "Idempotency-Key": "test-one" });
   });
 });

@@ -33,6 +33,42 @@ export interface WebErrorResponse {
   details: Record<string, string>;
 }
 
+export type WebAiCredentialStatus = "NOT_CONFIGURED" | "VALID" | "INVALID";
+export type WebAiDiscoveryStatus = "NOT_STARTED" | "COMPLETED" | "NO_COMPATIBLE_MODELS" | "FAILED" | "STALE";
+export type WebAiSelectionStatus = "NOT_SELECTED" | "READY" | "UNAVAILABLE" | "INCOMPATIBLE" | "VERIFICATION_FAILED";
+
+export interface WebAiModelDescriptor {
+  providerId: string;
+  modelId: string;
+  displayName: string;
+  description: string;
+  metadataKnown: boolean;
+  recommended: boolean;
+  capabilityTier: string | null;
+  timeoutClass: string | null;
+  relativeSpeed: string | null;
+  relativeCost: string | null;
+  verificationStatus: "NOT_VERIFIED" | "VERIFIED" | "FAILED";
+  compatibilityStatus: string;
+  policyVersion: string;
+}
+
+export interface WebAiProviderSettings {
+  apiVersion: typeof WEB_API_VERSION;
+  providerId: string | null;
+  credentialStatus: WebAiCredentialStatus;
+  discoveryStatus: WebAiDiscoveryStatus;
+  discoveredAt: string | null;
+  policyVersion: string;
+  models: WebAiModelDescriptor[];
+  unsupportedProviderModelCount: number;
+  selectedModel: WebAiModelDescriptor | null;
+  selectionStatus: WebAiSelectionStatus;
+  selectedModelVerifiedAt: string | null;
+  errorCode: string | null;
+  availableActions: string[];
+}
+
 export interface WebPage<T> {
   items: T[];
   offset: number;

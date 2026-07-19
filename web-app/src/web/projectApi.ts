@@ -7,6 +7,7 @@ import {
   type WebAiDraftAnalysisResponse,
   type WebAiDraftResponse,
   type WebAiMessageRequest,
+  type WebAiProviderSettings,
   type WebAiResynchronization,
   type WebAiReviewSubmissionRequest,
   type WebAiReviewSubmissionResponse,
@@ -591,8 +592,28 @@ export async function loadAiCredentialStatus(fetcher: WebFetcher = defaultFetche
   return getJson("/api/v1/ai/credential-status", fetcher);
 }
 
-export async function saveAiCredential(providerId: string, apiKey: string, fetcher: WebFetcher = defaultFetcher): Promise<WebAiCredentialStatus> {
+export async function loadAiProviderSettings(fetcher: WebFetcher = defaultFetcher): Promise<WebAiProviderSettings> {
+  return getJson("/api/v1/ai/provider-settings", fetcher);
+}
+
+export async function saveAiCredential(providerId: string, apiKey: string, fetcher: WebFetcher = defaultFetcher): Promise<WebAiProviderSettings> {
   return sendJson("/api/v1/ai/credentials", "PUT", { providerId, apiKey }, fetcher);
+}
+
+export async function discoverAiModels(fetcher: WebFetcher = defaultFetcher): Promise<WebAiProviderSettings> {
+  return sendJson("/api/v1/ai/models/discover", "POST", undefined, fetcher);
+}
+
+export async function selectAiModel(modelId: string, idempotencyKey: string, fetcher: WebFetcher = defaultFetcher): Promise<WebAiProviderSettings> {
+  return sendJson("/api/v1/ai/model-selection", "PUT", { modelId }, fetcher, { "Idempotency-Key": idempotencyKey });
+}
+
+export async function retestAiModel(idempotencyKey: string, fetcher: WebFetcher = defaultFetcher): Promise<WebAiProviderSettings> {
+  return sendJson("/api/v1/ai/model-selection/test", "POST", undefined, fetcher, { "Idempotency-Key": idempotencyKey });
+}
+
+export async function clearAiModelSelection(fetcher: WebFetcher = defaultFetcher): Promise<WebAiProviderSettings> {
+  return sendJson("/api/v1/ai/model-selection", "DELETE", undefined, fetcher);
 }
 
 export async function testAiCredential(fetcher: WebFetcher = defaultFetcher): Promise<WebAiCredentialTestResponse> {
@@ -755,7 +776,7 @@ export async function submitAiDraftForReview(
   );
 }
 
-export async function removeAiCredential(fetcher: WebFetcher = defaultFetcher): Promise<WebAiCredentialStatus> {
+export async function removeAiCredential(fetcher: WebFetcher = defaultFetcher): Promise<WebAiProviderSettings> {
   return sendJson("/api/v1/ai/credentials", "DELETE", undefined, fetcher);
 }
 

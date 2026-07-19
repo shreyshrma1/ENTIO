@@ -29,12 +29,13 @@ import {
   type WebFiboElement,
   type WebFiboModule,
   type WebFiboProposalRequest,
-  loadAiCredentialStatus,
+  loadAiProviderSettings,
+  discoverAiModels,
+  selectAiModel,
+  retestAiModel,
+  clearAiModelSelection,
   removeAiCredential,
   saveAiCredential,
-  testAiCredential,
-  type WebAiCredentialStatus,
-  type WebAiCredentialTestResponse,
   askAiAssistant,
   analyzeAiDraft,
   cancelAiRun,
@@ -64,6 +65,7 @@ import type {
   WebAiReviewSubmissionRequest,
   WebAiReviewSubmissionResponse,
   WebAiRunResponse,
+  WebAiProviderSettings,
   WebPage,
 } from "./contracts";
 
@@ -84,7 +86,7 @@ export const queryKeys = {
   fiboElements: (projectId: string, moduleIri: string) => ["project", projectId, "fibo", "elements", moduleIri] as const,
   fiboSearch: (projectId: string, text: string) => ["project", projectId, "fibo", "search", text] as const,
   fiboDetails: (projectId: string, iri: string) => ["project", projectId, "fibo", "details", iri] as const,
-  aiCredentialStatus: ["ai", "credential-status"] as const,
+  aiProviderSettings: ["ai", "provider-settings"] as const,
   aiAssistant: (projectId: string) => ["project", projectId, "ai", "assistant"] as const,
   aiConversations: (projectId: string) => ["project", projectId, "ai", "conversations"] as const,
   aiConversation: (projectId: string, conversationId: string) => ["project", projectId, "ai", "conversation", conversationId] as const,
@@ -252,27 +254,22 @@ export function useFiboActions(projectId: string) {
   });
 }
 
-export function useAiCredentialStatus() {
-  return useQuery<WebAiCredentialStatus>({
-    queryKey: queryKeys.aiCredentialStatus,
-    queryFn: () => loadAiCredentialStatus(),
+export function useAiProviderSettings() {
+  return useQuery<WebAiProviderSettings>({
+    queryKey: queryKeys.aiProviderSettings,
+    queryFn: () => loadAiProviderSettings(),
   });
 }
 
-export function useAiCredentialActions() {
+export function useAiProviderActions() {
   const queryClient = useQueryClient();
-  const refresh = (status: WebAiCredentialStatus) => queryClient.setQueryData(queryKeys.aiCredentialStatus, status);
+  const refresh = (status: WebAiProviderSettings) => queryClient.setQueryData(queryKeys.aiProviderSettings, status);
   return {
     save: useMutation({ mutationFn: ({ providerId, apiKey }: { providerId: string; apiKey: string }) => saveAiCredential(providerId, apiKey), onSuccess: refresh }),
-    test: useMutation<WebAiCredentialTestResponse, Error, void>({
-      mutationFn: () => testAiCredential(),
-      onSuccess: (result) => queryClient.setQueryData<WebAiCredentialStatus>(queryKeys.aiCredentialStatus, (current) => ({
-        apiVersion: "v1",
-        configured: current?.configured ?? true,
-        providerId: current?.providerId ?? "openai",
-        testStatus: result.status,
-      })),
-    }),
+    discover: useMutation({ mutationFn: () => discoverAiModels(), onSuccess: refresh }),
+    select: useMutation({ mutationFn: ({ modelId, idempotencyKey }: { modelId: string; idempotencyKey: string }) => selectAiModel(modelId, idempotencyKey), onSuccess: refresh }),
+    retest: useMutation({ mutationFn: (idempotencyKey: string) => retestAiModel(idempotencyKey), onSuccess: refresh }),
+    clear: useMutation({ mutationFn: () => clearAiModelSelection(), onSuccess: refresh }),
     remove: useMutation({ mutationFn: () => removeAiCredential(), onSuccess: refresh }),
   };
 }

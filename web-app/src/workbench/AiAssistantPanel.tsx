@@ -5,7 +5,7 @@ import {
   useAiConversation,
   useAiConversationActions,
   useAiConversations,
-  useAiCredentialStatus,
+  useAiProviderSettings,
   useAiDraft,
   useAiDraftActions,
 } from "../web/queries";
@@ -22,7 +22,7 @@ import AiRunTimeline, { type AiStreamState } from "./ai/AiRunTimeline";
 
 export default function AiAssistantPanel({ projectId, entity }: { projectId: string; entity?: WebEntityReference | null }) {
   const queryClient = useQueryClient();
-  const credential = useAiCredentialStatus();
+  const providerSettings = useAiProviderSettings();
   const conversations = useAiConversations(projectId);
   const conversationActions = useAiConversationActions(projectId);
   const draftActions = useAiDraftActions(projectId);
@@ -176,7 +176,9 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
     });
   }
 
-  const credentialMissing = credential.isSuccess && !credential.data.configured;
+  const aiReady = providerSettings.data?.selectionStatus === "READY";
+  const credentialMissing = providerSettings.isSuccess && providerSettings.data.credentialStatus === "NOT_CONFIGURED";
+  const modelSelectionRequired = providerSettings.isSuccess && providerSettings.data.credentialStatus === "VALID" && !aiReady;
   const runActive = Boolean(activeRun && !terminalRunStatus(activeRun.status));
   const canSubmit = Boolean(analysis?.readyForReview && analysis.previewGraphFingerprint && runIdForSubmission && draft.data?.draft.status === "READY_FOR_REVIEW");
 
@@ -184,17 +186,18 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
     <section className="content-band ai-assistant-panel" aria-labelledby="ai-assistant-heading">
       <div className="ai-context-header">
         <div><p className="eyebrow">Tool-driven copilot</p><h2 id="ai-assistant-heading">Conversation</h2></div>
-        <span className={`ai-state ${credential.data?.configured ? "ai-state-ready" : "ai-state-unavailable"}`}>{credential.isPending ? "Checking credential" : credential.data?.configured ? "Credential ready" : "AI unavailable"}</span>
+        <span className={`ai-state ${aiReady ? "ai-state-ready" : "ai-state-unavailable"}`}>{providerSettings.isPending ? "Checking AI settings" : aiReady ? `Ready · ${providerSettings.data?.selectedModel?.displayName ?? "verified model"}` : "AI unavailable"}</span>
       </div>
       <div className="ai-context-chips" aria-label="Assistant context"><span>{projectId}</span>{entity ? <span>{entity.label}</span> : <span>Project context</span>}</div>
       {entity ? <details className="ai-context-details"><summary>Technical context</summary><code>{entity.iri}</code></details> : null}
-      {credential.isError ? <p role="alert">Credential status unavailable. Non-AI workbench features remain available.</p> : null}
+      {providerSettings.isError ? <p role="alert">AI provider settings are unavailable. Non-AI workbench features remain available.</p> : null}
       {credentialMissing ? <div className="ai-unavailable" role="status"><strong>Add an OpenAI credential in Settings to use the copilot.</strong><p>The rest of the workbench remains available.</p></div> : null}
+      {modelSelectionRequired ? <div className="ai-unavailable" role="status"><strong>Select and verify an available model in Settings to use the copilot.</strong><p>A configured credential alone does not make AI ready. The rest of the workbench remains available.</p></div> : null}
       {conversations.isPending ? <p role="status">Loading conversations...</p> : null}
       {conversations.isError ? <p role="alert">Could not load conversations. {conversations.error.message}</p> : null}
       <div className="ai-conversation-controls">
         {conversations.data?.conversations.length ? <label htmlFor="ai-conversation">Conversation<select id="ai-conversation" value={activeConversationId ?? ""} onChange={(event) => { setActiveConversationId(event.target.value); setLatestTurn(null); setActiveRun(null); setRunEvents([]); }}>{conversations.data.conversations.map((item, index) => <option key={item.id} value={item.id}>Conversation {conversations.data.conversations.length - index}</option>)}</select></label> : null}
-        <button className="button" type="button" onClick={beginConversation} disabled={conversationActions.create.isPending || credentialMissing}>{conversationActions.create.isPending ? "Starting..." : "New conversation"}</button>
+        <button className="button" type="button" onClick={beginConversation} disabled={conversationActions.create.isPending || !aiReady}>{conversationActions.create.isPending ? "Starting..." : "New conversation"}</button>
       </div>
       {conversationActions.create.isError ? <p role="alert">Could not start a conversation. {conversationActions.create.error.message}</p> : null}
       {activeConversationId ? <>
@@ -203,7 +206,7 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
         <ConversationHistory messages={currentConversation?.messages ?? []} />
         {latestTurn?.plan ? <PlanConfirmation plan={latestTurn.plan} revision={planRevision} onRevisionChange={setPlanRevision} onConfirm={() => sendDecision("CONFIRM_PLAN", "Confirm this plan.")} onRevise={() => sendDecision("REVISE_PLAN", planRevision)} onCancel={cancelRun} busy={conversationActions.send.isPending || conversationActions.cancel.isPending} /> : null}
         {latestTurn?.clarificationQuestion ? <Clarification question={latestTurn.clarificationQuestion} answer={clarification} onAnswerChange={setClarification} onSubmit={() => sendDecision("ANSWER_CLARIFICATION", clarification)} onCancel={cancelRun} busy={conversationActions.send.isPending || conversationActions.cancel.isPending} /> : null}
-        <form className="ai-composer" onSubmit={send}><label htmlFor="ai-message">Ask about this ontology context</label><textarea ref={composer} id="ai-message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Explain a concept or describe an ontology change..." rows={3} disabled={conversationActions.send.isPending || runActive && activeRun?.status !== "AWAITING_PLAN_CONFIRMATION" && activeRun?.status !== "AWAITING_CLARIFICATION"} /><div className="ai-composer-actions"><span>Structured project context only</span>{runActive ? <button className="button" type="button" onClick={cancelRun} disabled={conversationActions.cancel.isPending}>Cancel run</button> : null}<button className="button primary" type="submit" disabled={!message.trim() || conversationActions.send.isPending || runActive}>{conversationActions.send.isPending ? "Sending..." : "Send"}</button></div></form>
+        <form className="ai-composer" onSubmit={send}><label htmlFor="ai-message">Ask about this ontology context</label><textarea ref={composer} id="ai-message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Explain a concept or describe an ontology change..." rows={3} disabled={!aiReady || conversationActions.send.isPending || runActive && activeRun?.status !== "AWAITING_PLAN_CONFIRMATION" && activeRun?.status !== "AWAITING_CLARIFICATION"} /><div className="ai-composer-actions"><span>Structured project context only</span>{runActive ? <button className="button" type="button" onClick={cancelRun} disabled={conversationActions.cancel.isPending}>Cancel run</button> : null}<button className="button primary" type="submit" disabled={!aiReady || !message.trim() || conversationActions.send.isPending || runActive}>{conversationActions.send.isPending ? "Sending..." : "Send"}</button></div></form>
         {conversationActions.send.isError ? <p role="alert">Assistant request failed. {conversationActions.send.error.message}</p> : null}
         {conversationActions.cancel.isError ? <p role="alert">Could not cancel the run. {conversationActions.cancel.error.message}</p> : null}
         {activeRun ? <div className="ai-run-status"><strong>{activeRun.status.replaceAll("_", " ")}</strong><span>{activeRun.capabilityCallCount} capabilities · {activeRun.draftEditCount} draft edits · {activeRun.correctionCycleCount} corrections</span></div> : null}

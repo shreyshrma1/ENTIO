@@ -699,6 +699,15 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ai-credential-settings .button-row {
   margin-top: 14px;
 }
+.ai-model-selector { margin-top: 18px; padding: 0; border: 0; }
+.ai-model-selector legend { margin-bottom: 6px; color: var(--text-primary); font-size: 12px; font-weight: 700; }
+.ai-model-list { display: grid; gap: 10px; margin-top: 10px; }
+.ai-model-card { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-2); }
+.ai-model-card.selected { border-color: var(--asserted); background: var(--asserted-subtle); }
+.ai-model-card > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ai-model-card p { margin: 0; color: var(--text-secondary); font-size: 11px; }
+.ai-model-card .button { justify-self: start; margin-top: 3px; }
+.ai-model-card .badge { padding: 2px 6px; border-radius: var(--radius-sm); background: var(--success-subtle); color: var(--success); font-size: 9px; }
 .profile-settings {
   max-width: 680px;
   padding: 18px;

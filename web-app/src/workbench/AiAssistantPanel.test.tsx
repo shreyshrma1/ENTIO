@@ -13,7 +13,7 @@ describe("AI assistant panel", () => {
     const initial = conversation([message("message-1", "ASSISTANT", "Customer is an asserted class.")]);
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
-      if (path.endsWith("/ai/credential-status")) return json(credential(true));
+      if (path.endsWith("/ai/provider-settings")) return json(providerSettings(true));
       if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [initial] });
       if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) return json({ apiVersion: "v1", conversation: initial });
       if (path.endsWith("/messages") && init?.method === "POST") return json(turn({
@@ -45,7 +45,7 @@ describe("AI assistant panel", () => {
     let messageCall = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
-      if (path.endsWith("/ai/credential-status")) return json(credential(true));
+      if (path.endsWith("/ai/provider-settings")) return json(providerSettings(true));
       if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [initial] });
       if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) return json({ apiVersion: "v1", conversation: initial });
       if (path.endsWith("/messages") && init?.method === "POST") {
@@ -79,7 +79,7 @@ describe("AI assistant panel", () => {
     let messageCall = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
-      if (path.endsWith("/ai/credential-status")) return json(credential(true));
+      if (path.endsWith("/ai/provider-settings")) return json(providerSettings(true));
       if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [initial] });
       if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) return json({ apiVersion: "v1", conversation: initial });
       if (path.endsWith("/messages")) {
@@ -111,7 +111,7 @@ describe("AI assistant panel", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       paths.push(`${init?.method ?? "GET"} ${path}`);
-      if (path.endsWith("/ai/credential-status")) return json(credential(true));
+      if (path.endsWith("/ai/provider-settings")) return json(providerSettings(true));
       if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [initial] });
       if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) return json({ apiVersion: "v1", conversation: initial });
       if (path.endsWith("/ai/drafts/draft-1") && !init?.method) return json({ apiVersion: "v1", draft: draft(conflicted ? "CONFLICTED" : "READY_FOR_REVIEW") });
@@ -143,7 +143,7 @@ describe("AI assistant panel", () => {
     let conversationLoads = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
-      if (path.endsWith("/ai/credential-status")) return json(credential(true));
+      if (path.endsWith("/ai/provider-settings")) return json(providerSettings(true));
       if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [initial] });
       if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) { conversationLoads += 1; return json({ apiVersion: "v1", conversation: initial }); }
       if (path.endsWith("/messages")) return json(turn({ answer: "Recovered answer." }));
@@ -161,7 +161,7 @@ describe("AI assistant panel", () => {
   it("keeps the non-AI workbench available when no credential is configured", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
-      if (path.endsWith("/ai/credential-status")) return json(credential(false));
+      if (path.endsWith("/ai/provider-settings")) return json(providerSettings(false));
       if (path.endsWith("/ai/conversations")) return json({ apiVersion: "v1", conversations: [] });
       throw new Error(`Unexpected request: ${path}`);
     }));
@@ -171,11 +171,24 @@ describe("AI assistant panel", () => {
     expect(screen.getByText(/rest of the workbench remains available/i)).toBeInTheDocument();
   });
 
+  it("requires a verified model when a credential is configured", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith("/ai/provider-settings")) return json(providerSettings(true, false));
+      if (path.endsWith("/ai/conversations")) return json({ apiVersion: "v1", conversations: [] });
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+    renderPanel();
+    expect(await screen.findByText(/Select and verify an available model/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New conversation" })).toBeDisabled();
+    expect(screen.queryByLabelText("Ask about this ontology context")).not.toBeInTheDocument();
+  });
+
   it("renders a failed provider run as an error state without review or apply controls", async () => {
     const initial = conversation([]);
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
-      if (path.endsWith("/ai/credential-status")) return json(credential(true));
+      if (path.endsWith("/ai/provider-settings")) return json(providerSettings(true));
       if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [initial] });
       if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) return json({ apiVersion: "v1", conversation: initial });
       if (path.endsWith("/messages") && init?.method === "POST") return json(turn({ status: "FAILED", answer: "The provider timed out; no ontology source changed." }));
@@ -205,7 +218,10 @@ function queryKey(resource: string): string[] {
   return ["project", "simple", "ai", resource, resource === "draft" ? "draft-1" : "conversation-1"];
 }
 
-function credential(configured: boolean) { return { apiVersion: "v1", configured, providerId: configured ? "openai" : null, testStatus: configured ? "PASSED" : "NOT_CONFIGURED" }; }
+function providerSettings(configured: boolean, ready = configured) {
+  const model = { providerId: "openai", modelId: "gpt-5.2", displayName: "GPT-5.2", family: "GPT-5", lifecycle: "CURRENT", supported: true, supportReason: "Supported", capabilities: ["RESPONSES", "TOOLS"], sortOrder: 10 };
+  return { apiVersion: "v1", providerId: "openai", credentialStatus: configured ? "VALID" : "NOT_CONFIGURED", discoveryStatus: configured ? "COMPLETED" : "NOT_REQUESTED", discoveredAt: configured ? "2026-07-17T12:00:00Z" : null, policyVersion: "phase-7.5-compatibility-v1", models: configured ? [model] : [], unsupportedProviderModelCount: 0, selectedModel: ready ? model : null, selectionStatus: ready ? "READY" : configured ? "NOT_SELECTED" : "NOT_CONFIGURED", selectedModelVerifiedAt: ready ? "2026-07-17T12:00:00Z" : null, errorCode: null, availableActions: [] };
+}
 
 function message(id: string, role: "USER" | "ASSISTANT" | "TOOL", content: string) { return { id, role, content, operation: null, evidenceReferenceIds: [], createdAt: "2026-07-17T12:00:00Z" }; }
 
