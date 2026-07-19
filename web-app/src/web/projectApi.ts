@@ -13,6 +13,12 @@ import {
   type WebAiReviewSubmissionResponse,
   type WebAiRunEvent,
   type WebAiRunResponse,
+  type WebAiTaskCommandRequest,
+  type WebAiTaskCreateRequest,
+  type WebAiTaskEvent,
+  type WebAiTaskResponse,
+  type WebAiTaskResynchronization,
+  type WebAiTaskWorkspaceResponse,
   type WebPage,
   type WebProjectListResponse,
 } from "./contracts";
@@ -739,6 +745,56 @@ export async function streamAiRunEvents(
   if (buffer.trim()) dispatchAiEventBlock(buffer, options);
 }
 
+export async function createAiTask(projectId: string, request: WebAiTaskCreateRequest, idempotencyKey: string, fetcher: WebFetcher = defaultFetcher): Promise<WebAiTaskResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/tasks`, "POST", request, fetcher, { "Idempotency-Key": idempotencyKey });
+}
+
+export async function loadAiTask(projectId: string, taskId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebAiTaskResponse> {
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/tasks/${encodeURIComponent(taskId)}`, fetcher);
+}
+
+export async function loadAiTaskWorkspace(projectId: string, taskId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebAiTaskWorkspaceResponse> {
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/tasks/${encodeURIComponent(taskId)}/workspace`, fetcher);
+}
+
+export async function commandAiTask(
+  projectId: string,
+  taskId: string,
+  action: "messages" | "clarifications" | "plan" | "plan/confirm" | "execute" | "pause" | "resume" | "cancel" | "submit",
+  request: WebAiTaskCommandRequest,
+  idempotencyKey: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebAiTaskResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/tasks/${encodeURIComponent(taskId)}/${action}`, action === "plan" ? "PUT" : "POST", request, fetcher, { "Idempotency-Key": idempotencyKey });
+}
+
+export interface AiTaskStreamOptions {
+  lastEventId?: string;
+  signal?: AbortSignal;
+  onEvent: (event: WebAiTaskEvent, eventId: string | null) => void;
+  onResynchronization: (signal: WebAiTaskResynchronization) => void;
+}
+
+export async function streamAiTaskEvents(projectId: string, taskId: string, options: AiTaskStreamOptions, fetcher: WebFetcher = defaultFetcher): Promise<void> {
+  const headers: Record<string, string> = { Accept: "text/event-stream" };
+  if (options.lastEventId) headers["Last-Event-ID"] = options.lastEventId;
+  const response = await fetcher(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/tasks/${encodeURIComponent(taskId)}/events`, { headers, signal: options.signal });
+  if (!response.ok) throw await webRequestError(response);
+  if (!response.body) throw new Error("The AI task event stream returned no response body.");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const chunk = await reader.read();
+    buffer += decoder.decode(chunk.value, { stream: !chunk.done });
+    const blocks = buffer.split(/\r?\n\r?\n/);
+    buffer = blocks.pop() ?? "";
+    blocks.forEach((block) => dispatchAiTaskEventBlock(block, options));
+    if (chunk.done) break;
+  }
+  if (buffer.trim()) dispatchAiTaskEventBlock(buffer, options);
+}
+
 export async function loadAiDraft(
   projectId: string,
   draftId: string,
@@ -920,6 +976,22 @@ function dispatchAiEventBlock(block: string, options: AiRunStreamOptions) {
   } else {
     options.onEvent(parsed as WebAiRunEvent, eventId);
   }
+}
+
+function dispatchAiTaskEventBlock(block: string, options: AiTaskStreamOptions) {
+  let eventName = "message";
+  let eventId: string | null = null;
+  const data: string[] = [];
+  block.split(/\r?\n/).forEach((line) => {
+    if (line.startsWith("event:")) eventName = line.slice(6).trim();
+    if (line.startsWith("id:")) eventId = line.slice(3).trim();
+    if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+  });
+  if (!data.length) return;
+  const parsed = JSON.parse(data.join("\n")) as WebAiTaskEvent | WebAiTaskResynchronization | { message?: string };
+  if (eventName === "resynchronization-required") options.onResynchronization(parsed as WebAiTaskResynchronization);
+  else if (eventName === "error") throw new Error((parsed as { message?: string }).message ?? "The AI task event stream failed.");
+  else options.onEvent(parsed as WebAiTaskEvent, eventId);
 }
 
 async function webRequestError(response: Response): Promise<Error> {

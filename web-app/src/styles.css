@@ -851,3 +851,61 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+.ai-task-workspace {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 1.25rem;
+  border: 1px solid var(--border, #d8deea);
+  border-radius: 1rem;
+  background: var(--surface, #fff);
+}
+
+.ai-task-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.ai-task-header h3,
+.ai-task-workspace h4,
+.ai-task-workspace p {
+  margin: 0;
+}
+
+.ai-task-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: .75rem;
+  margin: 0;
+}
+
+.ai-task-facts div {
+  padding: .75rem;
+  border-radius: .75rem;
+  background: #f6f8fc;
+}
+
+.ai-task-facts dt {
+  color: #5b667c;
+  font-size: .8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.ai-task-facts dd {
+  margin: .25rem 0 0;
+}
+
+.ai-task-events {
+  max-height: 15rem;
+  overflow: auto;
+}
+
+.ai-task-notice,
+.ai-task-review {
+  padding: 1rem;
+  border-radius: .75rem;
+  background: #eef5ff;
+}

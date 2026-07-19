@@ -303,6 +303,74 @@ export interface WebAiResynchronization {
   authoritativeConversationRoute: string;
 }
 
+export interface WebAiTaskCreateRequest {
+  conversationId: string;
+  objective: string;
+  allowedSourceIds: string[];
+}
+
+export interface WebAiTaskCommandRequest {
+  expectedRevision: number;
+  message?: string;
+  answer?: string;
+  planRevision?: number;
+}
+
+export interface WebAiTask {
+  id: string;
+  conversationId: string;
+  projectId: string;
+  objective: string;
+  type: string;
+  size: string;
+  status: string;
+  revision: number;
+  modelId: string;
+  currentWorkPackageId: string | null;
+  completedWorkPackageIds: string[];
+  failedWorkPackageIds: string[];
+  privateDraftId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WebAiTaskResponse { apiVersion: typeof WEB_API_VERSION; task: WebAiTask }
+
+export interface WebAiTaskWorkspace {
+  task: WebAiTask;
+  projectFingerprint: string;
+  assumptions: string[];
+  openQuestions: string[];
+  selectedEntityIris: string[];
+  planId: string | null;
+  planRevision: number | null;
+  analysisReferenceIds: string[];
+  repairCycleCount: number;
+  toolCallCount: number;
+  pauseCode: string | null;
+  limits: WebAiLimit[];
+}
+
+export interface WebAiTaskWorkspaceResponse { apiVersion: typeof WEB_API_VERSION; workspace: WebAiTaskWorkspace }
+
+export interface WebAiTaskEvent {
+  sequence: number;
+  taskId: string;
+  type: string;
+  status: string;
+  message: string;
+  referenceIds: string[];
+  createdAt: string;
+}
+
+export interface WebAiTaskResynchronization {
+  apiVersion: typeof WEB_API_VERSION;
+  taskId: string;
+  reason: string;
+  authoritativeTaskRoute: string;
+  authoritativeWorkspaceRoute: string;
+}
+
 export function encodeWebIri(iri: string): string {
   return encodeURIComponent(iri);
 }

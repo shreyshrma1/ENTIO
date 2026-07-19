@@ -10,6 +10,7 @@ test("completes the browser workbench and assistant model journey through review
   let hierarchyRequests = 0;
   let currentProposal: Record<string, unknown> | null = null;
   let providerSettings = aiProviderSettings();
+  let aiTaskStatus = "READY_FOR_REVIEW";
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -70,6 +71,16 @@ test("completes the browser workbench and assistant model journey through review
       dependentStatements: [{ key: "dependent-1", kind: "IncomingReference", subject: "https://example.com/entio/simple#Shrey", subjectLabel: "Shrey", predicate: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type", predicateLabel: "type", objectValue: "https://example.com/entio/simple#Customer", objectLabel: "Customer" }],
     });
     if (path.endsWith("/ai/provider-settings")) return json(route, providerSettings);
+    if (path.endsWith("/ai/tasks") && request.method() === "POST") return json(route, aiTaskResponse(aiTaskStatus));
+    if (path.endsWith("/ai/tasks/task-1") && request.method() === "GET") return json(route, aiTaskResponse(aiTaskStatus));
+    if (path.endsWith("/ai/tasks/task-1/workspace")) return json(route, {
+      apiVersion: "v1", workspace: { task: aiTask(aiTaskStatus), projectFingerprint: "project-fingerprint", assumptions: ["Use the approved banking meaning"], openQuestions: [], selectedEntityIris: [], planId: "plan-1", planRevision: 1, analysisReferenceIds: ["final-analysis"], repairCycleCount: 0, toolCallCount: 4, pauseCode: null, limits: [] },
+    });
+    if (path.endsWith("/ai/tasks/task-1/events")) return route.fulfill({ status: 200, contentType: "text/event-stream", body: "id: task-1:1\nevent: review-ready\ndata: {\"sequence\":1,\"taskId\":\"task-1\",\"type\":\"REVIEW_READY\",\"status\":\"READY_FOR_REVIEW\",\"message\":\"Final analysis is current.\",\"referenceIds\":[\"final-analysis\"],\"createdAt\":\"2026-07-20T00:01:00Z\"}\n\n" });
+    if (path.endsWith("/ai/tasks/task-1/submit") && request.method() === "POST") {
+      aiTaskStatus = "SUBMITTED_FOR_REVIEW";
+      return json(route, aiTaskResponse(aiTaskStatus, 2));
+    }
     if (path.endsWith("/ai/credentials") && request.method() === "PUT") {
       providerSettings = aiProviderSettings("NO_COMPATIBLE_MODELS");
       return json(route, providerSettings);
@@ -336,6 +347,13 @@ test("completes the browser workbench and assistant model journey through review
   await expect(page.getByText("Ready for human review.")).toBeVisible();
   await page.getByRole("button", { name: "Submit for human review" }).click();
   await expect(page.getByRole("link", { name: "Open proposal review" })).toHaveAttribute("href", "/projects/simple/changes?proposalId=proposal-ai-1");
+  await page.getByLabel("Ask about this ontology context").fill("Define every banking class.");
+  await page.getByRole("button", { name: "Start task" }).click();
+  const taskWorkspace = page.locator(".ai-task-workspace");
+  await expect(taskWorkspace.getByRole("heading", { name: "Define every banking class" })).toBeVisible();
+  await expect(taskWorkspace.getByText("Final analysis is current.")).toBeVisible();
+  await taskWorkspace.getByRole("button", { name: "Submit for human review" }).click();
+  await expect(taskWorkspace.getByText(/human reviewer retains approval authority/i)).toBeVisible();
 
   await page.getByRole("tab", { name: "FIBO" }).click();
   await expect(page.getByRole("heading", { name: "External ontology browser" })).toBeVisible();
@@ -351,6 +369,14 @@ async function json(route: import("@playwright/test").Route, body: unknown) {
 
 function aiConversation(messages: unknown[], currentDraftId: string | null = null) {
   return { id: "conversation-1", projectId: "simple", messages, currentDraftId, modelId: "gpt-5.2", status: "ACTIVE", createdAt: "2026-07-17T12:00:00Z", updatedAt: "2026-07-17T12:00:01Z" };
+}
+
+function aiTask(status: string, revision = 1) {
+  return { id: "task-1", conversationId: "conversation-1", projectId: "simple", objective: "Define every banking class.", type: "MULTI_EDIT_CHANGE", size: "LARGE", status, revision, modelId: "gpt-5.6-sol", currentWorkPackageId: null, completedWorkPackageIds: ["package-1"], failedWorkPackageIds: [], privateDraftId: "draft-task-1", createdAt: "2026-07-20T00:00:00Z", updatedAt: "2026-07-20T00:01:00Z" };
+}
+
+function aiTaskResponse(status: string, revision = 1) {
+  return { apiVersion: "v1", task: aiTask(status, revision) };
 }
 
 function aiProviderSettings(state: "READY" | "NOT_SELECTED" | "UNAVAILABLE" | "NO_COMPATIBLE_MODELS" = "READY", selectedId = "gpt-5.6-sol") {

@@ -46,6 +46,10 @@ import {
   loadAiDraft,
   sendAiConversationMessage,
   submitAiDraftForReview,
+  commandAiTask,
+  createAiTask,
+  loadAiTask,
+  loadAiTaskWorkspace,
   type WebAiAssistantRequest,
   type WebAiAssistantResponse,
   type WebEntityDetailResponse,
@@ -66,6 +70,10 @@ import type {
   WebAiReviewSubmissionResponse,
   WebAiRunResponse,
   WebAiProviderSettings,
+  WebAiTaskCommandRequest,
+  WebAiTaskCreateRequest,
+  WebAiTaskResponse,
+  WebAiTaskWorkspaceResponse,
   WebPage,
 } from "./contracts";
 
@@ -93,6 +101,8 @@ export const queryKeys = {
   aiDraft: (projectId: string, draftId: string) => ["project", projectId, "ai", "draft", draftId] as const,
   aiAnalysis: (projectId: string, draftId: string) => ["project", projectId, "ai", "analysis", draftId] as const,
   aiRun: (projectId: string, runId: string) => ["project", projectId, "ai", "run", runId] as const,
+  aiTask: (projectId: string, taskId: string) => ["project", projectId, "ai", "task", taskId] as const,
+  aiTaskWorkspace: (projectId: string, taskId: string) => ["project", projectId, "ai", "task", taskId, "workspace"] as const,
 };
 
 export function useProjects() {
@@ -349,6 +359,40 @@ export function useAiDraftActions(projectId: string) {
         queryClient.invalidateQueries({ queryKey: queryKeys.aiDraft(projectId, variables.draftId) });
         queryClient.invalidateQueries({ queryKey: queryKeys.staged(projectId) });
       },
+    }),
+  };
+}
+
+export function useAiTask(projectId: string, taskId: string | null) {
+  return useQuery<WebAiTaskResponse>({
+    queryKey: queryKeys.aiTask(projectId, taskId ?? ""),
+    queryFn: () => loadAiTask(projectId, taskId!),
+    enabled: projectId.length > 0 && Boolean(taskId),
+  });
+}
+
+export function useAiTaskWorkspace(projectId: string, taskId: string | null) {
+  return useQuery<WebAiTaskWorkspaceResponse>({
+    queryKey: queryKeys.aiTaskWorkspace(projectId, taskId ?? ""),
+    queryFn: () => loadAiTaskWorkspace(projectId, taskId!),
+    enabled: projectId.length > 0 && Boolean(taskId),
+  });
+}
+
+export function useAiTaskActions(projectId: string) {
+  const queryClient = useQueryClient();
+  const cache = (response: WebAiTaskResponse) => {
+    queryClient.setQueryData(queryKeys.aiTask(projectId, response.task.id), response);
+    void queryClient.invalidateQueries({ queryKey: queryKeys.aiTaskWorkspace(projectId, response.task.id) });
+  };
+  return {
+    create: useMutation<WebAiTaskResponse, Error, { request: WebAiTaskCreateRequest; idempotencyKey: string }>({
+      mutationFn: ({ request, idempotencyKey }) => createAiTask(projectId, request, idempotencyKey),
+      onSuccess: cache,
+    }),
+    command: useMutation<WebAiTaskResponse, Error, { taskId: string; action: Parameters<typeof commandAiTask>[2]; request: WebAiTaskCommandRequest; idempotencyKey: string }>({
+      mutationFn: ({ taskId, action, request, idempotencyKey }) => commandAiTask(projectId, taskId, action, request, idempotencyKey),
+      onSuccess: cache,
     }),
   };
 }
