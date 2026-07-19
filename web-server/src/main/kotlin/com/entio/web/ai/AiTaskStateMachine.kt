@@ -49,6 +49,8 @@ public class AiTaskStateMachine {
                 AiTaskStatus.UNDERSTANDING,
                 AiTaskStatus.PLANNING,
                 AiTaskStatus.READY_TO_EXECUTE,
+                AiTaskStatus.EXECUTING,
+                AiTaskStatus.REPAIRING,
             ) + activeFailureTransitions,
             AiTaskStatus.PLANNING to setOf(
                 AiTaskStatus.AWAITING_CLARIFICATION,
@@ -62,6 +64,7 @@ public class AiTaskStateMachine {
             AiTaskStatus.READY_TO_EXECUTE to setOf(AiTaskStatus.EXECUTING) + activeFailureTransitions,
             AiTaskStatus.EXECUTING to setOf(
                 AiTaskStatus.AWAITING_CLARIFICATION,
+                AiTaskStatus.PLANNING,
                 AiTaskStatus.VALIDATING,
                 AiTaskStatus.READY_FOR_REVIEW,
             ) + activeFailureTransitions,
