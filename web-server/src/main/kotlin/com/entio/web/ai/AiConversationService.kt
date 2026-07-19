@@ -164,6 +164,25 @@ public class AiIntentClassifier {
     }
 }
 
+public interface AiRunModelBindingResolver {
+    public fun resolve(userId: String): AiRunModelBinding
+
+    public suspend fun markUnavailableAndRefresh(userId: String, binding: AiRunModelBinding): Unit = Unit
+}
+
+public class FixedAiRunModelBindingResolver(
+    private val provider: AiToolLoopProvider,
+) : AiRunModelBindingResolver {
+    override fun resolve(userId: String): AiRunModelBinding = AiRunModelBinding(
+        providerId = provider.providerId,
+        modelId = provider.modelId,
+        catalogVersion = "deterministic-provider",
+        credentialGeneration = 0,
+        promptVersion = provider.promptVersion,
+        requestPolicyVersion = "phase-7-request-policy-v1",
+    )
+}
+
 public class AiConversationService(
     private val conversations: AiConversationStore,
     private val runs: AiRunStore,
@@ -174,6 +193,7 @@ public class AiConversationService(
     private val dispatcher: AiCapabilityDispatcher,
     private val provider: AiToolLoopProvider,
     private val credentials: AiCredentialService,
+    private val modelBindings: AiRunModelBindingResolver = FixedAiRunModelBindingResolver(provider),
     private val classifier: AiIntentClassifier = AiIntentClassifier(),
     private val objectMapper: ObjectMapper = ObjectMapper(),
     private val clock: Clock = Clock.systemUTC(),
@@ -191,7 +211,7 @@ public class AiConversationService(
                 id = idFactory("conversation"),
                 userId = userId,
                 projectId = projectId,
-                modelId = provider.modelId,
+                modelId = null,
                 promptVersion = provider.promptVersion,
                 createdAt = now,
                 updatedAt = now,
@@ -318,6 +338,7 @@ public class AiConversationService(
 
     private fun createRun(scope: AiCapabilityScope, policy: AiRunPolicy): AiRun {
         val now = clock.instant()
+        val binding = modelBindings.resolve(scope.userId)
         val run = runs.create(
             AiRun(
                 id = idFactory("run"),
@@ -325,6 +346,7 @@ public class AiConversationService(
                 userId = scope.userId,
                 projectId = scope.projectId,
                 scope = scope,
+                modelBinding = binding,
                 policy = policy,
                 createdAt = now,
                 updatedAt = now,
@@ -422,6 +444,7 @@ public class AiConversationService(
                     } else {
                         provider.respond(
                             apiKey,
+                            run.modelBinding.modelId,
                             OpenAiResponsesRequest(
                                 trustedPolicy = trustedPolicy(),
                                 userInput = reconstructConversation(conversation, run.policy.maxConversationMessagesInContext),
@@ -433,10 +456,15 @@ public class AiConversationService(
                     }
                 } ?: throw AiConversationFailure("missing-credential", "Configure an AI provider credential before starting a conversation.")
                 val completed = when (providerResult) {
-                    is OpenAiResponsesResult.Failed -> throw AiConversationFailure(
-                        "provider-${providerResult.failure.code.name.lowercase().replace('_', '-')}",
-                        providerResult.failure.message,
-                    )
+                    is OpenAiResponsesResult.Failed -> {
+                        if (providerResult.failure.code in setOf(OpenAiFailureCode.MODEL_UNAVAILABLE, OpenAiFailureCode.ACCESS_DENIED)) {
+                            modelBindings.markUnavailableAndRefresh(run.userId, run.modelBinding)
+                        }
+                        throw AiConversationFailure(
+                            "provider-${providerResult.failure.code.name.lowercase().replace('_', '-')}",
+                            providerResult.failure.message,
+                        )
+                    }
                     is OpenAiResponsesResult.Completed -> providerResult.response
                 }
                 completed.responseId?.let { responseId ->
@@ -661,8 +689,11 @@ public class AiConversationService(
                 conversationId = run.conversationId,
                 userId = run.userId,
                 projectId = run.projectId,
-                modelId = provider.modelId,
-                promptVersion = provider.promptVersion,
+                modelId = run.modelBinding.modelId,
+                catalogVersion = run.modelBinding.catalogVersion,
+                requestPolicyVersion = run.modelBinding.requestPolicyVersion,
+                credentialGeneration = run.modelBinding.credentialGeneration,
+                promptVersion = run.modelBinding.promptVersion,
                 allowedCapabilities = registry.snapshot(run.scope).definitions.map(AiCapabilityDefinition::name),
                 capabilityCalls = calls,
                 draftRevisionNumbers = draftRevisions,

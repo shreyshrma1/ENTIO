@@ -121,6 +121,14 @@ public data class AiRun(
     val userId: String,
     val projectId: String,
     val scope: AiCapabilityScope,
+    val modelBinding: AiRunModelBinding = AiRunModelBinding(
+        providerId = "provider-neutral",
+        modelId = "development-ai",
+        catalogVersion = "deterministic-provider",
+        credentialGeneration = 0,
+        promptVersion = "phase-7-development-v1",
+        requestPolicyVersion = "phase-7-request-policy-v1",
+    ),
     val policy: AiRunPolicy = AiRunPolicy(),
     val status: AiRunStatus = AiRunStatus.QUEUED,
     val capabilityCallCount: Int = 0,
@@ -129,6 +137,15 @@ public data class AiRun(
     val cancellationRequested: Boolean = false,
     val createdAt: Instant,
     val updatedAt: Instant,
+)
+
+public data class AiRunModelBinding(
+    val providerId: String,
+    val modelId: String,
+    val catalogVersion: String,
+    val credentialGeneration: Long,
+    val promptVersion: String,
+    val requestPolicyVersion: String,
 )
 
 public enum class AiDraftStatus {
@@ -225,6 +242,9 @@ public data class AiAuditRecord(
     val userId: String,
     val projectId: String,
     val modelId: String,
+    val catalogVersion: String = "legacy",
+    val requestPolicyVersion: String = "legacy",
+    val credentialGeneration: Long = 0,
     val promptVersion: String,
     val allowedCapabilities: List<String>,
     val capabilityCalls: List<AiAuditCapabilityCall> = emptyList(),

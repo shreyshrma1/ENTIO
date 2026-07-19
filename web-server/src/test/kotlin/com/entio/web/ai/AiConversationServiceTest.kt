@@ -55,6 +55,40 @@ class AiConversationServiceTest {
     }
 
     @Test
+    fun runBindsOneModelAcrossToolLoopAndFutureRunUsesNewSelection(): Unit = runBlocking {
+        val bindings = MutableBindingResolver("gpt-5.6-sol")
+        val provider = FakeToolProvider(
+            completed(calls = listOf(createClassCall("create-1", "Runtime Bound Account"))),
+            completed(text = "First run complete."),
+            completed(text = "Second run complete."),
+            onRespond = { if (bindings.resolveCount == 1) bindings.modelId = "gpt-5.6-terra" },
+        )
+        val fixture = fixture(provider, modelBindings = bindings)
+
+        fixture.service.send(fixture.scope, fixture.conversation.id, AiConversationTurnRequest("Create class Runtime Bound Account."))
+        fixture.service.send(fixture.scope, fixture.conversation.id, AiConversationTurnRequest("Explain the current screen context again."))
+
+        assertEquals(listOf("gpt-5.6-sol", "gpt-5.6-sol", "gpt-5.6-terra"), provider.selectedModelIds)
+        assertEquals(listOf("gpt-5.6-sol", "gpt-5.6-terra"), fixture.audits.list("alice", "simple").map(AiAuditRecord::modelId))
+        assertTrue(fixture.audits.list("alice", "simple").all { it.catalogVersion == "catalog-test" && it.requestPolicyVersion == "request-test" })
+    }
+
+    @Test
+    fun modelAccessLossFailsSafelyAndPreservesPrivateDraft(): Unit = runBlocking {
+        val bindings = MutableBindingResolver("gpt-5.6-sol")
+        val provider = FakeToolProvider(OpenAiResponsesResult.Failed(OpenAiProviderFailure(OpenAiFailureCode.MODEL_UNAVAILABLE, "Model unavailable.", false)))
+        val fixture = fixture(provider, modelBindings = bindings)
+
+        val result = fixture.service.send(fixture.scope, fixture.conversation.id, AiConversationTurnRequest("Create class Account."))
+
+        assertEquals(AiRunStatus.FAILED, result.run.status)
+        assertNotNull(result.draftId)
+        assertNotNull(fixture.drafts.get("alice", "simple", fixture.conversation.id, result.draftId!!))
+        assertEquals(1, bindings.unavailableCount)
+        assertEquals(1, fixture.conversations.get("alice", "simple", fixture.conversation.id).messages.count { it.role == AiMessageRole.ASSISTANT })
+    }
+
+    @Test
     fun broadRequestRequiresConfirmationBeforeAnyDraftMutation(): Unit = runBlocking {
         val provider = FakeToolProvider(
             completed(calls = listOf(createClassCall("call-1", "Loan"))),
@@ -384,6 +418,7 @@ class AiConversationServiceTest {
 
     private fun fixture(
         provider: FakeToolProvider,
+        modelBindings: AiRunModelBindingResolver = FixedAiRunModelBindingResolver(provider),
         includePreparePermission: Boolean = true,
         clock: Clock = Clock.fixed(now, ZoneOffset.UTC),
     ): Fixture {
@@ -432,6 +467,7 @@ class AiConversationServiceTest {
             dispatcher = DefaultAiCapabilityDispatcher(drafts = workspace),
             provider = provider,
             credentials = credentials,
+            modelBindings = modelBindings,
             clock = clock,
             idFactory = { prefix -> "$prefix-${ids.merge(prefix, 1, Int::plus)}" },
         )
@@ -504,6 +540,7 @@ class AiConversationServiceTest {
         override val modelId: String = "gpt-5.2"
         override val promptVersion: String = "phase-7-test-v1"
         val requests: MutableList<OpenAiResponsesRequest> = mutableListOf()
+        val selectedModelIds: MutableList<String> = mutableListOf()
         var cancelled: Boolean = false
         private val responses: ArrayDeque<OpenAiResponsesResult> = ArrayDeque(initialResponses.toList())
 
@@ -528,6 +565,30 @@ class AiConversationServiceTest {
             } else {
                 responses.removeFirst()
             }
+        }
+
+        override suspend fun respond(
+            apiKey: String,
+            selectedModelId: String,
+            request: OpenAiResponsesRequest,
+            onEvent: suspend (OpenAiProviderEvent) -> Unit,
+        ): OpenAiResponsesResult {
+            selectedModelIds += selectedModelId
+            return respond(apiKey, request, onEvent)
+        }
+    }
+
+    private class MutableBindingResolver(var modelId: String) : AiRunModelBindingResolver {
+        var resolveCount: Int = 0
+        var unavailableCount: Int = 0
+
+        override fun resolve(userId: String): AiRunModelBinding {
+            resolveCount += 1
+            return AiRunModelBinding("openai", modelId, "catalog-test", 7, "prompt-test", "request-test")
+        }
+
+        override suspend fun markUnavailableAndRefresh(userId: String, binding: AiRunModelBinding) {
+            unavailableCount += 1
         }
     }
 
