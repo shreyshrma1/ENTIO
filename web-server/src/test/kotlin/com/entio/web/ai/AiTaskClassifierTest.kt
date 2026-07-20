@@ -15,6 +15,7 @@ class AiTaskClassifierTest {
             "Explain Account" to (AiTaskType.EXPLANATION to AiTaskSize.SIMPLE),
             "Find concepts related to invoices" to (AiTaskType.SEARCH_AND_DISCOVERY to AiTaskSize.SIMPLE),
             "Add a definition to Account" to (AiTaskType.FOCUSED_EDIT to AiTaskSize.SIMPLE),
+            "Design a class for a lending concept" to (AiTaskType.DOMAIN_MODELING to AiTaskSize.MEDIUM),
             "Add definitions to all classes" to (AiTaskType.MULTI_EDIT_CHANGE to AiTaskSize.MEDIUM),
             "Refactor the entire ontology" to (AiTaskType.REFACTORING to AiTaskSize.LARGE),
             "Model the domain for lending" to (AiTaskType.DOMAIN_MODELING to AiTaskSize.LARGE),
@@ -41,6 +42,17 @@ class AiTaskClassifierTest {
         assertTrue(simple.mutating)
         assertTrue(medium.requiresPlanning)
         assertTrue(medium.evidence.size <= 3)
+    }
+
+    @Test
+    fun unfamiliarSemanticModelingObjectiveGetsAnEditEnvelopeWithoutACommandPhrase(): Unit {
+        val classification = classifier.classify("Reason about a lending model with connected concepts and examples")
+
+        assertEquals(AiTaskType.DOMAIN_MODELING, classification.type)
+        assertEquals(AiTaskSize.MEDIUM, classification.size)
+        assertTrue(classification.requiresPlanning)
+        assertTrue(classification.mutating)
+        assertTrue(classification.confidence > 0.0)
     }
 
     @Test

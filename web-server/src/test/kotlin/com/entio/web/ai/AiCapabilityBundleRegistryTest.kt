@@ -28,6 +28,12 @@ class AiCapabilityBundleRegistryTest {
             val frozen = bundles.freeze(taskFixture(), capabilityScope(), help)
             assertTrue(frozen.snapshot.definitions.all { it.access == AiCapabilityAccess.READ_ONLY })
         }
+        val editing = bundles.freeze(
+            taskFixture(status = AiTaskStatus.READY_TO_EXECUTE),
+            capabilityScope().copy(availableFeatures = setOf(AiCapabilityFeatures.PRIVATE_DRAFT, AiCapabilityFeatures.LOCAL_SEMANTIC_READ)),
+        )
+        assertTrue(editing.snapshot.definitions.any { it.name == "entio_draft_validate" })
+        assertTrue(editing.snapshot.definitions.any { it.name == AiTypedEditCapabilityAdapter.ADD_ONTOLOGY_CAPABILITY })
         AiTaskStatus.entries.filterNot(AiTaskStatus::terminal).forEach { status ->
             val names = bundles.freeze(taskFixture(status = status), capabilityScope()).snapshot.definitions.map { it.name }
             assertFalse(names.any { name -> listOf("approve", "reject", "apply", "rollback").any(name::contains) })

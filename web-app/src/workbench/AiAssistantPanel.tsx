@@ -176,6 +176,7 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
       onSuccess: (turn) => {
         if (sendAbortController.current === controller) sendAbortController.current = null;
         setLatestTurn(turn);
+        if (turn.taskId) setActiveTaskId(turn.taskId);
         if (activeRunId.current !== turn.run.id) {
           activeRunId.current = turn.run.id;
           lastEventId.current = undefined;

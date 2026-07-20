@@ -168,6 +168,7 @@ export interface WebAiConversationTurnResponse {
   clarificationQuestion: string | null;
   draftId: string | null;
   limits: WebAiLimit[];
+  taskId?: string | null;
 }
 
 export interface WebAiRunResponse {

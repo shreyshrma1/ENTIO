@@ -79,6 +79,7 @@ public data class WebAiConversationTurnResponse(
     val clarificationQuestion: String?,
     val draftId: String?,
     val limits: List<WebAiLimit>,
+    val taskId: String? = null,
 )
 
 public data class WebAiRunResponse(

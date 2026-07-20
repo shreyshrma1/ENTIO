@@ -29,6 +29,8 @@ public class AiTaskWebBoundary(
     private val modelBindings: AiRunModelBindingResolver,
     private val projectFingerprint: (String, List<String>) -> String,
     private val clock: Clock = Clock.systemUTC(),
+    private val eventLog: AiTaskEventLog? = null,
+    private val executor: AiSemanticTaskOrchestrator? = null,
 ) {
     private val events: MutableMap<String, List<WebAiTaskEvent>> = linkedMapOf()
     private val idempotentResponses: MutableMap<String, Pair<String, WebAiTaskResponse>> = linkedMapOf()
@@ -110,8 +112,15 @@ public class AiTaskWebBoundary(
         val updated = when (action) {
             "pause" -> lifecycle.pause(user.id, projectId, taskId, request.expectedRevision)
             "resume" -> lifecycle.resume(user.id, projectId, taskId, request.expectedRevision)
-            "cancel" -> lifecycle.cancel(user.id, projectId, taskId, request.expectedRevision)
-            "messages", "clarifications", "plan", "plan-confirm", "execute", "submit" -> current
+            "cancel" -> executor?.cancel(user.id, projectId, taskId, request.expectedRevision)
+                ?: lifecycle.cancel(user.id, projectId, taskId, request.expectedRevision)
+            "execute" -> executor?.execute(
+                user.id,
+                projectId,
+                taskId,
+                request.expectedRevision,
+            )?.workspace ?: current
+            "messages", "clarifications", "plan", "plan-confirm", "submit" -> current
             else -> throw AiTaskLifecycleFailure("unknown-task-command", "The requested task command is unknown.")
         }
         append(updated, action.toEventType(), "Task command '$action' was accepted.")
@@ -120,7 +129,7 @@ public class AiTaskWebBoundary(
 
     public fun events(user: WebSessionUser, projectId: String, taskId: String, afterSequence: Int): AiTaskEventWindow {
         val current = owned(user, projectId, taskId)
-        val retained = events[taskId].orEmpty()
+        val retained = eventLog?.events(taskId) ?: events[taskId].orEmpty()
         val earliest = retained.firstOrNull()?.sequence
         val gap = afterSequence > 0 && earliest != null && afterSequence < earliest - 1
         return AiTaskEventWindow(if (gap) emptyList() else retained.filter { it.sequence > afterSequence }, gap, current.task.status.terminal)
@@ -133,6 +142,8 @@ public class AiTaskWebBoundary(
 
     @Synchronized
     private fun append(workspace: AiTaskWorkspace, type: String, message: String) {
+        eventLog?.append(workspace.task.id, workspace.task.status, type, message)
+        if (eventLog != null) return
         val current = events[workspace.task.id].orEmpty()
         val event = WebAiTaskEvent(
             (current.lastOrNull()?.sequence ?: 0) + 1, workspace.task.id, type, workspace.task.status.name,

@@ -226,13 +226,13 @@ public data class AiOntologyContextEntity(
 public class AiContextPackageBuilder(
     private val capabilities: AiLocalReadCapabilityService,
 ) {
-    public fun build(scope: AiCapabilityScope, context: AiCurrentScreenContext): AiContextPackage {
+    public fun build(scope: AiCapabilityScope, context: AiCurrentScreenContext, objective: String? = null): AiContextPackage {
         validateContextScope(scope, context)
         val project = capabilities.projectSummary(scope)
         val entity = context.selectedEntityIri?.let {
             capabilities.entity(scope, AiEntityDetailArguments(it, context.selectedSourceId))
         }
-        return AiContextPackage(project, capabilities.ontologyOverview(scope), entity, context, capabilities.workflow(scope))
+        return AiContextPackage(project, capabilities.ontologyOverview(scope, objective), entity, context, capabilities.workflow(scope))
     }
 
     private fun validateContextScope(scope: AiCapabilityScope, context: AiCurrentScreenContext) {
@@ -248,12 +248,21 @@ public class AiLocalReadCapabilityService(
     private val staging: StagingWorkflowService,
     private val help: EntioHelpService = EntioHelpService(),
 ) {
-    public fun ontologyOverview(scope: AiCapabilityScope): AiOntologyOverview {
+    public fun ontologyOverview(scope: AiCapabilityScope, objective: String? = null): AiOntologyOverview {
         val items = scope.allowedSourceIds.flatMap { sourceId ->
             allOutlineItems(scope.projectId, sourceId)
         }.distinctBy { listOf(it.sourceId, it.iri) }
             .sortedWith(compareBy<com.entio.web.WebOutlineItem> { it.kind }.thenBy { it.label.lowercase() }.thenBy { it.iri })
-        val visible = items.take(MAX_CONTEXT_ENTITIES).map { item ->
+        val relevantIris = objective?.trim()?.takeIf(String::isNotBlank)?.let { query ->
+            search(scope, AiLocalSearchArguments(query.take(256), emptyList(), null, MAX_CONTEXT_ENTITIES)).hits.map { it.iri }.toSet()
+        }.orEmpty()
+        val orderedItems = items.sortedWith(
+            compareByDescending<com.entio.web.WebOutlineItem> { it.iri in relevantIris }
+                .thenBy { it.kind }
+                .thenBy { it.label.lowercase() }
+                .thenBy { it.iri },
+        )
+        val visible = orderedItems.take(MAX_CONTEXT_ENTITIES).map { item ->
             val detail = readEntity(scope, item.iri, item.sourceId)
             AiOntologyContextEntity(
                 entity = detail.snapshot(),
@@ -266,7 +275,7 @@ public class AiLocalReadCapabilityService(
         }
         return AiOntologyOverview(
             entities = visible,
-            truncated = items.size > visible.size,
+            truncated = orderedItems.size > visible.size,
             inventory = inventory,
             inventoryTruncated = items.size > MAX_CONTEXT_INVENTORY_ENTITIES,
         )

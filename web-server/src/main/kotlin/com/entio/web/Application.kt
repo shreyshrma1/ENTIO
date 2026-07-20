@@ -52,6 +52,10 @@ import com.entio.web.ai.AiReviewSubmissionService
 import com.entio.web.ai.AiStateAccessFailure
 import com.entio.web.ai.AiTaskLifecycleFailure
 import com.entio.web.ai.AiTaskLifecycleService
+import com.entio.web.ai.AiTaskPlanningService
+import com.entio.web.ai.AiTaskEventLog
+import com.entio.web.ai.AiSemanticTaskOrchestrator
+import com.entio.web.ai.AiCapabilityBundleRegistry
 import com.entio.web.ai.AiTaskWebBoundary
 import com.entio.web.ai.InMemoryAiTaskStore
 import com.entio.web.ai.AiTypedEditCapabilityAdapter
@@ -187,6 +191,19 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
         collaboration = collaboration,
         submissionAudits = aiSubmissionAudits,
     )
+    val aiTasks = InMemoryAiTaskStore()
+    val aiTaskLifecycle = AiTaskLifecycleService(aiTasks)
+    val aiTaskPlanning = AiTaskPlanningService(aiTasks)
+    val aiTaskEvents = AiTaskEventLog()
+    val aiTaskOrchestrator = AiSemanticTaskOrchestrator(
+        tasks = aiTasks,
+        lifecycle = aiTaskLifecycle,
+        planning = aiTaskPlanning,
+        bundles = AiCapabilityBundleRegistry(),
+        conversationService = aiConversation,
+        eventLog = aiTaskEvents,
+        modelBindings = aiModelBindings,
+    )
     val aiWeb = AiWebBoundary(
         readOnly = readOnly,
         authorization = dependencies.authorization,
@@ -197,16 +214,18 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
         analysisService = aiAnalysis,
         submissionService = aiSubmissions,
         baselineService = aiBaseline,
+        taskOrchestrator = aiTaskOrchestrator,
     )
-    val aiTasks = InMemoryAiTaskStore()
     val aiTaskWeb = AiTaskWebBoundary(
         store = aiTasks,
-        lifecycle = AiTaskLifecycleService(aiTasks),
+        lifecycle = aiTaskLifecycle,
         authorization = dependencies.authorization,
         modelBindings = aiModelBindings,
         projectFingerprint = { projectId, sourceIds ->
             sourceIds.distinct().sorted().joinToString(":") { sourceId -> aiBaseline.current(projectId, sourceId) }
         },
+        eventLog = aiTaskEvents,
+        executor = aiTaskOrchestrator,
     )
     val aiEventMapper = ObjectMapper().findAndRegisterModules()
 
