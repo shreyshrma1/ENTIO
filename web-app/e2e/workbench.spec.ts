@@ -1,16 +1,13 @@
 import { expect, test } from "@playwright/test";
 
-test("completes the browser workbench and assistant model journey through reviewable staging", async ({ page }) => {
+test("completes the browser workbench and provider model journey through reviewable staging", async ({ page }) => {
   const stagedEditTypes: string[] = [];
   const stagedEntries: Array<Record<string, unknown>> = [];
   let approvingUser: string | undefined;
-  let aiMessageCall = 0;
-  let aiDraftAnalyzed = false;
   let proposalApplied = false;
   let hierarchyRequests = 0;
   let currentProposal: Record<string, unknown> | null = null;
   let providerSettings = aiProviderSettings();
-  let aiTaskStatus = "READY_FOR_REVIEW";
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -71,16 +68,6 @@ test("completes the browser workbench and assistant model journey through review
       dependentStatements: [{ key: "dependent-1", kind: "IncomingReference", subject: "https://example.com/entio/simple#Shrey", subjectLabel: "Shrey", predicate: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type", predicateLabel: "type", objectValue: "https://example.com/entio/simple#Customer", objectLabel: "Customer" }],
     });
     if (path.endsWith("/ai/provider-settings")) return json(route, providerSettings);
-    if (path.endsWith("/ai/tasks") && request.method() === "POST") return json(route, aiTaskResponse(aiTaskStatus));
-    if (path.endsWith("/ai/tasks/task-1") && request.method() === "GET") return json(route, aiTaskResponse(aiTaskStatus));
-    if (path.endsWith("/ai/tasks/task-1/workspace")) return json(route, {
-      apiVersion: "v1", workspace: { task: aiTask(aiTaskStatus), projectFingerprint: "project-fingerprint", assumptions: ["Use the approved banking meaning"], openQuestions: [], selectedEntityIris: [], planId: "plan-1", planRevision: 1, analysisReferenceIds: ["final-analysis"], repairCycleCount: 0, toolCallCount: 4, pauseCode: null, limits: [] },
-    });
-    if (path.endsWith("/ai/tasks/task-1/events")) return route.fulfill({ status: 200, contentType: "text/event-stream", body: "id: task-1:1\nevent: review-ready\ndata: {\"sequence\":1,\"taskId\":\"task-1\",\"type\":\"REVIEW_READY\",\"status\":\"READY_FOR_REVIEW\",\"message\":\"Final analysis is current.\",\"referenceIds\":[\"final-analysis\"],\"createdAt\":\"2026-07-20T00:01:00Z\"}\n\n" });
-    if (path.endsWith("/ai/tasks/task-1/submit") && request.method() === "POST") {
-      aiTaskStatus = "SUBMITTED_FOR_REVIEW";
-      return json(route, aiTaskResponse(aiTaskStatus, 2));
-    }
     if (path.endsWith("/ai/credentials") && request.method() === "PUT") {
       providerSettings = aiProviderSettings("NO_COMPATIBLE_MODELS");
       return json(route, providerSettings);
@@ -98,43 +85,6 @@ test("completes the browser workbench and assistant model journey through review
       providerSettings = aiProviderSettings("UNAVAILABLE");
       return json(route, providerSettings);
     }
-    if (path.endsWith("/ai/conversations") && request.method() === "GET") return json(route, { apiVersion: "v1", conversations: [aiConversation([])] });
-    if (path.endsWith("/ai/conversations/conversation-1") && request.method() === "GET") return json(route, { apiVersion: "v1", conversation: aiConversation([]) });
-    if (path.endsWith("/ai/conversations/conversation-1/messages") && request.method() === "POST") {
-      aiMessageCall += 1;
-      if (aiMessageCall === 1) return json(route, aiTurn({
-        runId: "run-1",
-        answer: "Customer is an asserted class in the selected project.",
-        messages: [
-          aiMessage("message-1", "USER", "Explain Customer."),
-          aiMessage("message-2", "ASSISTANT", "Customer is an asserted class in the selected project.", "EXPLAIN_ENTITY", ["entity:Customer"]),
-        ],
-      }));
-      if (aiMessageCall === 2) return json(route, aiTurn({
-        runId: "run-2",
-        status: "AWAITING_PLAN_CONFIRMATION",
-        answer: "Confirm the bounded plan before draft mutation.",
-        plan: { request: "Design an ontology for receivables.", steps: ["Inspect the approved project", "Prepare typed edits", "Run deterministic analysis"], openDecisions: ["Confirm receivables scope"], estimatedEditCount: 1 },
-      }));
-      return json(route, aiTurn({
-        runId: "run-2",
-        answer: "I prepared one private typed edit for deterministic analysis.",
-        draftId: "draft-1",
-        messages: [aiMessage("message-3", "ASSISTANT", "I prepared one private typed edit for deterministic analysis.")],
-      }));
-    }
-    if (path.includes("/ai/runs/") && path.endsWith("/events")) {
-      const runId = path.split("/").at(-2) ?? "run-1";
-      return route.fulfill({ status: 200, contentType: "text/event-stream", body: `id: ${runId}:1\nevent: run-started\ndata: {"sequence":1,"runId":"${runId}","type":"RUN_STARTED","message":"Run started.","referenceIds":[],"createdAt":"2026-07-17T12:00:00Z"}\n\nid: ${runId}:2\nevent: capability-completed\ndata: {"sequence":2,"runId":"${runId}","type":"CAPABILITY_COMPLETED","message":"Entity inspection completed.","referenceIds":["entity:Customer"],"createdAt":"2026-07-17T12:00:01Z"}\n\n` });
-    }
-    if (path.endsWith("/ai/drafts/draft-1") && request.method() === "GET") return json(route, { apiVersion: "v1", draft: aiDraft(aiDraftAnalyzed ? "READY_FOR_REVIEW" : "EDITING") });
-    if (path.endsWith("/ai/drafts/draft-1/analysis") && request.method() === "POST") {
-      aiDraftAnalyzed = true;
-      return json(route, { apiVersion: "v1", analysis: aiAnalysis() });
-    }
-    if (path.endsWith("/ai/drafts/draft-1/submit") && request.method() === "POST") return json(route, {
-      apiVersion: "v1", submissionId: "submission-1", proposalId: "proposal-ai-1", reviewState: "READYFORREVIEW", projectId: "simple", draftId: "draft-1", draftRevision: 1, submittingUserId: "alice", conversationId: "conversation-1", runId: "run-2", rationale: "Reviewed AI draft", itemAttributions: [{ itemId: "item-1", aiGenerated: true, acceptingUserId: "alice", conversationId: "conversation-1", runId: "run-2" }], diff: [{ kind: "Added", subject: "Receivable Account", predicate: "type", objectValue: "Class", description: "Added class Receivable Account." }], analysisReferenceIds: ["analysis-ref"], reviewRoute: "/projects/simple/changes?proposalId=proposal-ai-1",
-    });
     if (path.endsWith("/staged") && request.method() === "GET") return json(route, { apiVersion: "v1", projectId: "simple", status: "READY", entries: stagedEntries, proposal: currentProposal });
     if (path.endsWith("/staged") && request.method() === "POST") {
       const body = request.postDataJSON() as Record<string, string>;
@@ -144,7 +94,7 @@ test("completes the browser workbench and assistant model journey through review
       const classIri = body.classIri ?? `https://example.com/entio/simple#${label.replace(/\s+/g, "")}`;
       const superclassIri = body.superclassLabel ? `https://example.com/entio/simple#${body.superclassLabel.replace(/\s+/g, "")}` : undefined;
       stagedEntries.push({
-        id: `stage-${stagedEntries.length + 1}`, order: stagedEntries.length + 1, sourceId: "simple", summary: `${editType} · ${label}`, editType: "TypedEdit", status: "STAGED", authorId: "bob", latestEditorId: "bob", comment: null, aiGenerated: false,
+        id: `stage-${stagedEntries.length + 1}`, order: stagedEntries.length + 1, sourceId: "simple", summary: `${editType} · ${label}`, editType: "TypedEdit", status: "STAGED", authorId: "bob", latestEditorId: "bob", comment: null,
         normalizedValues: { ...body, classIri, ...(superclassIri ? { superclassIri } : {}) }, generatedIris: editType === "create-class" ? [classIri] : [], validationMessages: [],
       });
       currentProposal = null;
@@ -240,18 +190,9 @@ test("completes the browser workbench and assistant model journey through review
   await expect(page.getByText("No compatible models", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Refresh models" }).click();
-  await expect(page.getByText(/Select and test a model to enable/i)).toBeVisible();
+  await expect(page.getByText(/Select and test a model to configure provider access/i)).toBeVisible();
   await page.getByRole("button", { name: "Select and test GPT-5.6 Sol" }).click();
   await expect(page.getByText("Ready with GPT-5.6 Sol.")).toBeVisible();
-  await page.getByRole("button", { name: "Assistant", exact: true }).click();
-  await expect(page.getByRole("complementary", { name: "Entio AI assistant" })).toBeVisible();
-  const settingsScroll = page.locator(".workspace-content");
-  await expect.poll(() => settingsScroll.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
-  await settingsScroll.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
-  await expect.poll(() => settingsScroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-  await expect(page.getByRole("button", { name: "Replace key" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Selected and verified" })).toBeVisible();
-  await page.getByRole("button", { name: "Close assistant" }).click();
   await page.reload();
   await expect(page.getByRole("heading", { name: "simple-ontology" })).toBeVisible();
   await page.getByRole("button", { name: "Expand navigation" }).click();
@@ -329,32 +270,6 @@ test("completes the browser workbench and assistant model journey through review
   await expect(appliedNotification).toBeHidden({ timeout: 6_000 });
   expect(approvingUser).toBe("bob");
 
-  await page.getByRole("button", { name: "Assistant" }).click();
-  await expect(page.getByRole("complementary", { name: "Entio AI assistant" })).toBeVisible();
-  await expect(page.getByRole("tab", { name: "Proposal", exact: true })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByText("Ready when you are")).toBeVisible();
-  await page.getByLabel("Ask about this ontology context").fill("Explain Customer.");
-  await page.getByRole("button", { name: "Send" }).click();
-  await expect(page.getByText("Customer is an asserted class in the selected project.")).toBeVisible();
-  await expect(page.getByText("Entity inspection completed.")).toBeVisible();
-  await page.getByLabel("Ask about this ontology context").fill("Design an ontology for receivables.");
-  await page.getByRole("button", { name: "Send" }).click();
-  await expect(page.getByRole("heading", { name: "Confirm the plan" })).toBeVisible();
-  await page.getByRole("button", { name: "Confirm plan" }).click();
-  await expect(page.getByRole("heading", { name: "Private draft" })).toBeVisible();
-  await expect(page.getByText("Create Receivable Account")).toBeVisible();
-  await page.getByRole("button", { name: "Run deterministic analysis" }).click();
-  await expect(page.getByText("Ready for human review.")).toBeVisible();
-  await page.getByRole("button", { name: "Submit for human review" }).click();
-  await expect(page.getByRole("link", { name: "Open proposal review" })).toHaveAttribute("href", "/projects/simple/changes?proposalId=proposal-ai-1");
-  await page.getByLabel("Ask about this ontology context").fill("Define every banking class.");
-  await page.getByRole("button", { name: "Start task" }).click();
-  const taskWorkspace = page.locator(".ai-task-workspace");
-  await expect(taskWorkspace.getByRole("heading", { name: "Define every banking class" })).toBeVisible();
-  await expect(taskWorkspace.getByText("Final analysis is current.")).toBeVisible();
-  await taskWorkspace.getByRole("button", { name: "Submit for human review" }).click();
-  await expect(taskWorkspace.getByText(/human reviewer retains approval authority/i)).toBeVisible();
-
   await page.getByRole("tab", { name: "FIBO" }).click();
   await expect(page.getByRole("heading", { name: "External ontology browser" })).toBeVisible();
   await page.getByRole("button", { name: "Agreements" }).click();
@@ -367,18 +282,6 @@ async function json(route: import("@playwright/test").Route, body: unknown) {
   await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 }
 
-function aiConversation(messages: unknown[], currentDraftId: string | null = null) {
-  return { id: "conversation-1", projectId: "simple", messages, currentDraftId, modelId: "gpt-5.2", status: "ACTIVE", createdAt: "2026-07-17T12:00:00Z", updatedAt: "2026-07-17T12:00:01Z" };
-}
-
-function aiTask(status: string, revision = 1) {
-  return { id: "task-1", conversationId: "conversation-1", projectId: "simple", objective: "Define every banking class.", type: "MULTI_EDIT_CHANGE", size: "LARGE", status, revision, modelId: "gpt-5.6-sol", currentWorkPackageId: null, completedWorkPackageIds: ["package-1"], failedWorkPackageIds: [], privateDraftId: "draft-task-1", createdAt: "2026-07-20T00:00:00Z", updatedAt: "2026-07-20T00:01:00Z" };
-}
-
-function aiTaskResponse(status: string, revision = 1) {
-  return { apiVersion: "v1", task: aiTask(status, revision) };
-}
-
 function aiProviderSettings(state: "READY" | "NOT_SELECTED" | "UNAVAILABLE" | "NO_COMPATIBLE_MODELS" = "READY", selectedId = "gpt-5.6-sol") {
   const models = [
     { providerId: "openai", modelId: "gpt-5.6-sol", displayName: "GPT-5.6 Sol", description: "Advanced balanced model", capabilityTier: "ADVANCED", relativeSpeed: "Medium", relativeCost: "Medium", recommended: true, capabilities: ["RESPONSES", "TOOLS"] },
@@ -387,20 +290,4 @@ function aiProviderSettings(state: "READY" | "NOT_SELECTED" | "UNAVAILABLE" | "N
   const visibleModels = state === "NO_COMPATIBLE_MODELS" ? [] : models;
   const selectedModel = state === "READY" || state === "UNAVAILABLE" ? models.find((model) => model.modelId === selectedId) ?? models[0] : null;
   return { apiVersion: "v1", providerId: "openai", credentialStatus: "VALID", discoveryStatus: state === "NO_COMPATIBLE_MODELS" ? "NO_COMPATIBLE_MODELS" : "COMPLETED", discoveredAt: "2026-07-17T12:00:00Z", policyVersion: "phase-7.5-compatibility-v1", models: visibleModels, unsupportedProviderModelCount: 0, selectedModel, selectionStatus: state === "NO_COMPATIBLE_MODELS" ? "NOT_SELECTED" : state, selectedModelVerifiedAt: state === "READY" ? "2026-07-17T12:00:00Z" : null, errorCode: state === "UNAVAILABLE" ? "AI_MODEL_NOT_AVAILABLE" : null, availableActions: [] };
-}
-
-function aiMessage(id: string, role: "USER" | "ASSISTANT", content: string, operation: string | null = null, evidenceReferenceIds: string[] = []) {
-  return { id, role, content, operation, evidenceReferenceIds, createdAt: "2026-07-17T12:00:00Z" };
-}
-
-function aiTurn({ runId, status = "READY_FOR_REVIEW", answer, messages = [], plan = null, draftId = null }: { runId: string; status?: string; answer: string; messages?: unknown[]; plan?: unknown; draftId?: string | null }) {
-  return { apiVersion: "v1", conversation: aiConversation(messages, draftId), run: { id: runId, conversationId: "conversation-1", projectId: "simple", status, capabilityCallCount: 1, draftEditCount: draftId ? 1 : 0, correctionCycleCount: 0, cancellationRequested: false, createdAt: "2026-07-17T12:00:00Z", updatedAt: `${Date.now()}` }, intent: plan ? "BROAD_PLAN" : draftId ? "SMALL_EDIT" : "EXPLANATION", answer, plan, clarificationQuestion: null, draftId, limits: [] };
-}
-
-function aiDraft(status: string) {
-  return { id: "draft-1", conversationId: "conversation-1", projectId: "simple", baselineFingerprint: "baseline", allowedSourceIds: ["simple"], status, draftFingerprint: "draft-fingerprint", analysisReferenceIds: [], items: [{ id: "item-1", order: 1, capabilityName: "entio_draft_add_ontology_edit", targetSourceId: "simple", summary: "Create Receivable Account", rationale: "Represent the reviewed accounting concept.", dependencyItemIds: [], aiGenerated: true, acceptingUserId: "alice", runId: "run-2" }], revisions: [{ revision: 1, action: "ADD", explanation: "Prepared typed class edit.", itemIds: ["item-1"], undoneRevision: null, createdAt: "2026-07-17T12:00:00Z" }], createdAt: "2026-07-17T12:00:00Z", updatedAt: "2026-07-17T12:00:01Z" };
-}
-
-function aiAnalysis() {
-  return { id: "analysis-1", draftId: "draft-1", revision: 1, status: "COMPLETED", baselineFingerprint: "baseline", draftFingerprint: "draft-fingerprint", previewGraphFingerprint: "preview-fingerprint", readyForReview: true, validationOk: true, findings: [], diff: [{ kind: "ADDED", subject: "Receivable Account", predicate: "type", objectValue: "Class", description: "Added class Receivable Account." }], references: [{ stage: "VALIDATION", id: "analysis-ref" }], createdAt: "2026-07-17T12:00:00Z" };
 }

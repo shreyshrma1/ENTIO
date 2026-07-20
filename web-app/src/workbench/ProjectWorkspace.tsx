@@ -6,7 +6,6 @@ import StagingPanel from "./StagingPanel";
 import CollaborationPresence from "./CollaborationPresence";
 import SemanticJobPanel from "./SemanticJobPanel";
 import ExternalOntologyPanel from "./ExternalOntologyPanel";
-import AiAssistantPanel from "./AiAssistantPanel";
 import AiCredentialSettings from "./AiCredentialSettings";
 import ProfileSettings from "./ProfileSettings";
 import Icon from "../components/ui/Icon";
@@ -23,7 +22,7 @@ import {
 import type { WebStagingEditType } from "./stagingEditTypes";
 
 type ModuleId = "explore" | "changes" | "reasoning" | "constraints" | "fibo" | "activity" | "settings";
-type RailItemId = ModuleId | "assistant";
+type RailItemId = ModuleId;
 type OutlineTabId = "classes" | "objects" | "properties";
 
 interface EntityTab extends WebEntityReference {
@@ -54,11 +53,7 @@ const modules: Array<{ id: ModuleId; label: string; icon: Parameters<typeof Icon
   { id: "settings", label: "Settings", icon: "settings" },
 ];
 
-const railItems: Array<{ id: RailItemId; label: string; icon: Parameters<typeof Icon>[0]["name"] }> = [
-  ...modules.slice(0, -1),
-  { id: "assistant", label: "Assistant", icon: "assistant" },
-  modules.at(-1)!,
-];
+const railItems: Array<{ id: RailItemId; label: string; icon: Parameters<typeof Icon>[0]["name"] }> = modules;
 
 const DISPLAY_NAME_STORAGE_KEY = "entio.displayName";
 const DEFAULT_DISPLAY_NAME = "Alice Contributor";
@@ -93,7 +88,6 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const [searchParams] = useSearchParams();
   const [tabs, setTabs] = useState<EntityTab[]>([]);
   const [activeModule, setActiveModule] = useState<ModuleId>(initialModule);
-  const [assistantOpen, setAssistantOpen] = useState(false);
   const [railExpanded, setRailExpanded] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [displayName, setDisplayName] = useState(loadDisplayName);
@@ -329,9 +323,8 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
           <div className="rail-top"><button className="rail-toggle" type="button" aria-label={railExpanded ? "Collapse navigation" : "Expand navigation"} aria-expanded={railExpanded} onClick={() => setRailExpanded((value) => !value)}><span className="rail-logo" aria-hidden="true">E</span><span className="rail-toggle-label">Entio</span></button></div>
           <div className="rail-modules" aria-label="Workbench navigation">
             {railItems.map((item) => {
-              const isAssistant = item.id === "assistant";
-              const selected = isAssistant ? assistantOpen : activeModule === item.id;
-              return <button key={item.id} type="button" role={isAssistant ? undefined : "tab"} className={`rail-button ${selected ? "rail-button-active" : ""}`} aria-label={item.label} title={item.label} aria-selected={isAssistant ? undefined : selected} aria-expanded={isAssistant ? assistantOpen : undefined} aria-controls={isAssistant ? "assistant-drawer" : "entity-workspace-panel"} onClick={() => isAssistant ? setAssistantOpen((value) => !value) : openModule(item.id as ModuleId)}><Icon name={item.icon} /><span className="rail-label">{item.label}</span>{item.id === "changes" && stagedCount ? <span className={`rail-count ${stagedIsPendingReview ? "staged-pending" : ""}`}>{stagedCount}</span> : null}</button>;
+              const selected = activeModule === item.id;
+              return <button key={item.id} type="button" role="tab" className={`rail-button ${selected ? "rail-button-active" : ""}`} aria-label={item.label} title={item.label} aria-selected={selected} aria-controls="entity-workspace-panel" onClick={() => openModule(item.id)}><Icon name={item.icon} /><span className="rail-label">{item.label}</span>{item.id === "changes" && stagedCount ? <span className={`rail-count ${stagedIsPendingReview ? "staged-pending" : ""}`}>{stagedCount}</span> : null}</button>;
             })}
           </div>
           <div className="rail-spacer" />
@@ -378,7 +371,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
           <div className="sidebar-footer"><span>Graph statements</span><strong>{summary.data.graphTripleCount}</strong></div>
           <button type="button" className="pane-resizer" role="separator" aria-label="Resize ontology sidebar" aria-orientation="vertical" aria-valuemin={240} aria-valuemax={420} aria-valuenow={sidebarWidth} title="Resize ontology sidebar" onPointerDown={() => { resizingSidebar.current = true; }} onKeyDown={adjustSidebar} />
         </aside>
-        <section className={`workspace-pane ${assistantOpen ? "workspace-pane-assistant-open" : ""}`} aria-label="Entity workspace">
+        <section className="workspace-pane" aria-label="Entity workspace">
           <div className="workspace-main">
             <div className="workspace-toolbar"><div><span className="overline">{module.label}</span><span className="toolbar-title">{activeModule === "explore" ? activeTab?.label ?? "Semantic workspace" : module.label}</span></div><div className="toolbar-stats"><span>{summary.data.graphTripleCount} statements</span><StatusBadge tone={stagedCount && stagedIsPendingReview ? "staged" : "neutral"}>{stagedCount} staged</StatusBadge></div></div>
             {activeModule === "explore" && tabs.length ? <>
@@ -399,7 +392,6 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
             </div>
             {activeModule !== "changes" ? <div className={`staged-dock ${stagedCount && stagedIsPendingReview ? "staged-dock-pending" : ""}`} aria-label="Shared staged changes"><div><span className="overline">Shared review queue</span><strong>{stagedCount ? `${stagedCount} change${stagedCount === 1 ? "" : "s"} staged` : "No staged changes"}</strong></div><span className="dock-meta">Review the complete proposal, then accept or reject it.</span><button type="button" onClick={() => openModule("changes")}>{stagedCount ? "Review proposal" : "Open proposal"}</button></div> : null}
           </div>
-          {assistantOpen ? <aside className="assistant-drawer" id="assistant-drawer" aria-label="Entio AI assistant"><div className="assistant-drawer-header"><div><span className="overline">Assistant</span><h2>Entio AI</h2></div><button className="icon-button" type="button" aria-label="Close assistant" onClick={() => setAssistantOpen(false)}><Icon name="close" /></button></div><AiAssistantPanel projectId={projectId} entity={activeTab ?? null} /></aside> : null}
         </section>
       </div>
       {contextMenu ? <ContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} /> : null}
@@ -416,7 +408,7 @@ function renderModule(module: ModuleId, projectId: string, sourceId: string | un
   if (module === "constraints") return <ConstraintsWorkspace projectId={projectId} shapesSourceId={shapesSourceId} initialJobId={semanticJobIds.shacl} onJobSubmitted={(kind, status) => onSemanticJobSubmitted(kind, status)} onOpen={(editType) => onOpenEditor({ kind: "typed", editType }, shapesSourceId)} />;
   if (module === "fibo") return sourceId ? <div className="module-page"><PageIntro eyebrow="External ontology" title="FIBO" description="Browse the pinned, read-only catalog and stage reuse proposals through the shared review queue." /><ExternalOntologyPanel projectId={projectId} sourceId={sourceId} /></div> : <Unavailable />;
   if (module === "activity") return <div className="module-page"><PageIntro eyebrow="Collaboration" title="Activity" description="Quiet presence and activity signals keep shared work understandable." /><CollaborationActivity projectId={projectId} activeEntityIri={activeTab?.iri ?? null} /></div>;
-  return <div className="module-page"><PageIntro eyebrow="Workspace" title="Settings" description="Manage your local profile and the optional AI provider credential." /><div className="settings-grid"><ProfileSettings displayName={displayName} onSave={onDisplayNameSave} /><AiCredentialSettings /></div></div>;
+  return <div className="module-page"><PageIntro eyebrow="Workspace" title="Settings" description="Manage your local profile and optional provider credentials." /><div className="settings-grid"><ProfileSettings displayName={displayName} onSave={onDisplayNameSave} /><AiCredentialSettings /></div></div>;
 }
 
 function PageIntro({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {

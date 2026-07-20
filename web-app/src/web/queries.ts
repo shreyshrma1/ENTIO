@@ -36,22 +36,6 @@ import {
   clearAiModelSelection,
   removeAiCredential,
   saveAiCredential,
-  askAiAssistant,
-  analyzeAiDraft,
-  cancelAiRun,
-  createAiConversation,
-  deleteAiConversation,
-  loadAiConversation,
-  loadAiConversations,
-  loadAiDraft,
-  sendAiConversationMessage,
-  submitAiDraftForReview,
-  commandAiTask,
-  createAiTask,
-  loadAiTask,
-  loadAiTaskWorkspace,
-  type WebAiAssistantRequest,
-  type WebAiAssistantResponse,
   type WebEntityDetailResponse,
   type WebHierarchyResponse,
   type WebOutlineResponse,
@@ -60,20 +44,7 @@ import {
   type WebShaclShapeListResponse,
 } from "./projectApi";
 import type {
-  WebAiConversationListResponse,
-  WebAiConversationResponse,
-  WebAiConversationTurnResponse,
-  WebAiDraftAnalysisResponse,
-  WebAiDraftResponse,
-  WebAiMessageRequest,
-  WebAiReviewSubmissionRequest,
-  WebAiReviewSubmissionResponse,
-  WebAiRunResponse,
   WebAiProviderSettings,
-  WebAiTaskCommandRequest,
-  WebAiTaskCreateRequest,
-  WebAiTaskResponse,
-  WebAiTaskWorkspaceResponse,
   WebPage,
 } from "./contracts";
 
@@ -95,14 +66,6 @@ export const queryKeys = {
   fiboSearch: (projectId: string, text: string) => ["project", projectId, "fibo", "search", text] as const,
   fiboDetails: (projectId: string, iri: string) => ["project", projectId, "fibo", "details", iri] as const,
   aiProviderSettings: ["ai", "provider-settings"] as const,
-  aiAssistant: (projectId: string) => ["project", projectId, "ai", "assistant"] as const,
-  aiConversations: (projectId: string) => ["project", projectId, "ai", "conversations"] as const,
-  aiConversation: (projectId: string, conversationId: string) => ["project", projectId, "ai", "conversation", conversationId] as const,
-  aiDraft: (projectId: string, draftId: string) => ["project", projectId, "ai", "draft", draftId] as const,
-  aiAnalysis: (projectId: string, draftId: string) => ["project", projectId, "ai", "analysis", draftId] as const,
-  aiRun: (projectId: string, runId: string) => ["project", projectId, "ai", "run", runId] as const,
-  aiTask: (projectId: string, taskId: string) => ["project", projectId, "ai", "task", taskId] as const,
-  aiTaskWorkspace: (projectId: string, taskId: string) => ["project", projectId, "ai", "task", taskId, "workspace"] as const,
 };
 
 export function useProjects() {
@@ -281,120 +244,5 @@ export function useAiProviderActions() {
     retest: useMutation({ mutationFn: (idempotencyKey: string) => retestAiModel(idempotencyKey), onSuccess: refresh }),
     clear: useMutation({ mutationFn: () => clearAiModelSelection(), onSuccess: refresh }),
     remove: useMutation({ mutationFn: () => removeAiCredential(), onSuccess: refresh }),
-  };
-}
-
-export function useAiAssistant(projectId: string) {
-  return useMutation<WebAiAssistantResponse, Error, WebAiAssistantRequest>({
-    mutationFn: (request) => askAiAssistant(projectId, request),
-  });
-}
-
-export function useAiConversations(projectId: string) {
-  return useQuery<WebAiConversationListResponse>({
-    queryKey: queryKeys.aiConversations(projectId),
-    queryFn: () => loadAiConversations(projectId),
-    enabled: projectId.length > 0,
-  });
-}
-
-export function useAiConversation(projectId: string, conversationId: string | null) {
-  return useQuery<WebAiConversationResponse>({
-    queryKey: queryKeys.aiConversation(projectId, conversationId ?? ""),
-    queryFn: () => loadAiConversation(projectId, conversationId!),
-    enabled: projectId.length > 0 && Boolean(conversationId),
-  });
-}
-
-export function useAiDraft(projectId: string, draftId: string | null) {
-  return useQuery<WebAiDraftResponse>({
-    queryKey: queryKeys.aiDraft(projectId, draftId ?? ""),
-    queryFn: () => loadAiDraft(projectId, draftId!),
-    enabled: projectId.length > 0 && Boolean(draftId),
-  });
-}
-
-export function useAiConversationActions(projectId: string) {
-  const queryClient = useQueryClient();
-  const cacheConversation = (response: WebAiConversationResponse) => {
-    queryClient.setQueryData(queryKeys.aiConversation(projectId, response.conversation.id), response);
-    queryClient.setQueryData<WebAiConversationListResponse>(queryKeys.aiConversations(projectId), (current) => {
-      const conversations = current?.conversations.filter((item) => item.id !== response.conversation.id) ?? [];
-      return { apiVersion: "v1", conversations: [response.conversation, ...conversations] };
-    });
-  };
-  return {
-    create: useMutation<WebAiConversationResponse, Error, void>({
-      mutationFn: () => createAiConversation(projectId),
-      onSuccess: cacheConversation,
-    }),
-    send: useMutation<WebAiConversationTurnResponse, Error, { conversationId: string; request: WebAiMessageRequest; idempotencyKey: string; signal?: AbortSignal }>({
-      mutationFn: ({ conversationId, request, idempotencyKey, signal }) => sendAiConversationMessage(projectId, conversationId, request, idempotencyKey, undefined, signal),
-      onSuccess: (response) => cacheConversation({ apiVersion: "v1", conversation: response.conversation }),
-    }),
-    cancel: useMutation<WebAiRunResponse, Error, string>({
-      mutationFn: (runId) => cancelAiRun(projectId, runId),
-      onSuccess: (response) => queryClient.setQueryData(queryKeys.aiRun(projectId, response.run.id), response),
-    }),
-    remove: useMutation<{ apiVersion: "v1"; status: string }, Error, string>({
-      mutationFn: (conversationId) => deleteAiConversation(projectId, conversationId),
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.aiConversations(projectId) }),
-    }),
-  };
-}
-
-export function useAiDraftActions(projectId: string) {
-  const queryClient = useQueryClient();
-  return {
-    analyze: useMutation<WebAiDraftAnalysisResponse, Error, string>({
-      mutationFn: (draftId) => analyzeAiDraft(projectId, draftId),
-      onSuccess: (response) => {
-        queryClient.setQueryData(queryKeys.aiAnalysis(projectId, response.analysis.draftId), response);
-        queryClient.invalidateQueries({ queryKey: queryKeys.aiDraft(projectId, response.analysis.draftId) });
-      },
-    }),
-    submit: useMutation<WebAiReviewSubmissionResponse, Error, { draftId: string; request: WebAiReviewSubmissionRequest; idempotencyKey: string }>({
-      mutationFn: ({ draftId, request, idempotencyKey }) => submitAiDraftForReview(projectId, draftId, request, idempotencyKey),
-      onSuccess: (response, variables) => {
-        queryClient.invalidateQueries({ queryKey: queryKeys.aiDraft(projectId, variables.draftId) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.aiConversation(projectId, response.conversationId) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.aiConversations(projectId) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.staged(projectId) });
-      },
-    }),
-  };
-}
-
-export function useAiTask(projectId: string, taskId: string | null) {
-  return useQuery<WebAiTaskResponse>({
-    queryKey: queryKeys.aiTask(projectId, taskId ?? ""),
-    queryFn: () => loadAiTask(projectId, taskId!),
-    enabled: projectId.length > 0 && Boolean(taskId),
-  });
-}
-
-export function useAiTaskWorkspace(projectId: string, taskId: string | null) {
-  return useQuery<WebAiTaskWorkspaceResponse>({
-    queryKey: queryKeys.aiTaskWorkspace(projectId, taskId ?? ""),
-    queryFn: () => loadAiTaskWorkspace(projectId, taskId!),
-    enabled: projectId.length > 0 && Boolean(taskId),
-  });
-}
-
-export function useAiTaskActions(projectId: string) {
-  const queryClient = useQueryClient();
-  const cache = (response: WebAiTaskResponse) => {
-    queryClient.setQueryData(queryKeys.aiTask(projectId, response.task.id), response);
-    void queryClient.invalidateQueries({ queryKey: queryKeys.aiTaskWorkspace(projectId, response.task.id) });
-  };
-  return {
-    create: useMutation<WebAiTaskResponse, Error, { request: WebAiTaskCreateRequest; idempotencyKey: string }>({
-      mutationFn: ({ request, idempotencyKey }) => createAiTask(projectId, request, idempotencyKey),
-      onSuccess: cache,
-    }),
-    command: useMutation<WebAiTaskResponse, Error, { taskId: string; action: Parameters<typeof commandAiTask>[2]; request: WebAiTaskCommandRequest; idempotencyKey: string }>({
-      mutationFn: ({ taskId, action, request, idempotencyKey }) => commandAiTask(projectId, taskId, action, request, idempotencyKey),
-      onSuccess: cache,
-    }),
   };
 }

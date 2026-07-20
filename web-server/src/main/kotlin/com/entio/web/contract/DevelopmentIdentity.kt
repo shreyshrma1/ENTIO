@@ -21,7 +21,6 @@ public class DevelopmentIdentityProvider(
 
 public enum class WebAction {
     BROWSE,
-    USE_AI,
     PREPARE_EDIT,
     STAGE_OWN_CHANGE,
     REMOVE_OWN_CHANGE,
@@ -37,7 +36,6 @@ public class DevelopmentAuthorization {
     public fun permissionsFor(role: WebRole): Set<WebPermission> = when (role) {
         WebRole.CONTRIBUTOR -> setOf(
             WebPermission.BROWSE,
-            WebPermission.USE_AI,
             WebPermission.PREPARE_EDIT,
             WebPermission.STAGE_OWN_CHANGE,
             WebPermission.REMOVE_OWN_CHANGE,
@@ -47,7 +45,6 @@ public class DevelopmentAuthorization {
 
     public fun isAllowed(role: WebRole, action: WebAction): Boolean = when (action) {
         WebAction.BROWSE -> true
-        WebAction.USE_AI -> true
         WebAction.PREPARE_EDIT -> true
         WebAction.STAGE_OWN_CHANGE -> true
         WebAction.REMOVE_OWN_CHANGE -> true

@@ -188,7 +188,6 @@ function stagedEntry(): WebStagedEntry {
     authorId: "bob",
     latestEditorId: "bob",
     comment: null,
-    aiGenerated: false,
     normalizedValues: { resourceIri: "https://example.com/Customer", label: "Client" },
     generatedIris: [],
     validationMessages: [],

@@ -17,7 +17,7 @@ export default function AiCredentialSettings() {
   return (
     <section className="content-band ai-credential-settings" aria-labelledby="ai-credentials-heading">
       <div className="section-heading">
-        <div><p className="eyebrow">Optional native AI</p><h2 id="ai-credentials-heading">OpenAI provider</h2></div>
+        <div><p className="eyebrow">Optional provider settings</p><h2 id="ai-credentials-heading">OpenAI provider</h2></div>
         <span className={`ai-state ${current?.selectionStatus === "READY" ? "ai-state-ready" : "ai-state-unavailable"}`} role="status" aria-live="polite">
           {settings.isPending ? "Loading" : actions.select.isPending || actions.retest.isPending ? "Verifying model" : actions.discover.isPending ? "Refreshing models" : statusLabel(current)}
         </span>
@@ -39,7 +39,7 @@ export default function AiCredentialSettings() {
       {current?.models?.length ? (
         <fieldset className="ai-model-selector" disabled={busy}>
           <legend>Available models</legend>
-          <p className="muted">Select and test is required even when one model is available. Verification sends a harmless request and may incur a small API charge.</p>
+          <p className="muted">Select and test is required even when one model is available. Verification checks model access and may incur a small API charge.</p>
           <div className="ai-model-list">
             {current.models.map((model) => (
               <article className={`ai-model-card ${current.selectedModel?.modelId === model.modelId ? "selected" : ""}`} key={model.modelId}>
@@ -84,7 +84,7 @@ function ProviderState({ settings }: { settings: WebAiProviderSettings }) {
   if (settings.selectionStatus === "UNAVAILABLE" || settings.selectionStatus === "INCOMPATIBLE") return <p role="alert">The selected model is no longer available. Refresh models and explicitly select another model.</p>;
   if (settings.selectionStatus === "VERIFICATION_FAILED") return <p role="alert">Model verification failed. Your credential remains configured; select a model and try again.</p>;
   if (settings.selectionStatus === "READY") return <p role="status">Ready with {settings.selectedModel?.displayName ?? settings.selectedModel?.modelId}.</p>;
-  if (settings.models?.length) return <p role="status">Credential valid. Select and test a model to enable the assistant.</p>;
+  if (settings.models?.length) return <p role="status">Credential valid. Select and test a model to configure provider access.</p>;
   return <p role="status">Discovering available models…</p>;
 }
 
@@ -92,7 +92,7 @@ function statusLabel(settings?: WebAiProviderSettings): string {
   if (!settings || settings.credentialStatus === "NOT_CONFIGURED") return "Not configured";
   if (settings.credentialStatus === "INVALID") return "Invalid credential";
   if (settings.discoveryStatus === "NO_COMPATIBLE_MODELS") return "No compatible models";
-  if (settings.selectionStatus === "READY") return "AI ready";
+  if (settings.selectionStatus === "READY") return "Provider ready";
   if (settings.selectionStatus === "UNAVAILABLE" || settings.selectionStatus === "INCOMPATIBLE") return "Model unavailable";
   if (settings.selectionStatus === "VERIFICATION_FAILED") return "Verification failed";
   return "Model selection required";

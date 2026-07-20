@@ -5,9 +5,6 @@ import com.entio.web.ai.provider.AiModelDiscoveryResult
 import com.entio.web.ai.provider.AiModelProviderClient
 import com.entio.web.ai.provider.AiModelVerificationResult
 import com.entio.web.ai.provider.AiProviderModelErrorCategory
-import com.entio.web.ai.AiConversationFailure
-import com.entio.web.ai.AiRunModelBinding
-import com.entio.web.ai.AiRunModelBindingResolver
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -438,67 +435,6 @@ public class AiModelSelectionService(
         )
         settingsStore.save(updated)
         return updated
-    }
-}
-
-public class SelectedAiRunModelBindingResolver(
-    private val settingsStore: AiUserProviderSettingsStore,
-    private val discovery: AiModelDiscoveryService,
-    private val providerId: String,
-    private val promptVersion: String,
-) : AiRunModelBindingResolver {
-    override fun resolve(userId: String): AiRunModelBinding {
-        val settings = settingsStore.find(userId)
-            ?: throw selectionRequired()
-        val modelId = settings.selectedModelId
-        val selected = modelId?.let { id -> settings.candidates.find { it.modelId == id } }
-        if (
-            settings.providerId != providerId ||
-            settings.credentialStatus != AiSettingsCredentialStatus.VALID ||
-            settings.discoveryStatus != AiModelDiscoveryStatus.COMPLETED ||
-            !discovery.isFresh(settings) ||
-            settings.selectionStatus != AiModelSelectionStatus.READY ||
-            settings.selectedModelVerifiedAt == null ||
-            selected?.verificationStatus != AiModelVerificationStatus.VERIFIED
-        ) throw selectionRequired()
-        return AiRunModelBinding(
-            providerId = providerId,
-            modelId = modelId,
-            catalogVersion = settings.policyVersion,
-            credentialGeneration = settings.credentialGeneration,
-            promptVersion = promptVersion,
-            requestPolicyVersion = REQUEST_POLICY_VERSION,
-            compatibilityState = selected.compatibilityState,
-        )
-    }
-
-    override suspend fun markUnavailableAndRefresh(userId: String, binding: AiRunModelBinding) {
-        val current = settingsStore.find(userId) ?: return
-        if (
-            current.credentialGeneration != binding.credentialGeneration ||
-            current.selectedModelId != binding.modelId
-        ) return
-        settingsStore.save(
-            current.copy(
-                discoveryStatus = AiModelDiscoveryStatus.STALE,
-                selectedModelVerifiedAt = null,
-                selectionStatus = AiModelSelectionStatus.UNAVAILABLE,
-                candidates = current.candidates.map { descriptor ->
-                    if (descriptor.modelId == binding.modelId) descriptor.copy(verificationStatus = AiModelVerificationStatus.FAILED) else descriptor
-                },
-                lastProviderErrorCategory = AiProviderModelErrorCategory.MODEL_NOT_AVAILABLE,
-            ),
-        )
-        runCatching { discovery.discover(userId, force = true) }
-    }
-
-    private fun selectionRequired(): AiConversationFailure = AiConversationFailure(
-        "AI_MODEL_SELECTION_REQUIRED",
-        "Select and verify an available AI model before starting a run.",
-    )
-
-    private companion object {
-        const val REQUEST_POLICY_VERSION: String = "phase-7.5-request-policy-v1"
     }
 }
 

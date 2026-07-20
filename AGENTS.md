@@ -4,13 +4,13 @@ This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engi
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
-Phases 1 through 8 are complete. Phase 8 delivered Scalable AI Ontology Workflow Orchestration with bounded task workspaces, retrieval, planning, batching, deterministic analysis and repair, and human-review handoff. No later phase is active until separately scoped and approved. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
+Phases 1 through 8 are preserved as historical delivery records. Native AI execution has been removed from the current product surface; only provider credential entry, model discovery, model selection, and their surrounding settings UI remain. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
 
 ## Product Context
 
 Entio helps teams build clean, trustworthy knowledge graphs from enterprise information.
 
-The system should be ontology-first, meaning AI should work within approved concepts, relationships, and constraints instead of freely inventing graph structure. AI-generated graph or ontology changes should be treated as drafts that require deterministic validation and human review before becoming official.
+The system is ontology-first, meaning any future AI work must operate within approved concepts, relationships, and constraints instead of freely inventing graph structure. Native AI-generated graph or ontology changes are not currently exposed.
 
 ## Current Rule For Agents
 
@@ -41,11 +41,10 @@ Phase 1, Phase 1.5, Phase 2, Phase 2.5, Phase 2.5+, Phase 3, Phase 4, Phase 5, P
 - Translating supported semantic edits through the existing proposal, validation, diff, approval, apply, reload, and rollback workflow.
 - Browsing and searching a pinned, read-only FIBO catalog with deterministic ranking, explicit dependency review, and controlled external reuse proposals.
 - Serving approved projects through a Ktor HTTP and WebSocket boundary without moving semantic logic out of the Kotlin engine.
-- Using a React web workbench for project navigation, entity inspection, label-first typed editing, shared staging, proposal review, reasoning, SHACL, FIBO, collaboration, and bounded AI assistance.
+- Using a React web workbench for project navigation, entity inspection, label-first typed editing, shared staging, proposal review, reasoning, SHACL, FIBO, collaboration, and provider settings.
 - Coordinating shared staged state, collaboration presence/activity, asynchronous semantic jobs, and in-memory development sessions through explicit server-owned contracts.
-- Storing per-user AI credentials in server memory and exposing a provider-neutral, deterministic Phase 6 assistant foundation. Phase 6 does not call a production AI provider.
-- Running the Phase 7 tool-driven OpenAI copilot through strict server-owned capabilities, bounded context, private typed drafts, deterministic analysis, and explicit review submission.
-- Discovering, selecting, and verifying current-user OpenAI models through the Phase 7.5 server boundary and binding the verified model immutably to each AI run.
+- Storing per-user provider credentials in server memory without exposing them to the browser.
+- Discovering, selecting, and verifying current-user provider models through the server boundary. No native assistant, task, draft, or AI review execution path is active.
 
 Current implementation notes:
 
@@ -89,10 +88,10 @@ Phase 5 implemented:
 
 Phase 6 implemented:
 
-- A Ktor `web-server` with versioned HTTP contracts, approved-project registration, development identity, collaboration, shared staging, proposal routes, semantic jobs, FIBO adapters, and AI credential/assistant boundaries.
-- A React/TypeScript/Vite `web-app` with ontology navigation, entity details, label-first editing, proposal review, reasoning and SHACL workspaces, FIBO browsing, collaboration indicators, settings, and an assistant panel.
+- A Ktor `web-server` with versioned HTTP contracts, approved-project registration, development identity, collaboration, shared staging, proposal routes, semantic jobs, FIBO adapters, and provider credential/model boundaries.
+- A React/TypeScript/Vite `web-app` with ontology navigation, entity details, label-first editing, proposal review, reasoning and SHACL workspaces, FIBO browsing, collaboration indicators, settings, and provider credential/model settings.
 - Server-authoritative shared state and asynchronous job status while preserving existing CLI, VS Code, semantic engine, proposal, application, reload, and rollback behavior.
-- A provider-neutral AI foundation with server-memory credentials and a deterministic development assistant. A real tool-driven OpenAI copilot belongs to Phase 7.
+- A provider-neutral provider-settings foundation with server-memory credentials and model discovery/selection. Native assistant execution is not active.
 
 Phase 2 implemented:
 
@@ -132,7 +131,7 @@ Phase 6 is complete and summarized in `docs/phase-summaries/phase-6-summary.md`.
 
 Phase 7 and Phase 7.5 are complete and summarized in `docs/phase-summaries/phase-7-summary.md` and `docs/phase-summaries/phase-7.5-summary.md`. Later planning documents must not be treated as implemented until their approved slices are completed and verified.
 
-Phase 8 is complete and summarized in `docs/phase-summaries/phase-8-summary.md`. Its scope, Spec Document, ExecPlan, slice completion artifacts, and summary are the approved delivery record. Do not infer a later active phase without approved planning documents.
+Phase 8 remains documented as a historical delivery record in `docs/phase-summaries/phase-8-summary.md`. Its native AI execution surfaces are not active in the current product. Do not infer a later active phase without approved planning documents.
 
 ## Software Architecture Rules
 

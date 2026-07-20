@@ -81,46 +81,6 @@ public class CollaborationHub(
         proposalId = proposalId,
     )
 
-    public suspend fun aiProposalSubmitted(
-        projectId: String,
-        proposalId: String,
-        submittingUserId: String,
-        runId: String,
-        rationale: String,
-    ): Unit = publishByProject(
-        projectId,
-        "proposal.ai-submitted",
-        proposalId = proposalId,
-        data = mapOf(
-            "aiGenerated" to true,
-            "submittingUserId" to submittingUserId,
-            "runId" to runId,
-            "rationale" to rationale,
-        ),
-    )
-
-    public suspend fun aiTaskProposalSubmitted(
-        projectId: String,
-        proposalId: String,
-        taskId: String,
-        submittingUserId: String,
-        rationale: String,
-        sourceIds: List<String>,
-        packageSummaries: List<String>,
-    ): Unit = publishByProject(
-        projectId,
-        "proposal.ai-task-submitted",
-        proposalId = proposalId,
-        data = mapOf(
-            "aiGenerated" to true,
-            "taskId" to taskId,
-            "submittingUserId" to submittingUserId,
-            "rationale" to rationale,
-            "sourceIds" to sourceIds.distinct().sorted(),
-            "packageSummaries" to packageSummaries.sorted(),
-        ),
-    )
-
     public suspend fun job(projectId: String, eventType: String, jobId: String): Unit = publishByProject(
         projectId,
         eventType,

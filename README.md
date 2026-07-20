@@ -18,13 +18,13 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository contains the completed Phase 1 Kotlin/JVM Core Semantic Engine through the completed Phase 8 scalable AI ontology workflow orchestration work.
+This repository contains the completed Phase 1 Kotlin/JVM Core Semantic Engine through the Phase 8 planning and implementation records. Native AI execution is not part of the current product surface; the remaining provider boundary is limited to credential entry, model discovery, and model selection.
 
 Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because the core work is ontology loading, RDF/Turtle parsing, deterministic validation, semantic diffing, and CLI behavior.
 
 The current implementation supports small local Entio projects, Turtle/RDF parsing through Apache Jena, RDF-term-aware graph triples, deterministic validation reports, semantic graph diffs, reusable project loading, and a thin CLI.
 
-Phases 2 through 8 are complete. Phase 8 adds bounded task workspaces, retrieval, planning, checkpoints, typed-edit batching, incremental analysis and repair, review packaging, task web contracts, and an accessible task UI while preserving the Kotlin semantic engine as the authority for RDF and ontology behavior.
+Phases 2 through 8 are preserved as historical delivery records. The current workbench preserves the Kotlin semantic engine as the authority for RDF and ontology behavior and exposes only optional provider credential and model settings from the former AI surface.
 
 ## Workspace Structure
 
@@ -42,7 +42,7 @@ The repository contains the Kotlin/Gradle semantic workspace, a Ktor web adapter
 
 The VS Code extension consumes the Kotlin/JVM core engine through the machine-readable CLI boundary. The React web application consumes versioned Ktor HTTP and WebSocket contracts. Neither client duplicates RDF or semantic policy.
 
-## Current Capabilities Through Phase 8
+## Current Capabilities
 
 The Phase 1 through Phase 6 implementation currently supports:
 
@@ -75,10 +75,8 @@ The Phase 1 through Phase 6 implementation currently supports:
 - Browsing and editing projects through a React web workbench with server-authoritative staging and proposal state.
 - Coordinating collaboration presence, shared activity, baseline conflicts, and asynchronous reasoning and SHACL jobs.
 - Browsing FIBO content and staging supported external reuse intents from the browser.
-- Storing optional per-user AI credentials in server memory and returning bounded deterministic assistant suggestions through a provider-neutral Phase 6 boundary.
-- Running a tool-driven OpenAI ontology copilot with bounded project context, strict server-owned capabilities, private typed drafts, deterministic analysis, and explicit human-review submission.
-- Discovering models available to the current user's OpenAI API project, requiring explicit select-and-test, and binding verified model configuration immutably to each AI run.
-- Orchestrating bounded simple, medium, and large AI ontology tasks through deterministic retrieval, plans, checkpoints, typed private-draft batches, incremental analysis and repair, and explicit human-review submission.
+- Storing optional per-user provider credentials in server memory without returning the secret to the browser.
+- Discovering models available to the current provider credential and requiring explicit model selection and verification.
 
 Implemented CLI commands:
 
@@ -152,8 +150,7 @@ npm test
 - Jena serialization does not preserve original Turtle source formatting or comments.
 - Proposal and staged-change state is process/session scoped rather than a durable review store.
 - Web project registration, development identity, collaboration, semantic jobs, staging, and AI credentials are in-memory development boundaries rather than production persistence or authentication.
-- AI credentials, model settings, conversations, runs, drafts, audits, and related development state remain in memory and are cleared on server restart.
-- Phase 8 task/workspace state and caches remain process-memory development boundaries rather than durable production orchestration.
+- Provider credentials, model settings, and discovery state remain in memory and are cleared on server restart. Native assistant conversations, runs, drafts, audits, and task workspaces are not exposed by the current product surface.
 
 ## Implemented Phase 2 Through Phase 6 Workflow
 
@@ -194,7 +191,7 @@ Phase 6 adds:
 - A versioned Ktor server over reusable Kotlin services.
 - A React browser workbench with shared staging, proposals, collaboration, reasoning, SHACL, and FIBO views.
 - In-memory development identity, collaboration, semantic-job, and credential boundaries.
-- A provider-neutral deterministic assistant foundation whose suggestions still require ordinary staging and human review.
+- Optional provider credential and model settings with server-side verification; no native assistant execution.
 
 ## Explicit Historical Non-Goals For Phase 2 Through Phase 2.5+
 
@@ -220,9 +217,7 @@ Phase 2 should not include:
 
 ## Current Planning Boundary
 
-Phases 7, 7.5, and 8 are complete and summarized in [the Phase 7 implementation summary](docs/phase-summaries/phase-7-summary.md), [the Phase 7.5 implementation summary](docs/phase-summaries/phase-7.5-summary.md), and [the Phase 8 implementation summary](docs/phase-summaries/phase-8-summary.md).
-
-Phase 8 Scalable AI Ontology Workflow Orchestration is implemented and verified. Its [scope](docs/architecture/phase-8-scope.md), [Spec Document](docs/specs/0014-phase-8-scalable-ai-ontology-workflow-orchestration.md), and [ExecPlan](docs/execplans/0014-phase-8-scalable-ai-ontology-workflow-orchestration.md) remain the approved delivery record. No later phase is active until separately scoped and approved.
+Phases 7, 7.5, and 8 remain available as historical planning and implementation records in the documentation. Their native AI execution surfaces have been removed from the current product; only provider credential and model selection settings remain active.
 
 ## Technical Principle
 

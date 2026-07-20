@@ -1,125 +1,44 @@
 # Entio AI Subsystem Map
 
-## Status
+## Current status
 
-This map began as the Phase 7 implementation inventory and now records the delivered Phase 8 ownership boundary. It describes implemented ownership; it does not independently authorize later product behavior.
+Native AI execution has been removed from Entio. The active provider surface is deliberately limited to credential entry, credential verification, model discovery, model access verification, model selection, and the surrounding settings UI. The former assistant, conversation, task, draft, capability, SSE, and review-handoff architecture is retained only in the Phase 7/7.5/8 historical documents.
 
-The server AI implementation currently uses one Kotlin package, `com.entio.web.ai`. The responsibilities inside that package are distinguishable by file and stable service boundaries. Phase 7.5 Slice 1 therefore keeps the files in place instead of creating a behavior-neutral package-move diff. Later slices may introduce focused `provider`, `provider.openai`, `credentials`, or `models` packages when new code gives those packages concrete ownership.
+## Active server ownership
 
-## Server Ownership
-
-| Concern | Current entry points | State owner | Boundary |
-| --- | --- | --- | --- |
-| Credential secret and status | `AiProviderContracts.kt` (`AiCredentialService`, `AiCredentialStore`) | `InMemoryAiCredentialStore` plus service-owned test status | Secrets are server-only and exposed only through callback-scoped credential access. |
-| Provider-neutral credential test | `AiProviderClient` | Provider implementation | Returns an Entio-owned pass/fail result; it must not expose the credential. |
-| OpenAI Responses transport | `OpenAiResponsesClient.kt` | `OpenAiResponsesClient` configuration and request-local transport state | Owns the fixed OpenAI host, authorization header, provider DTO mapping, retries, and redacted failures. |
-| Deterministic provider doubles | `DevelopmentAiProviderClient`, `DevelopmentAiAssistantProvider`, `DevelopmentAiToolLoopProvider` | Stateless deterministic implementations | Default automated-test boundary; no external provider call is required. |
-| Assistant compatibility boundary | `AiAssistantContracts.kt` | `AiAssistantService` and bounded context builder | Preserves the earlier assistant contract while delegating provider work through `AiAssistantProvider`. |
-| Capability contracts and policy | `AiCapabilityContracts.kt`, `AiCapabilityRegistry.kt` | `AiCapabilityRegistry` | Kotlin defines every callable capability, schema, role, source scope, limits, audit classification, and forbidden names. |
-| Capability execution | `AiCapabilityDispatcher.kt`, `AiLocalReadCapabilities.kt`, `AiSemanticReadCapabilities.kt` | Capability services and dispatcher | Adapts approved calls to existing Entio services. It does not move semantic policy into the AI layer. |
-| Typed draft edits | `AiTypedEditCapabilities.kt` | `AiPrivateDraftWorkspace` and `AiDraftStore` | Uses existing typed edit preparation; never writes RDF or shared staging directly. |
-| Conversation and run orchestration | `AiConversationService.kt` | `AiConversationStore`, `AiRunStore`, run event state | Owns intent, bounded tool loops, clarification/plan states, cancellation, and run lifecycle. |
-| Conversation, run, draft, and audit records | `AiSessionContracts.kt`, `AiSessionStores.kt` | Per-user in-memory stores | Enforces user/project ownership and session-scoped persistence. |
-| Task and workspace state | `AiTaskContracts.kt`, `AiTaskStateMachine.kt`, `AiTaskStore.kt`, `AiTaskLifecycleService.kt` | `InMemoryAiTaskStore` | Owns immutable task scope/model provenance, legal lifecycle transitions, revision-checked workspace updates, limits, and process-memory task state. Chat history is not authoritative. |
-| Retrieval, context, and planning | `AiBoundedRetrievalContracts.kt`, `AiProjectMapService.kt`, `AiOntologyNeighborhoodService.kt`, `AiTaskContextPackageBuilder.kt`, `AiWorkflowPlan.kt` | Fingerprint-scoped caches and task workspace | Owns bounded deterministic retrieval, frozen capability bundles, versioned plans, clarification, confirmation, and checkpoints. |
-| Task execution and repair | `AiWorkPackageExecutor.kt`, `AiCompositeCapabilityService.kt`, `AiDraftBatchService.kt`, `AiIncrementalValidationService.kt`, `AiRepairService.kt` | Private task draft and analysis stores | Executes packages serially, emits only approved typed edits, analyzes incrementally, and permits only inventoried bounded repairs. |
-| Task review and audit | `AiTaskReviewService.kt`, `AiTaskAudit.kt`, `AiTaskWebBoundary.kt` | Task audit and ordinary proposal workflow | Builds complete review evidence, submits the exact private draft, exposes redacted task contracts/events, and never grants AI reviewer authority. |
-| Draft analysis and correction | `AiDraftAnalysis.kt` | `AiDraftAnalysisStore` and draft workspace | Reuses deterministic validation, preview, reasoning, SHACL, and impact services without changing their authority. |
-| Human-review handoff | `AiReviewSubmissionService.kt` | Submission service and in-memory attribution audit | Submits a verified AI draft into the existing review workflow; it cannot approve, reject, or apply. |
-| Web mapping and idempotency | `AiWebBoundary.kt` | Boundary-local idempotency store | Maps authenticated project AI requests to Entio web DTOs and redacted errors. |
-| Route composition | `Application.kt` | Ktor application wiring | Authenticates the current development user and exposes credential, assistant, conversation, run, draft, help, and SSE routes. |
-
-## Browser Ownership
-
-| Concern | Entry points | Responsibility |
+| Concern | Entry points | Boundary |
 | --- | --- | --- |
-| Credential settings | `web-app/src/workbench/AiCredentialSettings.tsx` | Sends a credential to Entio once, renders server status, and provides test/removal actions. It does not call OpenAI. |
-| Conversation shell | `web-app/src/workbench/AiAssistantPanel.tsx` | Renders conversation, plan, clarification, run, and draft states from versioned Entio contracts. |
-| Run events | `web-app/src/workbench/ai/AiRunTimeline.tsx` | Displays server-owned SSE lifecycle events and resynchronization state. |
-| Draft review | `web-app/src/workbench/ai/AiDraftReview.tsx` | Displays typed draft items and deterministic analysis; final authority remains in the ordinary proposal workflow. |
-| Task workspace | `web-app/src/workbench/ai/AiTaskWorkspace.tsx` | Displays authoritative plan, package, checkpoint, analysis, repair, stale/limit, cancellation, and review-handoff state with accessible status and event recovery. |
-| Transport contracts | `web-app/src/web/contracts.ts`, `projectApi.ts`, and `queries.ts` | Owns typed HTTP/query adaptation only. It must not reconstruct server policy. |
+| Credential storage and status | `AiProviderContracts.kt` (`AiCredentialService`, `AiCredentialStore`) | Secrets remain server-only and are exposed only through callback-scoped access. |
+| Provider credential verification | `OpenAiCredentialClient.kt`, `AiProviderClient` | Performs only the provider credential check; it does not call a model or execute a prompt. |
+| Model discovery and access verification | `provider/openai/OpenAiModelDiscoveryClient.kt` | Reads the provider model inventory and checks a selected model through the provider model-metadata endpoint. It does not send generation or tool requests. |
+| Compatibility and selection state | `ai/models/` | Owns server-side filtering, per-user candidates, explicit selection, verification state, and freshness. |
+| Redacted HTTP boundary | `AiModelWebBoundary.kt`, `Application.kt` | Exposes only credential and model settings routes. No project-scoped AI routes are registered. |
+| Provider settings UI | `web-app/src/workbench/AiCredentialSettings.tsx` | Collects the key, renders redacted provider/model status, and lets the user discover, select, verify, replace, or remove settings. |
 
-## Main Flows
-
-### Credential flow before Phase 7.5
+## Active routes
 
 ```text
-React credential settings
-  -> Ktor /api/v1/ai credential routes
-  -> AiCredentialService
-  -> AiCredentialStore callback
-  -> AiProviderClient
+GET    /api/v1/ai/credential-status
+GET    /api/v1/ai/provider-settings
+PUT    /api/v1/ai/credentials
+POST   /api/v1/ai/credentials/test
+DELETE /api/v1/ai/credentials
+POST   /api/v1/ai/models/discover
+GET    /api/v1/ai/models
+PUT    /api/v1/ai/model-selection
+POST   /api/v1/ai/model-selection/test
+DELETE /api/v1/ai/model-selection
 ```
 
-Only the store callback and provider adapter receive the API key. Status DTOs contain no secret. Phase 7.5 model settings must remain separate from this secret store and must be keyed by the current user.
+No assistant, conversation, run, task, draft, analysis, SSE, capability, or AI review-submission route is available. The ordinary ontology staging and human-review workflow remains independent of provider settings.
 
-### Conversation and tool flow
+## Security boundary
 
-```text
-React assistant
-  -> Application routes
-  -> AiWebBoundary
-  -> AiConversationService
-  -> AiCapabilityRegistry / AiCapabilityDispatcher
-  -> existing Entio services
-  -> private AiDraftStore
-  -> deterministic analysis
-  -> AiReviewSubmissionService
-  -> existing human review workflow
-```
+- API keys stay in server memory and never appear in browser DTOs, logs, model descriptors, or errors.
+- Provider adapters are fixed-host, provider-specific clients and cannot access ontology services, files, shell commands, project configuration, staging, or review controls.
+- Model verification uses provider metadata access only; it does not invoke a model, submit a prompt, or execute a tool.
+- The React client owns presentation only. Server-owned compatibility policy determines which discovered models can be selected.
 
-Provider requests are initiated only by the conversation service through the provider interface. Capability results remain structured Entio data. The provider never receives direct semantic-module, filesystem, shell, approval, or application access.
+## Historical records
 
-### State ownership
-
-- Credentials: per-user server memory in `AiCredentialStore`; secret values never enter conversation, draft, audit, event, or web DTO state.
-- Conversations, runs, drafts, and AI audits: per-user and per-project server memory with ownership checks in the session stores.
-- Phase 8 tasks and workspaces: per-user and per-project server memory with non-disclosing ownership checks, immutable initial scope/model provenance, compare-and-set workspace revisions, bounded caches, and private events. Server restart intentionally clears this state.
-- Shared staging and proposals: existing server-owned workbench services outside the AI subsystem; AI reaches them only through the bounded submission service.
-- Semantic project state: existing Kotlin engine and service modules; the AI subsystem is an adapter and consumer.
-- Browser cache: redacted status and versioned response data only; it is never authoritative for permissions, capability schemas, validity, or model compatibility.
-
-## Phase 7.5 Provider, Credential, And Model Boundaries
-
-Phase 7.5 preserves these separations:
-
-- `provider`: provider-neutral discovery, verification, and run execution contracts.
-- `provider.openai`: fixed-host HTTP requests and immediate mapping of OpenAI payloads and failures.
-- `credentials`: callback-scoped secret access and credential-generation lifecycle.
-- `models`: server-owned compatibility policy, discovered candidate projection, per-user selection, verification, and freshness state without secrets.
-- `web`: redacted versioned DTO mapping and current-user routes.
-
-Model management is application infrastructure. It must not become an AI capability, project setting, ontology edit, collaboration preference, or browser-owned policy.
-
-### Compatibility policy and known metadata
-
-`web-server/src/main/kotlin/com/entio/web/ai/models/` owns the Phase 7.5 compatibility policy, optional known-model metadata, per-user settings, discovery, verification, selection, and runtime binding resolver. `AiModelCompatibilityPolicy` accepts only minimal provider-neutral IDs, rejects malformed IDs, moving aliases, unsupported providers, and clearly non-conversational resource families, then produces a deterministic candidate projection. Unknown discovered IDs may remain candidates but cannot become usable without live verification.
-
-`AiKnownModelMetadataCatalog` enriches known IDs with Entio-owned display text, relative capability/speed/cost language, timeout class, ordering, and recommendation. Catalog membership does not grant availability or compatibility. The initial metadata entries describe the current GPT-5.6 Sol, Terra, and Luna variants; later metadata changes require review but do not replace per-user provider discovery or verification. The compatibility-policy version is recorded explicitly as `phase-7.5-compatibility-v1`.
-
-## Test Doubles And Verification Seams
-
-- `DevelopmentAiProviderClient` provides deterministic credential-test behavior.
-- `DevelopmentAiAssistantProvider` provides the Phase 6 compatibility response boundary.
-- `DevelopmentAiToolLoopProvider` provides deterministic Phase 7 tool-loop behavior.
-- `OpenAiResponsesClientTest` uses Ktor `MockEngine` rather than a live credential or network request.
-- Application and service tests construct in-memory credential, conversation, run, draft, analysis, audit, and review stores.
-- React tests mock the Entio transport boundary; browser tests never call OpenAI.
-
-Phase 7.5 discovery, verification, runtime recovery, and end-to-end tests extend these deterministic seams and remain runnable without a real API key.
-
-## Forbidden Dependency Directions
-
-- `core-types`, `semantic-engine`, `validation-engine`, `graph-diff`, `cli`, and `shared` must not depend on `web-server`, AI provider code, or browser code.
-- Semantic modules must not receive credentials, provider DTOs, model settings, HTTP clients, or web contracts.
-- React must not call OpenAI, retain credentials, evaluate compatibility policy, manufacture candidate IDs, or decide AI readiness independently.
-- Provider/OpenAI adapters must not call semantic services, draft stores, proposal services, collaboration state, or model-selection web routes.
-- Credential storage must not depend on conversation, draft, project, ontology, or collaboration state.
-- Model discovery and selection must not be exposed as AI-callable capabilities.
-- AI capability execution must not approve, reject, apply, roll back, write ontology sources, or edit project/provider configuration.
-- Web DTOs, events, audits, logs, snapshots, and browser storage must not contain credentials, authorization headers, raw provider payloads, or unrestricted provider inventory.
-
-## Slice 1 Cleanup Decision
-
-The flat server package contains broad files, but its current entry points, state stores, and dependency directions are explicit and covered by focused tests. Moving existing public Kotlin types before their Phase 7.5 replacements exist would produce widespread import churn without changing ownership. Slice 1 therefore makes no source moves. Concrete new provider/model responsibilities may be placed in focused subpackages in later approved slices while compatibility seams protect existing behavior.
+The Phase 7, Phase 7.5, and Phase 8 specs, ExecPlans, decisions, and summaries describe the former native AI implementation and remain available as historical records. They do not authorize reintroducing native AI execution or override this current boundary.

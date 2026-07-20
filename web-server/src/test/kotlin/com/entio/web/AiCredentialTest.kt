@@ -81,6 +81,15 @@ class AiCredentialTest {
         assertEquals(null, store.providerFor("alice"))
     }
 
+    @Test
+    fun nativeAssistantAndOntologyTaskRoutesAreNotExposed(): Unit = testApplication {
+        application { module(developmentDependencies()) }
+
+        assertEquals(HttpStatusCode.NotFound, client.post("/api/v1/projects/simple/ai/assistant").status)
+        assertEquals(HttpStatusCode.NotFound, client.post("/api/v1/projects/simple/ai/conversations").status)
+        assertEquals(HttpStatusCode.NotFound, client.post("/api/v1/projects/simple/ai/tasks").status)
+    }
+
     private fun developmentDependencies(): WebApplicationDependencies = WebApplicationDependencies(
         aiProvider = DevelopmentAiProviderClient(),
     )

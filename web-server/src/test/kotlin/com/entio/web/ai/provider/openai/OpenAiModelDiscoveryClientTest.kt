@@ -6,14 +6,12 @@ import com.entio.web.ai.provider.AiModelVerificationResult
 import com.entio.web.ai.provider.AiProviderModelError
 import com.entio.web.ai.provider.AiProviderModelErrorCategory
 import com.entio.web.ai.provider.DevelopmentAiModelProviderClient
-import com.fasterxml.jackson.databind.ObjectMapper
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
@@ -27,7 +25,6 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class OpenAiModelDiscoveryClientTest {
-    private val mapper: ObjectMapper = ObjectMapper()
 
     @Test
     fun discoveryUsesFixedGetBoundaryAndMapsOnlyStableIds(): Unit = runBlocking {
@@ -135,31 +132,22 @@ class OpenAiModelDiscoveryClientTest {
     }
 
     @Test
-    fun verificationUsesMinimalNonProjectFunctionRequestAndMapsModelAccessLoss(): Unit = runBlocking {
-        var capturedBody: String? = null
+    fun verificationUsesModelMetadataBoundaryAndMapsModelAccessLoss(): Unit = runBlocking {
         var capturedMethod: HttpMethod? = null
         var capturedUrl: String? = null
         val accepted = MockEngine { request ->
             capturedMethod = request.method
             capturedUrl = request.url.toString()
-            capturedBody = (request.body as TextContent).text
             respond(
-                """{"output":[{"type":"function_call","name":"${OpenAiModelDiscoveryClient.VERIFICATION_TOOL_NAME}","arguments":"{}"}]}""",
+                """{"id":"future-tool-model","object":"model"}""",
                 headers = jsonHeaders(),
             )
         }
         val result = client(accepted).use { it.verifyModel("secret-key", "future-tool-model") }
 
         assertIs<AiModelVerificationResult.Verified>(result)
-        assertEquals(HttpMethod.Post, capturedMethod)
-        assertEquals(OpenAiModelProviderConfiguration.RESPONSES_ENDPOINT, capturedUrl)
-        val body = mapper.readTree(capturedBody)
-        assertEquals("future-tool-model", body.path("model").textValue())
-        assertFalse(body.path("store").booleanValue())
-        assertEquals(OpenAiModelDiscoveryClient.VERIFICATION_TOOL_NAME, body.path("tools").single().path("name").textValue())
-        assertFalse(body.toString().contains("ontology", ignoreCase = true))
-        assertFalse(body.toString().contains("project", ignoreCase = true))
-        assertFalse(body.toString().contains("secret-key"))
+        assertEquals(HttpMethod.Get, capturedMethod)
+        assertEquals("${OpenAiModelProviderConfiguration.MODELS_ENDPOINT}/future-tool-model", capturedUrl)
 
         val missing = MockEngine {
             respond(

@@ -4,11 +4,7 @@ import java.nio.file.Path
 import java.util.UUID
 import com.entio.web.ai.AiCredentialStore
 import com.entio.web.ai.AiProviderClient
-import com.entio.web.ai.AiAssistantProvider
-import com.entio.web.ai.DevelopmentAiAssistantProvider
-import com.entio.web.ai.AiToolLoopProvider
-import com.entio.web.ai.DevelopmentAiToolLoopProvider
-import com.entio.web.ai.defaultOpenAiResponsesClient
+import com.entio.web.ai.defaultOpenAiCredentialClient
 import com.entio.web.ai.provider.AiModelProviderClient
 import com.entio.web.ai.provider.openai.OpenAiModelDiscoveryClient
 
@@ -52,7 +48,6 @@ public enum class WebRole {
 
 public enum class WebPermission {
     BROWSE,
-    USE_AI,
     PREPARE_EDIT,
     STAGE_OWN_CHANGE,
     REMOVE_OWN_CHANGE,
@@ -107,9 +102,7 @@ public data class WebApplicationDependencies(
     val authorization: DevelopmentAuthorization = DevelopmentAuthorization(),
     val requestIdFactory: () -> String = { UUID.randomUUID().toString() },
     val aiCredentials: AiCredentialStore = com.entio.web.ai.InMemoryAiCredentialStore(),
-    val aiProvider: AiProviderClient = defaultOpenAiResponsesClient(),
-    val aiAssistant: AiAssistantProvider = aiProvider as? AiAssistantProvider ?: DevelopmentAiAssistantProvider(),
-    val aiToolLoopProvider: AiToolLoopProvider = aiProvider as? AiToolLoopProvider ?: DevelopmentAiToolLoopProvider(),
+    val aiProvider: AiProviderClient = defaultOpenAiCredentialClient(),
     val aiModelProvider: AiModelProviderClient = OpenAiModelDiscoveryClient(),
 )
 
