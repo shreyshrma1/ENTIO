@@ -124,20 +124,31 @@ internal class AiWebBoundary(
         conversationId: String,
         request: WebAiMessageRequest,
         idempotencyKey: String,
+        respondAsync: Boolean = false,
     ): WebAiConversationTurnResponse = idempotent(
         scopedKey(user.id, projectId, conversationId, "message", idempotencyKey),
         stableFingerprint(request),
     ) {
         val scope = currentScope(user, projectId, conversationId)
-        conversationService.send(
-            scope,
-            conversationId,
-            AiConversationTurnRequest(
-                message = request.message,
-                decision = enumValue(request.decision, "invalid-conversation-decision"),
-            ),
-            request.screenContext.toContext(user, scope.availableFeatures),
-        ).toWeb()
+        val turnRequest = AiConversationTurnRequest(
+            message = request.message,
+            decision = enumValue(request.decision, "invalid-conversation-decision"),
+        )
+        if (respondAsync) {
+            conversationService.start(
+                scope,
+                conversationId,
+                turnRequest,
+                request.screenContext.toContext(user, scope.availableFeatures),
+            ).toWeb()
+        } else {
+            conversationService.send(
+                scope,
+                conversationId,
+                turnRequest,
+                request.screenContext.toContext(user, scope.availableFeatures),
+            ).toWeb()
+        }
     }
 
     fun run(user: WebSessionUser, projectId: String, runId: String): WebAiRunResponse {

@@ -12,6 +12,7 @@ import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.accept
 import io.ktor.client.request.header
+import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -29,24 +30,25 @@ import kotlinx.coroutines.delay
 
 public data class OpenAiProviderConfiguration(
     val providerId: String = PROVIDER_ID,
-    val modelId: String = MODEL_ID,
     val promptVersion: String,
     val endpoint: String = ENDPOINT,
+    val modelsEndpoint: String = MODELS_ENDPOINT,
     val store: Boolean = false,
     val connectTimeoutMillis: Long = 10_000,
-    val requestTimeoutMillis: Long = 120_000,
+    /** Null leaves the provider request open until OpenAI, cancellation, or a transport failure ends it. */
+    val requestTimeoutMillis: Long? = null,
     val maxRetries: Int = 2,
     val retryBaseDelayMillis: Long = 1_000,
     val maxRetryDelayMillis: Long = 30_000,
 ) {
     init {
         require(providerId == PROVIDER_ID) { "openai-provider-id-required" }
-        require(modelId == MODEL_ID && !modelId.contains("latest")) { "approved-openai-model-required" }
         require(promptVersion.isNotBlank()) { "openai-prompt-version-required" }
-        require(endpoint == ENDPOINT && URI(endpoint).host == "api.openai.com") { "approved-openai-endpoint-required" }
+        require(isApprovedEndpoint(endpoint, "/v1/responses")) { "approved-openai-endpoint-required" }
+        require(isApprovedEndpoint(modelsEndpoint, "/v1/models")) { "approved-openai-models-endpoint-required" }
         require(!store) { "openai-response-storage-must-be-disabled" }
         require(connectTimeoutMillis > 0)
-        require(requestTimeoutMillis > 0)
+        require(requestTimeoutMillis == null || requestTimeoutMillis > 0)
         require(maxRetries in 0..2)
         require(retryBaseDelayMillis >= 0)
         require(maxRetryDelayMillis >= retryBaseDelayMillis)
@@ -54,8 +56,13 @@ public data class OpenAiProviderConfiguration(
 
     public companion object {
         public const val PROVIDER_ID: String = "openai"
-        public const val MODEL_ID: String = "gpt-5.2"
         public const val ENDPOINT: String = "https://api.openai.com/v1/responses"
+        public const val MODELS_ENDPOINT: String = "https://api.openai.com/v1/models"
+
+        private fun isApprovedEndpoint(value: String, path: String): Boolean = runCatching {
+            val uri = URI(value)
+            uri.scheme == "https" && uri.host == "api.openai.com" && uri.path == path && uri.query == null && uri.fragment == null
+        }.getOrDefault(false)
     }
 }
 
@@ -75,39 +82,26 @@ public data class OpenAiToolOutput(
 
 public interface AiToolLoopProvider {
     public val providerId: String
-    public val modelId: String
     public val promptVersion: String
 
     public suspend fun respond(
         apiKey: String,
         request: OpenAiResponsesRequest,
         onEvent: suspend (OpenAiProviderEvent) -> Unit,
-    ): OpenAiResponsesResult
+    ): OpenAiResponsesResult = failure(OpenAiFailureCode.MODEL_UNAVAILABLE, false)
 
-    /** Additive model-aware seam. Runtime-selected execution is enabled in Phase 7.5 Slice 7. */
+    /** Runtime execution always receives the model selected and verified for this run. */
     public suspend fun respond(
         apiKey: String,
         selectedModelId: String,
         request: OpenAiResponsesRequest,
         onEvent: suspend (OpenAiProviderEvent) -> Unit,
-    ): OpenAiResponsesResult {
-        if (selectedModelId != modelId) {
-            return OpenAiResponsesResult.Failed(
-                OpenAiProviderFailure(
-                    code = OpenAiFailureCode.PROVIDER_ERROR,
-                    message = "The requested model is not bound to this provider instance.",
-                    retryable = false,
-                ),
-            )
-        }
-        return respond(apiKey, request, onEvent)
-    }
+    ): OpenAiResponsesResult = respond(apiKey, request, onEvent)
 }
 
 /** Deterministic fallback for tests that do not opt into the production OpenAI boundary. */
 public class DevelopmentAiToolLoopProvider(
     override val providerId: String = "provider-neutral",
-    override val modelId: String = "development-ai",
     override val promptVersion: String = "phase-7-development-v1",
 ) : AiToolLoopProvider {
     override suspend fun respond(
@@ -187,14 +181,13 @@ public sealed interface OpenAiResponsesResult {
     public data class Failed(val failure: OpenAiProviderFailure) : OpenAiResponsesResult
 }
 
-/** OpenAI Responses adapter. It accepts only the approved endpoint, model, and custom Entio function tools. */
+/** OpenAI Responses adapter. It accepts only the approved endpoints and custom Entio function tools; a verified run supplies the model. */
 public class OpenAiResponsesClient(
     private val configuration: OpenAiProviderConfiguration,
     private val httpClient: HttpClient = createOpenAiHttpClient(configuration),
     private val objectMapper: ObjectMapper = ObjectMapper(),
 ) : AiProviderClient, AiAssistantProvider, AiToolLoopProvider, AutoCloseable {
     override val providerId: String = configuration.providerId
-    override val modelId: String = configuration.modelId
     override val promptVersion: String = configuration.promptVersion
 
     override suspend fun test(apiKey: String): AiProviderTestResult {
@@ -204,13 +197,11 @@ public class OpenAiResponsesClient(
         var attempt = 0
         while (true) {
             try {
-                // Exercise the same model and Responses endpoint used by the assistant.
-                // A models-list request can succeed even when this API project cannot
-                // use Entio's approved model for inference.
-                val response = httpClient.post(configuration.endpoint) {
+                // Credential testing must not imply access to one fixed model. Model
+                // discovery and explicit model verification own that decision.
+                val response = httpClient.get(configuration.modelsEndpoint) {
                     header(HttpHeaders.Authorization, "Bearer $normalizedApiKey")
                     accept(ContentType.Application.Json)
-                    setBody(TextContent(serializeCredentialTestRequest(), ContentType.Application.Json))
                 }
                 if (!response.status.isSuccess()) {
                     val failure = mapHttpFailure(response.status, response.bodyAsText())
@@ -222,7 +213,7 @@ public class OpenAiResponsesClient(
                 }
                 response.bodyAsText()
                 return AiProviderTestResult.Passed(
-                    "The OpenAI credential and approved model are ready for assistant requests.",
+                    "The OpenAI credential was accepted. Discover and verify a model before starting assistant requests.",
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -258,15 +249,43 @@ public class OpenAiResponsesClient(
         }
     }
 
+    override suspend fun complete(
+        apiKey: String,
+        selectedModelId: String,
+        request: AiProviderRequest,
+    ): AiProviderCompletion {
+        val result = respond(
+            apiKey,
+            selectedModelId,
+            OpenAiResponsesRequest(
+                trustedPolicy = request.context.trustedPolicy,
+                userInput = request.context.userRequest,
+                capabilities = AiCapabilityRegistrySnapshot("phase-6-compatibility", emptyList()),
+            ),
+        )
+        return when (result) {
+            is OpenAiResponsesResult.Failed -> AiProviderCompletion.Failed(result.failure.message)
+            is OpenAiResponsesResult.Completed -> AiProviderCompletion.Success(
+                answer = result.response.text.ifBlank { "The provider returned no text response." },
+            )
+        }
+    }
+
     public suspend fun respond(apiKey: String, request: OpenAiResponsesRequest): OpenAiResponsesResult =
         respond(apiKey, request) {}
+
+    public suspend fun respond(
+        apiKey: String,
+        selectedModelId: String,
+        request: OpenAiResponsesRequest,
+    ): OpenAiResponsesResult = respond(apiKey, selectedModelId, request) {}
 
     override suspend fun respond(
         apiKey: String,
         request: OpenAiResponsesRequest,
         onEvent: suspend (OpenAiProviderEvent) -> Unit,
     ): OpenAiResponsesResult {
-        return respondWithModel(apiKey, configuration.modelId, request, onEvent)
+        return failure(OpenAiFailureCode.MODEL_UNAVAILABLE, false)
     }
 
     override suspend fun respond(
@@ -353,7 +372,8 @@ public class OpenAiResponsesClient(
         }
     }
 
-    public fun serializeRequest(request: OpenAiResponsesRequest): String = serializeRequest(request, configuration.modelId)
+    public fun serializeRequest(request: OpenAiResponsesRequest): String =
+        throw IllegalStateException("verified-runtime-model-required")
 
     public fun serializeRequest(request: OpenAiResponsesRequest, selectedModelId: String): String {
         require(isSafeRuntimeModelId(selectedModelId)) { "approved-runtime-model-required" }
@@ -391,16 +411,6 @@ public class OpenAiResponsesClient(
         root.set<ObjectNode>("metadata", objectMapper.createObjectNode().put("prompt_version", configuration.promptVersion))
         return objectMapper.writeValueAsString(root)
     }
-
-    private fun serializeCredentialTestRequest(): String = objectMapper.writeValueAsString(
-        objectMapper.createObjectNode().apply {
-            put("model", configuration.modelId)
-            put("store", false)
-            put("stream", false)
-            put("max_output_tokens", 16)
-            put("input", "Reply only with OK.")
-        },
-    )
 
     private suspend fun parseEvents(
         response: HttpResponse,
@@ -547,7 +557,7 @@ public class OpenAiResponsesClient(
         if (nullable) node.set<ArrayNode>("type", objectMapper.createArrayNode().add(type).add("null")) else node.put("type", type)
     }
 
-    private fun mapHttpFailure(status: HttpStatusCode, responseBody: String, selectedModelId: String = configuration.modelId): OpenAiProviderFailure {
+    private fun mapHttpFailure(status: HttpStatusCode, responseBody: String, selectedModelId: String = "the selected model"): OpenAiProviderFailure {
         val providerError = runCatching { objectMapper.readTree(responseBody).path("error") }.getOrNull()
         val providerCode = providerError?.path("code")?.textOrNull()
         val providerType = providerError?.path("type")?.textOrNull()
@@ -655,13 +665,10 @@ public class OpenAiResponsesClient(
 
 public fun createOpenAiHttpClient(configuration: OpenAiProviderConfiguration): HttpClient = createOpenAiHttpClient(configuration, CIO.create())
 
-/** Creates the production Phase 7 provider with the fixed endpoint, storage policy, and model allowlist. */
+/** Creates the production provider transport; model selection is bound per verified AI run. */
 public fun defaultOpenAiResponsesClient(): OpenAiResponsesClient {
-    val modelId = System.getenv("ENTIO_OPENAI_MODEL")?.takeIf(String::isNotBlank)
-        ?: OpenAiProviderConfiguration.MODEL_ID
     return OpenAiResponsesClient(
         OpenAiProviderConfiguration(
-            modelId = modelId,
             promptVersion = "phase-7-v1",
         ),
     )

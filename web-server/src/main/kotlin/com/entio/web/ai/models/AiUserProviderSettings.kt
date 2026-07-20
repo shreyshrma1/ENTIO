@@ -468,6 +468,7 @@ public class SelectedAiRunModelBindingResolver(
             credentialGeneration = settings.credentialGeneration,
             promptVersion = promptVersion,
             requestPolicyVersion = REQUEST_POLICY_VERSION,
+            compatibilityState = selected.compatibilityState,
         )
     }
 

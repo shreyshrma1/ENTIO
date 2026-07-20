@@ -87,6 +87,13 @@ public interface AiAssistantProvider {
     public val providerId: String
 
     public suspend fun complete(apiKey: String, request: AiProviderRequest): AiProviderCompletion
+
+    /** Model-aware seam used by the native provider; legacy deterministic providers may use the default. */
+    public suspend fun complete(
+        apiKey: String,
+        selectedModelId: String,
+        request: AiProviderRequest,
+    ): AiProviderCompletion = complete(apiKey, request)
 }
 
 /** Deterministic provider adapter used until a real provider is explicitly approved. */
@@ -249,12 +256,19 @@ public class AiAssistantService(
     private val provider: AiAssistantProvider,
     private val contextBuilder: AiBoundedContextBuilder,
     private val validator: AiTypedSuggestionValidator = AiTypedSuggestionValidator(),
+    private val modelBindings: AiRunModelBindingResolver? = null,
 ) {
     public suspend fun answer(userId: String, projectId: String, request: AiAssistantRequest): AiAssistantResponse {
         val context = contextBuilder.build(projectId, request)
         val completion = credentials.withCredentialSuspending(userId) { providerId, apiKey ->
             if (providerId != provider.providerId) AiProviderCompletion.Failed("The configured provider is not available.")
-            else provider.complete(apiKey, AiProviderRequest(request.operation, context))
+            else {
+                val providerRequest = AiProviderRequest(request.operation, context)
+                modelBindings?.let { resolver ->
+                    val binding = resolver.resolve(userId)
+                    provider.complete(apiKey, binding.modelId, providerRequest)
+                } ?: provider.complete(apiKey, providerRequest)
+            }
         } ?: throw AiAssistantFailure("missing-credential", "Configure and test an AI credential before using the assistant.")
         return when (completion) {
             is AiProviderCompletion.Failed -> throw AiAssistantFailure("assistant-provider-failed", completion.message)

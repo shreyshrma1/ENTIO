@@ -685,7 +685,7 @@ export async function sendAiConversationMessage(
     "POST",
     request,
     fetcher,
-    { "Idempotency-Key": idempotencyKey },
+    { "Idempotency-Key": idempotencyKey, Prefer: "respond-async" },
     undefined,
     signal,
   );

@@ -11,15 +11,20 @@ afterEach(() => {
 describe("AI assistant panel", () => {
   it("renders conversation history, sends a follow-up, and orders safe run activity", async () => {
     const initial = conversation([message("message-1", "ASSISTANT", "Customer is an asserted class.")]);
+    let currentConversation = initial;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path.endsWith("/ai/provider-settings")) return json(providerSettings(true));
-      if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [initial] });
-      if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) return json({ apiVersion: "v1", conversation: initial });
-      if (path.endsWith("/messages") && init?.method === "POST") return json(turn({
-        messages: [...initial.messages, { ...message("message-2", "USER", "What uses it?"), operation: null }, message("message-3", "ASSISTANT", "Invoice uses Customer.")],
-        answer: "Invoice uses Customer.",
-      }));
+      if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [currentConversation] });
+      if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) return json({ apiVersion: "v1", conversation: currentConversation });
+      if (path.endsWith("/messages") && init?.method === "POST") {
+        currentConversation = conversation([
+          ...initial.messages,
+          { ...message("message-2", "USER", "What uses it?"), operation: null },
+          message("message-3", "ASSISTANT", "Invoice uses Customer."),
+        ]);
+        return json(turn({ messages: currentConversation.messages, answer: "Invoice uses Customer." }));
+      }
       if (path.endsWith("/events")) return eventStream([
         event("run-1", 2, "TEXT_COMPLETED", "Answer completed."),
         event("run-1", 1, "RUN_STARTED", "Run started."),
@@ -249,12 +254,16 @@ describe("AI assistant panel", () => {
 
   it("renders a failed provider run as an error state without review or apply controls", async () => {
     const initial = conversation([]);
+    let currentConversation = initial;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path.endsWith("/ai/provider-settings")) return json(providerSettings(true));
-      if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [initial] });
-      if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) return json({ apiVersion: "v1", conversation: initial });
-      if (path.endsWith("/messages") && init?.method === "POST") return json(turn({ status: "FAILED", answer: "The provider timed out; no ontology source changed." }));
+      if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [currentConversation] });
+      if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) return json({ apiVersion: "v1", conversation: currentConversation });
+      if (path.endsWith("/messages") && init?.method === "POST") {
+        currentConversation = conversation([message("message-answer", "ASSISTANT", "The provider timed out; no ontology source changed.")]);
+        return json(turn({ status: "FAILED", answer: "The provider timed out; no ontology source changed.", messages: currentConversation.messages }));
+      }
       if (path.endsWith("/events")) return eventStream([event("run-1", 1, "FAILED", "The provider request failed safely.")]);
       throw new Error(`Unexpected request: ${path}`);
     }));

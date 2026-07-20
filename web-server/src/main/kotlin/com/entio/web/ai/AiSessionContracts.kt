@@ -1,6 +1,7 @@
 package com.entio.web.ai
 
 import com.entio.core.StagedChangeOperation
+import com.entio.web.ai.models.AiModelCompatibilityState
 import com.entio.web.contract.WebStageChangeRequest
 import java.time.Instant
 
@@ -153,6 +154,8 @@ public data class AiRunModelBinding(
     val credentialGeneration: Long,
     val promptVersion: String,
     val requestPolicyVersion: String,
+    /** Compatibility state captured when the verified model was bound to this run. */
+    val compatibilityState: AiModelCompatibilityState = AiModelCompatibilityState.AVAILABLE_AND_COMPATIBLE,
 )
 
 public enum class AiDraftStatus {
@@ -252,6 +255,7 @@ public data class AiAuditRecord(
     val userId: String,
     val projectId: String,
     val modelId: String,
+    val compatibilityState: AiModelCompatibilityState = AiModelCompatibilityState.AVAILABLE_AND_COMPATIBLE,
     val catalogVersion: String = "legacy",
     val requestPolicyVersion: String = "legacy",
     val credentialGeneration: Long = 0,

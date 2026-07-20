@@ -179,7 +179,10 @@ class AiWebContractTest {
 
     @Test
     fun privateSseSupportsOrderingReconnectResyncCancellationAndLegacyCompatibility(): Unit = testApplication {
-        val provider = FakeAiProvider(completed(text = "Customer is an asserted class in the approved project."))
+        val provider = FakeAiProvider(
+            completed(text = "Customer is an asserted class in the approved project."),
+            completed(text = "I interpreted the lending request semantically and left the private draft ready for review."),
+        )
         val setup = setup(provider)
         application { module(setup.dependencies) }
         configureModel()
@@ -229,22 +232,14 @@ class AiWebContractTest {
         assertFalse(crossUser.contains("Customer is an asserted class"))
 
         val plannedConversation = client.post("/api/v1/projects/simple/ai/conversations").json().at("/conversation/id").asText()
-        val planned = client.post("/api/v1/projects/simple/ai/conversations/$plannedConversation/messages") {
+        val semanticallyPlanned = client.post("/api/v1/projects/simple/ai/conversations/$plannedConversation/messages") {
             contentType(ContentType.Application.Json)
             header("Idempotency-Key", "plan-1")
             setBody("""{"message":"Design an ontology for all enterprise accounting."}""")
         }.json()
-        assertEquals("AWAITING_PLAN_CONFIRMATION", planned.at("/run/status").asText())
-        val plannedRunId = planned.at("/run/id").asText()
-        val cancelled = client.post("/api/v1/projects/simple/ai/runs/$plannedRunId/cancel").json()
-        assertEquals("CANCELLED", cancelled.at("/run/status").asText())
-        assertTrue(cancelled.at("/run/cancellationRequested").asBoolean())
-        assertContains(
-            client.get("/api/v1/projects/simple/ai/runs/$plannedRunId/events") {
-                header(HttpHeaders.Accept, ContentType.Text.EventStream.toString())
-            }.bodyAsText(),
-            "event: cancelled",
-        )
+        assertEquals("SEMANTIC_REQUEST", semanticallyPlanned.at("/intent").asText())
+        assertEquals("READY_FOR_REVIEW", semanticallyPlanned.at("/run/status").asText())
+        assertTrue(semanticallyPlanned.at("/draftId").asText().isNotBlank())
 
         val missingIdempotency = client.post("/api/v1/projects/simple/ai/conversations/$conversationId/messages") {
             contentType(ContentType.Application.Json)
@@ -284,8 +279,8 @@ class AiWebContractTest {
                 aiAssistant = provider,
                 aiToolLoopProvider = provider,
                 aiModelProvider = DevelopmentAiModelProviderClient(
-                    models = listOf(AiProviderModelDescriptor("openai", provider.modelId)),
-                    verificationByModelId = mapOf(provider.modelId to AiModelVerificationResult.Verified),
+                    models = listOf(AiProviderModelDescriptor("openai", "gpt-5.2")),
+                    verificationByModelId = mapOf("gpt-5.2" to AiModelVerificationResult.Verified),
                 ),
             ),
         )
@@ -358,7 +353,6 @@ class AiWebContractTest {
         AiAssistantProvider,
         AiToolLoopProvider {
         override val providerId: String = "openai"
-        override val modelId: String = "gpt-5.2"
         override val promptVersion: String = "phase-7-web-contract-test-v1"
         val toolRequests: MutableList<OpenAiResponsesRequest> = mutableListOf()
         private val responses: ArrayDeque<OpenAiResponsesResult> = ArrayDeque(initialResponses.toList())

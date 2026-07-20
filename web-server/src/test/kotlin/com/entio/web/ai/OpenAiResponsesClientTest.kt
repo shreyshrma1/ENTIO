@@ -28,6 +28,11 @@ class OpenAiResponsesClientTest {
     private val mapper: ObjectMapper = ObjectMapper()
 
     @Test
+    fun defaultProviderTransportDoesNotImposeAnEntioRequestDeadline(): Unit {
+        assertNull(OpenAiProviderConfiguration(promptVersion = "phase-7-v1").requestTimeoutMillis)
+    }
+
+    @Test
     fun requestUsesApprovedModelStoragePolicyTrustedInputAndStrictCustomFunctions(): Unit = runBlocking {
         var capturedBody: String? = null
         var capturedAuthorization: String? = null
@@ -37,7 +42,7 @@ class OpenAiResponsesClientTest {
             respond(completedStream("resp-1", "Ready"), headers = eventStreamHeaders())
         }
         client(engine).use { provider ->
-            val result = provider.respond("secret-key", request())
+            val result = provider.respond("secret-key", "gpt-5.2", request())
 
             assertIs<OpenAiResponsesResult.Completed>(result)
         }
@@ -107,7 +112,7 @@ class OpenAiResponsesClientTest {
             ),
         )
 
-        client(engine).use { provider -> assertIs<OpenAiResponsesResult.Completed>(provider.respond("key", request)) }
+        client(engine).use { provider -> assertIs<OpenAiResponsesResult.Completed>(provider.respond("key", "gpt-5.2", request)) }
 
         val body = mapper.readTree(capturedBody)
         assertFalse(body.has("previous_response_id"))
@@ -136,7 +141,7 @@ class OpenAiResponsesClientTest {
             toolOutputs = injections.mapIndexed { index, content -> OpenAiToolOutput("call-$index", content) },
         )
         val engine = MockEngine { error("No provider request is expected while inspecting serialization.") }
-        val body = client(engine).use { mapper.readTree(it.serializeRequest(request)) }
+        val body = client(engine).use { mapper.readTree(it.serializeRequest(request, "gpt-5.2")) }
 
         assertEquals("developer", body.path("input")[0].path("role").asText())
         assertEquals("user", body.path("input")[1].path("role").asText())
@@ -162,10 +167,10 @@ class OpenAiResponsesClientTest {
 
     @Test
     fun configurationRejectsAliasesUnapprovedEndpointsAndStoredResponses(): Unit {
-        assertFailsWith<IllegalArgumentException> { configuration(modelId = "gpt-5.2-latest") }
         assertFailsWith<IllegalArgumentException> { configuration(endpoint = "https://example.com/v1/responses") }
+        assertFailsWith<IllegalArgumentException> { configuration(modelsEndpoint = "https://example.com/v1/models") }
         assertFailsWith<IllegalArgumentException> { configuration(store = true) }
-        assertFailsWith<IllegalArgumentException> { configuration(modelId = "gpt-5.6") }
+        assertFailsWith<IllegalStateException> { client(MockEngine { error("no request") }).serializeRequest(request()) }
     }
 
     @Test
@@ -180,7 +185,7 @@ class OpenAiResponsesClientTest {
         val observed = mutableListOf<OpenAiProviderEvent>()
         val engine = MockEngine { respond(stream, headers = eventStreamHeaders()) }
 
-        val result = client(engine).use { it.respond("key", request(), observed::add) }
+        val result = client(engine).use { it.respond("key", "gpt-5.2", request(), observed::add) }
 
         val completed = assertIs<OpenAiResponsesResult.Completed>(result).response
         assertEquals("Hello world", completed.text)
@@ -197,7 +202,7 @@ class OpenAiResponsesClientTest {
             attempts += 1
             respond("secret-key and Authorization: Bearer secret-key", status = HttpStatusCode.TooManyRequests)
         }
-        val rateLimited = client(rateLimitEngine).use { it.respond("secret-key", request()) }
+        val rateLimited = client(rateLimitEngine).use { it.respond("secret-key", "gpt-5.2", request()) }
 
         val rateFailure = assertIs<OpenAiResponsesResult.Failed>(rateLimited).failure
         assertEquals(OpenAiFailureCode.RATE_LIMIT, rateFailure.code)
@@ -210,7 +215,7 @@ class OpenAiResponsesClientTest {
             attempts += 1
             respond("credential=secret-key", status = HttpStatusCode.Unauthorized)
         }
-        val invalidKey = client(invalidKeyEngine).use { it.respond("secret-key", request()) }
+        val invalidKey = client(invalidKeyEngine).use { it.respond("secret-key", "gpt-5.2", request()) }
         assertEquals(OpenAiFailureCode.INVALID_CREDENTIAL, assertIs<OpenAiResponsesResult.Failed>(invalidKey).failure.code)
         assertEquals(1, attempts)
     }
@@ -228,7 +233,7 @@ class OpenAiResponsesClientTest {
             }
         }
 
-        val result = client(engine).use { it.respond("key", request(), observed::add) }
+        val result = client(engine).use { it.respond("key", "gpt-5.2", request(), observed::add) }
 
         assertEquals("Completed after retry.", assertIs<OpenAiResponsesResult.Completed>(result).response.text)
         assertEquals(2, attempts)
@@ -249,7 +254,7 @@ class OpenAiResponsesClientTest {
             OpenAiFailureCode.MODEL_UNAVAILABLE,
             event("""{"type":"error","code":"model_not_found","message":"secret-key","param":"model"}"""),
         )
-        assertTrue(topLevelFailure.message.contains(OpenAiProviderConfiguration.MODEL_ID))
+        assertTrue(topLevelFailure.message.contains("gpt-5.2"))
         assertFalse(topLevelFailure.message.contains("secret-key"))
         val nestedFailure = assertStreamFailure(
             OpenAiFailureCode.PROVIDER_ERROR,
@@ -270,7 +275,7 @@ class OpenAiResponsesClientTest {
             respond(completedStream("unused", "unused"), headers = eventStreamHeaders())
         }
         client(engine).use { provider ->
-            val requestJob = async { provider.respond("key", request()) }
+            val requestJob = async { provider.respond("key", "gpt-5.2", request()) }
             yield()
             requestJob.cancelAndJoin()
             assertTrue(requestJob.isCancelled)
@@ -283,30 +288,22 @@ class OpenAiResponsesClientTest {
         var capturedAccept: String? = null
         var capturedMethod: HttpMethod? = null
         var capturedUrl: String? = null
-        var capturedBody: String? = null
         val accepted = MockEngine { request ->
             capturedAuthorization = request.headers[HttpHeaders.Authorization]
             capturedAccept = request.headers[HttpHeaders.Accept]
             capturedMethod = request.method
             capturedUrl = request.url.toString()
-            capturedBody = (request.body as TextContent).text
             respond("{}", headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()))
         }
         val result = client(accepted).use { it.test("  secret-key\n") }
 
         val passed = assertIs<AiProviderTestResult.Passed>(result)
         assertFalse(passed.message.contains("secret-key"))
-        assertTrue(passed.message.contains("approved model"))
-        assertEquals(HttpMethod.Post, capturedMethod)
-        assertEquals(OpenAiProviderConfiguration.ENDPOINT, capturedUrl)
+        assertTrue(passed.message.contains("Discover and verify"))
+        assertEquals(HttpMethod.Get, capturedMethod)
+        assertEquals(OpenAiProviderConfiguration.MODELS_ENDPOINT, capturedUrl)
         assertEquals("Bearer secret-key", capturedAuthorization)
         assertEquals(ContentType.Application.Json.toString(), capturedAccept)
-        val body = mapper.readTree(capturedBody)
-        assertEquals(OpenAiProviderConfiguration.MODEL_ID, body.path("model").asText())
-        assertFalse(body.path("store").asBoolean(true))
-        assertFalse(body.path("stream").asBoolean(true))
-        assertEquals(16, body.path("max_output_tokens").asInt())
-        assertFalse(capturedBody.orEmpty().contains("secret-key"))
 
         val rejected = MockEngine { respond("secret-key", status = HttpStatusCode.Unauthorized) }
         val failure = client(rejected).use { it.test("secret-key") }
@@ -338,9 +335,9 @@ class OpenAiResponsesClientTest {
                 status = HttpStatusCode.NotFound,
             )
         }
-        val modelFailure = client(missingModel).use { it.respond("secret-key", request()) }
+        val modelFailure = client(missingModel).use { it.respond("secret-key", "gpt-5.6-sol", request()) }
         val modelMessage = assertIs<OpenAiResponsesResult.Failed>(modelFailure).failure.message
-        assertTrue(modelMessage.contains(OpenAiProviderConfiguration.MODEL_ID))
+        assertTrue(modelMessage.contains("gpt-5.6-sol"))
         assertFalse(modelMessage.contains("secret-key"))
 
         val invalidRequest = MockEngine {
@@ -349,7 +346,7 @@ class OpenAiResponsesClientTest {
                 status = HttpStatusCode.BadRequest,
             )
         }
-        val requestFailure = client(invalidRequest).use { it.respond("secret-key", request()) }
+        val requestFailure = client(invalidRequest).use { it.respond("secret-key", "gpt-5.2", request()) }
         val requestMessage = assertIs<OpenAiResponsesResult.Failed>(requestFailure).failure.message
         assertTrue(requestMessage.contains("request as invalid"))
         assertTrue(requestMessage.contains("invalid_function_parameters"))
@@ -359,13 +356,13 @@ class OpenAiResponsesClientTest {
 
     private suspend fun assertFailure(code: OpenAiFailureCode, status: HttpStatusCode, body: String) {
         val engine = MockEngine { respond(body, status = status) }
-        val result = client(engine).use { it.respond("key", request()) }
+        val result = client(engine).use { it.respond("key", "gpt-5.2", request()) }
         assertEquals(code, assertIs<OpenAiResponsesResult.Failed>(result).failure.code)
     }
 
     private suspend fun assertStreamFailure(code: OpenAiFailureCode, stream: String): OpenAiProviderFailure {
         val engine = MockEngine { respond(stream, headers = eventStreamHeaders()) }
-        val result = client(engine).use { it.respond("key", request()) }
+        val result = client(engine).use { it.respond("key", "gpt-5.2", request()) }
         val failure = assertIs<OpenAiResponsesResult.Failed>(result).failure
         assertEquals(code, failure.code)
         assertNull(result.failure.message.takeIf { it.contains("secret-key") })
@@ -404,13 +401,13 @@ class OpenAiResponsesClientTest {
     }
 
     private fun configuration(
-        modelId: String = OpenAiProviderConfiguration.MODEL_ID,
         endpoint: String = OpenAiProviderConfiguration.ENDPOINT,
+        modelsEndpoint: String = OpenAiProviderConfiguration.MODELS_ENDPOINT,
         store: Boolean = false,
     ): OpenAiProviderConfiguration = OpenAiProviderConfiguration(
-        modelId = modelId,
         promptVersion = "phase-7-v1",
         endpoint = endpoint,
+        modelsEndpoint = modelsEndpoint,
         store = store,
         requestTimeoutMillis = 1_000,
         retryBaseDelayMillis = 1,
