@@ -7,9 +7,6 @@ import io.ktor.server.application.install
 import io.ktor.server.application.call
 import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.webSocket
-import io.ktor.server.sse.SSE
-import io.ktor.server.sse.sse
-import io.ktor.sse.ServerSentEvent
 import io.ktor.websocket.close
 import io.ktor.server.request.header
 import io.ktor.server.request.receive
@@ -36,41 +33,8 @@ import com.entio.core.SemanticSearchQuery
 import io.ktor.server.application.ApplicationCall
 import com.entio.web.ai.AiCredentialRequest
 import com.entio.web.ai.AiCredentialService
-import com.entio.web.ai.AiAssistantRequest
-import com.entio.web.ai.AiAssistantService
-import com.entio.web.ai.AiBoundedContextBuilder
-import com.entio.web.ai.AiCapabilityRegistry
-import com.entio.web.ai.AiConversationFailure
-import com.entio.web.ai.AiConversationService
-import com.entio.web.ai.AiContextPackageBuilder
 import com.entio.web.ai.AiCredentialFailure
-import com.entio.web.ai.AiDraftAnalysisCapabilityService
-import com.entio.web.ai.AiDraftAnalysisService
-import com.entio.web.ai.AiDraftFailure
-import com.entio.web.ai.AiProjectBaselineService
-import com.entio.web.ai.AiReviewSubmissionService
-import com.entio.web.ai.AiStateAccessFailure
-import com.entio.web.ai.AiTaskLifecycleFailure
-import com.entio.web.ai.AiTaskLifecycleService
-import com.entio.web.ai.AiTaskPlanningService
-import com.entio.web.ai.AiTaskEventLog
-import com.entio.web.ai.AiSemanticTaskOrchestrator
-import com.entio.web.ai.AiCapabilityBundleRegistry
-import com.entio.web.ai.AiTaskWebBoundary
-import com.entio.web.ai.InMemoryAiTaskStore
-import com.entio.web.ai.AiTypedEditCapabilityAdapter
-import com.entio.web.ai.AiPrivateDraftWorkspace
-import com.entio.web.ai.AiLocalReadCapabilityService
-import com.entio.web.ai.AiSemanticReadCapabilityService
-import com.entio.web.ai.AiWebBoundary
 import com.entio.web.ai.AiModelWebBoundary
-import com.entio.web.ai.DefaultAiCapabilityDispatcher
-import com.entio.web.ai.InMemoryAiAuditStore
-import com.entio.web.ai.InMemoryAiConversationStore
-import com.entio.web.ai.InMemoryAiDraftAnalysisStore
-import com.entio.web.ai.InMemoryAiDraftStore
-import com.entio.web.ai.InMemoryAiReviewSubmissionAuditStore
-import com.entio.web.ai.InMemoryAiRunStore
 import com.entio.web.ai.models.AiModelCompatibilityPolicy
 import com.entio.web.ai.models.AiModelDiscoveryService
 import com.entio.web.ai.models.AiModelSelectionService
@@ -79,15 +43,7 @@ import com.entio.web.ai.models.AiModelVerificationService
 import com.entio.web.ai.models.AiProviderCallLimiter
 import com.entio.web.ai.models.AiProviderSettingsService
 import com.entio.web.ai.models.InMemoryAiUserProviderSettingsStore
-import com.entio.web.ai.models.SelectedAiRunModelBindingResolver
 import com.entio.web.contract.WebAiModelSelectionRequest
-import com.entio.web.contract.WebAiMessageRequest
-import com.entio.web.contract.WebAiReviewSubmissionRequest
-import com.entio.web.contract.WebAiTaskCommandRequest
-import com.entio.web.contract.WebAiTaskCreateRequest
-import com.entio.web.contract.WebAiTaskResynchronization
-import com.fasterxml.jackson.databind.ObjectMapper
-import kotlinx.coroutines.delay
 import java.time.Clock
 
 /**
@@ -98,7 +54,6 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
         jackson()
     }
     install(WebSockets)
-    install(SSE)
 
     val readOnly = ReadOnlyProjectAdapter(dependencies.projectRegistry)
     val staging = StagingWorkflowService(dependencies.projectRegistry)
@@ -133,18 +88,6 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
     )
     val aiModelSelection = AiModelSelectionService(aiModelSettingsStore, aiModelDiscovery, aiModelVerification)
     val aiModelWeb = AiModelWebBoundary(aiProviderSettings, aiModelDiscovery, aiModelSelection)
-    val aiModelBindings = SelectedAiRunModelBindingResolver(
-        settingsStore = aiModelSettingsStore,
-        discovery = aiModelDiscovery,
-        providerId = dependencies.aiToolLoopProvider.providerId,
-        promptVersion = dependencies.aiToolLoopProvider.promptVersion,
-    )
-    val aiAssistant = AiAssistantService(
-        credentials = aiCredentials,
-        provider = dependencies.aiAssistant,
-        contextBuilder = AiBoundedContextBuilder(dependencies.projectRegistry, readOnly, staging),
-        modelBindings = aiModelBindings.takeIf { dependencies.aiAssistant.providerId == dependencies.aiModelProvider.providerId },
-    )
     val jobs = SemanticJobManager(
         staging = staging,
         projectRegistry = dependencies.projectRegistry,
@@ -152,82 +95,6 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
             collaboration.job(status.projectId, "semantic-job.${status.status.name.lowercase()}", status.id)
         },
     )
-    val aiConversations = InMemoryAiConversationStore()
-    val aiRuns = InMemoryAiRunStore()
-    val aiAudits = InMemoryAiAuditStore()
-    val aiDrafts = InMemoryAiDraftStore()
-    val aiAnalyses = InMemoryAiDraftAnalysisStore()
-    val aiSubmissionAudits = InMemoryAiReviewSubmissionAuditStore()
-    val aiBaseline = AiProjectBaselineService(dependencies.projectRegistry)
-    val aiDraftWorkspace = AiPrivateDraftWorkspace(aiDrafts, AiTypedEditCapabilityAdapter(staging))
-    val aiAnalysis = AiDraftAnalysisService(aiDrafts, aiAnalyses, aiBaseline)
-    val aiLocalReads = AiLocalReadCapabilityService(readOnly, staging)
-    val aiConversation = AiConversationService(
-        conversations = aiConversations,
-        runs = aiRuns,
-        audits = aiAudits,
-        draftStore = aiDrafts,
-        draftWorkspace = aiDraftWorkspace,
-        registry = AiCapabilityRegistry(),
-        dispatcher = DefaultAiCapabilityDispatcher(
-            localReads = aiLocalReads,
-            semanticReads = AiSemanticReadCapabilityService(jobs, staging, collaboration, fibo),
-            drafts = aiDraftWorkspace,
-            draftAnalysis = AiDraftAnalysisCapabilityService(aiAnalysis),
-        ),
-        provider = dependencies.aiToolLoopProvider,
-        credentials = aiCredentials,
-        contextPackages = AiContextPackageBuilder(aiLocalReads),
-        modelBindings = aiModelBindings,
-    )
-    val aiSubmissions = AiReviewSubmissionService(
-        conversations = aiConversations,
-        drafts = aiDrafts,
-        draftWorkspace = aiDraftWorkspace,
-        analyses = aiAnalyses,
-        runs = aiRuns,
-        baseline = aiBaseline,
-        staging = staging,
-        collaboration = collaboration,
-        submissionAudits = aiSubmissionAudits,
-    )
-    val aiTasks = InMemoryAiTaskStore()
-    val aiTaskLifecycle = AiTaskLifecycleService(aiTasks)
-    val aiTaskPlanning = AiTaskPlanningService(aiTasks)
-    val aiTaskEvents = AiTaskEventLog()
-    val aiTaskOrchestrator = AiSemanticTaskOrchestrator(
-        tasks = aiTasks,
-        lifecycle = aiTaskLifecycle,
-        planning = aiTaskPlanning,
-        bundles = AiCapabilityBundleRegistry(),
-        conversationService = aiConversation,
-        eventLog = aiTaskEvents,
-        modelBindings = aiModelBindings,
-    )
-    val aiWeb = AiWebBoundary(
-        readOnly = readOnly,
-        authorization = dependencies.authorization,
-        conversations = aiConversations,
-        runs = aiRuns,
-        drafts = aiDrafts,
-        conversationService = aiConversation,
-        analysisService = aiAnalysis,
-        submissionService = aiSubmissions,
-        baselineService = aiBaseline,
-        taskOrchestrator = aiTaskOrchestrator,
-    )
-    val aiTaskWeb = AiTaskWebBoundary(
-        store = aiTasks,
-        lifecycle = aiTaskLifecycle,
-        authorization = dependencies.authorization,
-        modelBindings = aiModelBindings,
-        projectFingerprint = { projectId, sourceIds ->
-            sourceIds.distinct().sorted().joinToString(":") { sourceId -> aiBaseline.current(projectId, sourceId) }
-        },
-        eventLog = aiTaskEvents,
-        executor = aiTaskOrchestrator,
-    )
-    val aiEventMapper = ObjectMapper().findAndRegisterModules()
 
     routing {
         get("/health") {
@@ -331,244 +198,6 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
                 aiCredentials.logout(user.id)
                 aiProviderSettings.logout(user.id)
                 mapOf("apiVersion" to "v1", "status" to "LOGGED_OUT")
-            }
-        }
-
-        post("/api/v1/projects/{projectId}/ai/assistant") {
-            call.respondAi {
-                val user = call.requireUser(dependencies)
-                aiAssistant.answer(
-                    userId = user.id,
-                    projectId = call.requiredProjectId(),
-                    request = call.receive<AiAssistantRequest>(),
-                )
-            }
-        }
-
-        post("/api/v1/projects/{projectId}/ai/conversations") {
-            call.respondAiV7 {
-                aiWeb.createConversation(call.requireUser(dependencies), call.requiredProjectId())
-            }
-        }
-
-        post("/api/v1/projects/{projectId}/ai/tasks") {
-            call.respondAiV7 {
-                aiTaskWeb.create(
-                    call.requireUser(dependencies), call.requiredProjectId(), call.receive<WebAiTaskCreateRequest>(),
-                    call.requiredIdempotencyKey(),
-                )
-            }
-        }
-
-        get("/api/v1/projects/{projectId}/ai/tasks/{taskId}") {
-            call.respondAiV7 { aiTaskWeb.get(call.requireUser(dependencies), call.requiredProjectId(), call.requiredAiTaskId()) }
-        }
-
-        get("/api/v1/projects/{projectId}/ai/tasks/{taskId}/workspace") {
-            call.respondAiV7 { aiTaskWeb.workspace(call.requireUser(dependencies), call.requiredProjectId(), call.requiredAiTaskId()) }
-        }
-
-        listOf("draft", "analysis", "review-package").forEach { resource ->
-            get("/api/v1/projects/{projectId}/ai/tasks/{taskId}/$resource") {
-                call.respondAiV7 {
-                    aiTaskWeb.resource(call.requireUser(dependencies), call.requiredProjectId(), call.requiredAiTaskId(), resource)
-                }
-            }
-        }
-
-        listOf("messages", "clarifications", "execute", "pause", "resume", "cancel", "submit").forEach { action ->
-            post("/api/v1/projects/{projectId}/ai/tasks/{taskId}/$action") {
-                call.respondAiV7 {
-                    aiTaskWeb.command(
-                        call.requireUser(dependencies), call.requiredProjectId(), call.requiredAiTaskId(), action,
-                        call.receive<WebAiTaskCommandRequest>(), call.requiredIdempotencyKey(),
-                    )
-                }
-            }
-        }
-
-        put("/api/v1/projects/{projectId}/ai/tasks/{taskId}/plan") {
-            call.respondAiV7 {
-                aiTaskWeb.command(
-                    call.requireUser(dependencies), call.requiredProjectId(), call.requiredAiTaskId(), "plan",
-                    call.receive<WebAiTaskCommandRequest>(), call.requiredIdempotencyKey(),
-                )
-            }
-        }
-
-        post("/api/v1/projects/{projectId}/ai/tasks/{taskId}/plan/confirm") {
-            call.respondAiV7 {
-                aiTaskWeb.command(
-                    call.requireUser(dependencies), call.requiredProjectId(), call.requiredAiTaskId(), "plan-confirm",
-                    call.receive<WebAiTaskCommandRequest>(), call.requiredIdempotencyKey(),
-                )
-            }
-        }
-
-        sse("/api/v1/projects/{projectId}/ai/tasks/{taskId}/events") {
-            val user = runCatching { call.requireUser(dependencies) }.getOrElse { failure ->
-                send(ServerSentEvent(aiEventMapper.writeValueAsString(call.aiSseError(failure)), event = "error"))
-                return@sse
-            }
-            val projectId = runCatching { call.requiredProjectId() }.getOrElse { failure ->
-                send(ServerSentEvent(aiEventMapper.writeValueAsString(call.aiSseError(failure)), event = "error"))
-                return@sse
-            }
-            val taskId = runCatching { call.requiredAiTaskId() }.getOrElse { failure ->
-                send(ServerSentEvent(aiEventMapper.writeValueAsString(call.aiSseError(failure)), event = "error"))
-                return@sse
-            }
-            var afterSequence = runCatching { call.aiTaskEventCursor(taskId) }.getOrElse { failure ->
-                send(ServerSentEvent(aiEventMapper.writeValueAsString(call.aiSseError(failure)), event = "error"))
-                return@sse
-            }
-            while (true) {
-                val window = runCatching { aiTaskWeb.events(user, projectId, taskId, afterSequence ?: 0) }.getOrElse { failure ->
-                    send(ServerSentEvent(aiEventMapper.writeValueAsString(call.aiSseError(failure)), event = "error"))
-                    return@sse
-                }
-                if (window.resynchronizationRequired) {
-                    send(
-                        ServerSentEvent(
-                            aiEventMapper.writeValueAsString(
-                                WebAiTaskResynchronization(
-                                    taskId = taskId, reason = "event-retention-gap",
-                                    authoritativeTaskRoute = "/api/v1/projects/$projectId/ai/tasks/$taskId",
-                                    authoritativeWorkspaceRoute = "/api/v1/projects/$projectId/ai/tasks/$taskId/workspace",
-                                ),
-                            ),
-                            event = "resynchronization-required",
-                        ),
-                    )
-                    return@sse
-                }
-                window.events.forEach { event ->
-                    send(ServerSentEvent(aiEventMapper.writeValueAsString(event), event = event.type.lowercase().replace('_', '-'), id = "$taskId:${event.sequence}"))
-                    afterSequence = event.sequence
-                }
-                if (window.terminal) return@sse
-                delay(100)
-            }
-        }
-
-        get("/api/v1/projects/{projectId}/ai/conversations") {
-            call.respondAiV7 {
-                aiWeb.listConversations(call.requireUser(dependencies), call.requiredProjectId())
-            }
-        }
-
-        get("/api/v1/projects/{projectId}/ai/conversations/{conversationId}") {
-            call.respondAiV7 {
-                aiWeb.conversation(call.requireUser(dependencies), call.requiredProjectId(), call.requiredConversationId())
-            }
-        }
-
-        delete("/api/v1/projects/{projectId}/ai/conversations/{conversationId}") {
-            call.respondAiV7 {
-                aiWeb.deleteConversation(call.requireUser(dependencies), call.requiredProjectId(), call.requiredConversationId())
-            }
-        }
-
-        post("/api/v1/projects/{projectId}/ai/conversations/{conversationId}/messages") {
-            call.respondAiV7 {
-                aiWeb.sendMessage(
-                    user = call.requireUser(dependencies),
-                    projectId = call.requiredProjectId(),
-                    conversationId = call.requiredConversationId(),
-                    request = call.receive<WebAiMessageRequest>(),
-                    idempotencyKey = call.requiredIdempotencyKey(),
-                    respondAsync = call.request.headers["Prefer"]
-                        ?.split(",")
-                        ?.any { it.trim().equals("respond-async", ignoreCase = true) }
-                        == true,
-                )
-            }
-        }
-
-        get("/api/v1/projects/{projectId}/ai/runs/{runId}") {
-            call.respondAiV7 {
-                aiWeb.run(call.requireUser(dependencies), call.requiredProjectId(), call.requiredAiRunId())
-            }
-        }
-
-        post("/api/v1/projects/{projectId}/ai/runs/{runId}/cancel") {
-            call.respondAiV7 {
-                aiWeb.cancelRun(call.requireUser(dependencies), call.requiredProjectId(), call.requiredAiRunId())
-            }
-        }
-
-        sse("/api/v1/projects/{projectId}/ai/runs/{runId}/events") {
-            val user = runCatching { call.requireUser(dependencies) }.getOrElse { failure ->
-                send(ServerSentEvent(aiEventMapper.writeValueAsString(call.aiSseError(failure)), event = "error"))
-                return@sse
-            }
-            val projectId = runCatching { call.requiredProjectId() }.getOrElse { failure ->
-                send(ServerSentEvent(aiEventMapper.writeValueAsString(call.aiSseError(failure)), event = "error"))
-                return@sse
-            }
-            val runId = runCatching { call.requiredAiRunId() }.getOrElse { failure ->
-                send(ServerSentEvent(aiEventMapper.writeValueAsString(call.aiSseError(failure)), event = "error"))
-                return@sse
-            }
-            var afterSequence = runCatching { call.aiEventCursor(runId) }.getOrElse { failure ->
-                send(ServerSentEvent(aiEventMapper.writeValueAsString(call.aiSseError(failure)), event = "error"))
-                return@sse
-            }
-            while (true) {
-                val window = runCatching { aiWeb.events(user, projectId, runId, afterSequence) }.getOrElse { failure ->
-                    send(ServerSentEvent(aiEventMapper.writeValueAsString(call.aiSseError(failure)), event = "error"))
-                    return@sse
-                }
-                window.resynchronization?.let { signal ->
-                    send(ServerSentEvent(aiEventMapper.writeValueAsString(signal), event = "resynchronization-required"))
-                    return@sse
-                }
-                window.events.forEach { event ->
-                    send(
-                        ServerSentEvent(
-                            data = aiEventMapper.writeValueAsString(event),
-                            event = event.type.lowercase().replace('_', '-'),
-                            id = "$runId:${event.sequence}",
-                        ),
-                    )
-                    afterSequence = event.sequence
-                }
-                if (window.run.status in terminalAiRunStatuses) return@sse
-                delay(100)
-            }
-        }
-
-        get("/api/v1/projects/{projectId}/ai/drafts/{draftId}") {
-            call.respondAiV7 {
-                aiWeb.draft(call.requireUser(dependencies), call.requiredProjectId(), call.requiredAiDraftId())
-            }
-        }
-
-        listOf("analysis", "validate", "preview", "reasoning", "shacl", "impact").forEach { operation ->
-            post("/api/v1/projects/{projectId}/ai/drafts/{draftId}/$operation") {
-                call.respondAiV7 {
-                    aiWeb.analyzeDraft(call.requireUser(dependencies), call.requiredProjectId(), call.requiredAiDraftId())
-                }
-            }
-        }
-
-        post("/api/v1/projects/{projectId}/ai/drafts/{draftId}/submit") {
-            call.respondAiV7 {
-                aiWeb.submitDraft(
-                    user = call.requireUser(dependencies),
-                    projectId = call.requiredProjectId(),
-                    draftId = call.requiredAiDraftId(),
-                    request = call.receive<WebAiReviewSubmissionRequest>(),
-                    idempotencyKey = call.requiredIdempotencyKey(),
-                )
-            }
-        }
-
-        get("/api/v1/projects/{projectId}/ai/help") {
-            call.respondAiV7 {
-                dependencies.projectRegistry.find(call.requiredProjectId())
-                    ?: throw AiConversationFailure("unknown-project", "The requested project is not registered.")
-                aiWeb.help(call.requireUser(dependencies))
             }
         }
 
@@ -852,53 +481,9 @@ private fun ApplicationCall.requiredJobId(): String = parameters["jobId"]
     ?.takeIf(String::isNotBlank)
     ?: throw WebWorkflowFailure("missing-semantic-job-id", "A semantic job id is required.")
 
-private fun ApplicationCall.requiredConversationId(): String = parameters["conversationId"]
-    ?.takeIf(String::isNotBlank)
-    ?: throw AiConversationFailure("missing-conversation-id", "A conversation id is required.")
-
-private fun ApplicationCall.requiredAiRunId(): String = parameters["runId"]
-    ?.takeIf(String::isNotBlank)
-    ?: throw AiConversationFailure("missing-run-id", "A run id is required.")
-
-private fun ApplicationCall.requiredAiDraftId(): String = parameters["draftId"]
-    ?.takeIf(String::isNotBlank)
-    ?: throw AiDraftFailure("missing-draft-id", "A private draft id is required.")
-
-private fun ApplicationCall.requiredAiTaskId(): String = parameters["taskId"]
-    ?.takeIf(String::isNotBlank)
-    ?: throw AiTaskLifecycleFailure("missing-task-id", "An AI task id is required.")
-
 private fun ApplicationCall.requiredIdempotencyKey(): String = request.header("Idempotency-Key")
     ?.takeIf(String::isNotBlank)
-    ?: throw AiConversationFailure("missing-idempotency-key", "An Idempotency-Key header is required for this request.")
-
-private fun ApplicationCall.aiEventCursor(runId: String): Int? {
-    val raw = request.header("Last-Event-ID")
-        ?: request.queryParameters["after"]
-        ?: return null
-    val sequence = if (raw.contains(':')) {
-        val parts = raw.split(':', limit = 2)
-        if (parts.first() != runId) throw AiConversationFailure("invalid-event-cursor", "The event cursor belongs to another run.")
-        parts.last().toIntOrNull()
-    } else {
-        raw.toIntOrNull()
-    }
-    return sequence?.takeIf { it >= 0 }
-        ?: throw AiConversationFailure("invalid-event-cursor", "The event cursor must contain a non-negative sequence.")
-}
-
-private fun ApplicationCall.aiTaskEventCursor(taskId: String): Int? {
-    val raw = request.header("Last-Event-ID") ?: request.queryParameters["after"] ?: return null
-    val sequence = if (raw.contains(':')) {
-        val parts = raw.split(':', limit = 2)
-        if (parts.first() != taskId) throw AiTaskLifecycleFailure("invalid-event-cursor", "The event cursor belongs to another task.")
-        parts.last().toIntOrNull()
-    } else {
-        raw.toIntOrNull()
-    }
-    return sequence?.takeIf { it >= 0 }
-        ?: throw AiTaskLifecycleFailure("invalid-event-cursor", "The event cursor must contain a non-negative sequence.")
-}
+    ?: throw WebWorkflowFailure("missing-idempotency-key", "An Idempotency-Key header is required for this request.")
 
 private fun ApplicationCall.requireUser(dependencies: WebApplicationDependencies): com.entio.web.contract.WebSessionUser {
     val user = dependencies.identityProvider.find(request.headers["X-Entio-User"])
@@ -968,19 +553,6 @@ private suspend fun ApplicationCall.respondAi(block: suspend () -> Any): Unit = 
             message = failure.message ?: "The AI credential request could not be completed.",
         ),
     )
-} catch (failure: com.entio.web.ai.AiAssistantFailure) {
-    val status = when (failure.code) {
-        "unknown-project", "missing-context-entity" -> HttpStatusCode.NotFound
-        else -> HttpStatusCode.BadRequest
-    }
-    respond(
-        status,
-        WebErrorResponse(
-            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
-            code = failure.code,
-            message = failure.message ?: "The AI assistant request could not be completed.",
-        ),
-    )
 } catch (failure: WebWorkflowFailure) {
     val status = if (failure.code == "unknown-development-user") HttpStatusCode.Unauthorized else HttpStatusCode.BadRequest
     respond(
@@ -1020,10 +592,16 @@ private suspend fun ApplicationCall.respondAiModels(block: suspend () -> Any): U
             message = aiModelErrorMessage(publicCode),
         ),
     )
-} catch (failure: AiConversationFailure) {
-    respondAiV7Failure(failure.code, failure.message)
 } catch (failure: WebWorkflowFailure) {
-    respondAiV7Failure(failure.code, failure.message)
+    val status = if (failure.code == "unknown-development-user") HttpStatusCode.Unauthorized else HttpStatusCode.BadRequest
+    respond(
+        status,
+        WebErrorResponse(
+            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
+            code = failure.code,
+            message = failure.message ?: "The AI model request could not be completed.",
+        ),
+    )
 }
 
 private fun aiModelErrorMessage(code: String): String = when (code) {
@@ -1034,85 +612,6 @@ private fun aiModelErrorMessage(code: String): String = when (code) {
     "AI_MODEL_NOT_APPROVED" -> "The requested provider or model is not approved for this server boundary."
     else -> "The model selection request could not be completed safely."
 }
-
-private suspend fun ApplicationCall.respondAiV7(block: suspend () -> Any): Unit = try {
-    respond(block())
-} catch (failure: AiStateAccessFailure) {
-    respondAiV7Failure(failure.code, failure.message)
-} catch (failure: AiConversationFailure) {
-    respondAiV7Failure(failure.code, failure.message)
-} catch (failure: AiDraftFailure) {
-    respondAiV7Failure(failure.code, failure.message)
-} catch (failure: com.entio.web.ai.AiCapabilityFailure) {
-    respondAiV7Failure(failure.code, failure.message)
-} catch (failure: ProjectReadFailure) {
-    respondAiV7Failure(failure.code, failure.message)
-} catch (failure: WebWorkflowFailure) {
-    respondAiV7Failure(failure.code, failure.message)
-} catch (failure: AiCredentialFailure) {
-    respondAiV7Failure(failure.code, failure.message)
-} catch (failure: AiTaskLifecycleFailure) {
-    respondAiV7Failure(failure.code, failure.message)
-}
-
-private suspend fun ApplicationCall.respondAiV7Failure(code: String, message: String?): Unit {
-    val status = when {
-        code == "unknown-development-user" -> HttpStatusCode.Unauthorized
-        code.contains("forbidden") -> HttpStatusCode.Forbidden
-        code in aiRequestValidationCodes -> HttpStatusCode.BadRequest
-        code.startsWith("missing-") || code.startsWith("unknown-") || code.endsWith("scope-violation") -> HttpStatusCode.NotFound
-        code.contains("stale") || code.contains("conflict") || code.startsWith("concurrent-") || code == "idempotency-in-progress" ->
-            HttpStatusCode.Conflict
-        code.contains("incomplete") || code.contains("blocked") || code.contains("not-ready") || code == "review-submission-invalid" ->
-            HttpStatusCode.UnprocessableEntity
-        else -> HttpStatusCode.BadRequest
-    }
-    respond(
-        status,
-        WebErrorResponse(
-            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
-            code = code,
-            message = message ?: "The AI request could not be completed.",
-        ),
-    )
-}
-
-private val aiRequestValidationCodes: Set<String> = setOf(
-    "missing-idempotency-key",
-    "missing-conversation-id",
-    "missing-run-id",
-    "missing-draft-id",
-    "invalid-event-cursor",
-    "invalid-conversation-decision",
-    "invalid-screen",
-    "invalid-idempotency-key",
-)
-
-private fun ApplicationCall.aiSseError(failure: Throwable): WebErrorResponse {
-    val code = when (failure) {
-        is AiStateAccessFailure -> failure.code
-        is AiConversationFailure -> failure.code
-        is AiDraftFailure -> failure.code
-        is com.entio.web.ai.AiCapabilityFailure -> failure.code
-        is ProjectReadFailure -> failure.code
-        is WebWorkflowFailure -> failure.code
-        is AiTaskLifecycleFailure -> failure.code
-        else -> "ai-event-stream-failed"
-    }
-    return WebErrorResponse(
-        requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
-        code = code,
-        message = failure.message ?: "The private AI event stream could not be opened.",
-    )
-}
-
-private val terminalAiRunStatuses: Set<String> = setOf(
-    "READY_FOR_REVIEW",
-    "FAILED",
-    "CANCELLED",
-    "LIMIT_REACHED",
-    "STALE",
-)
 
 private suspend inline fun <reified T : Any> ApplicationCall.respondWorkflow(crossinline block: suspend () -> T): Unit = try {
     respond(block())

@@ -58,7 +58,6 @@ import com.entio.web.contract.WebStageChangeRequest
 import com.entio.web.contract.WebStagedEntry
 import com.entio.web.contract.WebStagingResponse
 import com.entio.web.contract.WebDiffEntry
-import java.nio.file.Files
 
 public class WebWorkflowFailure(
     public val code: String,
@@ -77,7 +76,6 @@ private data class StoredEntry(
     val authorId: String,
     var latestEditorId: String,
     val comment: String?,
-    val aiGenerated: Boolean,
 )
 
 private data class ProjectSession(
@@ -94,18 +92,12 @@ private data class PreparedStageRequest(
     val generatedIris: List<GeneratedIri>,
 )
 
-internal data class PreparedPrivateDraftChange(
-    val request: WebStageChangeRequest,
+private data class PreparedChange(
     val summary: String,
     val operation: StagedChangeOperation,
     val normalizedValues: Map<String, String>,
     val resolvedCandidates: List<EntityCandidate>,
     val generatedIris: List<GeneratedIri>,
-)
-
-internal data class AtomicReviewSubmissionEntry(
-    val request: WebStageChangeRequest,
-    val rationale: String,
 )
 
 /** Server-owned single-client staging state that delegates semantic work to Kotlin services. */
@@ -226,81 +218,10 @@ public class StagingWorkflowService(
             authorId = replaced?.authorId ?: userId,
             latestEditorId = userId,
             comment = request.comment,
-            aiGenerated = request.aiGenerated,
         )
         if (replacementIndex == null) session.entries += stored else session.entries[replacementIndex] = stored
         session.clearPreparedProposal()
         return response(projectId, session)
-    }
-
-    /** Prepares the same typed operation as [stage] without mutating shared staging state. */
-    @Synchronized
-    internal fun preparePrivateDraft(projectId: String, request: WebStageChangeRequest): PreparedPrivateDraftChange {
-        val project = load(projectId)
-        val source = project.resolvedSources.firstOrNull { it.id == request.sourceId }
-            ?: throw WebWorkflowFailure("unknown-source", "Ontology source '${request.sourceId}' was not found.")
-        if (!Files.isWritable(source.path)) {
-            throw WebWorkflowFailure("immutable-source", "Ontology source '${request.sourceId}' is not writable.")
-        }
-        return prepareChange(project, request)
-    }
-
-    /** Imports one isolated private draft and creates its ordinary review proposal as one in-memory transaction. */
-    @Synchronized
-    internal fun submitForReview(
-        projectId: String,
-        entries: List<AtomicReviewSubmissionEntry>,
-        userId: String,
-    ): WebStagingResponse {
-        if (entries.isEmpty()) throw WebWorkflowFailure("empty-review-submission", "A review submission must contain at least one typed change.")
-        val session = session(projectId)
-        if (session.entries.isNotEmpty() || session.proposal != null || session.preparedProposal != null) {
-            throw WebWorkflowFailure(
-                "shared-staging-conflict",
-                "The shared review queue already contains work; submit the AI draft after the current proposal is resolved.",
-            )
-        }
-
-        val project = load(projectId)
-        val firstOrder = session.nextOrder
-        val preparedEntries = entries.mapIndexed { index, entry ->
-            val request = entry.request.copy(
-                comment = entry.rationale,
-                aiGenerated = true,
-                idempotencyKey = null,
-            )
-            val prepared = prepareChange(project, request)
-            val order = firstOrder + index
-            StoredEntry(
-                staged = StagedChange(
-                    id = "stage-$order",
-                    order = order,
-                    targetSourceId = request.sourceId,
-                    summary = prepared.summary,
-                    operation = prepared.operation,
-                    normalizedValues = prepared.normalizedValues,
-                    resolvedCandidates = prepared.resolvedCandidates,
-                    generatedIris = prepared.generatedIris,
-                ),
-                editType = request.editType,
-                authorId = userId,
-                latestEditorId = userId,
-                comment = entry.rationale,
-                aiGenerated = true,
-            )
-        }
-        val preparedProposal = proposalPlanner.prepare(project, preparedEntries.map(StoredEntry::staged))
-        if (preparedProposal.proposal.validationReport?.ok != true ||
-            preparedProposal.proposal.status != ChangeProposalStatus.ReadyForReview
-        ) {
-            throw WebWorkflowFailure("review-submission-invalid", "The imported draft did not produce a valid review proposal.")
-        }
-
-        session.entries += preparedEntries
-        session.nextOrder = firstOrder + preparedEntries.size
-        session.preparedProposal = preparedProposal
-        session.proposal = preparedProposal.proposal
-        return response(projectId, session, "AI-assisted draft submitted by $userId for human review.")
     }
 
     @Synchronized
@@ -343,7 +264,6 @@ public class StagingWorkflowService(
             authorId = userId,
             latestEditorId = userId,
             comment = "External ontology reuse staged for review.",
-            aiGenerated = false,
         )
         session.clearPreparedProposal()
         return response(projectId, session)
@@ -474,7 +394,6 @@ public class StagingWorkflowService(
                     authorId = entry.authorId,
                     latestEditorId = entry.latestEditorId,
                     comment = entry.comment,
-                    aiGenerated = entry.aiGenerated,
                     normalizedValues = entry.staged.normalizedValues,
                     generatedIris = entry.staged.generatedIris.map(GeneratedIri::iri).map(Iri::value),
                     validationMessages = entry.staged.validationReport?.issues?.map { it.message }.orEmpty(),
@@ -510,7 +429,7 @@ public class StagingWorkflowService(
         )
     }
 
-    private fun prepareChange(project: EntioProject, request: WebStageChangeRequest): PreparedPrivateDraftChange {
+    private fun prepareChange(project: EntioProject, request: WebStageChangeRequest): PreparedChange {
         val requestedSource = project.resolvedSources.firstOrNull { it.id == request.sourceId }
             ?: throw WebWorkflowFailure("unknown-source", "Ontology source '${request.sourceId}' was not found.")
         if (!request.isShaclEdit() && com.entio.core.ShaclGraphRole.Ontology !in requestedSource.roles) {
@@ -518,8 +437,7 @@ public class StagingWorkflowService(
         }
         if (request.isShaclEdit()) {
             val prepared = shaclStagePreparer.prepare(project, request)
-            return PreparedPrivateDraftChange(
-                request = request,
+            return PreparedChange(
                 summary = prepared.summary,
                 operation = StagedChangeOperation.ShaclEdit(prepared.edit),
                 normalizedValues = prepared.normalizedValues,
@@ -528,8 +446,7 @@ public class StagingWorkflowService(
             )
         }
         val prepared = request.prepare(project)
-        return PreparedPrivateDraftChange(
-            request = prepared.request,
+        return PreparedChange(
             summary = prepared.request.summary(),
             operation = prepared.request.toOperation(project),
             normalizedValues = prepared.request.normalizedValues(),

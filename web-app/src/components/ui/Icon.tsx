@@ -1,6 +1,6 @@
 import type { HTMLAttributes } from "react";
 
-type IconName = "explore" | "changes" | "reasoning" | "constraints" | "fibo" | "activity" | "assistant" | "settings" | "account" | "search" | "close";
+type IconName = "explore" | "changes" | "reasoning" | "constraints" | "fibo" | "activity" | "settings" | "account" | "search" | "close";
 
 const glyphs: Record<IconName, string> = {
   explore: "◈",
@@ -9,7 +9,6 @@ const glyphs: Record<IconName, string> = {
   constraints: "⊡",
   fibo: "◎",
   activity: "↗",
-  assistant: "✦",
   settings: "⚙",
   account: "●",
   search: "⌕",

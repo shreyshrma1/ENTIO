@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadEntityDetails, loadHierarchy, loadProjectOutline, loadShaclShapes, searchProject, stageChange, previewStagedChanges, streamAiRunEvents, loadAiProviderSettings, discoverAiModels, selectAiModel, retestAiModel, clearAiModelSelection } from "./projectApi";
+import { loadEntityDetails, loadHierarchy, loadProjectOutline, loadShaclShapes, searchProject, stageChange, previewStagedChanges, loadAiProviderSettings, discoverAiModels, selectAiModel, retestAiModel, clearAiModelSelection } from "./projectApi";
 
 function response(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -75,26 +75,6 @@ describe("read-only project API", () => {
     expect(requests[0].headers).toEqual({ "Content-Type": "application/json" });
     expect(requests[0].body).toContain("create-class");
     expect(requests[1].method).toBe("POST");
-  });
-
-  it("parses ordered private AI events and reconnect cursors without provider payloads", async () => {
-    const events: number[] = [];
-    let requestedHeaders: HeadersInit | undefined;
-    await streamAiRunEvents("simple", "run-1", {
-      lastEventId: "run-1:1",
-      onEvent: (event) => events.push(event.sequence),
-      onResynchronization: () => { throw new Error("Unexpected resynchronization"); },
-    }, async (_input, init) => {
-      requestedHeaders = init?.headers;
-      return new Response(
-        "id: run-1:2\nevent: capability-completed\ndata: {\"sequence\":2,\"runId\":\"run-1\",\"type\":\"CAPABILITY_COMPLETED\",\"message\":\"Search completed.\",\"referenceIds\":[\"entity:Customer\"],\"createdAt\":\"2026-07-17T12:00:00Z\"}\n\n" +
-        "id: run-1:3\nevent: text-completed\ndata: {\"sequence\":3,\"runId\":\"run-1\",\"type\":\"TEXT_COMPLETED\",\"message\":\"Answer completed.\",\"referenceIds\":[],\"createdAt\":\"2026-07-17T12:00:01Z\"}\n\n",
-        { status: 200, headers: { "Content-Type": "text/event-stream" } },
-      );
-    });
-
-    expect(requestedHeaders).toMatchObject({ Accept: "text/event-stream", "Last-Event-ID": "run-1:1" });
-    expect(events).toEqual([2, 3]);
   });
 
   it("uses the provider settings and explicit model-selection contracts", async () => {

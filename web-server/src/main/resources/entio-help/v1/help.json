@@ -46,7 +46,7 @@
     {
       "id": "SHACL",
       "title": "SHACL",
-      "content": "SHACL validation reports deterministic findings against an applied or preview graph. A finding is not overridden by an AI explanation.",
+      "content": "SHACL validation reports deterministic findings against an applied or preview graph. Findings must be resolved through the ordinary review workflow.",
       "relatedActions": ["BROWSE", "CANCEL_SEMANTIC_JOB"],
       "relatedPermissions": ["BROWSE", "CANCEL_SEMANTIC_JOB"]
     },
@@ -60,7 +60,7 @@
     {
       "id": "COLLABORATION",
       "title": "Collaboration",
-      "content": "Shared staging and proposal events are visible to collaborators. Private AI conversations and drafts are not broadcast.",
+      "content": "Shared staging and proposal events are visible to collaborators.",
       "relatedActions": ["BROWSE"],
       "relatedPermissions": ["BROWSE"]
     },
@@ -80,24 +80,10 @@
     },
     {
       "id": "CREDENTIALS",
-      "title": "AI credentials",
-      "content": "OpenAI credentials stay in server memory and are never returned to the browser. Entio discovers candidate models for the current key; you must explicitly select and test one before assistant use. The harmless verification request may incur a small provider charge.",
-      "relatedActions": ["USE_AI"],
-      "relatedPermissions": ["USE_AI"]
-    },
-    {
-      "id": "AI_LIMITS",
-      "title": "AI limits",
-      "content": "The assistant receives bounded structured context and allowlisted capabilities. It cannot access files, secrets, raw SPARQL, approval, application, or rollback tools.",
-      "relatedActions": ["USE_AI"],
-      "relatedPermissions": ["USE_AI"]
-    },
-    {
-      "id": "TASKS",
-      "title": "AI task workspaces",
-      "content": "Task statuses, package stages, limits, staleness, checkpoints, and review handoff are server-owned. Pause or resume current work, resolve requested clarification, confirm material plans explicitly, and submit only a complete current review package. A submitted task still requires ordinary human review and approval.",
-      "relatedActions": ["USE_AI", "STAGE_OWN_CHANGE"],
-      "relatedPermissions": ["USE_AI", "STAGE_OWN_CHANGE"]
+      "title": "Provider settings",
+      "content": "Provider credentials stay in server memory and are never returned to the browser. Entio can discover candidate models for the current key; select and test a model before using provider verification. Verification may incur a small provider charge.",
+      "relatedActions": ["BROWSE"],
+      "relatedPermissions": ["BROWSE"]
     },
     {
       "id": "ERRORS",
@@ -108,26 +94,21 @@
     }
   ],
   "errorCodes": {
-    "assistant-provider-failed": "The configured assistant provider failed without changing ontology state.",
     "AI_CREDENTIAL_MISSING": "Configure an OpenAI credential before discovering or selecting models.",
     "AI_CREDENTIAL_INVALID": "Replace or remove the rejected OpenAI credential. Entio does not retain it in browser storage.",
     "AI_MODEL_NOT_AVAILABLE": "Refresh the available models and select an ID returned by Entio.",
-    "AI_MODEL_SELECTION_REQUIRED": "Select and verify an available model before starting the assistant.",
+    "AI_MODEL_SELECTION_REQUIRED": "Select and verify an available model before provider verification.",
     "AI_PROVIDER_RATE_LIMITED": "Wait before repeating model discovery or verification.",
     "AI_PROVIDER_TIMEOUT": "The provider did not respond in time. Retry discovery or verification later.",
     "AI_PROVIDER_UNAVAILABLE": "The provider is temporarily unavailable. Non-AI Entio features remain available.",
     "forbidden": "The current user does not have the permission required for this action.",
     "invalid-search-query": "The local semantic search text is missing or invalid.",
-    "missing-credential": "Configure and test a provider credential before starting an assistant run.",
+    "missing-credential": "Configure and test a provider credential before discovering or verifying models.",
     "missing-entity": "The requested entity is not present in the selected project and source scope.",
     "project-load-failed": "The registered Entio project could not be loaded or parsed.",
     "proposal-invalid": "Deterministic proposal validation found blocking issues.",
     "source-scope-violation": "The requested source is outside the current project run scope.",
     "staging-conflict": "The staged changes cannot be normalized into one safe proposal.",
-    "stale-capability-registry": "The run capability set changed; start or refresh the run before retrying.",
-    "ai-task-revision-conflict": "Refresh the authoritative task workspace before retrying the command with its current revision.",
-    "ai-task-concurrency-limit": "Pause, cancel, or finish an active task before creating another mutating task.",
-    "task-not-ready-for-review": "Complete required packages and current deterministic analysis before review handoff.",
     "unknown-project": "The requested project is not registered in the web server allowlist."
   }
 }

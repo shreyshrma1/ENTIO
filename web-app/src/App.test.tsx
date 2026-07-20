@@ -170,7 +170,7 @@ describe("web workbench shell", () => {
         apiVersion: "v1",
         projectId: "simple",
         status: "READYFORREVIEW",
-        entries: [{ id: "stage-1", order: 1, sourceId: "simple", summary: "add-definition · Account", editType: "add-definition", status: "STAGED", authorId: "alice", latestEditorId: "alice", comment: "AI definition", aiGenerated: true, normalizedValues: {}, generatedIris: [], validationMessages: [] }],
+        entries: [{ id: "stage-1", order: 1, sourceId: "simple", summary: "add-definition · Account", editType: "add-definition", status: "STAGED", authorId: "alice", latestEditorId: "alice", comment: "Definition", normalizedValues: {}, generatedIris: [], validationMessages: [] }],
         proposal: { id: "proposal-1", status: "READYFORREVIEW", message: null, validationMessages: [], validationIssues: [], diff: [], shaclImpact: null },
       });
       throw new Error(`Unexpected request: ${path}`);
@@ -213,7 +213,6 @@ describe("web workbench shell", () => {
           authorId: "bob",
           latestEditorId: "bob",
           comment: null,
-          aiGenerated: false,
           normalizedValues: {
             individualIri: "https://example.com/entio/simple#Account101",
             label: "Account 101",
@@ -232,7 +231,6 @@ describe("web workbench shell", () => {
           authorId: "bob",
           latestEditorId: "bob",
           comment: null,
-          aiGenerated: false,
           normalizedValues: {
             resourceIri: "https://example.com/entio/simple#Account101",
             label: "Primary Account",

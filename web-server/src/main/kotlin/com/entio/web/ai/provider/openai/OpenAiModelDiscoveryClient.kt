@@ -18,13 +18,10 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.accept
 import io.ktor.client.request.get
 import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.content.TextContent
 import io.ktor.http.isSuccess
 import java.io.IOException
 import java.net.URI
@@ -33,14 +30,12 @@ import kotlin.coroutines.cancellation.CancellationException
 public data class OpenAiModelProviderConfiguration(
     val providerId: String = PROVIDER_ID,
     val modelsEndpoint: String = MODELS_ENDPOINT,
-    val responsesEndpoint: String = RESPONSES_ENDPOINT,
     val connectTimeoutMillis: Long = 10_000,
     val requestTimeoutMillis: Long = 30_000,
 ) {
     init {
         require(providerId == PROVIDER_ID) { "openai-provider-id-required" }
         require(isApprovedEndpoint(modelsEndpoint, "/v1/models")) { "approved-openai-models-endpoint-required" }
-        require(isApprovedEndpoint(responsesEndpoint, "/v1/responses")) { "approved-openai-responses-endpoint-required" }
         require(connectTimeoutMillis > 0) { "openai-connect-timeout-required" }
         require(requestTimeoutMillis > 0) { "openai-request-timeout-required" }
     }
@@ -48,7 +43,6 @@ public data class OpenAiModelProviderConfiguration(
     public companion object {
         public const val PROVIDER_ID: String = "openai"
         public const val MODELS_ENDPOINT: String = "https://api.openai.com/v1/models"
-        public const val RESPONSES_ENDPOINT: String = "https://api.openai.com/v1/responses"
 
         private fun isApprovedEndpoint(value: String, path: String): Boolean = runCatching {
             val uri = URI(value)
@@ -96,15 +90,14 @@ public class OpenAiModelDiscoveryClient(
             return verificationFailed(AiProviderModelErrorCategory.MODEL_NOT_AVAILABLE)
         }
         return try {
-            val response = httpClient.post(configuration.responsesEndpoint) {
+            val response = httpClient.get(modelEndpoint(modelId)) {
                 header(HttpHeaders.Authorization, "Bearer $key")
                 accept(ContentType.Application.Json)
-                setBody(TextContent(verificationRequest(modelId), ContentType.Application.Json))
             }
             if (!response.status.isSuccess()) {
                 AiModelVerificationResult.Failed(mapFailure(response.status, response.bodyAsText(), verification = true))
             } else {
-                parseVerification(response.body())
+                AiModelVerificationResult.Verified
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -128,38 +121,7 @@ public class OpenAiModelDiscoveryClient(
         AiModelDiscoveryResult.Discovered(models)
     }.getOrElse { failed(AiProviderModelErrorCategory.MALFORMED_RESPONSE) }
 
-    private fun parseVerification(body: String): AiModelVerificationResult = runCatching {
-        val output = objectMapper.readTree(body).path("output")
-        require(output.isArray) { "provider-verification-output-required" }
-        val verified = output.any { item ->
-            item.path("type").textValue() == "function_call" && item.path("name").textValue() == VERIFICATION_TOOL_NAME
-        }
-        if (verified) AiModelVerificationResult.Verified
-        else verificationFailed(AiProviderModelErrorCategory.MALFORMED_RESPONSE)
-    }.getOrElse { verificationFailed(AiProviderModelErrorCategory.MALFORMED_RESPONSE) }
-
-    private fun verificationRequest(modelId: String): String {
-        val root = objectMapper.createObjectNode()
-        root.put("model", modelId)
-        root.put("store", false)
-        root.put("input", "Call the provided Entio verification function once with no arguments.")
-        val tool = root.putArray("tools").addObject()
-        tool.put("type", "function")
-        tool.put("name", VERIFICATION_TOOL_NAME)
-        tool.put("description", "Confirms support for Entio's harmless custom-function contract.")
-        tool.put("strict", true)
-        tool.putObject("parameters").apply {
-            put("type", "object")
-            putObject("properties")
-            putArray("required")
-            put("additionalProperties", false)
-        }
-        root.putObject("tool_choice").apply {
-            put("type", "function")
-            put("name", VERIFICATION_TOOL_NAME)
-        }
-        return objectMapper.writeValueAsString(root)
-    }
+    private fun modelEndpoint(modelId: String): String = "${configuration.modelsEndpoint}/$modelId"
 
     private fun mapFailure(status: HttpStatusCode, body: String, verification: Boolean): AiProviderModelError {
         val error = runCatching { objectMapper.readTree(body).path("error") }.getOrNull()
@@ -184,7 +146,6 @@ public class OpenAiModelDiscoveryClient(
     }
 
     public companion object {
-        public const val VERIFICATION_TOOL_NAME: String = "entio_verify_model_compatibility"
         private val modelErrorCodes: Set<String> = setOf("model_not_found", "model_not_available", "unsupported_model")
     }
 }

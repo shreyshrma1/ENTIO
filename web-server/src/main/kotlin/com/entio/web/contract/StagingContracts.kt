@@ -42,7 +42,6 @@ public data class WebStageChangeRequest(
     val datatypeIri: String? = null,
     val languageTag: String? = null,
     val comment: String? = null,
-    val aiGenerated: Boolean = false,
     val replacesStagedId: String? = null,
     val idempotencyKey: String? = null,
 )
@@ -57,7 +56,6 @@ public data class WebStagedEntry(
     val authorId: String,
     val latestEditorId: String,
     val comment: String?,
-    val aiGenerated: Boolean,
     val normalizedValues: Map<String, String>,
     val generatedIris: List<String>,
     val validationMessages: List<String>,
