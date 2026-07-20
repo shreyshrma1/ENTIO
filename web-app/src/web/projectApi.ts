@@ -678,6 +678,7 @@ export async function sendAiConversationMessage(
   request: WebAiMessageRequest,
   idempotencyKey: string,
   fetcher: WebFetcher = defaultFetcher,
+  signal?: AbortSignal,
 ): Promise<WebAiConversationTurnResponse> {
   return sendJson(
     `/api/v1/projects/${encodeURIComponent(projectId)}/ai/conversations/${encodeURIComponent(conversationId)}/messages`,
@@ -685,6 +686,8 @@ export async function sendAiConversationMessage(
     request,
     fetcher,
     { "Idempotency-Key": idempotencyKey },
+    undefined,
+    signal,
   );
 }
 
@@ -934,6 +937,7 @@ async function sendJson<T>(
   fetcher: WebFetcher,
   extraHeaders: Record<string, string> = {},
   timeoutMs?: number,
+  signal?: AbortSignal,
 ): Promise<T> {
   const controller = timeoutMs === undefined ? null : new AbortController();
   const timeout = controller === null ? null : window.setTimeout(() => controller.abort(), timeoutMs);
@@ -942,7 +946,7 @@ async function sendJson<T>(
       method,
       headers: body === undefined ? extraHeaders : { "Content-Type": "application/json", ...extraHeaders },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: controller?.signal,
+      signal: signal ?? controller?.signal,
     });
     if (!response.ok) {
       throw await webRequestError(response);

@@ -75,30 +75,37 @@ public enum class AiRunStatus {
 }
 
 public data class AiRunPolicy(
-    val maxCapabilityCallsPerTurn: Int = 20,
-    val maxDraftEditsPerRun: Int = 50,
+    /** Optional per-run capability guard; null allows the run to continue until timeout, cancellation, or failure. */
+    val maxCapabilityCallsPerTurn: Int? = null,
+    /** Optional per-run draft mutation guard; null allows long modeling workflows. */
+    val maxDraftEditsPerRun: Int? = null,
     val maxCorrectionCycles: Int = 3,
     val maxActiveRunsPerUserProject: Int = 1,
     val maxLocalEntitiesInContext: Int = 20,
     val maxFiboCandidatesPerSearch: Int = 10,
-    val maxProviderRequestsPerTurn: Int = 12,
-    val maxConversationMessagesInContext: Int = 20,
-    val maxElapsedMillis: Long = 120_000,
-    val maxInputTokens: Long = 100_000,
-    val maxOutputTokens: Long = 20_000,
+    /** Optional per-run provider request guard; null allows long tool-driven loops. */
+    val maxProviderRequestsPerTurn: Int? = null,
+    /** Optional conversation-history guard; null sends the available history to the provider. */
+    val maxConversationMessagesInContext: Int? = null,
+    /** Optional wall-clock guard; null allows long-running provider work until cancellation or failure. */
+    val maxElapsedMillis: Long? = null,
+    /** Optional per-run provider usage guard; null lets the provider/account policy decide. */
+    val maxInputTokens: Long? = null,
+    /** Optional per-run provider usage guard; null lets the provider/account policy decide. */
+    val maxOutputTokens: Long? = null,
 ) {
     init {
-        require(maxCapabilityCallsPerTurn > 0)
-        require(maxDraftEditsPerRun > 0)
+        require(maxCapabilityCallsPerTurn == null || maxCapabilityCallsPerTurn > 0)
+        require(maxDraftEditsPerRun == null || maxDraftEditsPerRun > 0)
         require(maxCorrectionCycles >= 0)
         require(maxActiveRunsPerUserProject > 0)
         require(maxLocalEntitiesInContext > 0)
         require(maxFiboCandidatesPerSearch > 0)
-        require(maxProviderRequestsPerTurn > 0)
-        require(maxConversationMessagesInContext > 0)
-        require(maxElapsedMillis > 0)
-        require(maxInputTokens > 0)
-        require(maxOutputTokens > 0)
+        require(maxProviderRequestsPerTurn == null || maxProviderRequestsPerTurn > 0)
+        require(maxConversationMessagesInContext == null || maxConversationMessagesInContext > 0)
+        require(maxElapsedMillis == null || maxElapsedMillis > 0)
+        require(maxInputTokens == null || maxInputTokens > 0)
+        require(maxOutputTokens == null || maxOutputTokens > 0)
     }
 }
 

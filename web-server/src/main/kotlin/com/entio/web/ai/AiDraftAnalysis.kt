@@ -199,10 +199,27 @@ public class AiDraftAnalysisService internal constructor(
         } catch (failure: WebWorkflowFailure) {
             return failedAnalysis(draft, revision, currentBaseline, draftFingerprint, failure.code, failure.message.orEmpty())
         }
-        val currentReasoning = reason(project.graph, "current")
+        val currentReasoning = try {
+            reason(project.graph, "current")
+        } catch (failure: AiDraftFailure) {
+            return failedAnalysis(draft, revision, currentBaseline, draftFingerprint, failure.code, failure.message.orEmpty())
+        }
         val previewGraph = prepared.proposal.preview?.graph
             ?: return failedAnalysis(draft, revision, currentBaseline, draftFingerprint, "missing-preview", "The deterministic proposal preview was not created.")
-        val previewReasoning = reason(previewGraph, "preview")
+        val previewReasoning = try {
+            reason(previewGraph, "preview")
+        } catch (failure: AiDraftFailure) {
+            return failedAnalysis(
+                draft,
+                revision,
+                currentBaseline,
+                draftFingerprint,
+                failure.code,
+                failure.message.orEmpty(),
+                prepared,
+                currentReasoning,
+            )
+        }
         val reasoningImpact = when (
             val result = impactAnalyzer.analyze(project.graph, previewGraph, currentReasoning, previewReasoning, null, null)
         ) {

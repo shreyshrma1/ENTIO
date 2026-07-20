@@ -2,7 +2,21 @@ package com.entio.web
 
 import com.entio.web.ai.DevelopmentAiProviderClient
 import com.entio.web.ai.models.AiProviderModelDescriptor
-import com.entio.web.ai.provider.AiModelDiscoveryResult
+import com.entio.web.ai.models.AiModelCompatibilityPolicy
+import com.entio.web.ai.models.AiModelDiscoveryService
+import com.entio.web.ai.models.AiModelSelectionService
+import com.entio.web.ai.models.AiModelVerificationService
+import com.entio.web.ai.models.AiProviderCallLimiter
+import com.entio.web.ai.models.AiModelCompatibilityState
+import com.entio.web.ai.models.AiModelDiscoveryStatus
+import com.entio.web.ai.models.AiModelSelectionStatus
+import com.entio.web.ai.models.AiModelVerificationStatus
+import com.entio.web.ai.models.AiSettingsCredentialStatus
+import com.entio.web.ai.models.AiUserProviderSettings
+import com.entio.web.ai.models.InMemoryAiUserProviderSettingsStore
+import com.entio.web.ai.models.AiProviderSettingsService
+import com.entio.web.ai.InMemoryAiCredentialStore
+import com.entio.web.ai.AiModelWebBoundary
 import com.entio.web.ai.provider.AiModelVerificationResult
 import com.entio.web.ai.provider.AiProviderModelError
 import com.entio.web.ai.provider.AiProviderModelErrorCategory
@@ -23,8 +37,52 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
 
 class AiModelWebContractTest {
+    @Test
+    fun staleDiscoveredModelsAreNotReportedAsReady(): Unit {
+        val now = Instant.parse("2026-07-20T00:00:00Z")
+        val clock = Clock.fixed(now, ZoneOffset.UTC)
+        val credentials = InMemoryAiCredentialStore().also { it.save("alice", "openai", "test-secret") }
+        val store = InMemoryAiUserProviderSettingsStore()
+        val provider = DevelopmentAiModelProviderClient(
+            models = listOf(AiProviderModelDescriptor("openai", "gpt-5.6-sol")),
+            verificationByModelId = mapOf("gpt-5.6-sol" to AiModelVerificationResult.Verified),
+        )
+        val policy = AiModelCompatibilityPolicy()
+        val candidate = policy.project(listOf(AiProviderModelDescriptor("openai", "gpt-5.6-sol"))).candidates.single()
+        store.save(
+            AiUserProviderSettings(
+                userId = "alice",
+                providerId = "openai",
+                credentialGeneration = 1,
+                credentialStatus = AiSettingsCredentialStatus.VALID,
+                discoveryStatus = AiModelDiscoveryStatus.COMPLETED,
+                discoveredAt = now.minusSeconds(20 * 60),
+                policyVersion = policy.version,
+                candidates = listOf(candidate.copy(verificationStatus = AiModelVerificationStatus.VERIFIED, compatibilityState = AiModelCompatibilityState.AVAILABLE_AND_COMPATIBLE)),
+                unsupportedProviderModelCount = 0,
+                selectedModelId = "gpt-5.6-sol",
+                selectedModelVerifiedAt = now.minusSeconds(20 * 60),
+                selectionStatus = AiModelSelectionStatus.READY,
+                lastProviderErrorCategory = null,
+            ),
+        )
+        val discovery = AiModelDiscoveryService(credentials, store, provider, policy, AiProviderCallLimiter(clock), clock)
+        val settings = AiProviderSettingsService(credentials, store, discovery, "openai", policy.version)
+        val verification = AiModelVerificationService(credentials, store, provider, AiProviderCallLimiter(clock), clock)
+        val boundary = AiModelWebBoundary(settings, discovery, AiModelSelectionService(store, discovery, verification))
+
+        val response = boundary.status("alice")
+
+        assertEquals("STALE", response.discoveryStatus)
+        assertEquals("UNAVAILABLE", response.selectionStatus)
+        assertEquals("gpt-5.6-sol", response.selectedModel?.modelId)
+    }
+
     @Test
     fun credentialDiscoverySelectionRetestClearAndRemovalUseRedactedVersionedContracts(): Unit = testApplication {
         application { module(modelDependencies()) }

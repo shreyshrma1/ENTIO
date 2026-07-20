@@ -17,6 +17,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
@@ -44,6 +45,7 @@ class AiReviewSubmissionServiceTest {
         assertEquals(prepared.analysis.references.map(AiDraftAnalysisReference::id).sorted(), result.analysisReferenceIds)
         assertEquals(sourceBefore, Files.readString(fixture.projectRoot.resolve("ontology/simple.ttl")))
         assertEquals(AiDraftStatus.SUBMITTED, fixture.drafts.get("alice", "simple", "conversation-1", "draft-1").status)
+        assertNull(fixture.conversations.get("alice", "simple", "conversation-1").currentDraftId)
         assertFailsWith<AiDraftFailure> {
             fixture.workspace.add(fixture.scope, "draft-1", AiTypedEditCapabilityAdapter.ADD_ONTOLOGY_CAPABILITY, createClass("Payable Account"), "run-1")
         }
@@ -223,6 +225,7 @@ class AiReviewSubmissionServiceTest {
         val staging = StagingWorkflowService(projects)
         val collaboration = CollaborationHub(projects, staging::snapshot)
         val drafts = InMemoryAiDraftStore()
+        val conversations = InMemoryAiConversationStore()
         val analyses = InMemoryAiDraftAnalysisStore()
         val runs = InMemoryAiRunStore()
         val submissionAudits = InMemoryAiReviewSubmissionAuditStore()
@@ -242,6 +245,17 @@ class AiReviewSubmissionServiceTest {
             ),
             availableFeatures = setOf(AiCapabilityFeatures.PRIVATE_DRAFT),
             createdAt = now,
+        )
+        conversations.create(
+            AiConversation(
+                id = scope.conversationId,
+                userId = scope.userId,
+                projectId = scope.projectId,
+                currentDraftId = "draft-1",
+                promptVersion = "test-prompt-v1",
+                createdAt = now,
+                updatedAt = now,
+            ),
         )
         var nextItemId = 1
         val workspace = AiPrivateDraftWorkspace(
@@ -264,6 +278,7 @@ class AiReviewSubmissionServiceTest {
             ),
         )
         val submissions = AiReviewSubmissionService(
+            conversations,
             drafts,
             workspace,
             analyses,
@@ -275,7 +290,7 @@ class AiReviewSubmissionServiceTest {
             clock,
             idFactory = { "submission-1" },
         )
-        return Fixture(project, staging, collaboration, drafts, workspace, analysis, submissionAudits, submissions, scope)
+        return Fixture(project, staging, collaboration, conversations, drafts, workspace, analysis, submissionAudits, submissions, scope)
     }
 
     private data class Prepared(val draft: AiDraft, val analysis: AiDraftAnalysis)
@@ -284,6 +299,7 @@ class AiReviewSubmissionServiceTest {
         val projectRoot: Path,
         val staging: StagingWorkflowService,
         val collaboration: CollaborationHub,
+        val conversations: InMemoryAiConversationStore,
         val drafts: InMemoryAiDraftStore,
         val workspace: AiPrivateDraftWorkspace,
         val analysis: AiDraftAnalysisService,

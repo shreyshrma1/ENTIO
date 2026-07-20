@@ -176,6 +176,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
         modelBindings = aiModelBindings,
     )
     val aiSubmissions = AiReviewSubmissionService(
+        conversations = aiConversations,
         drafts = aiDrafts,
         draftWorkspace = aiDraftWorkspace,
         analyses = aiAnalyses,

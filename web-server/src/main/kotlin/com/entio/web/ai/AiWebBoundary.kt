@@ -366,12 +366,17 @@ private fun AiDraft.toWeb(): WebAiDraft = WebAiDraft(
     draftFingerprint = draftFingerprint,
     analysisReferenceIds = analysisReferenceIds,
     items = items.map { item ->
+        val typedOperation = item.operation as? AiTypedDraftOperation
         WebAiDraftItem(
             id = item.id,
             order = item.order,
             capabilityName = item.operation.capabilityName,
             targetSourceId = item.operation.targetSourceId,
             summary = item.operation.summary,
+            editType = typedOperation?.request?.editType,
+            targetLabel = typedOperation?.request?.targetLabel,
+            targetIri = typedOperation?.request?.targetIri,
+            value = typedOperation?.request?.value,
             rationale = item.rationale,
             dependencyItemIds = item.dependencyItemIds,
             aiGenerated = item.attribution?.aiGenerated == true,

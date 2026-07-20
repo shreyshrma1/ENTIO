@@ -99,6 +99,19 @@ public class DefaultAiCapabilityDispatcher(
                 "itemCount" to draft.items.size,
                 "draftFingerprint" to draft.draftFingerprint,
                 "referenceId" to reference,
+                "items" to draft.items.map { item ->
+                    val operation = item.operation as? AiTypedDraftOperation
+                    mapOf(
+                        "itemId" to item.id,
+                        "order" to item.order,
+                        "editType" to operation?.request?.editType,
+                        "targetLabel" to operation?.request?.targetLabel,
+                        "targetIri" to operation?.request?.targetIri,
+                        "value" to operation?.request?.value,
+                        "generatedIris" to operation?.generatedIris.orEmpty(),
+                        "normalizedValues" to operation?.normalizedValues.orEmpty(),
+                    )
+                },
             ),
         )
     }

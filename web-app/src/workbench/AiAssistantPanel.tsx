@@ -42,6 +42,8 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
   const [streamError, setStreamError] = useState<string | null>(null);
   const activeRunId = useRef<string | null>(null);
   const lastEventId = useRef<string | undefined>(undefined);
+  const sendAbortController = useRef<AbortController | null>(null);
+  const [stopRequested, setStopRequested] = useState(false);
   const composer = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -53,6 +55,8 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
     setStreamState("idle");
     activeRunId.current = null;
     lastEventId.current = undefined;
+    draftActions.analyze.reset();
+    draftActions.submit.reset();
   }, [projectId]);
 
   useEffect(() => {
@@ -111,7 +115,13 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
         setActiveConversationId(response.conversation.id);
         setLatestTurn(null);
         setActiveRun(null);
+        setActiveTaskId(null);
         setRunEvents([]);
+        setStreamState("idle");
+        activeRunId.current = null;
+        lastEventId.current = undefined;
+        draftActions.analyze.reset();
+        draftActions.submit.reset();
       },
     });
   }
@@ -138,11 +148,15 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
   function sendDecision(decision: WebAiConversationDecision, content: string) {
     const trimmed = content.trim();
     if (!activeConversationId || !trimmed) return;
+    const controller = new AbortController();
+    sendAbortController.current = controller;
+    setStopRequested(false);
     draftActions.analyze.reset();
     draftActions.submit.reset();
     conversationActions.send.mutate({
       conversationId: activeConversationId,
       idempotencyKey: requestId("message"),
+      signal: controller.signal,
       request: {
         message: trimmed,
         decision,
@@ -154,6 +168,7 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
       },
     }, {
       onSuccess: (turn) => {
+        if (sendAbortController.current === controller) sendAbortController.current = null;
         setLatestTurn(turn);
         if (activeRunId.current !== turn.run.id) {
           activeRunId.current = turn.run.id;
@@ -166,12 +181,21 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
         setPlanRevision("");
         if (turn.draftId) queryClient.invalidateQueries({ queryKey: queryKeys.aiDraft(projectId, turn.draftId) });
       },
+      onSettled: () => {
+        if (sendAbortController.current === controller) sendAbortController.current = null;
+      },
     });
   }
 
   function cancelRun() {
     if (!activeRun) return;
     conversationActions.cancel.mutate(activeRun.id, { onSuccess: (response) => setActiveRun(response.run) });
+  }
+
+  function stopGeneration() {
+    setStopRequested(true);
+    sendAbortController.current?.abort();
+    if (activeRun && runActive) cancelRun();
   }
 
   function analyzeDraft() {
@@ -192,6 +216,15 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
         expectedPreviewGraphFingerprint: analysis.previewGraphFingerprint,
         expectedAnalysisReferenceIds: analysis.references.map((reference) => reference.id),
       },
+    }, {
+      onSuccess: (response) => {
+        draftActions.analyze.reset();
+        setLatestTurn((current) => current?.conversation.id === response.conversationId ? {
+          ...current,
+          conversation: { ...current.conversation, currentDraftId: null },
+          draftId: null,
+        } : current);
+      },
     });
   }
 
@@ -199,6 +232,7 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
   const credentialMissing = providerSettings.isSuccess && providerSettings.data.credentialStatus === "NOT_CONFIGURED";
   const modelSelectionRequired = providerSettings.isSuccess && providerSettings.data.credentialStatus === "VALID" && !aiReady;
   const runActive = Boolean(activeRun && !terminalRunStatus(activeRun.status));
+  const generationActive = conversationActions.send.isPending || runActive;
   const canSubmit = Boolean(analysis?.readyForReview && analysis.previewGraphFingerprint && runIdForSubmission && draft.data?.draft.status === "READY_FOR_REVIEW");
 
   return (
@@ -215,7 +249,7 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
       {conversations.isPending ? <p role="status">Loading conversations...</p> : null}
       {conversations.isError ? <p role="alert">Could not load conversations. {conversations.error.message}</p> : null}
       <div className="ai-conversation-controls">
-        {conversations.data?.conversations.length ? <label htmlFor="ai-conversation">Conversation<select id="ai-conversation" value={activeConversationId ?? ""} onChange={(event) => { setActiveConversationId(event.target.value); setLatestTurn(null); setActiveRun(null); setRunEvents([]); }}>{conversations.data.conversations.map((item, index) => <option key={item.id} value={item.id}>Conversation {conversations.data.conversations.length - index}</option>)}</select></label> : null}
+        {conversations.data?.conversations.length ? <label htmlFor="ai-conversation">Conversation<select id="ai-conversation" value={activeConversationId ?? ""} onChange={(event) => { setActiveConversationId(event.target.value); setLatestTurn(null); setActiveRun(null); setActiveTaskId(null); setRunEvents([]); setStreamState("idle"); setStreamError(null); activeRunId.current = null; lastEventId.current = undefined; draftActions.analyze.reset(); draftActions.submit.reset(); }}>{conversations.data.conversations.map((item, index) => <option key={item.id} value={item.id}>Conversation {conversations.data.conversations.length - index}</option>)}</select></label> : null}
         <button className="button" type="button" onClick={beginConversation} disabled={conversationActions.create.isPending || !aiReady}>{conversationActions.create.isPending ? "Starting..." : "New conversation"}</button>
       </div>
       {conversationActions.create.isError ? <p role="alert">Could not start a conversation. {conversationActions.create.error.message}</p> : null}
@@ -226,9 +260,9 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
         {conversationActions.send.isPending ? <div className="ai-thinking" role="status" aria-live="polite"><strong>Entio AI is working…</strong><p>It may be inspecting ontology entities, preparing draft changes, or waiting briefly for provider capacity.</p></div> : null}
         {latestTurn?.plan ? <PlanConfirmation plan={latestTurn.plan} revision={planRevision} onRevisionChange={setPlanRevision} onConfirm={() => sendDecision("CONFIRM_PLAN", "Confirm this plan.")} onRevise={() => sendDecision("REVISE_PLAN", planRevision)} onCancel={cancelRun} busy={conversationActions.send.isPending || conversationActions.cancel.isPending} /> : null}
         {latestTurn?.clarificationQuestion ? <Clarification question={latestTurn.clarificationQuestion} answer={clarification} onAnswerChange={setClarification} onSubmit={() => sendDecision("ANSWER_CLARIFICATION", clarification)} onCancel={cancelRun} busy={conversationActions.send.isPending || conversationActions.cancel.isPending} /> : null}
-        <form className="ai-composer" onSubmit={send}><label htmlFor="ai-message">Ask about this ontology context</label><textarea ref={composer} id="ai-message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Explain a concept or describe an ontology change..." rows={3} disabled={!aiReady || conversationActions.send.isPending || taskActions.create.isPending || runActive && activeRun?.status !== "AWAITING_PLAN_CONFIRMATION" && activeRun?.status !== "AWAITING_CLARIFICATION"} /><div className="ai-composer-actions"><span>Structured project context only</span>{runActive ? <button className="button" type="button" onClick={cancelRun} disabled={conversationActions.cancel.isPending}>Cancel run</button> : null}<button className="button" type="button" onClick={startTask} disabled={!aiReady || !message.trim() || taskActions.create.isPending || runActive}>{taskActions.create.isPending ? "Starting task…" : "Start task"}</button><button className="button primary" type="submit" disabled={!aiReady || !message.trim() || conversationActions.send.isPending || taskActions.create.isPending || runActive}>{conversationActions.send.isPending ? "Sending..." : "Send"}</button></div></form>
+        <form className="ai-composer" onSubmit={send}><label htmlFor="ai-message">Ask about this ontology context</label><textarea ref={composer} id="ai-message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Explain a concept or describe an ontology change..." rows={3} disabled={!aiReady || conversationActions.send.isPending || taskActions.create.isPending || runActive && activeRun?.status !== "AWAITING_PLAN_CONFIRMATION" && activeRun?.status !== "AWAITING_CLARIFICATION"} /><div className="ai-composer-actions"><span>Structured project context only</span>{generationActive ? <button className="button danger" type="button" onClick={stopGeneration} disabled={conversationActions.cancel.isPending}>Stop generation</button> : null}<button className="button" type="button" onClick={startTask} disabled={!aiReady || !message.trim() || taskActions.create.isPending || runActive}>{taskActions.create.isPending ? "Starting task…" : "Start task"}</button><button className="button primary" type="submit" disabled={!aiReady || !message.trim() || conversationActions.send.isPending || taskActions.create.isPending || runActive}>{conversationActions.send.isPending ? "Sending..." : "Send"}</button></div></form>
         {taskActions.create.isError ? <p role="alert">Could not start the task. {taskActions.create.error.message}</p> : null}
-        {conversationActions.send.isError ? <p role="alert">Assistant request failed. {conversationActions.send.error.message}</p> : null}
+        {conversationActions.send.isError && !stopRequested ? <p role="alert">Assistant request failed. {conversationActions.send.error.message}</p> : null}
         {conversationActions.cancel.isError ? <p role="alert">Could not cancel the run. {conversationActions.cancel.error.message}</p> : null}
         {activeRun ? <div className="ai-run-status"><strong>{activeRun.status.replaceAll("_", " ")}</strong><span>{activeRun.capabilityCallCount} capabilities · {activeRun.draftEditCount} draft edits · {activeRun.correctionCycleCount} corrections</span></div> : null}
         {latestTurn?.limits.length ? <ul className="ai-limits" aria-label="Run limits">{latestTurn.limits.map((limit) => <li key={limit.kind}>{limit.kind}: {limit.observed} of {limit.maximum}</li>)}</ul> : null}

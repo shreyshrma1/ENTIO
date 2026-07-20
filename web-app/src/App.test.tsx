@@ -1,10 +1,15 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
 describe("web workbench shell", () => {
   beforeEach(() => {
     window.history.pushState({}, "", "/");
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
   });
 
   it("loads an approved project and opens a label-first entity tab", async () => {
@@ -146,6 +151,37 @@ describe("web workbench shell", () => {
     render(<App />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not load projects");
+  });
+
+  it("opens the proposal review queue from its authoritative route", async () => {
+    window.history.pushState({}, "", "/projects/simple/changes?proposalId=proposal-1");
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/summary")) return json({
+        apiVersion: "v1",
+        project: { id: "simple", displayName: "Simple ontology", name: "simple-ontology" },
+        sources: [{ id: "simple", path: "ontology/simple.ttl", format: "turtle", roles: ["ontology"], tripleCount: 4 }],
+        symbolCount: 2,
+        graphTripleCount: 4,
+      });
+      if (path.includes("/hierarchy")) return json({ apiVersion: "v1", sourceId: "simple", parentIri: null, page: { items: [], offset: 0, limit: 50, total: 0, nextOffset: null } });
+      if (path.includes("/outline")) return json({ apiVersion: "v1", sourceId: "simple", page: { items: [], offset: 0, limit: 100, total: 0, nextOffset: null } });
+      if (path.endsWith("/staged")) return json({
+        apiVersion: "v1",
+        projectId: "simple",
+        status: "READYFORREVIEW",
+        entries: [{ id: "stage-1", order: 1, sourceId: "simple", summary: "add-definition · Account", editType: "add-definition", status: "STAGED", authorId: "alice", latestEditorId: "alice", comment: "AI definition", aiGenerated: true, normalizedValues: {}, generatedIris: [], validationMessages: [] }],
+        proposal: { id: "proposal-1", status: "READYFORREVIEW", message: null, validationMessages: [], validationIssues: [], diff: [], shaclImpact: null },
+      });
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Proposal", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Proposal" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("heading", { name: "Review queue" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument();
   });
 
   it("opens a staged individual from the normal object outline", async () => {

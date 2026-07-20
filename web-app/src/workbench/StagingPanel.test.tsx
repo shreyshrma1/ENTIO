@@ -138,6 +138,39 @@ describe("staging panel", () => {
     expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
     expect(screen.getByRole("heading", { name: "Ready for review" })).toBeInTheDocument();
   });
+
+  it("removes rejected proposal entries from the active review queue", async () => {
+    const entry = stagedEntry();
+    const proposal = {
+      id: "proposal-1",
+      status: "READYFORREVIEW",
+      stagedChangeIds: [entry.id],
+      baselineProjectFingerprint: "baseline",
+      validationMessages: [],
+      validationIssues: [],
+      diff: [],
+      targetSourceIds: ["simple"],
+      shaclImpact: null,
+      message: null,
+    };
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (init?.method === "POST" && path.endsWith("/proposal/preview")) return json({ ...stagingResponse([entry]), proposal });
+      if (init?.method === "POST" && path.endsWith("/proposal/reject")) return json(stagingResponse([]));
+      if (path.endsWith("/staged")) return json(stagingResponse([entry]));
+      if (path.endsWith("/summary")) return json({});
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${path}`);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+
+    render(<QueryClientProvider client={client}><StagingPanel projectId="simple" /></QueryClientProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Reject" }));
+    expect(await screen.findByText("The shared review queue is empty.")).toBeInTheDocument();
+    expect(screen.queryByText("Customer")).not.toBeInTheDocument();
+    expect(screen.getByText("Proposal rejected. Its source files were not changed.")).toBeInTheDocument();
+  });
 });
 
 function stagingResponse(entries: WebStagedEntry[]) {

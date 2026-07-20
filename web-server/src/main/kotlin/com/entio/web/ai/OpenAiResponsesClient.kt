@@ -381,7 +381,9 @@ public class OpenAiResponsesClient(
             }
         })
         if (request.capabilities.definitions.isNotEmpty()) {
-            root.put("parallel_tool_calls", false)
+            // Independent typed draft edits can be returned in one provider response.
+            // The server still executes and audits each call independently.
+            root.put("parallel_tool_calls", true)
             root.set<ArrayNode>("tools", objectMapper.createArrayNode().apply {
                 request.capabilities.definitions.forEach { add(serializeTool(it)) }
             })

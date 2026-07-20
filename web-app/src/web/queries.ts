@@ -328,8 +328,8 @@ export function useAiConversationActions(projectId: string) {
       mutationFn: () => createAiConversation(projectId),
       onSuccess: cacheConversation,
     }),
-    send: useMutation<WebAiConversationTurnResponse, Error, { conversationId: string; request: WebAiMessageRequest; idempotencyKey: string }>({
-      mutationFn: ({ conversationId, request, idempotencyKey }) => sendAiConversationMessage(projectId, conversationId, request, idempotencyKey),
+    send: useMutation<WebAiConversationTurnResponse, Error, { conversationId: string; request: WebAiMessageRequest; idempotencyKey: string; signal?: AbortSignal }>({
+      mutationFn: ({ conversationId, request, idempotencyKey, signal }) => sendAiConversationMessage(projectId, conversationId, request, idempotencyKey, undefined, signal),
       onSuccess: (response) => cacheConversation({ apiVersion: "v1", conversation: response.conversation }),
     }),
     cancel: useMutation<WebAiRunResponse, Error, string>({
@@ -355,8 +355,10 @@ export function useAiDraftActions(projectId: string) {
     }),
     submit: useMutation<WebAiReviewSubmissionResponse, Error, { draftId: string; request: WebAiReviewSubmissionRequest; idempotencyKey: string }>({
       mutationFn: ({ draftId, request, idempotencyKey }) => submitAiDraftForReview(projectId, draftId, request, idempotencyKey),
-      onSuccess: (_response, variables) => {
+      onSuccess: (response, variables) => {
         queryClient.invalidateQueries({ queryKey: queryKeys.aiDraft(projectId, variables.draftId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.aiConversation(projectId, response.conversationId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.aiConversations(projectId) });
         queryClient.invalidateQueries({ queryKey: queryKeys.staged(projectId) });
       },
     }),

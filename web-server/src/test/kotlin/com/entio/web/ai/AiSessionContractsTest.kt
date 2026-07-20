@@ -5,26 +5,27 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AiSessionContractsTest {
     private val now: Instant = Instant.parse("2026-07-17T12:00:00Z")
 
     @Test
-    fun defaultPolicyMatchesApprovedLimits(): Unit {
+    fun defaultPolicyLeavesProviderTokenBudgetUnbounded(): Unit {
         val policy = AiRunPolicy()
 
-        assertEquals(20, policy.maxCapabilityCallsPerTurn)
-        assertEquals(50, policy.maxDraftEditsPerRun)
+        assertNull(policy.maxCapabilityCallsPerTurn)
+        assertNull(policy.maxDraftEditsPerRun)
         assertEquals(3, policy.maxCorrectionCycles)
         assertEquals(1, policy.maxActiveRunsPerUserProject)
         assertEquals(20, policy.maxLocalEntitiesInContext)
         assertEquals(10, policy.maxFiboCandidatesPerSearch)
-        assertEquals(12, policy.maxProviderRequestsPerTurn)
-        assertEquals(20, policy.maxConversationMessagesInContext)
-        assertEquals(120_000, policy.maxElapsedMillis)
-        assertEquals(100_000, policy.maxInputTokens)
-        assertEquals(20_000, policy.maxOutputTokens)
+        assertNull(policy.maxProviderRequestsPerTurn)
+        assertNull(policy.maxConversationMessagesInContext)
+        assertNull(policy.maxElapsedMillis)
+        assertNull(policy.maxInputTokens)
+        assertNull(policy.maxOutputTokens)
     }
 
     @Test

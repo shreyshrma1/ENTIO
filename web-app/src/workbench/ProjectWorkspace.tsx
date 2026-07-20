@@ -87,12 +87,12 @@ function persistDisplayName(displayName: string) {
   }
 }
 
-export default function ProjectWorkspace() {
+export default function ProjectWorkspace({ initialModule = "explore" }: { initialModule?: ModuleId }) {
   const { projectId = "" } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [tabs, setTabs] = useState<EntityTab[]>([]);
-  const [activeModule, setActiveModule] = useState<ModuleId>("explore");
+  const [activeModule, setActiveModule] = useState<ModuleId>(initialModule);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [railExpanded, setRailExpanded] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -127,6 +127,10 @@ export default function ProjectWorkspace() {
   const stagedCreated = useMemo(() => proposalStatus === "APPLIED" ? [] : stagedCreatedEntities(stagedEntries), [proposalStatus, stagedEntries]);
   const stagedClassHierarchy = useMemo(() => proposalStatus === "APPLIED" ? emptyStagedClassHierarchy() : buildStagedClassHierarchy(stagedEntries), [proposalStatus, stagedEntries]);
   const stagedDetails = useMemo(() => proposalStatus === "APPLIED" ? new Map<string, WebEntityDetailResponse>() : buildStagedEntityDetails(stagedEntries), [proposalStatus, stagedEntries]);
+
+  useEffect(() => {
+    setActiveModule(initialModule);
+  }, [initialModule, projectId]);
 
   useEffect(() => {
     const normalizedSearch = searchInput.trim();
