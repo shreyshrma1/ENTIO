@@ -46,7 +46,7 @@ class OpenAiResponsesClientTest {
         assertEquals("gpt-5.2", body.path("model").asText())
         assertFalse(body.path("store").asBoolean(true))
         assertTrue(body.path("stream").asBoolean())
-        assertFalse(body.path("parallel_tool_calls").asBoolean(true))
+        assertTrue(body.path("parallel_tool_calls").asBoolean(false))
         assertEquals(listOf("developer", "user"), body.path("input").map { it.path("role").asText() })
         assertEquals("phase-7-v1", body.path("metadata").path("prompt_version").asText())
         assertEquals("Bearer secret-key", capturedAuthorization)

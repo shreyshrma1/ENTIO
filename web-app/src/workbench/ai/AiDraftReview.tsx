@@ -20,6 +20,9 @@ interface AiDraftReviewProps {
 }
 
 export default function AiDraftReview(props: AiDraftReviewProps) {
+  if (props.submission) {
+    return <section className="ai-submission" role="status"><strong>Submitted for human review</strong><p>Proposal {props.submission.proposalId} is {props.submission.reviewState.toLowerCase()}.</p><a className="button primary" href={props.submission.reviewRoute}>Open proposal review</a></section>;
+  }
   if (props.draftPending) return <p role="status">Loading private draft...</p>;
   if (props.draftError) return <p role="alert">Private draft unavailable. {props.draftError}</p>;
   if (!props.draft) return <div className="ai-empty"><strong>No private draft</strong><p>Ask the assistant to prepare a typed ontology change. Nothing enters the shared review queue until you submit it.</p></div>;
@@ -30,14 +33,14 @@ export default function AiDraftReview(props: AiDraftReviewProps) {
       <div className="ai-subheading"><h3 id="ai-draft-heading">Private draft</h3><span className={`ai-state ai-state-${draft.status.toLowerCase().replaceAll("_", "-")}`}>{draft.status.replaceAll("_", " ")}</span></div>
       {blockingState ? <p className="ai-warning" role="alert">This draft is {draft.status.toLowerCase()}. Revise it and rerun deterministic analysis before submission.</p> : null}
       {draft.items.length ? <ol className="ai-draft-items">
-        {draft.items.map((item) => <li key={item.id}><div><strong>{item.summary}</strong><span>{item.capabilityName} · {item.targetSourceId}</span></div><p>{item.rationale}</p>{item.dependencyItemIds.length ? <details><summary>Dependencies</summary><ul>{item.dependencyItemIds.map((id) => <li key={id}>{id}</li>)}</ul></details> : null}</li>)}
+        {draft.items.map((item) => <li key={item.id}><div><strong>{item.summary}</strong><span>{item.capabilityName} · {item.targetSourceId}</span></div>{item.editType === "add-definition" && item.value ? <div className="ai-draft-value"><strong>Proposed definition</strong><p>{item.value}</p></div> : null}<div className="ai-draft-rationale"><strong>Rationale</strong><p>{item.rationale}</p></div>{item.dependencyItemIds.length ? <details><summary>Dependencies</summary><ul>{item.dependencyItemIds.map((id) => <li key={id}>{id}</li>)}</ul></details> : null}</li>)}
       </ol> : <p className="muted">The draft has no typed edits yet.</p>}
       {draft.revisions.length ? <details className="ai-revisions"><summary>Revision history ({draft.revisions.length})</summary><ol>{draft.revisions.map((revision) => <li key={revision.revision}><strong>Revision {revision.revision}: {revision.action}</strong><span>{revision.explanation}</span></li>)}</ol></details> : null}
       <button className="button" type="button" onClick={props.onAnalyze} disabled={props.analysisPending || !draft.items.length || draft.status === "SUBMITTED"}>{props.analysisPending ? "Analyzing..." : "Run deterministic analysis"}</button>
       {props.analysisError ? <p role="alert">Draft analysis failed. {props.analysisError}</p> : null}
       {props.analysis ? <AnalysisSummary analysis={props.analysis} /> : null}
       {props.submissionError ? <p role="alert">Could not submit for review. {props.submissionError}</p> : null}
-      {props.submission ? <div className="ai-submission" role="status"><strong>Submitted for human review</strong><p>Proposal {props.submission.proposalId} is {props.submission.reviewState.toLowerCase()}.</p><a className="button primary" href={props.submission.reviewRoute}>Open proposal review</a></div> : <button className="button primary" type="button" onClick={props.onSubmit} disabled={!props.canSubmit || props.submissionPending}>{props.submissionPending ? "Submitting..." : "Submit for human review"}</button>}
+      <button className="button primary" type="button" onClick={props.onSubmit} disabled={!props.canSubmit || props.submissionPending}>{props.submissionPending ? "Submitting..." : "Submit for human review"}</button>
       <details className="technical-details"><summary>Technical draft details</summary><dl><div><dt>Draft ID</dt><dd><code>{draft.id}</code></dd></div><div><dt>Allowed sources</dt><dd>{draft.allowedSourceIds.join(", ")}</dd></div><div><dt>Baseline</dt><dd><code>{draft.baselineFingerprint}</code></dd></div></dl></details>
     </section>
   );

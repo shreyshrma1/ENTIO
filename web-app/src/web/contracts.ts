@@ -181,6 +181,10 @@ export interface WebAiDraftItem {
   capabilityName: string;
   targetSourceId: string;
   summary: string;
+  editType: string | null;
+  targetLabel: string | null;
+  targetIri: string | null;
+  value: string | null;
   rationale: string;
   dependencyItemIds: string[];
   aiGenerated: boolean;

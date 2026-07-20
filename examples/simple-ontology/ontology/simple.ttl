@@ -1,24 +1,32 @@
 <https://example.com/entio/simple#Account>
         a       <http://www.w3.org/2000/01/rdf-schema#Class>;
         <http://www.w3.org/2000/01/rdf-schema#label>
-                "Account" .
+                "Account";
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "An entity representing an account that holds financial assets or liabilities." .
 
 <https://example.com/entio/simple#Checking>
         a       <http://www.w3.org/2002/07/owl#Class>;
         <http://www.w3.org/2000/01/rdf-schema#label>
                 "Checking Account";
         <http://www.w3.org/2000/01/rdf-schema#subClassOf>
-                <https://example.com/entio/simple#Account> .
+                <https://example.com/entio/simple#Account>;
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "An entity representing a checking account that allows deposits, withdrawals, and other transactions." .
 
 <https://example.com/entio/simple#Invoice>
         a       <http://www.w3.org/2002/07/owl#Class>;
         <http://www.w3.org/2000/01/rdf-schema#label>
-                "Invoice" .
+                "Invoice";
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "A document that specifies the details and costs of goods or services provided to a customer." .
 
 <https://example.com/entio/simple#20874>
         a       <https://example.com/entio/simple#Invoice> , <http://www.w3.org/2002/07/owl#NamedIndividual>;
         <http://www.w3.org/2000/01/rdf-schema#label>
-                "Invoice 20874" .
+                "Invoice 20874";
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "An individual representing Invoice 20874 with its associated properties." .
 
 <https://example.com/entio/simple#ownsAccount>
         a       <http://www.w3.org/1999/02/22-rdf-syntax-ns#Property>;
@@ -27,12 +35,16 @@
         <http://www.w3.org/2000/01/rdf-schema#label>
                 "owns account";
         <http://www.w3.org/2000/01/rdf-schema#range>
-                <https://example.com/entio/simple#Account> .
+                <https://example.com/entio/simple#Account>;
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "An object property representing the ownership relationship between entities." .
 
 <https://example.com/entio/simple#Customer>
         a       <http://www.w3.org/2000/01/rdf-schema#Class>;
         <http://www.w3.org/2000/01/rdf-schema#label>
-                "Customer" .
+                "Customer";
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "An individual who interacts with the financial institution by owning accounts, making transactions, and accessing services." .
 
 <https://example.com/entio/simple#dateOpened>
         a       <http://www.w3.org/2002/07/owl#DatatypeProperty>;
@@ -41,12 +53,16 @@
         <http://www.w3.org/2000/01/rdf-schema#label>
                 "date opened";
         <http://www.w3.org/2000/01/rdf-schema#range>
-                <http://www.w3.org/2001/XMLSchema#date> .
+                <http://www.w3.org/2001/XMLSchema#date>;
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "A property that represents the date an account was opened." .
 
 <https://example.com/entio/simple#Shrey>
         a       <https://example.com/entio/simple#Customer> , <http://www.w3.org/2002/07/owl#NamedIndividual>;
         <http://www.w3.org/2000/01/rdf-schema#label>
                 "Shrey";
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "An individual representing a customer named Shrey interacting with the financial institution.";
         <https://example.com/entio/simple#ownsAccount>
                 <https://example.com/entio/simple#Account101> .
 
@@ -54,5 +70,7 @@
         a       <https://example.com/entio/simple#Account> , <http://www.w3.org/2002/07/owl#NamedIndividual>;
         <http://www.w3.org/2000/01/rdf-schema#label>
                 "Account 101";
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "An individual representing Account 101 with its associated properties.";
         <https://example.com/entio/simple#dateOpened>
                 "2026-07-17"^^<http://www.w3.org/2001/XMLSchema#date> .

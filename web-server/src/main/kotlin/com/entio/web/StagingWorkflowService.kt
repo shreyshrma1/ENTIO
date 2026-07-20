@@ -393,8 +393,9 @@ public class StagingWorkflowService(
     public fun reject(projectId: String, userId: String): WebStagingResponse {
         val session = session(projectId)
         if (session.proposal == null) throw WebWorkflowFailure("missing-proposal", "There is no proposal to reject.")
+        session.entries.clear()
         session.clearPreparedProposal()
-        return response(projectId, session, "Proposal rejected by $userId; staged changes remain available for correction.")
+        return response(projectId, session, "Proposal rejected by $userId; its staged changes were removed from the review queue.")
     }
 
     @Synchronized

@@ -15,7 +15,10 @@ internal class AiModelWebBoundary(
     private val discovery: AiModelDiscoveryService,
     private val selection: AiModelSelectionService,
 ) {
-    fun status(userId: String): WebAiProviderSettingsResponse = settings.settings(userId).toWeb()
+    fun status(userId: String): WebAiProviderSettingsResponse {
+        val current = settings.settings(userId)
+        return current.toWeb(isFresh = discovery.isFresh(current))
+    }
 
     suspend fun saveCredential(userId: String, request: AiCredentialRequest): WebAiProviderSettingsResponse =
         settings.saveCredential(userId, request.providerId, request.apiKey).toWeb()
@@ -36,22 +39,34 @@ internal class AiModelWebBoundary(
     fun clearSelection(userId: String): WebAiProviderSettingsResponse = selection.clear(userId).toWeb()
 }
 
-private fun AiUserProviderSettings.toWeb(): WebAiProviderSettingsResponse {
-    val models = candidates.map(AiSelectableModelDescriptor::toWeb)
-    val selected = selectedModelId?.let { id -> models.find { it.modelId == id } }
+private fun AiUserProviderSettings.toWeb(isFresh: Boolean = true): WebAiProviderSettingsResponse {
+    val projected = if (
+        !isFresh && credentialStatus == AiSettingsCredentialStatus.VALID &&
+            discoveryStatus == com.entio.web.ai.models.AiModelDiscoveryStatus.COMPLETED
+    ) {
+        copy(
+            discoveryStatus = com.entio.web.ai.models.AiModelDiscoveryStatus.STALE,
+            selectionStatus = AiModelSelectionStatus.UNAVAILABLE,
+            selectedModelVerifiedAt = null,
+        )
+    } else {
+        this
+    }
+    val models = projected.candidates.map(AiSelectableModelDescriptor::toWeb)
+    val selected = projected.selectedModelId?.let { id -> models.find { it.modelId == id } }
     return WebAiProviderSettingsResponse(
-        providerId = providerId,
-        credentialStatus = credentialStatus.name,
-        discoveryStatus = discoveryStatus.name,
-        discoveredAt = discoveredAt?.toString(),
-        policyVersion = policyVersion,
+        providerId = projected.providerId,
+        credentialStatus = projected.credentialStatus.name,
+        discoveryStatus = projected.discoveryStatus.name,
+        discoveredAt = projected.discoveredAt?.toString(),
+        policyVersion = projected.policyVersion,
         models = models,
-        unsupportedProviderModelCount = unsupportedProviderModelCount,
+        unsupportedProviderModelCount = projected.unsupportedProviderModelCount,
         selectedModel = selected,
-        selectionStatus = selectionStatus.name,
-        selectedModelVerifiedAt = selectedModelVerifiedAt?.toString(),
-        errorCode = lastProviderErrorCategory?.webErrorCode(),
-        availableActions = availableActions(),
+        selectionStatus = projected.selectionStatus.name,
+        selectedModelVerifiedAt = projected.selectedModelVerifiedAt?.toString(),
+        errorCode = projected.lastProviderErrorCategory?.webErrorCode(),
+        availableActions = projected.availableActions(),
     )
 }
 

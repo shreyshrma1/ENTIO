@@ -16,6 +16,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<ProjectListPage />} />
+          <Route path="/projects/:projectId/changes" element={<ProjectWorkspace initialModule="changes" />} />
           <Route path="/projects/:projectId" element={<ProjectWorkspace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

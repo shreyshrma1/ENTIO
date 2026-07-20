@@ -66,6 +66,15 @@ class AiTypedEditCapabilitiesTest {
                 targetLabel = "Invoice",
                 value = "A commercial document issued by a seller to a buyer.",
             ),
+            WebStageChangeRequest("simple", "add-alternate-label", targetLabel = "Customer", value = "Client"),
+            WebStageChangeRequest(
+                "simple",
+                "replace-alternate-label",
+                targetLabel = "Customer",
+                existingValue = "Client",
+                value = "Account holder",
+            ),
+            WebStageChangeRequest("simple", "remove-alternate-label", targetLabel = "Customer", value = "Client"),
             deletion,
             WebStageChangeRequest("shapes", "shacl-create-node-shape", shapeLabel = "Invoice Shape", targetClassLabel = "Invoice"),
             WebStageChangeRequest(
@@ -259,6 +268,37 @@ class AiTypedEditCapabilitiesTest {
     }
 
     @Test
+    fun repeatedDefinitionForTheSameResolvedEntityUpdatesOneEffectiveDraftItem(): Unit {
+        val fixture = fixture()
+        val workspace = fixture.workspace()
+        val scope = fixture.scope()
+        workspace.create(scope, "draft-1")
+
+        val first = workspace.add(
+            scope,
+            "draft-1",
+            AiTypedEditCapabilityAdapter.ADD_DEFINITION_CAPABILITY,
+            definitionArguments("A financial record maintained for a customer.", "Initial definition."),
+            "run-1",
+        )
+        val revised = workspace.add(
+            scope,
+            "draft-1",
+            AiTypedEditCapabilityAdapter.ADD_DEFINITION_CAPABILITY,
+            definitionArguments("A financial record of a customer's balance and transactions.", "Use an entity-centered definition."),
+            "run-1",
+        )
+
+        assertEquals(1, revised.items.size)
+        assertEquals(first.items.single().id, revised.items.single().id)
+        assertEquals(2, revised.revisions.size)
+        assertEquals("update", revised.revisions.last().action)
+        val operation = assertIs<AiTypedDraftOperation>(revised.items.single().operation)
+        assertEquals("A financial record of a customer's balance and transactions.", operation.request.value)
+        assertEquals("Use an entity-centered definition.", revised.items.single().rationale)
+    }
+
+    @Test
     fun unsupportedOutOfScopeAndIncompleteDeletionRequestsNeverMutateTheDraft(): Unit {
         val fixture = fixture()
         val workspace = fixture.workspace()
@@ -314,6 +354,12 @@ class AiTypedEditCapabilitiesTest {
             rationale = rationale,
             dependencyItemIds = dependencies,
         )
+
+    private fun definitionArguments(value: String, rationale: String): AiAddDraftItemArguments = AiAddDraftItemArguments(
+        sourceId = "simple",
+        request = WebStageChangeRequest("simple", "add-definition", targetLabel = "Account", value = value),
+        rationale = rationale,
+    )
 
     private fun assertDraftFailure(code: String, block: () -> Unit): Unit {
         val failure = assertFailsWith<IllegalArgumentException>(block = block)

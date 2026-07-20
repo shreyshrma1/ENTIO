@@ -70,12 +70,20 @@ public object AiTypedEditCapabilityInventory {
                 "add-alternate-label",
                 "replace-alternate-label",
                 "remove-alternate-label",
+            ),
+            status = AiTypedEditLifecycleStatus.APPROVED,
+            existingPath = "SemanticEditRequest -> TypedOntologyEditTranslator",
+            reason = "The ordinary web workflow and private AI draft both reuse the existing typed semantic metadata translator without raw RDF.",
+        ),
+        AiTypedEditInventoryEntry(
+            family = "annotation-metadata",
+            editTypes = setOf(
                 "add-annotation",
                 "remove-annotation",
             ),
             status = AiTypedEditLifecycleStatus.DEFERRED,
             existingPath = "SemanticEditRequest -> TypedOntologyEditTranslator",
-            reason = "No side-effect-free web staging adapter currently carries these requests through the complete shared proposal lifecycle.",
+            reason = "The current workbench exposes annotations as read-only facts; no user-facing mutation contract is available.",
         ),
         AiTypedEditInventoryEntry(
             family = "external-reuse",
@@ -106,7 +114,13 @@ public object AiTypedEditCapabilityInventory {
         .single { it.family == "shacl" }
         .editTypes
 
-    public val approvedEditTypes: Set<String> = approvedOntologyEditTypes + approvedShaclEditTypes
+    public val approvedSemanticMetadataEditTypes: Set<String> = entries
+        .single { it.family == "semantic-metadata" }
+        .editTypes
+
+    public val approvedEditTypes: Set<String> = entries
+        .filter { it.status == AiTypedEditLifecycleStatus.APPROVED }
+        .flatMapTo(linkedSetOf()) { it.editTypes }
 
     public fun requireApproved(editType: String): Unit {
         if (editType !in approvedEditTypes) {
@@ -174,7 +188,8 @@ public class AiTypedEditCapabilityAdapter(
     ): AiTypedDraftOperation {
         AiTypedEditCapabilityInventory.requireApproved(request.editType)
         val expectedFamily = when (capabilityName) {
-            ADD_ONTOLOGY_CAPABILITY, UPDATE_ONTOLOGY_CAPABILITY -> AiTypedEditCapabilityInventory.approvedOntologyEditTypes
+            ADD_ONTOLOGY_CAPABILITY, UPDATE_ONTOLOGY_CAPABILITY ->
+                AiTypedEditCapabilityInventory.approvedOntologyEditTypes + AiTypedEditCapabilityInventory.approvedSemanticMetadataEditTypes
             ADD_DEFINITION_CAPABILITY -> setOf("add-definition")
             ADD_SHACL_CAPABILITY, UPDATE_SHACL_CAPABILITY -> AiTypedEditCapabilityInventory.approvedShaclEditTypes
             else -> throw AiDraftFailure("unsupported-draft-capability", "Capability '$capabilityName' cannot prepare a typed draft edit.")
@@ -277,8 +292,35 @@ public class AiPrivateDraftWorkspace(
     ): AiDraft {
         val draft = mutableDraft(scope, draftId)
         validateRationale(arguments.rationale)
-        validateDependencies(draft.items, arguments.dependencyItemIds)
         val operation = adapter.prepare(scope, capabilityName, arguments.request)
+        val existingDefinitionIndex = draft.items.indexOfFirst { item ->
+            val existing = item.operation as? AiTypedDraftOperation
+            existing?.definitionTargetKey() != null && existing.definitionTargetKey() == operation.definitionTargetKey()
+        }
+        if (existingDefinitionIndex >= 0) {
+            val existing = draft.items[existingDefinitionIndex]
+            validateDependencies(draft.items, arguments.dependencyItemIds, currentItemId = existing.id)
+            val now = clock.instant()
+            val replacement = existing.copy(
+                operation = operation,
+                rationale = arguments.rationale.trim(),
+                dependencyItemIds = arguments.dependencyItemIds.distinct(),
+                attribution = AiDraftAttribution(
+                    acceptingUserId = scope.userId,
+                    conversationId = scope.conversationId,
+                    runId = runId,
+                ),
+                updatedAt = now,
+            )
+            return saveMutation(
+                draft,
+                draft.items.toMutableList().apply { set(existingDefinitionIndex, replacement) },
+                "update",
+                "Updated ${operation.summary}; one effective definition is retained for the target.",
+                now,
+            )
+        }
+        validateDependencies(draft.items, arguments.dependencyItemIds)
         rejectDuplicateOrConflict(draft.items, operation, ignoredItemId = null)
         val now = clock.instant()
         val item = AiDraftItem(
@@ -540,6 +582,12 @@ public class AiPrivateDraftWorkspace(
         }
     }
 
+    private fun AiTypedDraftOperation.definitionTargetKey(): String? {
+        if (request.editType != "add-definition") return null
+        val target = request.targetIri ?: normalizedValues["targetIri"] ?: request.targetLabel ?: return null
+        return "${request.sourceId}:$target"
+    }
+
     private fun List<AiDraftItem>.renumber(now: Instant): List<AiDraftItem> =
         mapIndexed { index, item -> item.copy(order = index + 1, updatedAt = now) }
 
@@ -579,7 +627,8 @@ internal fun typedEditCapabilityDefinitions(): List<AiCapabilityDefinition> = li
         AiTypedEditCapabilityAdapter.ADD_ONTOLOGY_CAPABILITY,
         AiCapabilityOperationType.DRAFT_ADD_TYPED_EDIT,
         "Add one approved ontology or deletion request to the current private AI draft.",
-        AiTypedEditCapabilityInventory.approvedOntologyEditTypes - "add-definition",
+        AiTypedEditCapabilityInventory.approvedOntologyEditTypes +
+            AiTypedEditCapabilityInventory.approvedSemanticMetadataEditTypes - "add-definition",
         update = false,
     ),
     addDefinitionCapabilityDefinition(),
@@ -594,7 +643,8 @@ internal fun typedEditCapabilityDefinitions(): List<AiCapabilityDefinition> = li
         AiTypedEditCapabilityAdapter.UPDATE_ONTOLOGY_CAPABILITY,
         AiCapabilityOperationType.DRAFT_UPDATE_TYPED_EDIT,
         "Replace one private AI draft item with an approved ontology or deletion request.",
-        AiTypedEditCapabilityInventory.approvedOntologyEditTypes,
+        AiTypedEditCapabilityInventory.approvedOntologyEditTypes +
+            AiTypedEditCapabilityInventory.approvedSemanticMetadataEditTypes,
         update = true,
     ),
     typedEditDefinition(
@@ -647,13 +697,17 @@ private fun addDefinitionCapabilityDefinition(): AiCapabilityDefinition = AiCapa
     name = AiTypedEditCapabilityAdapter.ADD_DEFINITION_CAPABILITY,
     operationType = AiCapabilityOperationType.DRAFT_ADD_TYPED_EDIT,
     category = AiCapabilityCategory.PRIVATE_DRAFT,
-    description = "Stage one definition for one existing ontology entity. Call once for every class requested by the user.",
+    description = "Stage one concise ontological definition for one existing entity. Call once per requested class; after success, use the returned draft inventory to select an entity not yet covered.",
     inputSchema = AiObjectSchema(
         properties = listOf(
             AiSchemaProperty("sourceId", AiStringSchema(maxLength = 128, format = AiStringFormat.SOURCE_ID), description = "Allowed writable source ID containing the target entity."),
-            textProperty("targetLabel", 2_048),
-            textProperty("value", 10_000),
-            textProperty("rationale", 4_000),
+            AiSchemaProperty("targetLabel", AiStringSchema(maxLength = 2_048), description = "Exact existing ontology label returned by Entio context."),
+            AiSchemaProperty(
+                "value",
+                AiStringSchema(maxLength = 10_000),
+                description = "Exact definition to stage. Write an entity-centered ontological statement, not an instruction, purpose statement, rationale, or text beginning with 'To define'. Avoid circular restatement.",
+            ),
+            AiSchemaProperty("rationale", AiStringSchema(maxLength = 4_000), description = "Why this definition is appropriate; this is separate from the definition value."),
         ),
         required = setOf("sourceId", "targetLabel", "value", "rationale"),
     ),
@@ -758,6 +812,7 @@ private fun decodeTypedEditArguments(input: JsonNode, editTypes: Set<String>, up
         dependencyKeys = value.optionalStringArray("dependencyKeys", 50, 4_000).toSet(),
         label = value.optionalString("label"),
         value = value.optionalString("value", 10_000),
+        existingValue = value.optionalString("existingValue", 10_000),
         datatypeIri = value.optionalIri("datatypeIri"),
         aiGenerated = true,
     )
@@ -780,7 +835,7 @@ private fun typedRequestProperties(editTypes: Set<String>, update: Boolean): Lis
         when (field) {
             "dependencyKeys" -> add(AiSchemaProperty(field, AiArraySchema(AiStringSchema(maxLength = 4_000), maxItems = 50), nullable = true, description = "Explicit deletion dependency keys."))
             in iriFieldNames -> add(AiSchemaProperty(field, AiStringSchema(maxLength = 2_048, format = AiStringFormat.HTTP_IRI), nullable = true, description = "Optional absolute IRI resolved by the existing typed adapter."))
-            "value" -> add(textProperty(field, 10_000, nullable = true))
+            "value", "existingValue" -> add(textProperty(field, 10_000, nullable = true))
             "validationMessage" -> add(textProperty(field, 4_000, nullable = true))
             else -> add(textProperty(field, 2_048, nullable = true))
         }
@@ -954,5 +1009,6 @@ private val typedRequestFieldNames: Set<String> = setOf(
     "dependencyKeys",
     "label",
     "value",
+    "existingValue",
     "datatypeIri",
 )

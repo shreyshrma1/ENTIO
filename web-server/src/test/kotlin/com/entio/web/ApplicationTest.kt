@@ -552,7 +552,7 @@ class ApplicationTest {
     }
 
     @Test
-    fun rejectingAProposalLeavesItsStagedEntriesForCorrection(): Unit = testApplication {
+    fun rejectingAProposalRemovesItsEntriesFromTheReviewQueue(): Unit = testApplication {
         val allowedRoot = Files.createTempDirectory("entio-web-reject")
         val projectRoot = createReadOnlyFixture(allowedRoot)
         val registry = InMemoryProjectRegistry(setOf(allowedRoot))
@@ -569,8 +569,8 @@ class ApplicationTest {
             headers.append("X-Entio-User", "bob")
         }
         assertEquals(HttpStatusCode.OK, rejected.status)
-        assertContains(rejected.bodyAsText(), "stage-1")
-        assertContains(rejected.bodyAsText(), "READY")
+        assertContains(rejected.bodyAsText(), "\"entries\":[]")
+        assertContains(rejected.bodyAsText(), "\"status\":\"EMPTY\"")
         assertFalse(Files.readString(projectRoot.resolve("ontology/simple.ttl")).contains("Account"))
     }
 

@@ -114,7 +114,7 @@ class TypedShaclStagingWorkflowTest {
     }
 
     @Test
-    fun rejectionPreservesStagingAndApprovalAppliesOnlyTheShapeSource(): Unit {
+    fun rejectionClearsStagingAndAResubmittedShapeCanStillBeApplied(): Unit {
         val fixture = fixture()
         val service = StagingWorkflowService(fixture.registry)
         val beforeData = fixture.data.readBytes()
@@ -126,10 +126,12 @@ class TypedShaclStagingWorkflowTest {
         assertEquals(listOf("shapes"), preview.proposal?.targetSourceIds)
         assertEquals(1, preview.proposal?.shaclImpact?.newFindings?.size)
         val rejected = service.reject("simple", "bob")
-        assertEquals(1, rejected.entries.size)
+        assertTrue(rejected.entries.isEmpty())
+        assertEquals("EMPTY", rejected.status)
         assertEquals(beforeData.toList(), fixture.data.readBytes().toList())
         assertEquals(beforeShapes.toList(), fixture.shapes.readBytes().toList())
 
+        service.stage("simple", createBorrowerShape(severity = "Warning"), "alice")
         service.preview("simple", "alice")
         service.approve("simple", "bob")
         val applied = service.apply("simple", "bob")

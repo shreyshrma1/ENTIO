@@ -60,7 +60,40 @@ describe("AI assistant panel", () => {
 
     expect(await screen.findByText("Entio AI is working…")).toBeInTheDocument();
     expect(screen.getByText(/waiting briefly for provider capacity/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop generation" })).toBeInTheDocument();
     completeRequest?.(json(turn({ answer: "Drafted definitions." })));
+  });
+
+  it("lets the user stop an in-flight generation request", async () => {
+    const initial = conversation([]);
+    let requestSignal: AbortSignal | undefined;
+    let aborted = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/ai/provider-settings")) return json(providerSettings(true));
+      if (path.endsWith("/ai/conversations") && !init?.method) return json({ apiVersion: "v1", conversations: [initial] });
+      if (path.endsWith("/ai/conversations/conversation-1") && !init?.method) return json({ apiVersion: "v1", conversation: initial });
+      if (path.endsWith("/messages") && init?.method === "POST") {
+        requestSignal = init.signal ?? undefined;
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => {
+            aborted = true;
+            reject(new DOMException("Aborted", "AbortError"));
+          }, { once: true });
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    renderPanel();
+    await screen.findByText("Ready when you are");
+    fireEvent.change(screen.getByLabelText("Ask about this ontology context"), { target: { value: "Model a long-running loan workflow." } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop generation" }));
+
+    await waitFor(() => expect(aborted).toBe(true));
+    expect(requestSignal?.aborted).toBe(true);
+    expect(screen.queryByText(/Assistant request failed/i)).not.toBeInTheDocument();
   });
 
   it("supports plan confirmation and sends the explicit decision", async () => {
@@ -151,6 +184,10 @@ describe("AI assistant panel", () => {
 
     const client = renderPanel();
     expect(await screen.findByText(/This draft is conflicted/i)).toBeInTheDocument();
+    expect(screen.getByText("Proposed definition")).toBeInTheDocument();
+    expect(screen.getByText("A financial record of a customer's balance and transactions.")).toBeInTheDocument();
+    expect(screen.getByText("Rationale")).toBeInTheDocument();
+    expect(screen.getByText("Use an entity-centered financial definition.")).toBeInTheDocument();
     conflicted = false;
     client.invalidateQueries({ queryKey: queryKey("draft") });
     await waitFor(() => expect(screen.queryByText(/This draft is conflicted/i)).not.toBeInTheDocument());
@@ -159,6 +196,8 @@ describe("AI assistant panel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit for human review" }));
     const review = await screen.findByRole("link", { name: "Open proposal review" });
     expect(review).toHaveAttribute("href", "/projects/simple/changes?proposalId=proposal-1");
+    expect(screen.queryByRole("heading", { name: "Private draft" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Deterministic analysis" })).not.toBeInTheDocument();
     expect(paths.some((path) => path.includes("/apply"))).toBe(false);
   });
 
@@ -257,7 +296,7 @@ function turn(overrides: { status?: string; answer?: string; plan?: unknown; mes
   return { apiVersion: "v1", conversation: conversation(overrides.messages ?? [message("message-answer", "ASSISTANT", overrides.answer ?? "Answer")]), run: { id: "run-1", conversationId: "conversation-1", projectId: "simple", status: overrides.status ?? "READY_FOR_REVIEW", capabilityCallCount: 1, draftEditCount: 0, correctionCycleCount: 0, cancellationRequested: false, createdAt: "2026-07-17T12:00:00Z", updatedAt: `${Date.now()}` }, intent: "EXPLANATION", answer: overrides.answer ?? "Answer", plan: overrides.plan ?? null, clarificationQuestion: null, draftId: null, limits: [] };
 }
 
-function draft(status: string) { return { id: "draft-1", conversationId: "conversation-1", projectId: "simple", baselineFingerprint: "baseline", allowedSourceIds: ["simple"], status, draftFingerprint: "draft-fingerprint", analysisReferenceIds: [], items: [{ id: "item-1", order: 1, capabilityName: "add-ontology-edit", targetSourceId: "simple", summary: "Create Receivable Account", rationale: "Represent the reviewed concept.", dependencyItemIds: [], aiGenerated: true, acceptingUserId: "alice", runId: "run-1" }], revisions: [{ revision: 1, action: "ADD", explanation: "Created the draft.", itemIds: ["item-1"], undoneRevision: null, createdAt: "2026-07-17T12:00:00Z" }], createdAt: "2026-07-17T12:00:00Z", updatedAt: "2026-07-17T12:00:01Z" }; }
+function draft(status: string) { return { id: "draft-1", conversationId: "conversation-1", projectId: "simple", baselineFingerprint: "baseline", allowedSourceIds: ["simple"], status, draftFingerprint: "draft-fingerprint", analysisReferenceIds: [], items: [{ id: "item-1", order: 1, capabilityName: "entio_draft_add_definition", targetSourceId: "simple", summary: "add-definition · Account", editType: "add-definition", targetLabel: "Account", targetIri: "https://example.com/entio/simple#Account", value: "A financial record of a customer's balance and transactions.", rationale: "Use an entity-centered financial definition.", dependencyItemIds: [], aiGenerated: true, acceptingUserId: "alice", runId: "run-1" }], revisions: [{ revision: 1, action: "ADD", explanation: "Created the draft.", itemIds: ["item-1"], undoneRevision: null, createdAt: "2026-07-17T12:00:00Z" }], createdAt: "2026-07-17T12:00:00Z", updatedAt: "2026-07-17T12:00:01Z" }; }
 
 function analysis() { return { id: "analysis-1", draftId: "draft-1", revision: 1, status: "COMPLETED", baselineFingerprint: "baseline", draftFingerprint: "draft-fingerprint", previewGraphFingerprint: "preview", readyForReview: true, validationOk: true, findings: [], diff: [{ kind: "ADDED", subject: "ReceivableAccount", predicate: "type", objectValue: "Class", description: "Added class Receivable Account." }], references: [{ stage: "VALIDATION", id: "analysis-ref" }], createdAt: "2026-07-17T12:00:00Z" }; }
 

@@ -101,6 +101,7 @@ public class InMemoryAiReviewSubmissionAuditStore : AiReviewSubmissionAuditStore
 
 /** Moves one exact analyzed private draft into ordinary human review without granting review authority. */
 public class AiReviewSubmissionService(
+    private val conversations: AiConversationStore,
     private val drafts: AiDraftStore,
     private val draftWorkspace: AiPrivateDraftWorkspace,
     private val analyses: AiDraftAnalysisStore,
@@ -124,6 +125,10 @@ public class AiReviewSubmissionService(
         }
 
         val draft = drafts.get(scope.userId, scope.projectId, scope.conversationId, request.draftId)
+        val conversation = conversations.get(scope.userId, scope.projectId, scope.conversationId)
+        if (conversation.currentDraftId != draft.id) {
+            throw AiDraftFailure("draft-not-current", "Only the conversation's current private draft can be submitted.")
+        }
         val revision = draft.revisions.maxOfOrNull(AiDraftRevision::revision) ?: 0
         val draftFingerprint = draft.draftFingerprint
             ?: throw AiDraftFailure("incomplete-private-draft", "The private draft has no deterministic fingerprint.")
@@ -217,6 +222,7 @@ public class AiReviewSubmissionService(
             ),
         )
         collaboration.aiProposalSubmitted(scope.projectId, proposal.id, scope.userId, request.runId, request.rationale.trim())
+        conversations.update(conversation.copy(currentDraftId = null, updatedAt = clock.instant()))
         return AiReviewSubmissionResult(
             submissionId = submissionId,
             proposalId = proposal.id,

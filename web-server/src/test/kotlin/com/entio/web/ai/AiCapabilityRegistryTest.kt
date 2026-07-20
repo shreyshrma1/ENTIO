@@ -91,6 +91,21 @@ class AiCapabilityRegistryTest {
         val definitionArguments = assertIs<AiAddDraftItemArguments>(definition.arguments)
         assertEquals("Account", definitionArguments.request.targetLabel)
         assertEquals(setOf("sourceId", "targetLabel", "value", "rationale"), definition.definition.inputSchema.required)
+
+        val replacement = registry.decode(
+            invocation(
+                snapshot,
+                AiTypedEditCapabilityAdapter.ADD_ONTOLOGY_CAPABILITY,
+                """{"sourceId":"simple","editType":"replace-alternate-label","targetLabel":"Customer","existingValue":"Client","value":"Account holder","rationale":"Use the clearer review label."}""",
+            ),
+            snapshot,
+            privateScope,
+        )
+        val replacementArguments = assertIs<AiAddDraftItemArguments>(replacement.arguments)
+        assertEquals("replace-alternate-label", replacementArguments.request.editType)
+        assertEquals("Client", replacementArguments.request.existingValue)
+        assertEquals("Account holder", replacementArguments.request.value)
+
         assertDecodeFails(
             """{"sourceId":"simple","value":"A financial record.","rationale":"Document the concept."}""",
             AiTypedEditCapabilityAdapter.ADD_DEFINITION_CAPABILITY,
