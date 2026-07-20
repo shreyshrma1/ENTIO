@@ -99,6 +99,7 @@ internal class AiWebBoundary(
     private val submissionService: AiReviewSubmissionService,
     private val baselineService: AiProjectBaselineService,
     private val help: EntioHelpService = EntioHelpService(),
+    private val taskOrchestrator: AiSemanticTaskOrchestrator? = null,
 ) {
     private val idempotency: AiWebIdempotencyStore = AiWebIdempotencyStore()
 
@@ -133,21 +134,15 @@ internal class AiWebBoundary(
         val turnRequest = AiConversationTurnRequest(
             message = request.message,
             decision = enumValue(request.decision, "invalid-conversation-decision"),
+            executionMode = AiExecutionMode.SEMANTIC_TASK,
         )
-        if (respondAsync) {
-            conversationService.start(
-                scope,
-                conversationId,
-                turnRequest,
-                request.screenContext.toContext(user, scope.availableFeatures),
-            ).toWeb()
+        val screenContext = request.screenContext.toContext(user, scope.availableFeatures)
+        if (taskOrchestrator != null) {
+            taskOrchestrator.start(scope, conversationId, turnRequest, screenContext, respondAsync).turn.toWeb()
+        } else if (respondAsync) {
+            conversationService.start(scope, conversationId, turnRequest, screenContext).toWeb()
         } else {
-            conversationService.send(
-                scope,
-                conversationId,
-                turnRequest,
-                request.screenContext.toContext(user, scope.availableFeatures),
-            ).toWeb()
+            conversationService.send(scope, conversationId, turnRequest, screenContext).toWeb()
         }
     }
 
@@ -343,6 +338,7 @@ private fun AiConversationTurnResult.toWeb(): WebAiConversationTurnResponse = We
     clarificationQuestion = clarificationQuestion,
     draftId = draftId,
     limits = limits.map { WebAiLimit(it.kind, it.maximum, it.observed) },
+    taskId = taskId,
 )
 
 private fun AiRun.toWeb(): WebAiRun = WebAiRun(

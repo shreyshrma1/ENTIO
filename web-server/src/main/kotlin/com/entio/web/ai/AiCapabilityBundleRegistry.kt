@@ -49,7 +49,6 @@ public class AiCapabilityBundleRegistry(
         task.type == AiTaskType.REPAIR -> bundles.getValue(AiCapabilityBundleId.REPAIR)
         task.type == AiTaskType.REVIEW || task.type == AiTaskType.PROJECT_ANALYSIS ->
             bundles.getValue(AiCapabilityBundleId.ANALYSIS)
-        task.objective.contains("shacl", ignoreCase = true) -> bundles.getValue(AiCapabilityBundleId.SHACL)
         task.type in AiTaskClassifier.mutatingTypes -> bundles.getValue(AiCapabilityBundleId.ONTOLOGY_EDITING)
         else -> bundles.getValue(AiCapabilityBundleId.EXPLORATION)
     }
@@ -74,7 +73,7 @@ public class AiCapabilityBundleRegistry(
         private val bundleNames = mapOf(
             AiCapabilityBundleId.EXPLORATION to read,
             AiCapabilityBundleId.PLANNING to read,
-            AiCapabilityBundleId.ONTOLOGY_EDITING to (read + edits),
+        AiCapabilityBundleId.ONTOLOGY_EDITING to (read + edits + analysis),
             AiCapabilityBundleId.SHACL to (read + edits + setOf("entio_draft_validate", "entio_draft_preview", "entio_draft_shacl")),
             AiCapabilityBundleId.ANALYSIS to (read + analysis),
             AiCapabilityBundleId.REPAIR to (read + edits + analysis),

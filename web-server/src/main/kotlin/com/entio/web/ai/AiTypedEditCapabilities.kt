@@ -702,6 +702,7 @@ private fun addDefinitionCapabilityDefinition(): AiCapabilityDefinition = AiCapa
         properties = listOf(
             AiSchemaProperty("sourceId", AiStringSchema(maxLength = 128, format = AiStringFormat.SOURCE_ID), description = "Allowed writable source ID containing the target entity."),
             AiSchemaProperty("targetLabel", AiStringSchema(maxLength = 2_048), description = "Exact existing ontology label returned by Entio context."),
+            AiSchemaProperty("entityIri", AiStringSchema(maxLength = 2_048, format = AiStringFormat.HTTP_IRI), description = "Optional exact entity IRI when the model has one from an earlier draft or context read.", nullable = true),
             AiSchemaProperty(
                 "value",
                 AiStringSchema(maxLength = 10_000),
@@ -720,14 +721,20 @@ private fun addDefinitionCapabilityDefinition(): AiCapabilityDefinition = AiCapa
     timeoutMillis = 10_000,
     auditClassification = AiCapabilityAuditClassification.PRIVATE_DRAFT_CHANGE,
     decoder = AiCapabilityArgumentDecoder { input ->
-        val value = DraftStrictObject(input, setOf("sourceId", "targetLabel", "value", "rationale"), setOf("sourceId", "targetLabel", "value", "rationale"))
+        val value = DraftStrictObject(input, setOf("sourceId", "targetLabel", "entityIri", "value", "rationale"), setOf("sourceId", "value", "rationale"))
         val sourceId = value.sourceId("sourceId")
+        val targetLabel = value.optionalString("targetLabel")
+        val entityIri = value.optionalIri("entityIri")
+        if (targetLabel == null && entityIri == null) {
+            throw AiCapabilityFailure("missing-argument", "Either targetLabel or entityIri is required.")
+        }
         AiAddDraftItemArguments(
             sourceId = sourceId,
             request = WebStageChangeRequest(
                 sourceId = sourceId,
                 editType = "add-definition",
-                targetLabel = value.string("targetLabel", 2_048),
+                targetIri = entityIri,
+                targetLabel = targetLabel,
                 value = value.string("value", 10_000),
                 aiGenerated = true,
             ),
@@ -797,7 +804,7 @@ private fun decodeTypedEditArguments(input: JsonNode, editTypes: Set<String>, up
         subjectLabel = value.optionalString("subjectLabel"),
         objectIri = value.optionalIri("objectIri"),
         objectLabel = value.optionalString("objectLabel"),
-        targetIri = value.optionalIri("targetIri"),
+        targetIri = value.optionalIri("targetIri") ?: value.optionalIri("entityIri"),
         targetLabel = value.optionalString("targetLabel"),
         shapeIri = value.optionalIri("shapeIri"),
         shapeLabel = value.optionalString("shapeLabel"),
@@ -963,6 +970,7 @@ private val iriFieldNames: Set<String> = setOf(
     "subjectIri",
     "objectIri",
     "targetIri",
+    "entityIri",
     "shapeIri",
     "targetClassIri",
     "pathIri",
@@ -995,6 +1003,7 @@ private val typedRequestFieldNames: Set<String> = setOf(
     "objectIri",
     "objectLabel",
     "targetIri",
+    "entityIri",
     "targetLabel",
     "shapeIri",
     "shapeLabel",
