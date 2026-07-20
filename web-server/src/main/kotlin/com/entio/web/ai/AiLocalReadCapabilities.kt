@@ -204,6 +204,17 @@ public data class AiContextPackage(
 public data class AiOntologyOverview(
     val entities: List<AiOntologyContextEntity>,
     val truncated: Boolean,
+    /** Compact label/kind inventory for the whole allowed ontology scope. */
+    val inventory: List<AiOntologyInventoryEntry> = emptyList(),
+    /** True when the compact inventory itself exceeds its safe context budget. */
+    val inventoryTruncated: Boolean = false,
+)
+
+public data class AiOntologyInventoryEntry(
+    val iri: String,
+    val label: String,
+    val kind: String,
+    val sourceId: String,
 )
 
 public data class AiOntologyContextEntity(
@@ -239,7 +250,7 @@ public class AiLocalReadCapabilityService(
 ) {
     public fun ontologyOverview(scope: AiCapabilityScope): AiOntologyOverview {
         val items = scope.allowedSourceIds.flatMap { sourceId ->
-            readOnly.outline(scope.projectId, sourceId, WebPageRequest(limit = 100)).page.items
+            allOutlineItems(scope.projectId, sourceId)
         }.distinctBy { listOf(it.sourceId, it.iri) }
             .sortedWith(compareBy<com.entio.web.WebOutlineItem> { it.kind }.thenBy { it.label.lowercase() }.thenBy { it.iri })
         val visible = items.take(MAX_CONTEXT_ENTITIES).map { item ->
@@ -250,7 +261,31 @@ public class AiLocalReadCapabilityService(
                 outgoing = detail.outgoingRelationships.take(MAX_CONTEXT_RELATIONSHIPS).map(WebRelationship::usage),
             )
         }
-        return AiOntologyOverview(visible, truncated = items.size > visible.size)
+        val inventory = items.take(MAX_CONTEXT_INVENTORY_ENTITIES).map { item ->
+            AiOntologyInventoryEntry(item.iri, item.label, item.kind, item.sourceId)
+        }
+        return AiOntologyOverview(
+            entities = visible,
+            truncated = items.size > visible.size,
+            inventory = inventory,
+            inventoryTruncated = items.size > MAX_CONTEXT_INVENTORY_ENTITIES,
+        )
+    }
+
+    private fun allOutlineItems(projectId: String, sourceId: String): List<com.entio.web.WebOutlineItem> {
+        val items = mutableListOf<com.entio.web.WebOutlineItem>()
+        var offset = 0
+        while (true) {
+            val page = readOnly.outline(projectId, sourceId, WebPageRequest(offset = offset, limit = WebPageRequest.MAX_PAGE_LIMIT)).page
+            items += page.items
+            // Fetch only enough rows to distinguish a complete compact inventory from
+            // one that must be completed with the approved search/paging capabilities.
+            if (items.size > MAX_CONTEXT_INVENTORY_ENTITIES) break
+            val next = page.nextOffset ?: break
+            if (next <= offset) break
+            offset = next
+        }
+        return items
     }
 
     public fun execute(
@@ -507,6 +542,7 @@ public class AiLocalReadCapabilityService(
 
     private companion object {
         const val MAX_CONTEXT_ENTITIES: Int = 20
+        const val MAX_CONTEXT_INVENTORY_ENTITIES: Int = 2_000
         const val MAX_CONTEXT_RELATIONSHIPS: Int = 20
         const val MAX_DEFINITIONS: Int = 3
         const val MAX_RELATED: Int = 10

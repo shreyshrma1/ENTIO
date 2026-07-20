@@ -22,7 +22,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 class AiConversationServiceTest {
     private val now: Instant = Instant.parse("2026-07-17T14:00:00Z")
@@ -38,7 +40,7 @@ class AiConversationServiceTest {
             "Add the alternate label Current Account to Checking Account.",
             "Create class Savings Account as subclass of Account.",
         ).forEach { prompt ->
-            assertEquals(AiConversationIntent.SMALL_EDIT, classifier.classify(prompt).intent, prompt)
+            assertEquals(AiConversationIntent.SEMANTIC_REQUEST, classifier.classify(prompt).intent, prompt)
         }
     }
 
@@ -48,7 +50,7 @@ class AiConversationServiceTest {
             "Review all class definitions for consistency and propose improvements across the ontology.",
         )
 
-        assertEquals(AiConversationIntent.BROAD_PLAN, result.intent)
+        assertEquals(AiConversationIntent.SEMANTIC_REQUEST, result.intent)
     }
 
     @Test
@@ -163,7 +165,7 @@ class AiConversationServiceTest {
             AiConversationTurnRequest("Write definitions for all classes in this ontology"),
         )
 
-        assertEquals(AiConversationIntent.SMALL_EDIT, result.intent)
+        assertEquals(AiConversationIntent.SEMANTIC_REQUEST, result.intent)
         assertEquals(AiRunStatus.READY_FOR_REVIEW, result.run.status, result.answer)
         val draft = fixture.drafts.get("alice", "simple", fixture.conversation.id, assertNotNull(result.draftId))
         val requests = draft.items.map { (it.operation as AiTypedDraftOperation).request }
@@ -237,7 +239,7 @@ class AiConversationServiceTest {
             AiConversationTurnRequest("Please add definitions to all objects and properties"),
         )
 
-        assertEquals(AiConversationIntent.SMALL_EDIT, result.intent)
+        assertEquals(AiConversationIntent.SEMANTIC_REQUEST, result.intent)
         assertEquals(AiRunStatus.READY_FOR_REVIEW, result.run.status, result.answer)
         assertTrue(result.answer.contains("**Invoice 20874**"), result.answer)
         assertTrue(result.answer.contains("**Shrey**"), result.answer)
@@ -479,7 +481,8 @@ class AiConversationServiceTest {
         )
 
         assertEquals(AiRunStatus.READY_FOR_REVIEW, result.run.status)
-        assertEquals(AiConversationIntent.EXPLANATION, result.intent)
+        assertEquals(AiConversationIntent.SEMANTIC_REQUEST, result.intent)
+        assertNull(result.draftId)
         assertTrue(provider.requests.single().trustedPolicy.contains("do not ask which ontology the user means"))
         assertTrue(provider.requests.single().trustedPolicy.contains("ontology-first workbench"))
         assertTrue(provider.requests.single().userInput.contains("ENTIO_CURRENT_CONTEXT_DATA"))
@@ -508,6 +511,7 @@ class AiConversationServiceTest {
 
         assertEquals(listOf("gpt-5.6-sol", "gpt-5.6-sol", "gpt-5.6-terra"), provider.selectedModelIds)
         assertEquals(listOf("gpt-5.6-sol", "gpt-5.6-terra"), fixture.audits.list("alice", "simple").map(AiAuditRecord::modelId))
+        assertTrue(fixture.audits.list("alice", "simple").all { it.compatibilityState == com.entio.web.ai.models.AiModelCompatibilityState.AVAILABLE_AND_COMPATIBLE })
         assertTrue(fixture.audits.list("alice", "simple").all { it.catalogVersion == "catalog-test" && it.requestPolicyVersion == "request-test" })
     }
 
@@ -527,64 +531,43 @@ class AiConversationServiceTest {
     }
 
     @Test
-    fun broadRequestRequiresConfirmationBeforeAnyDraftMutation(): Unit = runBlocking {
+    fun broadRequestIsSemanticallyPlannedAndStagedWithoutPhraseBasedConfirmation(): Unit = runBlocking {
         val provider = FakeToolProvider(
             completed(calls = listOf(createClassCall("call-1", "Loan"))),
             completed(text = "The confirmed plan now has one private draft edit."),
         )
         val fixture = fixture(provider)
 
-        val planned = fixture.service.send(
+        val result = fixture.service.send(
             fixture.scope,
             fixture.conversation.id,
             AiConversationTurnRequest("Design an ontology for a complete lending domain."),
         )
 
-        assertEquals(AiRunStatus.AWAITING_PLAN_CONFIRMATION, planned.run.status)
-        assertNotNull(planned.plan)
-        assertNull(planned.draftId)
-        assertTrue(provider.requests.isEmpty())
-        assertTrue(fixture.drafts.list("alice", "simple", fixture.conversation.id).isEmpty())
-
-        val confirmed = fixture.service.send(
-            fixture.scope,
-            fixture.conversation.id,
-            AiConversationTurnRequest("Use Loan as the initial class.", AiConversationDecision.CONFIRM_PLAN),
-        )
-
-        assertEquals(planned.run.id, confirmed.run.id)
-        assertEquals(AiRunStatus.READY_FOR_REVIEW, confirmed.run.status)
-        assertEquals(1, fixture.drafts.get("alice", "simple", fixture.conversation.id, assertNotNull(confirmed.draftId)).items.size)
+        assertEquals(AiConversationIntent.SEMANTIC_REQUEST, result.intent)
+        assertEquals(AiRunStatus.READY_FOR_REVIEW, result.run.status)
+        assertNull(result.plan)
+        assertNotNull(result.draftId)
+        assertEquals(1, fixture.drafts.get("alice", "simple", fixture.conversation.id, assertNotNull(result.draftId)).items.size)
     }
 
     @Test
-    fun materialAmbiguityPausesAndExplicitAnswerResumesWithBoundedConversationContext(): Unit = runBlocking {
+    fun providerResolvesMaterialPropertyMeaningFromOntologyContext(): Unit = runBlocking {
         val provider = FakeToolProvider(
             completed(calls = listOf(createObjectPropertyCall("call-1", "manages account"))),
             completed(text = "I prepared the object property."),
         )
         val fixture = fixture(provider)
 
-        val paused = fixture.service.send(
+        val result = fixture.service.send(
             fixture.scope,
             fixture.conversation.id,
             AiConversationTurnRequest("Create property manages account."),
         )
 
-        assertEquals(AiRunStatus.AWAITING_CLARIFICATION, paused.run.status)
-        assertNotNull(paused.clarificationQuestion)
-        assertTrue(provider.requests.isEmpty())
-
-        val resumed = fixture.service.send(
-            fixture.scope,
-            fixture.conversation.id,
-            AiConversationTurnRequest("It is an object property.", AiConversationDecision.ANSWER_CLARIFICATION),
-        )
-
-        assertEquals(paused.run.id, resumed.run.id)
-        assertEquals(AiRunStatus.READY_FOR_REVIEW, resumed.run.status, resumed.answer)
+        assertEquals(AiRunStatus.READY_FOR_REVIEW, result.run.status, result.answer)
+        assertEquals(AiConversationIntent.SEMANTIC_REQUEST, result.intent)
         assertTrue(provider.requests.first().userInput.contains("Create property manages account."))
-        assertTrue(provider.requests.first().userInput.contains("It is an object property."))
     }
 
     @Test
@@ -883,6 +866,42 @@ class AiConversationServiceTest {
     }
 
     @Test
+    fun semanticStartReturnsImmediatelyAndPublishesSafeProgressUntilCancelled(): Unit = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
+        val provider = FakeToolProvider(
+            completed(text = "The request is complete."),
+            blockStarted = started,
+            blockGate = gate,
+        )
+        val fixture = fixture(provider)
+
+        val turn = fixture.service.start(
+            fixture.scope,
+            fixture.conversation.id,
+            AiConversationTurnRequest("Turn the lending concepts into a coherent ontology model."),
+        )
+
+        assertEquals(AiConversationIntent.SEMANTIC_REQUEST, turn.intent)
+        assertEquals(AiRunStatus.QUEUED, turn.run.status)
+        assertTrue(turn.answer.contains("working", ignoreCase = true))
+        started.await()
+
+        val events = fixture.service.events("alice", "simple", turn.run.id)
+        assertTrue(events.any { it.type == AiRunEventType.STATUS_CHANGED && it.message.contains("interpreting", ignoreCase = true) })
+        assertTrue(events.any { it.type == AiRunEventType.STATUS_CHANGED && it.message.contains("ontology context", ignoreCase = true) })
+        assertTrue(events.none { it.message.contains("chain of thought", ignoreCase = true) })
+
+        fixture.service.cancel("alice", "simple", turn.run.id)
+        withTimeout(2_000) {
+            while (!fixture.runs.get("alice", "simple", turn.run.id).status.terminal) delay(10)
+        }
+        gate.complete(Unit)
+        assertEquals(AiRunStatus.CANCELLED, fixture.runs.get("alice", "simple", turn.run.id).status)
+        assertTrue(fixture.service.events("alice", "simple", turn.run.id).any { it.type == AiRunEventType.CANCELLED })
+    }
+
+    @Test
     fun providerAuthorityClaimsAndSensitiveFailuresNeverRenderAsSuccessOrLeakSecrets(): Unit = runBlocking {
         val authorityClaim = fixture(FakeToolProvider(completed(text = "I successfully applied the ontology change.")))
 
@@ -926,7 +945,7 @@ class AiConversationServiceTest {
 
     private fun fixture(
         provider: FakeToolProvider,
-        modelBindings: AiRunModelBindingResolver = FixedAiRunModelBindingResolver(provider),
+        modelBindings: AiRunModelBindingResolver = FixedAiRunModelBindingResolver(provider, "gpt-5.2"),
         includePreparePermission: Boolean = true,
         clock: Clock = Clock.fixed(now, ZoneOffset.UTC),
         stripDefinitionsFromCopiedOntology: Boolean = false,
@@ -1065,7 +1084,6 @@ class AiConversationServiceTest {
         private val onRespond: (() -> Unit)? = null,
     ) : AiToolLoopProvider, AiProviderClient {
         override val providerId: String = "openai"
-        override val modelId: String = "gpt-5.2"
         override val promptVersion: String = "phase-7-test-v1"
         val requests: MutableList<OpenAiResponsesRequest> = mutableListOf()
         val selectedModelIds: MutableList<String> = mutableListOf()

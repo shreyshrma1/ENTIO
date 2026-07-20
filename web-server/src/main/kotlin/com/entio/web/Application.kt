@@ -129,10 +129,17 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
     )
     val aiModelSelection = AiModelSelectionService(aiModelSettingsStore, aiModelDiscovery, aiModelVerification)
     val aiModelWeb = AiModelWebBoundary(aiProviderSettings, aiModelDiscovery, aiModelSelection)
+    val aiModelBindings = SelectedAiRunModelBindingResolver(
+        settingsStore = aiModelSettingsStore,
+        discovery = aiModelDiscovery,
+        providerId = dependencies.aiToolLoopProvider.providerId,
+        promptVersion = dependencies.aiToolLoopProvider.promptVersion,
+    )
     val aiAssistant = AiAssistantService(
         credentials = aiCredentials,
         provider = dependencies.aiAssistant,
         contextBuilder = AiBoundedContextBuilder(dependencies.projectRegistry, readOnly, staging),
+        modelBindings = aiModelBindings.takeIf { dependencies.aiAssistant.providerId == dependencies.aiModelProvider.providerId },
     )
     val jobs = SemanticJobManager(
         staging = staging,
@@ -151,12 +158,6 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
     val aiDraftWorkspace = AiPrivateDraftWorkspace(aiDrafts, AiTypedEditCapabilityAdapter(staging))
     val aiAnalysis = AiDraftAnalysisService(aiDrafts, aiAnalyses, aiBaseline)
     val aiLocalReads = AiLocalReadCapabilityService(readOnly, staging)
-    val aiModelBindings = SelectedAiRunModelBindingResolver(
-        settingsStore = aiModelSettingsStore,
-        discovery = aiModelDiscovery,
-        providerId = dependencies.aiToolLoopProvider.providerId,
-        promptVersion = dependencies.aiToolLoopProvider.promptVersion,
-    )
     val aiConversation = AiConversationService(
         conversations = aiConversations,
         runs = aiRuns,
@@ -457,6 +458,10 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
                     conversationId = call.requiredConversationId(),
                     request = call.receive<WebAiMessageRequest>(),
                     idempotencyKey = call.requiredIdempotencyKey(),
+                    respondAsync = call.request.headers["Prefer"]
+                        ?.split(",")
+                        ?.any { it.trim().equals("respond-async", ignoreCase = true) }
+                        == true,
                 )
             }
         }

@@ -82,6 +82,12 @@ export default function AiAssistantPanel({ projectId, entity }: { projectId: str
         if (eventId) lastEventId.current = eventId;
         setStreamState("connected");
         setRunEvents((current) => [...current.filter((item) => item.sequence !== event.sequence), event].sort((left, right) => left.sequence - right.sequence));
+        if (["TEXT_COMPLETED", "FAILED", "CANCELLED", "LIMIT_REACHED", "STALE"].includes(event.type)) {
+          queryClient.invalidateQueries({ queryKey: queryKeys.aiConversation(projectId, activeRun.conversationId) });
+          queryClient.invalidateQueries({ queryKey: queryKeys.aiRun(projectId, activeRun.id) });
+          const currentDraftId = latestTurn?.draftId ?? conversation.data?.conversation.currentDraftId;
+          if (currentDraftId) queryClient.invalidateQueries({ queryKey: queryKeys.aiDraft(projectId, currentDraftId) });
+        }
       },
       onResynchronization: () => {
         resynchronizing = true;

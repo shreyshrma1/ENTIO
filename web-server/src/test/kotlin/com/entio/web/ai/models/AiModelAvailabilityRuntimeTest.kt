@@ -35,6 +35,7 @@ class AiModelAvailabilityRuntimeTest {
         assertEquals("gpt-5.6-sol", binding.modelId)
         assertEquals(ready.credentialGeneration, binding.credentialGeneration)
         assertEquals(ready.policyVersion, binding.catalogVersion)
+        assertEquals(AiModelCompatibilityState.AVAILABLE_AND_COMPATIBLE, binding.compatibilityState)
 
         fixture.provider.inventory("key", "gpt-5.6-terra")
         resolver.markUnavailableAndRefresh("alice", binding)
