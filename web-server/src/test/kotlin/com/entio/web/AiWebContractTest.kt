@@ -235,7 +235,7 @@ class AiWebContractTest {
         val semanticallyPlanned = client.post("/api/v1/projects/simple/ai/conversations/$plannedConversation/messages") {
             contentType(ContentType.Application.Json)
             header("Idempotency-Key", "plan-1")
-            setBody("""{"message":"Design an ontology for all enterprise accounting."}""")
+            setBody("""{"message":"Design the entire enterprise accounting ontology."}""")
         }.json()
         assertEquals("SEMANTIC_REQUEST", semanticallyPlanned.at("/intent").asText())
         assertEquals("READY_FOR_REVIEW", semanticallyPlanned.at("/run/status").asText())

@@ -145,7 +145,29 @@ public class AiSemanticTaskOrchestrator(
             "PLAN_CREATED",
             "Created a dependency-ordered plan with ${planned.plan?.workPackages?.size ?: 0} work package(s).",
         )
-        return PreparedTask(planned.workspace, requireNotNull(planned.plan))
+        val plan = requireNotNull(planned.plan)
+        val executable = if (planned.workspace.task.status == AiTaskStatus.AWAITING_PLAN_CONFIRMATION) {
+            // Sending an objective is the user's explicit request to execute it. The standalone
+            // task workspace still requires its separate plan-confirm command.
+            planning.confirm(
+                scope.userId,
+                scope.projectId,
+                created.task.id,
+                planned.workspace.revision,
+                plan.revision,
+                actorType = "USER",
+            ).also {
+                eventLog.append(
+                    created.task.id,
+                    it.workspace.task.status,
+                    "PLAN_CONFIRMED",
+                    "The user's semantic request authorized execution of the generated plan.",
+                )
+            }
+        } else {
+            planned
+        }
+        return PreparedTask(executable.workspace, executable.plan ?: plan)
     }
 
     private fun currentModelBinding(scope: AiCapabilityScope): AiRunModelBinding = modelBindings.resolve(scope.userId)
