@@ -27,7 +27,7 @@ export default function AiCredentialSettings() {
       <input id="ai-provider-id" value="OpenAI" readOnly aria-describedby="ai-provider-description" />
       <small id="ai-provider-description">The server owns provider endpoints, compatibility rules, and request settings.</small>
       <label htmlFor="ai-api-key">Credential</label>
-      <input id="ai-api-key" type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={configured ? "Enter a replacement key" : "Enter an OpenAI API key"} />
+      <input id="ai-api-key" type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && apiKey.trim()) { event.preventDefault(); save(); } }} placeholder={configured ? "Enter a replacement key" : "Enter an OpenAI API key"} />
       <div className="button-row">
         <button className="button primary" type="button" onClick={save} disabled={actions.save.isPending || !apiKey.trim()}>{configured ? "Replace key" : "Save credential"}</button>
         <button className="button" type="button" onClick={() => actions.discover.mutate()} disabled={busy || !configured}>Refresh models</button>
@@ -40,19 +40,8 @@ export default function AiCredentialSettings() {
         <fieldset className="ai-model-selector" disabled={busy}>
           <legend>Available models</legend>
           <p className="muted">Select and test is required even when one model is available. Verification checks model access and may incur a small API charge.</p>
-          <div className="ai-model-list">
-            {current.models.map((model) => (
-              <article className={`ai-model-card ${current.selectedModel?.modelId === model.modelId ? "selected" : ""}`} key={model.modelId}>
-                <div><strong>{model.displayName}</strong>{model.recommended ? <span className="badge">Recommended</span> : null}</div>
-                <code>{model.modelId}</code>
-                <p>{model.description}</p>
-                <small>{[model.capabilityTier?.toLowerCase(), model.relativeSpeed, model.relativeCost].filter(Boolean).join(" · ")}</small>
-                <button className="button" type="button" onClick={() => actions.select.mutate({ modelId: model.modelId, idempotencyKey: requestId("select") })}>
-                  {current.selectedModel?.modelId === model.modelId && current.selectionStatus === "READY" ? "Selected and verified" : `Select and test ${model.displayName}`}
-                </button>
-              </article>
-            ))}
-          </div>
+          {current.models.some((model) => model.recommended) ? <div className="ai-recommended-models" aria-label="Recommended models"><div className="ai-recommended-heading"><strong>Recommended</strong><span>Fast, lower-cost options</span></div><div className="ai-model-list">{current.models.filter((model) => model.recommended).map((model) => <ModelCard key={model.modelId} model={model} current={current} onSelect={(modelId) => actions.select.mutate({ modelId, idempotencyKey: requestId("select") })} />)}</div></div> : null}
+          {current.models.some((model) => !model.recommended) ? <div className="ai-model-list">{current.models.filter((model) => !model.recommended).map((model) => <ModelCard key={model.modelId} model={model} current={current} onSelect={(modelId) => actions.select.mutate({ modelId, idempotencyKey: requestId("select") })} />)}</div> : null}
         </fieldset>
       ) : null}
 
@@ -70,6 +59,18 @@ export default function AiCredentialSettings() {
       {actions.remove.isSuccess ? <p role="status">Credential removed.</p> : null}
     </section>
   );
+}
+
+function ModelCard({ model, current, onSelect }: { model: WebAiProviderSettings["models"][number]; current: WebAiProviderSettings; onSelect: (modelId: string) => void }) {
+  return <article className={`ai-model-card ${current.selectedModel?.modelId === model.modelId ? "selected" : ""}`}>
+    <div><strong>{model.displayName}</strong>{model.recommended ? <span className="badge">Recommended</span> : null}</div>
+    <code>{model.modelId}</code>
+    <p>{model.description}</p>
+    <small>{[model.capabilityTier?.toLowerCase(), model.relativeSpeed, model.relativeCost].filter(Boolean).join(" · ")}</small>
+    <button className="button" type="button" onClick={() => onSelect(model.modelId)}>
+      {current.selectedModel?.modelId === model.modelId && current.selectionStatus === "READY" ? "Selected and verified" : `Select and test ${model.displayName}`}
+    </button>
+  </article>;
 }
 
 function ProviderState({ settings }: { settings: WebAiProviderSettings }) {

@@ -278,6 +278,7 @@ public class StagingWorkflowService(
         summary: String,
         userId: String,
         idempotencyKey: String? = null,
+        metadata: Map<String, String> = emptyMap(),
     ): WebStagingResponse {
         val session = session(projectId)
         if (idempotencyKey != null) {
@@ -298,7 +299,7 @@ public class StagingWorkflowService(
                 targetSourceId = sourceId,
                 summary = summary,
                 operation = StagedChangeOperation.GraphChanges(changeSet),
-                normalizedValues = mapOf("proposalSource" to "native-ai"),
+                normalizedValues = mapOf("proposalSource" to "native-ai") + metadata,
             ),
             editType = "ai-graph-change",
             authorId = userId,

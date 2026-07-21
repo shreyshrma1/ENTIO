@@ -11,7 +11,9 @@ class AiKnownModelMetadataTest {
     fun defaultMetadataIsDeterministicOptionalAndUsesRelativeDescriptions(): Unit {
         val entries = AiKnownModelMetadataCatalog().entries()
 
-        assertEquals(listOf("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"), entries.map { it.modelId })
+        assertEquals(listOf("gpt-4o", "gpt-4o-mini", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"), entries.map { it.modelId })
+        assertTrue(entries.single { it.modelId == "gpt-4o" }.recommended)
+        assertTrue(entries.single { it.modelId == "gpt-4o-mini" }.recommended)
         assertTrue(entries.single { it.modelId == "gpt-5.6-sol" }.recommended)
         assertTrue(entries.all { it.relativeCost.contains("relative", ignoreCase = true) })
         assertFalse(entries.any { it.relativeCost.contains('$') })

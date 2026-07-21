@@ -21,6 +21,7 @@ import com.entio.web.contract.WebAiProposalStatus
 import com.entio.web.contract.WebAiProposalValidation
 import com.entio.web.contract.WebAiResponseMode
 import com.entio.web.contract.WebAiConversationMessage
+import com.entio.web.contract.WebAiChatSummary
 import com.entio.web.contract.WebAiStatusUpdate
 import com.entio.web.contract.WebDiffEntry
 import com.entio.web.contract.WebPageRequest
@@ -52,6 +53,7 @@ private data class ProposalState(
     var message: String? = null,
     var job: Job? = null,
     var currentGraph: GraphState? = null,
+    var editableSourceIds: Set<String> = emptySet(),
     val messages: MutableList<WebAiConversationMessage> = mutableListOf(),
 )
 
@@ -98,6 +100,7 @@ public class AiProposalService internal constructor(
                 }
                 state.prompt = normalizedPrompt
                 state.messages += WebAiConversationMessage("user", normalizedPrompt, Instant.now().toString())
+                state.updates.clear()
                 state.status = WebAiProposalStatus.QUEUED
                 state.message = "Entio is continuing the private proposal with your follow-up."
                 state.job = scope.launch { execute(state, settings.selectedModelId, normalizedPrompt, continuing = true) }
@@ -111,7 +114,31 @@ public class AiProposalService internal constructor(
         return response(state)
     }
 
-    public fun get(projectId: String, runId: String, userId: String): WebAiProposalRunResponse = response(owned(projectId, runId, userId))
+    public fun get(projectId: String, runId: String, userId: String): WebAiProposalRunResponse {
+        val state = owned(projectId, runId, userId)
+        synchronizeStagedState(state)
+        return response(state)
+    }
+
+    public fun list(projectId: String, userId: String): List<WebAiChatSummary> {
+        if (projectRegistry.find(projectId) == null) throw WebWorkflowFailure("unknown-project", "The requested project is not registered.")
+        return synchronized(runs) {
+            runs.values
+                .filter { it.projectId == projectId && it.userId == userId }
+                .map { state ->
+                    synchronized(state) {
+                        WebAiChatSummary(
+                            runId = state.runId,
+                            projectId = state.projectId,
+                            title = state.messages.firstOrNull { it.role == "user" }?.content?.take(80) ?: "New chat",
+                            status = state.status,
+                            updatedAt = state.messages.lastOrNull()?.timestamp ?: Instant.now().toString(),
+                        )
+                    }
+                }
+                .sortedByDescending(WebAiChatSummary::updatedAt)
+        }
+    }
 
     public fun removeEdit(projectId: String, runId: String, editId: String, userId: String): WebAiProposalRunResponse {
         val state = owned(projectId, runId, userId)
@@ -131,7 +158,15 @@ public class AiProposalService internal constructor(
             if (!validation.valid) throw WebWorkflowFailure("ai-proposal-invalid", "The AI proposal has deterministic validation findings.")
             state.edits.groupBy(WebAiProposalEdit::sourceId).forEach { (sourceId, edits) ->
                 val changes = edits.map(::toGraphChange)
-                staging.stageGraphChanges(projectId, sourceId, ChangeSet(changes), "AI proposal: ${state.summary ?: state.prompt.take(80)}", userId, "ai-${state.runId}-$sourceId")
+                staging.stageGraphChanges(
+                    projectId,
+                    sourceId,
+                    ChangeSet(changes),
+                    "AI proposal: ${state.summary ?: state.prompt.take(80)}",
+                    userId,
+                    "ai-${state.runId}-$sourceId",
+                    mapOf("aiRunId" to state.runId),
+                )
             }
             staging.preview(projectId, userId)
             state.status = WebAiProposalStatus.STAGED
@@ -172,8 +207,7 @@ public class AiProposalService internal constructor(
             if (state.status == WebAiProposalStatus.CANCELLED) return
             state.status = WebAiProposalStatus.RUNNING
             if (continuing) addUpdate(state, "Continuing the existing private proposal with the new request")
-            addUpdate(state, "Searching ontology for existing classes, properties, individuals, and constraints")
-            addUpdate(state, "Searching FIBO for related concepts")
+            addUpdate(state, "Preparing the Entio project context")
         }
         try {
             val project = when (val loaded = projectLoader.loadProject(projectRegistry.rootFor(state.projectId))) {
@@ -184,26 +218,67 @@ public class AiProposalService internal constructor(
                 "SOURCE ${source.id} (${source.path.fileName}):\n${Files.readString(source.path)}"
             }
             synchronized(state) { state.currentGraph = project.graph }
-            val typedOntologyContext = ontologyContextBuilder.build(project, requestText, ontologyContext).text
-            val fiboContext = runCatching {
-                fibo.search(state.projectId, requestText, null, null, true, WebPageRequest(limit = 20)).page.items.joinToString("\n") { item ->
-                    "${item.kind} ${item.label} <${item.iri}>: ${item.definitions.firstOrNull().orEmpty()}"
-                }
-            }.getOrDefault("")
-            val conversationContext = synchronized(state) {
-                state.messages.joinToString("\n") { message ->
-                    val evidence = message.evidence.joinToString("; ") { item -> "${item.subject} ${item.predicate} ${item.objectValue}" }
-                    "${message.role.uppercase()}: ${message.content}${if (evidence.isBlank()) "" else "\nEvidence: $evidence"}"
+            val privateDraftEdits = synchronized(state) { state.edits.toList() }
+            val effectiveDraftGraph = effectiveDraftGraph(project.graph, privateDraftEdits)
+            val typedOntologyContext = ontologyContextBuilder.build(
+                project.copy(graph = effectiveDraftGraph),
+                requestText,
+                ontologyContext,
+                includesPrivateDraft = privateDraftEdits.isNotEmpty(),
+            ).text
+            val conversation = synchronized(state) {
+                state.messages.dropLast(1).map { message ->
+                    AiConversationTurn(message.role, message.content)
                 }
             }
             val defaultSourceId = project.resolvedSources.firstOrNull { source ->
                 ShaclGraphRole.Ontology in source.roles || ShaclGraphRole.Data in source.roles
             }?.id ?: project.resolvedSources.firstOrNull()?.id
-            var currentProposal = synchronized(state) { proposalContext(state.edits) }
+            synchronized(state) {
+                state.editableSourceIds = project.resolvedSources
+                    .filter { source -> ShaclGraphRole.Ontology in source.roles || ShaclGraphRole.Data in source.roles }
+                    .map { it.id }
+                    .toSet()
+            }
+            var currentProposal = proposalContext(privateDraftEdits)
             var validationFindings = emptyList<String>()
             var repairAttempt = 0
             var repairMode: String? = null
             val seenFailures = mutableSetOf<String>()
+            synchronized(state) { addUpdate(state, "Determining whether to answer, clarify, or prepare a proposal") }
+            val responseKind = requestProviderRoute(
+                state,
+                modelId,
+                AiProposalGenerationInput(
+                    userRequest = requestText,
+                    ontologyContext = typedOntologyContext,
+                    fiboContext = "",
+                    conversation = conversation,
+                    currentProposal = currentProposal,
+                ),
+            )
+            synchronized(state) { addUpdate(state, "AI selected the ${responseKind.name.lowercase()} response path") }
+            synchronized(state) { addUpdate(state, "Determining whether curated FIBO context is needed") }
+            val externalContextRequest = requestProviderExternalContext(
+                state,
+                modelId,
+                AiProposalGenerationInput(
+                    userRequest = requestText,
+                    ontologyContext = typedOntologyContext,
+                    fiboContext = "",
+                    conversation = conversation,
+                    currentProposal = currentProposal,
+                    responseKind = responseKind,
+                ),
+            )
+            val fiboContext = if (externalContextRequest.useFibo) {
+                val query = externalContextRequest.query.orEmpty()
+                synchronized(state) { addUpdate(state, "Searching the curated FIBO catalog") }
+                searchFiboContext(state.projectId, query)
+            } else {
+                synchronized(state) { addUpdate(state, "AI determined curated FIBO context was not needed") }
+                "The model did not request curated FIBO context for this request."
+            }
 
             while (true) {
                 synchronized(state) {
@@ -216,11 +291,12 @@ public class AiProposalService internal constructor(
                     userRequest = requestText,
                     ontologyContext = typedOntologyContext,
                     fiboContext = fiboContext,
-                    conversationContext = conversationContext,
+                    conversation = conversation,
                     currentProposal = currentProposal,
                     validationFindings = validationFindings,
                     repairAttempt = repairAttempt,
                     repairMode = repairMode,
+                    responseKind = responseKind,
                 )
                 val text = requestProvider(state, modelId, input)
                 synchronized(state) {
@@ -229,7 +305,7 @@ public class AiProposalService internal constructor(
                 }
 
                 val parsed = try {
-                    parseResponse(text, defaultSourceId).also { response ->
+                    parseResponse(text, defaultSourceId, responseKind).also { response ->
                         if (repairAttempt > 0 && repairMode == "proposal" && response.mode != WebAiResponseMode.PROPOSAL) {
                             throw IllegalArgumentException("A proposal repair response must remain in proposal mode.")
                         }
@@ -240,7 +316,7 @@ public class AiProposalService internal constructor(
                     val finding = "The generated proposal could not be parsed or validated: ${failure.message ?: "unknown proposal error"}"
                     synchronized(state) {
                         state.validation = WebAiProposalValidation(false, listOf(finding))
-                        addUpdate(state, "The generated proposal needs repair: $finding")
+                        addUpdate(state, "The generated proposal needs repair: $finding", listOf(finding))
                     }
                     currentProposal = text
                     val fingerprint = "parse:${text.hashCode()}:$finding"
@@ -255,39 +331,19 @@ public class AiProposalService internal constructor(
                 }
 
                 if (parsed.mode == WebAiResponseMode.ANSWER || parsed.mode == WebAiResponseMode.CLARIFICATION) {
-                    var needsEvidenceRepair = false
                     synchronized(state) {
                         if (state.status == WebAiProposalStatus.CANCELLED) return
                         val answer = parsed.answer ?: throw IllegalArgumentException("An answer or clarification response must include answer text.")
                         state.responseMode = parsed.mode
                         val evidence = ontologyContextBuilder.verifyEvidence(state.currentGraph ?: GraphState(), parsed.evidence, state.edits)
-                        if (parsed.mode == WebAiResponseMode.ANSWER && evidence.isEmpty()) {
-                            val finding = "The answer must cite at least one exact, verifiable ontology triple from the supplied context."
-                            val fingerprint = "answer-evidence:${text.hashCode()}"
-                            if (!seenFailures.add(fingerprint)) {
-                                state.responseMode = parsed.mode
-                                state.status = WebAiProposalStatus.READY
-                                state.message = finding
-                                addUpdate(state, "Answer stopped because it did not provide verifiable evidence")
-                                return
-                            }
-                            validationFindings = listOf(finding)
-                            currentProposal = text
-                            repairMode = "answer"
-                            repairAttempt += 1
-                            addUpdate(state, "The answer needs a verifiable ontology citation; asking AI to repair it")
-                            needsEvidenceRepair = true
-                        } else {
-                            state.messages += WebAiConversationMessage("assistant", answer, Instant.now().toString(), evidence)
-                            state.message = null
-                            state.status = WebAiProposalStatus.READY
-                            addUpdate(
-                                state,
-                                if (parsed.mode == WebAiResponseMode.ANSWER) "Answering from the ontology context" else "Asking for clarification before preparing edits",
-                            )
-                        }
+                        state.messages += WebAiConversationMessage("assistant", answer, Instant.now().toString(), evidence)
+                        state.message = null
+                        state.status = WebAiProposalStatus.READY
+                        addUpdate(
+                            state,
+                            if (parsed.mode == WebAiResponseMode.ANSWER) "Answering from the ontology context" else "Asking for clarification before preparing edits",
+                        )
                     }
-                    if (needsEvidenceRepair) continue
                     return
                 }
 
@@ -301,7 +357,14 @@ public class AiProposalService internal constructor(
                 val validation = synchronized(state) {
                     if (state.status == WebAiProposalStatus.CANCELLED) return
                     state.responseMode = WebAiResponseMode.PROPOSAL
-                    state.edits = parsed.edits
+                    // A follow-up is additive from the user's perspective. Preserve
+                    // the existing private draft when the model returns only the
+                    // newly requested edits.
+                    state.edits = if (continuing && repairAttempt == 0) {
+                        mergePrivateDraftEdits(privateDraftEdits, parsed.edits)
+                    } else {
+                        parsed.edits
+                    }
                     state.summary = parsed.summary ?: state.summary
                     validate(state)
                     state.validation ?: WebAiProposalValidation(false, listOf("The proposal could not be validated."))
@@ -330,7 +393,7 @@ public class AiProposalService internal constructor(
                     return
                 }
                 synchronized(state) {
-                    addUpdate(state, "Deterministic validation found ${findings.size} issue(s)")
+                    addUpdate(state, "Deterministic validation found ${findings.size} issue(s)", findings)
                 }
                 validationFindings = findings
                 repairMode = "proposal"
@@ -368,23 +431,97 @@ public class AiProposalService internal constructor(
         }
     }
 
+    private suspend fun requestProviderRoute(
+        state: ProposalState,
+        modelId: String,
+        input: AiProposalGenerationInput,
+    ): AiResponseKind {
+        return credentials.withCredentialSuspending(state.userId) { providerId, apiKey ->
+            if (providerId != provider.providerId) {
+                throw WebWorkflowFailure("ai-provider-failed", "The configured AI provider is not available.")
+            }
+            provider.route(apiKey, modelId, input)
+        } ?: throw WebWorkflowFailure("ai-provider-failed", "Configure an AI credential before starting a proposal.")
+    }
+
+    private suspend fun requestProviderExternalContext(
+        state: ProposalState,
+        modelId: String,
+        input: AiProposalGenerationInput,
+    ): AiExternalContextRequest {
+        return credentials.withCredentialSuspending(state.userId) { providerId, apiKey ->
+            if (providerId != provider.providerId) {
+                throw WebWorkflowFailure("ai-provider-failed", "The configured AI provider is not available.")
+            }
+            provider.requestExternalContext(apiKey, modelId, input)
+        } ?: throw WebWorkflowFailure("ai-provider-failed", "Configure an AI credential before starting a proposal.")
+    }
+
+    private fun searchFiboContext(projectId: String, query: String): String {
+        if (query.isBlank()) return "No FIBO search terms were requested by the model."
+        val queries = query.split(',', ';', '\n').map(String::trim).filter(String::isNotBlank).distinct().take(8)
+        val items = queries.flatMap { term ->
+            fibo.search(projectId, term, null, null, true, WebPageRequest(limit = 8)).page.items
+        }.distinctBy { it.iri }.take(20)
+        return buildString {
+            appendLine("Server-retrieved read-only FIBO catalog results for: ${queries.joinToString(", ")}")
+            if (items.isEmpty()) {
+                appendLine("No matching entries were returned from the pinned curated catalog.")
+            } else {
+                items.forEach { item ->
+                    appendLine("${item.kind} ${item.label} <${item.iri}>: ${item.definitions.firstOrNull().orEmpty()}")
+                }
+            }
+        }.trim()
+    }
+
     private fun finishUnrepaired(state: ProposalState) {
         synchronized(state) {
             if (state.status == WebAiProposalStatus.CANCELLED) return
             state.status = WebAiProposalStatus.READY
             state.message = "The proposal still has deterministic validation findings. Review or send a follow-up to repair it."
-            addUpdate(state, "Repair stopped after the AI repeated the same proposal failure")
+            addUpdate(state, "Repair stopped after the AI repeated the same proposal failure", state.validation?.messages.orEmpty())
             addUpdate(state, "Proposal ready for review with validation findings")
         }
     }
 
-    private fun proposalContext(edits: List<WebAiProposalEdit>): String = edits.joinToString("\n") { edit ->
-        "${edit.id} ${edit.operation} ${edit.subject} ${edit.predicate} ${edit.objectKind} ${edit.objectValue} — ${edit.summary} — ${edit.rationale.orEmpty()}"
+    private fun proposalContext(edits: List<WebAiProposalEdit>): String = if (edits.isEmpty()) {
+        ""
+    } else {
+        objectMapper.writeValueAsString(mapOf("edits" to edits))
+    }
+
+    private fun mergePrivateDraftEdits(
+        existing: List<WebAiProposalEdit>,
+        incoming: List<WebAiProposalEdit>,
+    ): List<WebAiProposalEdit> {
+        val merged = linkedMapOf<String, WebAiProposalEdit>()
+        existing.forEach { edit -> merged[edit.id] = edit }
+        incoming.forEach { edit -> merged[edit.id] = edit }
+        return merged.values.toList()
+    }
+
+    private fun effectiveDraftGraph(appliedGraph: GraphState, edits: List<WebAiProposalEdit>): GraphState {
+        val triples = appliedGraph.triples.toMutableSet()
+        edits.forEach { edit ->
+            val triple = edit.toGraphTriple() ?: return@forEach
+            if (edit.operation == "add") triples += triple else triples -= triple
+        }
+        return GraphState(triples)
     }
 
     private fun validate(state: ProposalState) {
         if (state.edits.isEmpty()) {
             state.validation = WebAiProposalValidation(false, listOf("The proposal contains no edits."))
+            return
+        }
+        val unknownSourceIds = state.edits.map(WebAiProposalEdit::sourceId).toSet() - state.editableSourceIds
+        if (unknownSourceIds.isNotEmpty()) {
+            val allowed = state.editableSourceIds.sorted().joinToString().ifBlank { "none" }
+            state.validation = WebAiProposalValidation(
+                false,
+                listOf("Unknown or non-editable ontology source ID(s): ${unknownSourceIds.sorted().joinToString()}. Allowed source IDs: $allowed."),
+            )
             return
         }
         val bySource = state.edits.groupBy(WebAiProposalEdit::sourceId).mapValues { (_, edits) -> edits.map(::toGraphChange) }
@@ -398,15 +535,31 @@ public class AiProposalService internal constructor(
         )
     }
 
-    private fun parseResponse(text: String, defaultSourceId: String?): ParsedAiResponse {
+    private fun parseResponse(text: String, defaultSourceId: String?, responseKind: AiResponseKind): ParsedAiResponse {
         val cleaned = text.trim().removePrefix("```").removePrefix("json").removeSuffix("```").trim()
-        val root = objectMapper.readTree(cleaned)
+        require(cleaned.isNotBlank()) { "The AI response was empty." }
+        val root = runCatching { objectMapper.readTree(cleaned) }.getOrElse { failure ->
+            if (responseKind == AiResponseKind.Proposal || cleaned.startsWith("{") || cleaned.startsWith("[")) throw failure
+            return ParsedAiResponse(
+                mode = when (responseKind) {
+                    AiResponseKind.Clarification -> WebAiResponseMode.CLARIFICATION
+                    else -> WebAiResponseMode.ANSWER
+                },
+                answer = cleaned,
+                summary = null,
+                edits = emptyList(),
+                evidence = emptyList(),
+            )
+        }
         require(root.isObject) { "The AI response was not a semantic AI response JSON object." }
         val mode = when (root.path("mode").asText("").lowercase()) {
             "answer" -> WebAiResponseMode.ANSWER
             "clarification" -> WebAiResponseMode.CLARIFICATION
             "proposal" -> WebAiResponseMode.PROPOSAL
             else -> if (root.path("edits").isArray) WebAiResponseMode.PROPOSAL else WebAiResponseMode.ANSWER
+        }
+        if (responseKind == AiResponseKind.Proposal) require(mode == WebAiResponseMode.PROPOSAL) {
+            "The proposal response did not contain a structured proposal."
         }
         // Answer and clarification modes are intentionally unable to mutate the
         // private draft, even if a provider accidentally includes an edits field.
@@ -479,6 +632,20 @@ public class AiProposalService internal constructor(
         state
     }
 
+    private fun synchronizeStagedState(state: ProposalState) {
+        synchronized(state) {
+            if (state.status != WebAiProposalStatus.STAGED) return
+            val snapshot = staging.snapshot(state.projectId)
+            val stillStaged = snapshot.entries.any { it.normalizedValues["aiRunId"] == state.runId }
+            val wasApplied = snapshot.proposal?.status == "APPLIED"
+            if (!stillStaged && !wasApplied && snapshot.proposal == null) {
+                state.status = WebAiProposalStatus.READY
+                state.message = "The staged changes were rejected. The private proposal is available again for review."
+                addUpdate(state, "Staged changes rejected; private proposal restored")
+            }
+        }
+    }
+
     private fun response(state: ProposalState): WebAiProposalRunResponse = synchronized(state) {
         WebAiProposalRunResponse(
             runId = state.runId,
@@ -495,8 +662,8 @@ public class AiProposalService internal constructor(
         )
     }
 
-    private fun addUpdate(state: ProposalState, message: String) {
-        state.updates += WebAiStatusUpdate(state.updates.size + 1, message, Instant.now().toString())
+    private fun addUpdate(state: ProposalState, message: String, details: List<String> = emptyList()) {
+        state.updates += WebAiStatusUpdate(state.updates.size + 1, message, Instant.now().toString(), details)
     }
 
     private fun String.requireNotBlank(field: String): String = also { require(isNotBlank()) { "$field is required" } }

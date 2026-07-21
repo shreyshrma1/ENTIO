@@ -20,6 +20,7 @@ describe("web workbench shell", () => {
       if (path === "/api/v1/projects") {
         return json({ apiVersion: "v1", projects: [{ id: "simple", displayName: "Simple ontology" }] });
       }
+      if (path.endsWith("/ai/proposals")) return json([]);
       if (path.includes("/summary")) {
         return json({
           apiVersion: "v1",
@@ -59,6 +60,12 @@ describe("web workbench shell", () => {
     expect(await screen.findByRole("heading", { name: "Approved projects" })).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("link", { name: /Simple ontology/ }));
     expect(await screen.findByRole("heading", { name: "simple-ontology" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Entio AI assistant" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "AI Assistant" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close Entio AI" }));
+    expect(screen.queryByRole("complementary", { name: "Entio AI assistant" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open Entio AI" }));
+    expect(screen.getByRole("complementary", { name: "Entio AI assistant" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /^Classes\s*1$/ })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getByRole("tab", { name: /^Objects\s*1$/ }));
     expect(screen.getByRole("button", { name: "Collapse Customer objects" })).toHaveAttribute("aria-expanded", "true");

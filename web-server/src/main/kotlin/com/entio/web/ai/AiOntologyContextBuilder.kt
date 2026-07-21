@@ -24,7 +24,7 @@ internal class AiOntologyContextBuilder(
     private val maxCharacters: Int = 48_000,
     private val rawFallbackCharacters: Int = 24_000,
 ) {
-    fun build(project: EntioProject, request: String, rawSources: String): AiOntologyContext {
+    fun build(project: EntioProject, request: String, rawSources: String, includesPrivateDraft: Boolean = false): AiOntologyContext {
         val triples = project.graph.triples.toList().sortedWith(tripleComparator)
         val entities = linkedSetOf<RdfResource>().apply {
             triples.forEach { triple ->
@@ -63,18 +63,26 @@ internal class AiOntologyContextBuilder(
 
         val output = buildString {
             appendLine("ENTIO TYPED ONTOLOGY CONTEXT")
+            appendLine("Graph scope: ${if (includesPrivateDraft) "effective private draft (applied graph plus current proposal)" else "applied project graph"}.")
             appendLine("Graph statistics: ${triples.size} triples, ${entities.size} resources, ${project.resolvedSources.size} source(s).")
             appendLine("Retrieval: ${if (matched.isEmpty()) "no direct label/IRI matches; showing a bounded overview" else "relevant entities plus their graph neighborhood"}.")
+            appendLine("Naming: refer to entities by their preferred label. Stable IRIs below are internal identifiers for disambiguation and proposal edits, not default user-facing names.")
             appendLine()
-            appendLine(TRUSTED_GLOSSARY)
+            appendLine("PROJECT SEMANTIC BOUNDARY")
+            appendLine("Project IRI namespace: ${project.config.iriNamespace?.namespace?.value ?: "not configured"}")
+            project.resolvedSources.sortedBy { it.id }.forEach { source ->
+                appendLine("- sourceId=${source.id}; roles=${source.roles.map { it.name }.sorted().joinToString(",")}; format=${source.format.name}")
+            }
+            appendLine("Proposal edits must use one of the sourceId values above. Source IDs are project identities, not names to invent from the request.")
             appendLine()
-            appendLine("ENTITY INDEX")
-            entities.asSequence()
+            appendLine(ONTOLOGY_ENGINEERING_GUIDE)
+            appendLine()
+            appendLine("SEMANTIC ENTITY DESCRIPTIONS (${if (includesPrivateDraft) "applied and private-draft meaning" else "asserted project meaning"})")
+            relevantTriples.map { it.subjectResource }.distinct()
                 .sortedWith(compareBy<RdfResource> { role(it, triples) }.thenBy { it.value })
-                .take(maxEntities)
-                .forEach { entity -> appendLine("- ${role(entity, triples)} ${term(entity)}") }
+                .forEach { entity -> appendSemanticDescription(entity, triples) }
             appendLine()
-            appendLine("RELEVANT GRAPH EVIDENCE (asserted project triples)")
+            appendLine("RELEVANT GRAPH EVIDENCE (${if (includesPrivateDraft) "applied and private-draft triples" else "asserted project triples"})")
             relevantTriples.forEach { triple -> appendLine(formatTriple(triple)) }
             if (relevantTriples.isEmpty()) appendLine("(No matching asserted triples were found.)")
             if (rawSources.length <= rawFallbackCharacters) {
@@ -85,6 +93,30 @@ internal class AiOntologyContextBuilder(
         }.take(maxCharacters)
         return AiOntologyContext(output, triples.size, entities.size, relevantTriples.size)
     }
+
+    private fun StringBuilder.appendSemanticDescription(entity: RdfResource, triples: List<GraphTriple>) {
+        val outgoing = triples.filter { it.subjectResource == entity }
+        val types = outgoing.filter { it.predicate == RDF_TYPE }.map { term(it.objectTerm) }
+        val labels = outgoing.filter { it.predicate in LABEL_PREDICATES }.map { term(it.objectTerm) }
+        val definitions = outgoing.filter { it.predicate in DEFINITION_PREDICATES }.map { term(it.objectTerm) }
+        val domains = outgoing.filter { it.predicate == RDFS_DOMAIN }.map { term(it.objectTerm) }
+        val ranges = outgoing.filter { it.predicate == RDFS_RANGE }.map { term(it.objectTerm) }
+        val parents = outgoing.filter { it.predicate == RDFS_SUBCLASS_OF }.map { term(it.objectTerm) }
+        appendLine("- preferred label: ${preferredLabel(entity, triples) ?: localName(entity)}")
+        appendLine("  stable IRI (internal identifier): <${entity.value}>")
+        appendLine("  role: ${role(entity, triples)}")
+        if (types.isNotEmpty()) appendLine("  declarations/types: ${types.joinToString()}")
+        if (labels.isNotEmpty()) appendLine("  labels: ${labels.joinToString()}")
+        if (definitions.isNotEmpty()) appendLine("  definitions: ${definitions.joinToString()}")
+        if (parents.isNotEmpty()) appendLine("  direct superclasses: ${parents.joinToString()}")
+        if (domains.isNotEmpty()) appendLine("  asserted domains: ${domains.joinToString()}")
+        if (ranges.isNotEmpty()) appendLine("  asserted ranges: ${ranges.joinToString()}")
+    }
+
+    private fun preferredLabel(entity: RdfResource, triples: List<GraphTriple>): String? = triples
+        .filter { it.subjectResource == entity && it.predicate in PREFERRED_LABEL_PREDICATES }
+        .mapNotNull { (it.objectTerm as? RdfLiteral)?.lexicalForm?.takeIf(String::isNotBlank) }
+        .firstOrNull()
 
     fun verifyEvidence(
         graph: GraphState,
@@ -170,6 +202,9 @@ internal class AiOntologyContextBuilder(
         private val TOKEN_PATTERN = Regex("[a-z0-9]+")
         private val STOP_WORDS = setOf("the", "and", "for", "with", "from", "into", "that", "this", "what", "does", "mean", "how", "why", "which", "where", "are", "is", "can", "please", "add", "write", "give")
         private val RDF_TYPE = Iri("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
+        private val RDFS_DOMAIN = Iri("http://www.w3.org/2000/01/rdf-schema#domain")
+        private val RDFS_RANGE = Iri("http://www.w3.org/2000/01/rdf-schema#range")
+        private val RDFS_SUBCLASS_OF = Iri("http://www.w3.org/2000/01/rdf-schema#subClassOf")
         private val RDFS_CLASS = "http://www.w3.org/2000/01/rdf-schema#Class"
         private val OWL_CLASS = "http://www.w3.org/2002/07/owl#Class"
         private val RDF_PROPERTY = "http://www.w3.org/1999/02/22-rdf-syntax-ns#Property"
@@ -182,6 +217,10 @@ internal class AiOntologyContextBuilder(
             Iri("http://www.w3.org/2000/01/rdf-schema#label"),
             Iri("http://www.w3.org/2004/02/skos/core#prefLabel"),
             Iri("http://www.w3.org/2004/02/skos/core#altLabel"),
+        )
+        private val PREFERRED_LABEL_PREDICATES = setOf(
+            Iri("http://www.w3.org/2000/01/rdf-schema#label"),
+            Iri("http://www.w3.org/2004/02/skos/core#prefLabel"),
         )
         private val DEFINITION_PREDICATES = setOf(
             Iri("http://www.w3.org/2004/02/skos/core#definition"),
@@ -202,17 +241,22 @@ internal class AiOntologyContextBuilder(
             "http://www.w3.org/2002/07/owl#DatatypeProperty",
         )
         private val tripleComparator = compareBy<GraphTriple>({ it.subjectResource.value }, { it.predicate.value }, { it.objectTerm.toString() })
-        private val TRUSTED_GLOSSARY = """
-            TRUSTED VOCABULARY GLOSSARY (canonical RDF/RDFS/OWL meanings)
-            - rdf:type declares that the subject is an instance of the object class or vocabulary type.
-            - rdf:Property declares an RDF property; it is separate from the property's domain and range axioms.
-            - rdfs:Class identifies a class.
-            - rdfs:domain has a property as its subject and identifies classes whose instances may be subjects of that property.
-            - rdfs:range has a property as its subject and identifies the expected value class or datatype.
-            - rdfs:subClassOf states that instances of the subject class are also instances of the object class.
-            - rdfs:label is a human-readable label; skos:definition is a semantic definition annotation.
-            - owl:ObjectProperty and owl:DatatypeProperty specialize properties by the kind of value they relate to.
-            The glossary is trusted vocabulary guidance, not an assertion about the project graph.
+        private val ONTOLOGY_ENGINEERING_GUIDE = """
+            ONTOLOGY ENGINEERING GUIDE (trusted semantic context)
+            Build a semantic understanding of the supplied ontology before answering or proposing changes. Determine your own plan and use FIBO context only when it is relevant to the requested outcome.
+            - Keep entity roles distinct: classes describe kinds of things, properties describe relationships or values, and individuals are instances.
+            - A declaration/type axiom establishes an entity's role. For example, `p rdf:type owl:ObjectProperty` declares p as an object property. Domain and range axioms describe a declared property's semantics; they do not declare the property.
+            - `p rdfs:domain C` has a property as its subject and supports inferring that a subject using p is an instance of C. It is not merely a form-field usage restriction.
+            - `p rdfs:range C` supports inferring that an IRI object used with p is an instance of C; a datatype range describes the datatype of literal values.
+            - `C rdfs:subClassOf D` means every instance of C is also an instance of D. It is different from an individual type assertion.
+            - Object properties relate resources, datatype properties relate resources to literals, and annotation properties attach descriptive metadata.
+            - Labels and definitions describe an entity for people but do not replace its logical declaration or axioms.
+            - In user-facing prose, always refer to an entity by its preferred label when one is asserted (for example, `Account 101`), not by its local IRI name (for example, `Account101`). Use the stable IRI only when the user asks for it, when disambiguation is necessary, or inside structured proposal/evidence fields.
+            - Do not infer a preferred label from an IRI when an asserted label exists. Treat the current graph's preferred label and shape label as authoritative, including renamed labels.
+            - If an earlier assistant message conflicts with the current graph, correct the earlier message and answer from the current graph; conversation history is not ontology evidence.
+            - Asserted triples occur in the supplied project graph. Inferred consequences must be identified as inferred rather than presented as asserted source content.
+            - Before presenting an answer or proposal, check the semantic roles of every subject, predicate, and object and check that the complete result satisfies the user's requested outcome.
+            This guide supplies general ontology semantics. It does not prescribe the plan or assert project-specific facts.
         """.trimIndent()
     }
 }

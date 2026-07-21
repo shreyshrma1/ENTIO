@@ -41,6 +41,24 @@ describe("AI provider settings", () => {
     expect(await screen.findByText("Ready with GPT-5.2.")).toBeInTheDocument();
   });
 
+  it("saves the credential when Enter is pressed", async () => {
+    let saved = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/ai/provider-settings") && !init?.method) return json(providerSettings(false));
+      if (String(input).endsWith("/ai/credentials") && init?.method === "PUT") {
+        saved = true;
+        return json(providerSettings(true));
+      }
+      return json(providerSettings(false));
+    }));
+    renderSettings();
+    const credential = await screen.findByLabelText("Credential");
+    fireEvent.change(credential, { target: { value: "enter-secret" } });
+    fireEvent.keyDown(credential, { key: "Enter" });
+    await screen.findByText(/Credential valid/i);
+    expect(saved).toBe(true);
+  });
+
   it("never writes credentials or provider settings to browser storage", async () => {
     const localWrite = vi.spyOn(Storage.prototype, "setItem");
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

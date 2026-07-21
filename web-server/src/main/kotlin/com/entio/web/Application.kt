@@ -206,6 +206,12 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
             }
         }
 
+        get("/api/v1/projects/{projectId}/ai/proposals") {
+            call.respondAi {
+                aiProposal.list(call.requiredProjectId(), call.requireUser(dependencies).id)
+            }
+        }
+
         get("/api/v1/projects/{projectId}/ai/proposals/{runId}") {
             call.respondAi {
                 val user = call.requireUser(dependencies)

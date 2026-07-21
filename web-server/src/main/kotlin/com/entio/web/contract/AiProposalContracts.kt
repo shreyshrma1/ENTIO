@@ -14,6 +14,7 @@ public data class WebAiStatusUpdate(
     val order: Int,
     val message: String,
     val timestamp: String,
+    val details: List<String> = emptyList(),
 )
 
 /** A server-verified reference used to ground an AI answer in ontology evidence. */
@@ -65,4 +66,14 @@ public data class WebAiProposalRunResponse(
     val edits: List<WebAiProposalEdit> = emptyList(),
     val validation: WebAiProposalValidation? = null,
     val message: String? = null,
+)
+
+/** Lightweight chat entry used to restore and switch conversations. */
+public data class WebAiChatSummary(
+    val apiVersion: String = WEB_API_VERSION,
+    val runId: String,
+    val projectId: String,
+    val title: String,
+    val status: WebAiProposalStatus,
+    val updatedAt: String,
 )

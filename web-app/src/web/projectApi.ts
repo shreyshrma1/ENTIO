@@ -333,6 +333,7 @@ export interface WebAiStatusUpdate {
   order: number;
   message: string;
   timestamp: string;
+  details?: string[];
 }
 
 export interface WebAiEvidence {
@@ -383,6 +384,15 @@ export interface WebAiProposalRunResponse {
   edits: WebAiProposalEdit[];
   validation: WebAiProposalValidation | null;
   message: string | null;
+}
+
+export interface WebAiChatSummary {
+  apiVersion: "v1";
+  runId: string;
+  projectId: string;
+  title: string;
+  status: WebAiProposalStatus;
+  updatedAt: string;
 }
 
 export type WebJobKind = "reasoning" | "shacl";
@@ -632,6 +642,10 @@ export async function startAiProposal(projectId: string, prompt: string, runId?:
 
 export async function loadAiProposal(projectId: string, runId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebAiProposalRunResponse> {
   return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/proposals/${encodeURIComponent(runId)}`, fetcher);
+}
+
+export async function listAiChats(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebAiChatSummary[]> {
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/proposals`, fetcher);
 }
 
 export async function removeAiProposalEdit(projectId: string, runId: string, editId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebAiProposalRunResponse> {

@@ -3,6 +3,7 @@ package com.entio.web
 import com.entio.web.ai.AiProposalGenerationInput
 import com.entio.web.ai.AiProposalGenerationResult
 import com.entio.web.ai.AiProposalProvider
+import com.entio.web.ai.AiResponseKind
 import com.entio.web.ai.provider.DevelopmentAiModelProviderClient
 import com.entio.web.ai.models.AiProviderModelDescriptor
 import com.entio.web.contract.InMemoryProjectRegistry
@@ -67,12 +68,23 @@ class AiProposalWorkflowTest {
         val runId = Regex("\\\"runId\\\":\\\"([^\\\"]+)").find(started.bodyAsText())!!.groupValues[1]
         val ready = poll(client, runId)
         assertContains(ready, "READY")
-        assertContains(ready, "Searching ontology")
+        assertContains(ready, "Preparing the Entio project context")
+        assertFalse(ready.contains("Searching FIBO"))
+        val chats = client.get("/api/v1/projects/simple/ai/proposals")
+        assertEquals(HttpStatusCode.OK, chats.status)
+        assertContains(chats.bodyAsText(), "Model a Loan class with a definition.")
+        assertContains(chats.bodyAsText(), runId)
         assertContains(ready, "subject")
         assertEquals(before, Files.readString(source))
         assertEquals(configBefore, Files.readString(projectRoot.resolve("entio.yaml")))
         assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "ENTIO TYPED ONTOLOGY CONTEXT")
-        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "TRUSTED VOCABULARY GLOSSARY")
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "ONTOLOGY ENGINEERING GUIDE")
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "sourceId=simple")
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "role: property")
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "preferred label:")
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "refer to entities by their preferred label")
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "declarations/types:")
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "asserted domains:")
         assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "rdfs:domain")
 
         val explanation = client.post("/api/v1/projects/simple/ai/proposals") {
@@ -94,9 +106,18 @@ class AiProposalWorkflowTest {
         assertContains(followUp.bodyAsText(), "\"runId\":\"$runId\"")
         val continued = poll(client, runId)
         assertContains(continued, "Continuing the existing private proposal")
+        assertContains(continued, "\"updates\":[{\"order\":1,\"message\":\"Continuing the existing private proposal")
+        assertFalse(continued.contains("Answering from the ontology context"))
+        assertContains(continued, "loan-class")
+        assertContains(continued, "has-loan")
         assertContains(continued, "\"role\":\"user\"")
-        assertContains(proposalProvider.lastInput?.conversationContext.orEmpty(), "Model a Loan class")
+        assertTrue(proposalProvider.lastInput?.conversation.orEmpty().any { it.role == "user" && it.content.contains("Model a Loan class") })
+        assertTrue(proposalProvider.lastInput?.conversation.orEmpty().any { it.role == "assistant" && it.content.contains("rdfs:domain") })
         assertContains(proposalProvider.lastInput?.currentProposal.orEmpty(), "loan-class")
+        assertContains(proposalProvider.lastInput?.currentProposal.orEmpty(), "\"sourceId\":\"simple\"")
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "effective private draft")
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "<https://example.com/simple#Loan>")
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "role: class")
 
         val removed = client.post("/api/v1/projects/simple/ai/proposals/$runId/edits/loan-definition/remove")
         assertEquals(HttpStatusCode.OK, removed.status)
@@ -109,6 +130,15 @@ class AiProposalWorkflowTest {
         assertEquals(before, Files.readString(source))
         assertEquals(configBefore, Files.readString(projectRoot.resolve("entio.yaml")))
         assertContains(client.get("/api/v1/projects/simple/staged").bodyAsText(), "ai-graph-change")
+
+        val sharedRejected = client.post("/api/v1/projects/simple/proposal/reject") {
+            headers.append("X-Entio-User", "bob")
+        }
+        assertEquals(HttpStatusCode.OK, sharedRejected.status)
+        val restored = client.get("/api/v1/projects/simple/ai/proposals/$runId")
+        assertContains(restored.bodyAsText(), "\"status\":\"READY\"")
+        assertContains(restored.bodyAsText(), "loan-class")
+        assertContains(restored.bodyAsText(), "has-loan")
 
         val rejected = client.post("/api/v1/projects/simple/ai/proposals/$runId/reject")
         assertEquals(HttpStatusCode.OK, rejected.status)
@@ -137,14 +167,15 @@ class AiProposalWorkflowTest {
         assertContains(clarification, "Which ontology source")
         assertFalse(clarification.contains("loan-class"))
 
-        val evidenceRepair = client.post("/api/v1/projects/simple/ai/proposals") {
+        val plainAnswerRequest = client.post("/api/v1/projects/simple/ai/proposals") {
             contentType(ContentType.Application.Json)
             setBody("""{"prompt":"no-evidence"}""")
         }
-        val evidenceRepairRunId = Regex("\\\"runId\\\":\\\"([^\\\"]+)").find(evidenceRepair.bodyAsText())!!.groupValues[1]
-        val evidenceReady = poll(client, evidenceRepairRunId)
-        assertContains(evidenceReady, "The answer needs a verifiable ontology citation")
-        assertContains(evidenceReady, "\"evidence\":[{\"subject\":\"https://example.com/simple#ownsAccount\"")
+        val plainAnswerRunId = Regex("\\\"runId\\\":\\\"([^\\\"]+)").find(plainAnswerRequest.bodyAsText())!!.groupValues[1]
+        val plainAnswer = poll(client, plainAnswerRunId)
+        assertContains(plainAnswer, "\"responseMode\":\"ANSWER\"")
+        assertContains(plainAnswer, "Customer as its domain")
+        assertFalse(plainAnswer.contains("could not be parsed"))
 
         val glossary = client.post("/api/v1/projects/simple/ai/proposals") {
             contentType(ContentType.Application.Json)
@@ -221,6 +252,47 @@ class AiProposalWorkflowTest {
         assertContains(stagedAfterAnswer.bodyAsText(), "STAGED")
     }
 
+    @Test
+    fun unknownModelSourceIdIsReturnedForRepair(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-ai-source-repair")
+        val projectRoot = fixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot)).also { it.register("simple", "Simple", projectRoot) }
+        val proposalProvider = FixtureProposalProvider()
+        application {
+            module(
+                WebApplicationDependencies(
+                    projectRegistry = registry,
+                    aiModelProvider = DevelopmentAiModelProviderClient(
+                        models = listOf(AiProviderModelDescriptor("openai", "gpt-test")),
+                        verificationByModelId = mapOf("gpt-test" to com.entio.web.ai.provider.AiModelVerificationResult.Verified),
+                    ),
+                    aiProposalProvider = proposalProvider,
+                ),
+            )
+        }
+        client.put("/api/v1/ai/credentials") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"providerId":"openai","apiKey":"test-secret"}""")
+        }
+        client.put("/api/v1/ai/model-selection") {
+            headers.append("Idempotency-Key", "ai-source-repair-select")
+            contentType(ContentType.Application.Json)
+            setBody("""{"modelId":"gpt-test"}""")
+        }
+
+        val started = client.post("/api/v1/projects/simple/ai/proposals") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"prompt":"invalid-source"}""")
+        }
+        val runId = Regex("\\\"runId\\\":\\\"([^\\\"]+)\\\"").find(started.bodyAsText())!!.groupValues[1]
+        val ready = poll(client, runId)
+
+        assertContains(ready, "READY")
+        assertContains(ready, "loan-class")
+        assertTrue(proposalProvider.callCount >= 2)
+        assertContains(proposalProvider.lastInput?.validationFindings.orEmpty().joinToString(), "Allowed source IDs: simple")
+    }
+
     private fun fixture(allowedRoot: Path): Path {
         val root = Files.createDirectory(allowedRoot.resolve("simple"))
         Files.createDirectories(root.resolve("ontology"))
@@ -265,6 +337,12 @@ private class FixtureProposalProvider : AiProposalProvider {
     @Volatile
     var callCount: Int = 0
 
+    override suspend fun route(apiKey: String, selectedModelId: String, input: AiProposalGenerationInput): AiResponseKind = when (input.userRequest) {
+        "explain", "no-evidence", "glossary" -> AiResponseKind.Answer
+        "clarify" -> AiResponseKind.Clarification
+        else -> AiResponseKind.Proposal
+    }
+
     override suspend fun generate(apiKey: String, selectedModelId: String, input: AiProposalGenerationInput): AiProposalGenerationResult {
         lastInput = input
         callCount += 1
@@ -275,6 +353,20 @@ private class FixtureProposalProvider : AiProposalProvider {
                   {"id":"loan-class","sourceId":"simple","operation":"add","subject":"https://example.com/simple#Loan","predicate":"http://www.w3.org/1999/02/22-rdf-syntax-ns#type","objectKind":"iri","objectValue":"http://www.w3.org/2002/07/owl#Class","summary":"Create Loan class","rationale":"A new class is needed for the requested concept."},
                   {"id":"loan-domain-mistake","sourceId":"simple","operation":"add","subject":"https://example.com/simple#Loan","predicate":"http://www.w3.org/2000/01/rdf-schema#domain","objectKind":"iri","objectValue":"https://example.com/simple#Customer","summary":"Set an invalid domain","rationale":"This intentionally exercises semantic role validation."},
                   {"id":"loan-interest-use","sourceId":"simple","operation":"add","subject":"https://example.com/simple#Loan","predicate":"https://example.com/simple#interestRate","objectKind":"literal","objectValue":"4.5","datatype":"http://www.w3.org/2001/XMLSchema#decimal","summary":"Use interest rate","rationale":"The initial proposal intentionally exercises post-generation validation repair."}
+                ]}
+            """.trimIndent())
+        }
+        if (input.userRequest == "invalid-source" && input.validationFindings.isEmpty()) {
+            return AiProposalGenerationResult.Completed("""
+                {"mode":"proposal","summary":"Loan proposal","edits":[
+                  {"id":"loan-class","sourceId":"user-request","operation":"add","subject":"https://example.com/simple#Loan","predicate":"http://www.w3.org/1999/02/22-rdf-syntax-ns#type","objectKind":"iri","objectValue":"http://www.w3.org/2002/07/owl#Class","summary":"Create Loan class","rationale":"Model the requested class."}
+                ]}
+            """.trimIndent())
+        }
+        if (input.userRequest == "invalid-source") {
+            return AiProposalGenerationResult.Completed("""
+                {"mode":"proposal","summary":"Loan proposal","edits":[
+                  {"id":"loan-class","sourceId":"simple","operation":"add","subject":"https://example.com/simple#Loan","predicate":"http://www.w3.org/1999/02/22-rdf-syntax-ns#type","objectKind":"iri","objectValue":"http://www.w3.org/2002/07/owl#Class","summary":"Create Loan class","rationale":"Model the requested class in the available ontology source."}
                 ]}
             """.trimIndent())
         }
@@ -295,13 +387,7 @@ private class FixtureProposalProvider : AiProposalProvider {
             """.trimIndent())
         }
         if (input.userRequest == "no-evidence") {
-            return if (input.repairMode == "answer") {
-                AiProposalGenerationResult.Completed("""
-                    {"mode":"answer","answer":"The property uses Customer as its domain.","evidence":[{"subject":"https://example.com/simple#ownsAccount","predicate":"http://www.w3.org/2000/01/rdf-schema#domain","objectKind":"iri","objectValue":"https://example.com/simple#Customer"}],"edits":[]}
-                """.trimIndent())
-            } else {
-                AiProposalGenerationResult.Completed("""{"mode":"answer","answer":"The property uses Customer as its domain.","edits":[]}""")
-            }
+            return AiProposalGenerationResult.Completed("The property uses Customer as its domain.")
         }
         if (input.userRequest == "glossary") {
             return AiProposalGenerationResult.Completed("""
@@ -311,6 +397,15 @@ private class FixtureProposalProvider : AiProposalProvider {
         if (input.userRequest == "clarify") {
             return AiProposalGenerationResult.Completed("""
                 {"mode":"clarification","answer":"Which ontology source should contain the requested change?","edits":[]}
+            """.trimIndent())
+        }
+        if (input.userRequest == "Also add a loan property.") {
+            return AiProposalGenerationResult.Completed("""
+                {"mode":"proposal","summary":"Add customer loan ownership","edits":[
+                  {"id":"has-loan","sourceId":"simple","operation":"add","subject":"https://example.com/simple#hasLoan","predicate":"http://www.w3.org/1999/02/22-rdf-syntax-ns#type","objectKind":"iri","objectValue":"http://www.w3.org/2002/07/owl#ObjectProperty","summary":"Declare hasLoan property","rationale":"Link customers to their loans."},
+                  {"id":"has-loan-domain","sourceId":"simple","operation":"add","subject":"https://example.com/simple#hasLoan","predicate":"http://www.w3.org/2000/01/rdf-schema#domain","objectKind":"iri","objectValue":"https://example.com/simple#Customer","summary":"Set hasLoan domain","rationale":"Customers own loans."},
+                  {"id":"has-loan-range","sourceId":"simple","operation":"add","subject":"https://example.com/simple#hasLoan","predicate":"http://www.w3.org/2000/01/rdf-schema#range","objectKind":"iri","objectValue":"https://example.com/simple#Loan","summary":"Set hasLoan range","rationale":"The property points to Loan instances."}
+                ]}
             """.trimIndent())
         }
         return AiProposalGenerationResult.Completed("""

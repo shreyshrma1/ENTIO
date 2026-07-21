@@ -50,16 +50,52 @@ public class OpenAiProposalClient(
 ) : AiProposalProvider, AutoCloseable {
     override val providerId: String = configuration.providerId
 
+    override suspend fun route(apiKey: String, selectedModelId: String, input: AiProposalGenerationInput): AiResponseKind {
+        val result = request(apiKey, selectedModelId, ROUTING_INSTRUCTIONS, providerInput(input, includeRepair = false), routingFormat())
+        val text = (result as? AiProposalGenerationResult.Completed)?.text
+            ?: throw IllegalStateException((result as AiProposalGenerationResult.Failed).message)
+        val kind = runCatching { parseJsonObject(text).path("responseKind").asText() }.getOrDefault("")
+        return when (kind.lowercase()) {
+            "answer" -> AiResponseKind.Answer
+            "proposal" -> AiResponseKind.Proposal
+            "clarification" -> AiResponseKind.Clarification
+            else -> throw IllegalArgumentException("OpenAI returned an invalid semantic response route.")
+        }
+    }
+
+    override suspend fun requestExternalContext(apiKey: String, selectedModelId: String, input: AiProposalGenerationInput): AiExternalContextRequest {
+        val result = request(apiKey, selectedModelId, EXTERNAL_CONTEXT_INSTRUCTIONS, providerInput(input, includeRepair = false), externalContextFormat())
+        val text = (result as? AiProposalGenerationResult.Completed)?.text
+            ?: throw IllegalStateException((result as AiProposalGenerationResult.Failed).message)
+        val root = parseJsonObject(text)
+        val query = root.path("query").asText("").trim().takeIf { it.isNotEmpty() }
+        return AiExternalContextRequest(root.path("useFibo").asBoolean(false), query)
+    }
+
     override suspend fun generate(apiKey: String, selectedModelId: String, input: AiProposalGenerationInput): AiProposalGenerationResult {
+        val instructions = when (input.responseKind) {
+            AiResponseKind.Proposal -> PROPOSAL_INSTRUCTIONS
+            AiResponseKind.Clarification -> CLARIFICATION_INSTRUCTIONS
+            else -> ANSWER_INSTRUCTIONS
+        }
+        val format = if (input.responseKind == AiResponseKind.Proposal) proposalFormat() else null
+        return request(apiKey, selectedModelId, instructions, providerInput(input, includeRepair = true), format)
+    }
+
+    private suspend fun request(
+        apiKey: String,
+        selectedModelId: String,
+        instructions: String,
+        messages: JsonNode,
+        responseFormat: JsonNode?,
+    ): AiProposalGenerationResult {
         if (apiKey.isBlank() || selectedModelId.isBlank()) return AiProposalGenerationResult.Failed("A verified provider credential and model are required.")
-        val body = objectMapper.createObjectNode().apply {
-            put("model", selectedModelId)
-            put("store", false)
-            put("input", prompt(input))
-        }.toString()
+        var activeFormat = responseFormat
+        var formatFallbacks = 0
         var attempt = 0
         while (true) {
             try {
+                val body = requestBody(selectedModelId, instructions, messages, activeFormat)
                 val response = httpClient.post(configuration.endpoint) {
                     header(HttpHeaders.Authorization, "Bearer ${apiKey.trim()}")
                     accept(ContentType.Application.Json)
@@ -69,12 +105,25 @@ public class OpenAiProposalClient(
                 if (response.status.isSuccess()) {
                     return AiProposalGenerationResult.Completed(extractText(responseText))
                 }
+                if (response.status.value == 400 && activeFormat != null) {
+                    activeFormat = when (activeFormat.path("type").asText()) {
+                        "json_schema" -> jsonObjectFormat()
+                        "json_object" -> null
+                        else -> activeFormat
+                    }
+                    formatFallbacks += 1
+                    if (formatFallbacks <= 2) continue
+                }
                 if (response.status.value in setOf(408, 429, 500, 502, 503, 504) && attempt < configuration.maxRetries) {
                     attempt += 1
                     delay((attempt * 500L).coerceAtMost(2_000L))
                     continue
                 }
-                return AiProposalGenerationResult.Failed("OpenAI proposal request failed with HTTP ${response.status.value}.", response.status.value in setOf(408, 429, 500, 502, 503, 504))
+                val detail = safeProviderError(responseText)
+                return AiProposalGenerationResult.Failed(
+                    "OpenAI proposal request failed with HTTP ${response.status.value}${detail?.let { ": $it" }.orEmpty()}.",
+                    response.status.value in setOf(408, 429, 500, 502, 503, 504),
+                )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: HttpRequestTimeoutException) {
@@ -89,36 +138,166 @@ public class OpenAiProposalClient(
         }
     }
 
-    private fun prompt(input: AiProposalGenerationInput): String = """
-        You are Entio's ontology assistant. Understand the user's requested outcome semantically, inspect the supplied typed ontology context and optional FIBO context, and choose the appropriate response mode. Never output Turtle, SPARQL, code, or instructions to write files. Return only one JSON object with this shape: {"mode":"answer|proposal|clarification","answer":"natural-language answer or clarification question","summary":"proposal summary or null","evidence":[{"subject":"absolute IRI","predicate":"absolute IRI","objectKind":"iri|literal|blank","objectValue":"IRI or lexical value","datatype":null,"language":null,"source":"current-ontology|private-draft|trusted-vocabulary|fibo"}],"edits":[{"id":"stable-id","sourceId":"source-id","operation":"add|remove","subject":"absolute IRI","predicate":"absolute IRI","objectKind":"iri|literal|blank","objectValue":"IRI or lexical value","datatype":null,"language":null,"summary":"...","rationale":"..."}]}. Choose answer when the user wants an explanation, definition, inference, or description and does not ask Entio to change the ontology. Choose proposal when the user wants an ontology outcome or change, including an indirect or unfamiliar phrasing. Choose clarification only when the intended outcome cannot be determined safely. Answer and clarification responses must contain answer text, an evidence array, and an empty edits array. For ontology-specific claims, cite exact supplied triples in evidence; do not invent evidence. For a canonical glossary claim, use source trusted-vocabulary, the vocabulary term as subject, rdfs:comment as predicate, and the supplied glossary wording as a literal object. Clearly distinguish asserted facts from inferred conclusions and suggestions. Proposal responses must contain the complete review proposal, with one declarative RDF triple per edit, all dependencies and definitions, and newly created entities represented before they are referenced conceptually. Do not create a proposal merely because the request mentions an ontology term.
+    private fun requestBody(modelId: String, instructions: String, messages: JsonNode, responseFormat: JsonNode?): String =
+        objectMapper.createObjectNode().apply {
+            put("model", modelId)
+            put("store", false)
+            put("instructions", instructions)
+            set<JsonNode>("input", messages)
+            responseFormat?.let { format ->
+                set<JsonNode>("text", objectMapper.createObjectNode().set<JsonNode>("format", format))
+            }
+        }.toString()
 
-        USER REQUEST:
-        ${input.userRequest}
+    private fun jsonObjectFormat(): JsonNode = objectMapper.createObjectNode().put("type", "json_object")
 
-        CURRENT ONTOLOGY (read-only):
+    private fun safeProviderError(response: String): String? = runCatching {
+        objectMapper.readTree(response).path("error").path("message").asText("").trim()
+            .replace(Regex("[\\r\\n\\t]+"), " ")
+            .take(400)
+            .takeIf { it.isNotBlank() }
+    }.getOrNull()
+
+    private fun providerInput(input: AiProposalGenerationInput, includeRepair: Boolean): JsonNode = objectMapper.createArrayNode().apply {
+        add(message("developer", projectContext(input)))
+        input.conversation.forEach { turn -> add(message(turn.role, turn.content)) }
+        add(message("user", input.userRequest))
+        if (includeRepair) repairContext(input)?.let { add(message("developer", it)) }
+    }
+
+    private fun message(role: String, content: String): JsonNode = objectMapper.createObjectNode().apply {
+        put("role", role)
+        put("content", content)
+    }
+
+    private fun projectContext(input: AiProposalGenerationInput): String = """
+        ENTIO PROJECT CONTEXT
+        The following is trusted, read-only context for the current Entio project. Use it when relevant to the conversation.
+
         ${input.ontologyContext}
 
-        FIBO SEARCH CONTEXT (read-only, may be empty):
-        ${input.fiboContext}
+        FIBO ACCESS BOUNDARY
+        Entio exposes a pinned, read-only curated FIBO catalog through server-retrieved context. You may use the supplied catalog results to explain or propose reuse of FIBO classes and properties. This is not unrestricted internet access or guaranteed access to the wider/latest FIBO ontology. If no catalog entries were returned, say that no matching entries were found in the current curated catalog; do not claim that Entio cannot access FIBO at all.
+        When the user asks to search, reuse, or pull in FIBO concepts, use the exact external IRIs from the supplied FIBO results. Never invent a local replacement IRI and present it as a FIBO class or property. If a suitable FIBO result is unavailable, say so rather than claiming a locally invented concept came from FIBO.
 
-        CONVERSATION CONTEXT:
-        ${input.conversationContext}
+        ${input.fiboContext.ifBlank { "No catalog results were supplied for this request." }}
 
-        CURRENT PRIVATE PROPOSAL (return a complete replacement proposal, preserving existing edits unless the request changes them):
-        ${input.currentProposal}
+        CURRENT PRIVATE PROPOSAL
+        ${input.currentProposal.ifBlank { "No private proposal exists." }}
+        When a private proposal exists, it is authoritative draft state: its additions already exist in the effective private-draft graph supplied above. A follow-up request continues that proposal. Return the edits needed for the new request, do not recreate unaffected edits, and reuse an existing edit id when revising one; Entio preserves and merges the existing private edits.
+    """.trimIndent()
 
-        ${if (input.validationFindings.isEmpty()) "" else if (input.repairMode == "answer") """
+    private fun repairContext(input: AiProposalGenerationInput): String? {
+        if (input.validationFindings.isEmpty()) return null
+        return if (input.repairMode == "answer") """
         POST-GENERATION ANSWER EVIDENCE FINDINGS (repair attempt ${input.repairAttempt}):
         Entio checked the completed answer and found the following issue:
         ${input.validationFindings.joinToString("\n") { "- $it" }}
-        Return a corrected answer with mode set to answer, preserve the useful explanation, and include at least one exact triple from the supplied ontology context in the evidence array. Do not invent evidence or return edits.
+        Reconsider the answer against the project context and return a corrected answer with verifiable evidence. Do not preserve a prior claim when the evidence contradicts it.
         """ else """
         POST-GENERATION VALIDATION FINDINGS (repair attempt ${input.repairAttempt}):
-        The proposal above has already been generated. Entio ran deterministic validation after generation and found the following issues:
+        Entio ran deterministic validation on the private proposal and found:
         ${input.validationFindings.joinToString("\n") { "- $it" }}
-        Diagnose these findings and return one complete replacement JSON proposal with mode set to proposal. Preserve valid edits, add missing dependencies, and remove or correct invalid edits. Do not return a partial patch, an answer-only response, commentary, Turtle, SPARQL, code, or file-writing instructions. The validation findings are feedback for this repair pass; initial response-mode selection and proposal generation are not constrained by them.
-        """}
-    """.trimIndent()
+        Return a complete corrected replacement proposal, preserving valid work and repairing the findings.
+
+        $PROPOSAL_PRESENTATION_CONTRACT
+        """
+    }
+
+    private fun proposalFormat(): JsonNode = objectMapper.createObjectNode().apply {
+        put("type", "json_schema")
+        put("name", "entio_ontology_proposal")
+        put("strict", true)
+        set<JsonNode>("schema", objectMapper.createObjectNode().apply {
+            put("type", "object")
+            put("additionalProperties", false)
+            set<JsonNode>("properties", objectMapper.createObjectNode().apply {
+                set<JsonNode>("mode", stringSchema(listOf("proposal")))
+                set<JsonNode>("answer", stringSchema())
+                set<JsonNode>("summary", stringSchema())
+                set<JsonNode>("evidence", objectMapper.createObjectNode().apply {
+                    put("type", "array")
+                    set<JsonNode>("items", evidenceSchema())
+                })
+                set<JsonNode>("edits", objectMapper.createObjectNode().apply {
+                    put("type", "array")
+                    set<JsonNode>("items", editSchema())
+                })
+            })
+            putArray("required").add("mode").add("answer").add("summary").add("evidence").add("edits")
+        })
+    }
+
+    private fun routingFormat(): JsonNode = objectMapper.createObjectNode().apply {
+        put("type", "json_schema")
+        put("name", "entio_response_route")
+        put("strict", true)
+        set<JsonNode>("schema", objectMapper.createObjectNode().apply {
+            put("type", "object")
+            put("additionalProperties", false)
+            set<JsonNode>("properties", objectMapper.createObjectNode().set<JsonNode>("responseKind", stringSchema(listOf("answer", "clarification", "proposal"))))
+            putArray("required").add("responseKind")
+        })
+    }
+
+    private fun externalContextFormat(): JsonNode = objectMapper.createObjectNode().apply {
+        put("type", "json_schema")
+        put("name", "entio_external_context_request")
+        put("strict", true)
+        set<JsonNode>("schema", objectMapper.createObjectNode().apply {
+            put("type", "object")
+            put("additionalProperties", false)
+            set<JsonNode>("properties", objectMapper.createObjectNode().apply {
+                set<JsonNode>("useFibo", objectMapper.createObjectNode().put("type", "boolean"))
+                set<JsonNode>("query", objectMapper.createObjectNode().put("type", "string"))
+            })
+            putArray("required").add("useFibo").add("query")
+        })
+    }
+
+    private fun evidenceSchema(): JsonNode = objectMapper.createObjectNode().apply {
+        put("type", "object")
+        put("additionalProperties", false)
+        set<JsonNode>("properties", objectMapper.createObjectNode().apply {
+            set<JsonNode>("subject", stringSchema())
+            set<JsonNode>("predicate", stringSchema())
+            set<JsonNode>("objectKind", stringSchema(listOf("iri", "literal", "blank")))
+            set<JsonNode>("objectValue", stringSchema())
+            set<JsonNode>("datatype", nullableStringSchema())
+            set<JsonNode>("language", nullableStringSchema())
+            set<JsonNode>("source", stringSchema(listOf("current-ontology", "private-draft", "trusted-vocabulary", "fibo")))
+        })
+        putArray("required").add("subject").add("predicate").add("objectKind").add("objectValue").add("datatype").add("language").add("source")
+    }
+
+    private fun editSchema(): JsonNode = objectMapper.createObjectNode().apply {
+        put("type", "object")
+        put("additionalProperties", false)
+        set<JsonNode>("properties", objectMapper.createObjectNode().apply {
+            set<JsonNode>("id", stringSchema())
+            set<JsonNode>("sourceId", stringSchema())
+            set<JsonNode>("operation", stringSchema(listOf("add", "remove")))
+            set<JsonNode>("subject", stringSchema())
+            set<JsonNode>("predicate", stringSchema())
+            set<JsonNode>("objectKind", stringSchema(listOf("iri", "literal", "blank")))
+            set<JsonNode>("objectValue", stringSchema())
+            set<JsonNode>("datatype", nullableStringSchema())
+            set<JsonNode>("language", nullableStringSchema())
+            set<JsonNode>("summary", stringSchema())
+            set<JsonNode>("rationale", nullableStringSchema())
+        })
+        putArray("required").add("id").add("sourceId").add("operation").add("subject").add("predicate").add("objectKind")
+            .add("objectValue").add("datatype").add("language").add("summary").add("rationale")
+    }
+
+    private fun stringSchema(values: List<String> = emptyList()): JsonNode = objectMapper.createObjectNode().apply {
+        put("type", "string")
+        if (values.isNotEmpty()) putArray("enum").also { array -> values.forEach(array::add) }
+    }
+
+    private fun nullableStringSchema(): JsonNode = objectMapper.createObjectNode().apply {
+        putArray("type").add("string").add("null")
+    }
 
     private fun extractText(response: String): String {
         val root = objectMapper.readTree(response)
@@ -134,7 +313,68 @@ public class OpenAiProposalClient(
         throw IllegalArgumentException("OpenAI returned no proposal text.")
     }
 
+    private fun parseJsonObject(text: String): JsonNode {
+        val trimmed = text.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+        return runCatching { objectMapper.readTree(trimmed) }.getOrElse {
+            val start = trimmed.indexOf('{')
+            val end = trimmed.lastIndexOf('}')
+            if (start < 0 || end <= start) throw it
+            objectMapper.readTree(trimmed.substring(start, end + 1))
+        }
+    }
+
     override fun close() { httpClient.close() }
+
+    private companion object {
+        private val ROUTING_INSTRUCTIONS = """
+            Decide semantically how Entio AI should respond to the latest user message in its conversation and project context.
+
+            Return exactly one of these JSON objects, with no Markdown fences, prose, explanation, or additional fields:
+            {"responseKind":"answer"}
+            {"responseKind":"clarification"}
+            {"responseKind":"proposal"}
+
+            The only valid key is `responseKind`. The only valid values are exactly `answer`, `clarification`, and `proposal`, all lowercase. Use `clarification`, never `clarify`.
+            Choose `proposal` when the user asks to create, change, remove, model, or otherwise produce an ontology outcome. Choose `answer` for ordinary discussion, explanation, or analysis. Choose `clarification` only when a requested ontology outcome is too ambiguous to propose safely. Do not use keyword matching; interpret the user's intended outcome in context.
+        """.trimIndent()
+        private val ANSWER_INSTRUCTIONS = """
+            You are Entio AI, a capable general-purpose assistant with trusted context about the current Entio ontology project. Reason normally, follow the conversation, and answer the user directly in ordinary prose. Reconsider earlier answers when challenged or corrected. Use project context when relevant, distinguish asserted facts from inferences, and accurately describe Entio's server-retrieved curated FIBO catalog access; do not claim that Entio has no FIBO access when catalog context is supplied. Do not create a proposal.
+        """.trimIndent()
+        private val EXTERNAL_CONTEXT_INSTRUCTIONS = """
+            Decide whether the latest user request requires looking up the pinned, read-only curated FIBO catalog. You have the current Entio ontology context and conversation, but not the catalog contents. Request FIBO context when FIBO reuse, comparison, discovery, or external ontology grounding would materially improve the response. Do not request it for ordinary questions that can be answered from the supplied project context.
+
+            Return exactly one JSON object with no prose or Markdown:
+            {"useFibo":true,"query":"concise ontology concepts to search, comma-separated"}
+            or
+            {"useFibo":false,"query":""}
+
+            If requesting FIBO, make `query` a concise list of the most relevant concepts, classes, or properties—not the full user request or full ontology context. Entio will perform the catalog lookup and provide the results to the next response step.
+        """.trimIndent()
+        private val CLARIFICATION_INSTRUCTIONS = """
+            You are Entio AI. Ask one concise, useful clarification question needed before you can safely prepare the requested ontology change. Use the conversation and project context. Return ordinary prose only.
+        """.trimIndent()
+        private val PROPOSAL_PRESENTATION_CONTRACT = """
+            ENTIO PROPOSAL PRESENTATION CONTRACT
+            This contract controls serialization only; it does not limit your ontology reasoning, plan, modeling choices, or use of supplied context.
+            - Return exactly one JSON object. Do not wrap it in Markdown fences and do not put prose before or after it.
+            - Put the brief user-facing message in `answer`, the proposal title in `summary`, and all graph changes in `edits`.
+            - Represent exactly one RDF triple in each edit. Express multi-triple modeling decisions as multiple edits.
+            - `id` is a stable JSON string. `sourceId` is an exact source ID listed in project context.
+            - `operation` is exactly `add` or `remove`, in lowercase. Do not use create, delete, addition, removal, or uppercase variants.
+            - `subject` and `predicate` are absolute IRIs. Never use compact names such as rdf:type, rdfs:label, owl:Class, skos:definition, xsd:decimal, or simple:Loan.
+            - `objectKind` is exactly `iri`, `literal`, or `blank`, in lowercase. Class, ObjectProperty, DatatypeProperty, NamedIndividual, and datatype names belong in `objectValue`, not `objectKind`.
+            - When `objectKind` is `iri`, `objectValue` is an absolute IRI. When it is `literal`, `objectValue` is the lexical value and `datatype` contains an absolute datatype IRI or null.
+            - Include `datatype`, `language`, and `rationale` explicitly, using null when absent.
+            Example edit: {"id":"loan-class","sourceId":"simple","operation":"add","subject":"https://example.com/entio/simple#Loan","predicate":"http://www.w3.org/1999/02/22-rdf-syntax-ns#type","objectKind":"iri","objectValue":"http://www.w3.org/2002/07/owl#Class","datatype":null,"language":null,"summary":"Declare Loan as a class","rationale":"The requested model requires a Loan class."}
+        """.trimIndent()
+        private val PROPOSAL_INSTRUCTIONS = """
+            You are Entio AI, a capable ontology engineer with trusted context about the current project. Determine the complete ontology outcome requested by the user. You cannot edit ontology files or Entio configuration; prepare a review-only proposal for Entio validation.
+
+            Think through the ontology freely and include every declaration, definition, axiom, individual, and assertion required for a complete result. When the user asks for FIBO reuse, use exact FIBO IRIs from the supplied catalog results and do not represent invented local IRIs as FIBO concepts. When the user asks to propose a specific number of classes or properties, include concrete edits for each recommendation; never return an empty `edits` array for a proposal request. If the context contains a current private proposal, treat its entities and triples as already present in the effective draft. For a follow-up, return only the new or revised edits needed for the user's request; do not recreate unaffected edits, and reuse an existing edit id when revising one. Entio preserves and merges the existing private edits. The answer should briefly say that the proposal was generated and summarize its modeling choices; keep the edit details in the edits array for Entio's proposal popup. Never invent source IDs or evidence.
+
+            $PROPOSAL_PRESENTATION_CONTRACT
+        """.trimIndent()
+    }
 }
 
 public fun createProposalHttpClient(configuration: OpenAiProposalConfiguration): HttpClient = createProposalHttpClient(configuration, CIO.create())
