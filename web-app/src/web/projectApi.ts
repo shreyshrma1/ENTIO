@@ -326,6 +326,65 @@ export interface WebStagingResponse {
   proposal: WebProposalState | null;
 }
 
+export type WebAiProposalStatus = "QUEUED" | "RUNNING" | "READY" | "FAILED" | "CANCELLED" | "STAGED" | "REJECTED";
+export type WebAiResponseMode = "ANSWER" | "PROPOSAL" | "CLARIFICATION";
+
+export interface WebAiStatusUpdate {
+  order: number;
+  message: string;
+  timestamp: string;
+}
+
+export interface WebAiEvidence {
+  subject: string;
+  predicate: string;
+  objectKind: string;
+  objectValue: string;
+  source: string;
+}
+
+export interface WebAiProposalEdit {
+  id: string;
+  sourceId: string;
+  operation: string;
+  subject: string;
+  predicate: string;
+  objectKind: string;
+  objectValue: string;
+  datatype: string | null;
+  language: string | null;
+  summary: string;
+  rationale: string | null;
+}
+
+export interface WebAiConversationMessage {
+  role: string;
+  content: string;
+  timestamp: string;
+  evidence?: WebAiEvidence[];
+}
+
+export interface WebAiProposalValidation {
+  valid: boolean;
+  messages: string[];
+  diff: WebDiffEntry[];
+}
+
+export interface WebAiProposalRunResponse {
+  apiVersion: "v1";
+  runId: string;
+  projectId: string;
+  status: WebAiProposalStatus;
+  responseMode: WebAiResponseMode;
+  prompt: string | null;
+  messages: WebAiConversationMessage[];
+  summary: string | null;
+  updates: WebAiStatusUpdate[];
+  edits: WebAiProposalEdit[];
+  validation: WebAiProposalValidation | null;
+  message: string | null;
+}
+
 export type WebJobKind = "reasoning" | "shacl";
 export type WebJobScope = "applied" | "proposal";
 export type WebJobMode = "asserted-only" | "asserted-and-inferred";
@@ -565,6 +624,30 @@ export async function testAiCredential(fetcher: WebFetcher = defaultFetcher): Pr
 
 export async function removeAiCredential(fetcher: WebFetcher = defaultFetcher): Promise<WebAiProviderSettings> {
   return sendJson("/api/v1/ai/credentials", "DELETE", undefined, fetcher);
+}
+
+export async function startAiProposal(projectId: string, prompt: string, runId?: string | null, fetcher: WebFetcher = defaultFetcher): Promise<WebAiProposalRunResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/proposals`, "POST", { prompt, ...(runId ? { runId } : {}) }, fetcher);
+}
+
+export async function loadAiProposal(projectId: string, runId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebAiProposalRunResponse> {
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/proposals/${encodeURIComponent(runId)}`, fetcher);
+}
+
+export async function removeAiProposalEdit(projectId: string, runId: string, editId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebAiProposalRunResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/proposals/${encodeURIComponent(runId)}/edits/${encodeURIComponent(editId)}/remove`, "POST", undefined, fetcher);
+}
+
+export async function stageAiProposal(projectId: string, runId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebAiProposalRunResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/proposals/${encodeURIComponent(runId)}/stage`, "POST", undefined, fetcher);
+}
+
+export async function rejectAiProposal(projectId: string, runId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebAiProposalRunResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/proposals/${encodeURIComponent(runId)}/reject`, "POST", undefined, fetcher);
+}
+
+export async function cancelAiProposal(projectId: string, runId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebAiProposalRunResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/ai/proposals/${encodeURIComponent(runId)}/cancel`, "POST", undefined, fetcher);
 }
 
 export async function loadProjectSummary(

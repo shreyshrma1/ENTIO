@@ -5,6 +5,8 @@ import java.util.UUID
 import com.entio.web.ai.AiCredentialStore
 import com.entio.web.ai.AiProviderClient
 import com.entio.web.ai.defaultOpenAiCredentialClient
+import com.entio.web.ai.AiProposalProvider
+import com.entio.web.ai.defaultOpenAiProposalClient
 import com.entio.web.ai.provider.AiModelProviderClient
 import com.entio.web.ai.provider.openai.OpenAiModelDiscoveryClient
 
@@ -104,6 +106,7 @@ public data class WebApplicationDependencies(
     val aiCredentials: AiCredentialStore = com.entio.web.ai.InMemoryAiCredentialStore(),
     val aiProvider: AiProviderClient = defaultOpenAiCredentialClient(),
     val aiModelProvider: AiModelProviderClient = OpenAiModelDiscoveryClient(),
+    val aiProposalProvider: AiProposalProvider = defaultOpenAiProposalClient(),
 )
 
 public fun normalizeProjectRoot(path: Path): Path = path.toAbsolutePath().normalize()

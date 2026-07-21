@@ -1,0 +1,108 @@
+import { useEffect, useRef, useState } from "react";
+import {
+  cancelAiProposal,
+  loadAiProposal,
+  rejectAiProposal,
+  removeAiProposalEdit,
+  stageAiProposal,
+  startAiProposal,
+  type WebAiProposalEdit,
+  type WebAiProposalRunResponse,
+} from "../web/projectApi";
+
+const terminal = new Set(["READY", "FAILED", "CANCELLED", "STAGED", "REJECTED"]);
+const closed = new Set(["STAGED", "REJECTED"]);
+
+export default function AiProposalPanel({ projectId, onStaged }: { projectId: string; onStaged: () => void }) {
+  const [prompt, setPrompt] = useState("");
+  const [run, setRun] = useState<WebAiProposalRunResponse | null>(null);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [proposalOpen, setProposalOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!run || terminal.has(run.status)) return undefined;
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const next = await loadAiProposal(projectId, run.runId);
+        if (!cancelled) setRun(next);
+      } catch (failure) {
+        if (!cancelled) setError(failure instanceof Error ? failure.message : "Could not read the AI run.");
+      }
+    }, 750);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [projectId, run]);
+
+  async function submit() {
+    if (!prompt.trim()) return;
+    setError(null);
+    try {
+      const next = await startAiProposal(projectId, prompt.trim(), run && !closed.has(run.status) ? run.runId : undefined);
+      setRun(next);
+      setPrompt("");
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Could not start the AI proposal.");
+    }
+  }
+
+  async function stop() {
+    if (!run) return;
+    try { setRun(await cancelAiProposal(projectId, run.runId)); } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not stop the run."); }
+  }
+
+  async function removeEdit(editId: string) {
+    if (!run) return;
+    try { setRun(await removeAiProposalEdit(projectId, run.runId, editId)); } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not remove the edit."); }
+  }
+
+  async function stage() {
+    if (!run) return;
+    try { const next = await stageAiProposal(projectId, run.runId); setRun(next); setProposalOpen(false); onStaged(); } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not stage the proposal."); }
+  }
+
+  async function reject() {
+    if (!run) return;
+    try { setRun(await rejectAiProposal(projectId, run.runId)); setProposalOpen(false); } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not reject the proposal."); }
+  }
+
+  // Keep the assistant usable while a browser tab is talking to a server that
+  // may have been restarted during development. Older in-memory responses can
+  // omit optional collections; rendering must never turn that into a fatal
+  // React error.
+  const working = run !== null && !terminal.has(run.status);
+  const messages = Array.isArray(run?.messages) ? run.messages : [];
+  const edits = Array.isArray(run?.edits) ? run.edits : [];
+  const validationMessages = Array.isArray(run?.validation?.messages) ? run.validation.messages : [];
+  return <div className="ai-proposal-panel">
+    <header className="ai-panel-header"><div><span className="overline">Native AI</span><h1>Ontology assistant</h1><p>Ask about the ontology or describe a change. Entio answers questions directly and prepares review-only edits when needed.</p></div><span className={`ai-run-state ${working ? "working" : ""}`} role="status">{run?.status ?? "Ready"}</span></header>
+    <div className="ai-conversation" aria-live="polite">
+      {!run ? <div className="ai-empty"><strong>Ready when you are</strong><span>Plans, investigates, and drafts without changing source files.</span></div> : <>
+        {messages.map((message, index) => <div className={`ai-message ${message.role === "user" ? "ai-message-user" : "ai-message-assistant"}`} key={`${message.timestamp}-${index}`}><span>{message.role === "user" ? "YOU" : "ENTIO AI"}</span>{message.content}{message.evidence?.length ? <div className="ai-evidence"><strong>Evidence</strong>{message.evidence.map((item, evidenceIndex) => <code key={`${item.subject}-${item.predicate}-${evidenceIndex}`}>{item.subject} — {item.predicate} — {item.objectValue}</code>)}</div> : null}</div>)}
+        {run.message || working ? <div className="ai-message ai-message-assistant"><span>ENTIO AI</span>{run.message ?? "Entio is working…"}</div> : null}
+        {run.validation && !run.validation.valid && validationMessages.length ? <div className="ai-validation-warning" role="alert">{validationMessages.join(" ")}</div> : null}
+      </>}
+    </div>
+    <div className="ai-panel-actions"><button className="button" type="button" onClick={() => setStatusOpen(true)} disabled={!run}>Status Updates</button><button className="button" type="button" onClick={() => setProposalOpen(true)} disabled={!run || !edits.length}>View Proposal{edits.length ? ` (${edits.length})` : ""}</button>{working ? <button className="button danger" type="button" onClick={stop}>Stop generation</button> : null}</div>
+    <form className="ai-prompt-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}><label htmlFor="ai-proposal-prompt">Ask Entio about the ontology or model a change</label><textarea id="ai-proposal-prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Ask a question or describe the ontology outcome you want…" disabled={Boolean(working)} /><button className="button primary" type="submit" disabled={Boolean(working) || !prompt.trim()}>Send</button></form>
+    {error ? <p role="alert" className="ai-error">{error}</p> : null}
+    {statusOpen && run ? <StatusDialog updates={Array.isArray(run.updates) ? run.updates : []} onClose={() => setStatusOpen(false)} /> : null}
+    {proposalOpen && run ? <ProposalDialog run={{ ...run, edits, validation: run.validation ? { ...run.validation, messages: validationMessages } : null }} onRemove={removeEdit} onStage={stage} onReject={reject} onClose={() => setProposalOpen(false)} /> : null}
+  </div>;
+}
+
+function StatusDialog({ updates, onClose }: { updates: WebAiProposalRunResponse["updates"]; onClose: () => void }) {
+  const end = useRef<HTMLDivElement>(null);
+  useEffect(() => { end.current?.scrollIntoView({ block: "nearest" }); }, [updates]);
+  return <div className="ai-modal-backdrop"><section className="ai-modal" role="dialog" aria-modal="true" aria-labelledby="ai-status-title"><header><h2 id="ai-status-title">Status Updates</h2><button className="icon-button" type="button" aria-label="Close status updates" onClick={onClose}>×</button></header><div className="ai-status-list">{updates.map((update) => <div className="ai-status-item" key={update.order}><strong>{update.order}</strong><span>{update.message}</span><time>{new Date(update.timestamp).toLocaleTimeString()}</time></div>)}<div ref={end} /></div><button className="button" type="button" onClick={onClose}>Close</button></section></div>;
+}
+
+function ProposalDialog({ run, onRemove, onStage, onReject, onClose }: { run: WebAiProposalRunResponse; onRemove: (id: string) => void; onStage: () => void; onReject: () => void; onClose: () => void }) {
+  const edits = Array.isArray(run.edits) ? run.edits : [];
+  const validationMessages = Array.isArray(run.validation?.messages) ? run.validation.messages : [];
+  return <div className="ai-modal-backdrop"><section className="ai-modal ai-proposal-modal" role="dialog" aria-modal="true" aria-labelledby="ai-proposal-title"><header><div><span className="overline">Private proposal</span><h2 id="ai-proposal-title">{run.summary ?? "Review generated edits"}</h2></div><button className="icon-button" type="button" aria-label="Close proposal" onClick={onClose}>×</button></header><div className="ai-edit-list">{edits.map((edit) => <ProposalEdit key={edit.id} edit={edit} onRemove={() => onRemove(edit.id)} />)}</div><div className={`ai-proposal-validation ${run.validation?.valid ? "valid" : "invalid"}`} role="status"><strong>{run.validation?.valid ? "Validation passed" : "Validation requires attention"}</strong>{validationMessages.map((message, index) => <span key={`${message}-${index}`}>{message}</span>)}</div><footer><button className="button danger" type="button" onClick={onReject}>Reject</button><button className="button" type="button" onClick={onClose}>Close</button><button className="button primary" type="button" onClick={onStage} disabled={!run.validation?.valid || run.status !== "READY"}>Stage Changes</button></footer></section></div>;
+}
+
+function ProposalEdit({ edit, onRemove }: { edit: WebAiProposalEdit; onRemove: () => void }) {
+  return <article className="ai-edit-card"><div><span className="ai-edit-operation">{edit.operation}</span><strong>{edit.summary}</strong></div><code>{edit.subject} — {edit.predicate} — {edit.objectValue}</code>{edit.rationale ? <p>{edit.rationale}</p> : null}<button className="button" type="button" onClick={onRemove}>Remove edit</button></article>;
+}

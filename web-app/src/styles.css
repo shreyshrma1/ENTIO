@@ -766,3 +766,45 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+.ai-page { padding: 0; }
+.ai-proposal-panel { display: flex; flex-direction: column; min-height: calc(100vh - 150px); padding: 24px; }
+.ai-panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding-bottom: 18px; border-bottom: 1px solid var(--border-subtle); }
+.ai-panel-header h1 { margin: 3px 0 5px; font-size: 25px; }
+.ai-panel-header p { max-width: 680px; margin: 0; color: var(--text-secondary); }
+.ai-run-state { padding: 6px 10px; border: 1px solid var(--border-subtle); border-radius: 999px; color: var(--text-muted); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.ai-run-state.working { border-color: #bfdbfe; background: #eff6ff; color: #1d4ed8; }
+.ai-conversation { min-height: 250px; flex: 1; padding: 22px 0; overflow: auto; }
+.ai-empty { display: grid; gap: 6px; margin: auto; max-width: 520px; padding: 28px; border: 1px dashed var(--border-subtle); border-radius: 14px; color: var(--text-secondary); }
+.ai-empty strong { color: var(--text-primary); font-size: 18px; }
+.ai-message { display: grid; gap: 7px; max-width: 760px; margin: 0 0 14px; padding: 14px 16px; border-radius: 12px; white-space: pre-wrap; }
+.ai-message span { color: var(--text-muted); font-size: 11px; font-weight: 800; letter-spacing: .08em; }
+.ai-message-user { margin-left: auto; background: #eef2ff; border: 1px solid #c7d2fe; }
+.ai-message-assistant { background: var(--surface-2); border: 1px solid var(--border-subtle); }
+.ai-evidence { display: grid; gap: 5px; margin-top: 5px; padding-top: 8px; border-top: 1px solid var(--border-subtle); }
+.ai-evidence strong { color: var(--text-secondary); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
+.ai-evidence code { overflow-wrap: anywhere; color: var(--text-secondary); font-size: 11px; }
+.ai-panel-actions { display: flex; gap: 9px; padding: 10px 0; }
+.ai-prompt-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; padding-top: 12px; border-top: 1px solid var(--border-subtle); }
+.ai-prompt-form label { grid-column: 1 / -1; color: var(--text-secondary); font-weight: 700; }
+.ai-prompt-form textarea { min-height: 76px; resize: vertical; }
+.ai-error, .ai-validation-warning { color: #b91c1c; }
+.ai-modal-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(15, 23, 42, .58); }
+.ai-modal { display: flex; width: min(760px, calc(100vw - 48px)); max-height: calc(100vh - 48px); flex-direction: column; gap: 16px; overflow: hidden; padding: 20px; border: 1px solid var(--border-default); border-radius: 16px; background: var(--surface-1); color: var(--text-primary); box-shadow: 0 24px 70px rgba(15, 23, 42, .3); }
+.ai-proposal-modal { width: min(960px, calc(100vw - 48px)); }
+.ai-modal > header, .ai-modal > footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ai-modal h2 { margin: 0; }
+.ai-status-list, .ai-edit-list { min-height: 0; overflow: auto; }
+.ai-status-list { flex: 1 1 auto; }
+.ai-status-list { display: grid; gap: 8px; }
+.ai-status-item { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 9px; border-radius: 8px; background: var(--surface-2); }
+.ai-status-item time { color: var(--text-muted); font-size: 11px; }
+.ai-edit-list { display: grid; flex: 1 1 auto; gap: 10px; padding: 2px; }
+.ai-edit-card { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 10px; }
+.ai-edit-card > div { display: flex; align-items: center; gap: 8px; }
+.ai-edit-operation { padding: 2px 6px; border-radius: 4px; background: #e0e7ff; color: #3730a3; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.ai-edit-card code { overflow-wrap: anywhere; color: var(--text-secondary); font-size: 11px; }
+.ai-edit-card p { margin: 0; color: var(--text-secondary); font-size: 13px; }
+.ai-edit-card .button { justify-self: end; }
+.ai-proposal-validation { display: grid; gap: 4px; padding: 10px; border-radius: 8px; background: #fef2f2; color: #991b1b; }
+.ai-proposal-validation.valid { background: #ecfdf5; color: #166534; }

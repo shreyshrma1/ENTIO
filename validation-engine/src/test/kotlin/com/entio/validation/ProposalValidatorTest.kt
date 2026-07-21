@@ -369,6 +369,31 @@ class ProposalValidatorTest {
     }
 
     @Test
+    fun validatesNewPropertyMetadataAndDatatypeRangeAgainstCompleteDraft(): Unit {
+        val source = tempSource()
+        val loan = iri("Loan")
+        val loanAmount = iri("loanAmount")
+        val changes = ChangeSet(
+            listOf(
+                GraphChange(GraphChangeKind.Addition, GraphTriple(loan, Iri(RDF_TYPE), OWL_CLASS)),
+                GraphChange(GraphChangeKind.Addition, GraphTriple(loanAmount, Iri(RDF_TYPE), OWL_DATATYPE_PROPERTY)),
+                GraphChange(GraphChangeKind.Addition, GraphTriple(loanAmount, RDFS_DOMAIN, loan)),
+                GraphChange(GraphChangeKind.Addition, GraphTriple(loanAmount, RDFS_RANGE, XSD_DECIMAL)),
+                GraphChange(
+                    GraphChangeKind.Addition,
+                    GraphTriple(loanAmount, Iri("http://www.w3.org/2004/02/skos/core#definition"), RdfLiteral("The amount borrowed under a loan.")),
+                ),
+            ),
+        )
+        val project = project(source = source)
+        val report = validator.validateProposal(proposal(project = project, changeSet = changes), project)
+
+        assertEquals(ValidationStatus.Valid, report.status)
+        assertTrue(report.issues.none { issue -> issue.code == "missing-semantic-target" })
+        assertTrue(report.issues.none { issue -> issue.code == "missing-referenced-resource" })
+    }
+
+    @Test
     fun selfSubclassIsRejected(): Unit {
         val source = tempSource()
         val project = project(source = source)
@@ -482,6 +507,8 @@ class ProposalValidatorTest {
         private val RDFS_RANGE: Iri = Iri("http://www.w3.org/2000/01/rdf-schema#range")
         private val OWL_OBJECT_PROPERTY: Iri = Iri("http://www.w3.org/2002/07/owl#ObjectProperty")
         private val OWL_DATATYPE_PROPERTY: Iri = Iri("http://www.w3.org/2002/07/owl#DatatypeProperty")
+        private val OWL_CLASS: Iri = Iri("http://www.w3.org/2002/07/owl#Class")
         private val XSD_INTEGER: Iri = Iri("http://www.w3.org/2001/XMLSchema#integer")
+        private val XSD_DECIMAL: Iri = Iri("http://www.w3.org/2001/XMLSchema#decimal")
     }
 }
