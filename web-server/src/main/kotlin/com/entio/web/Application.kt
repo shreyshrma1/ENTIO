@@ -43,7 +43,9 @@ import com.entio.web.ai.models.AiModelVerificationService
 import com.entio.web.ai.models.AiProviderCallLimiter
 import com.entio.web.ai.models.AiProviderSettingsService
 import com.entio.web.ai.models.InMemoryAiUserProviderSettingsStore
+import com.entio.web.ai.AiProposalService
 import com.entio.web.contract.WebAiModelSelectionRequest
+import com.entio.web.contract.WebAiProposalCreateRequest
 import java.time.Clock
 
 /**
@@ -88,6 +90,14 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
     )
     val aiModelSelection = AiModelSelectionService(aiModelSettingsStore, aiModelDiscovery, aiModelVerification)
     val aiModelWeb = AiModelWebBoundary(aiProviderSettings, aiModelDiscovery, aiModelSelection)
+    val aiProposal = AiProposalService(
+        projectRegistry = dependencies.projectRegistry,
+        staging = staging,
+        credentials = dependencies.aiCredentials,
+        settingsStore = aiModelSettingsStore,
+        provider = dependencies.aiProposalProvider,
+        fibo = fibo,
+    )
     val jobs = SemanticJobManager(
         staging = staging,
         projectRegistry = dependencies.projectRegistry,
@@ -185,6 +195,49 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
         post("/api/v1/ai/model-selection/test") {
             call.respondAiModels {
                 aiModelWeb.retest(call.requireUser(dependencies).id, call.requiredIdempotencyKey())
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/ai/proposals") {
+            call.respondAi {
+                val user = call.requireUser(dependencies)
+                val request = call.receive<WebAiProposalCreateRequest>()
+                aiProposal.start(call.requiredProjectId(), user.id, request.prompt, request.runId)
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/ai/proposals/{runId}") {
+            call.respondAi {
+                val user = call.requireUser(dependencies)
+                aiProposal.get(call.requiredProjectId(), call.requiredAiRunId(), user.id)
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/ai/proposals/{runId}/edits/{editId}/remove") {
+            call.respondAi {
+                val user = call.requireUser(dependencies)
+                aiProposal.removeEdit(call.requiredProjectId(), call.requiredAiRunId(), call.requiredAiEditId(), user.id)
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/ai/proposals/{runId}/stage") {
+            call.respondAi {
+                val user = call.requireUser(dependencies)
+                aiProposal.stage(call.requiredProjectId(), call.requiredAiRunId(), user.id)
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/ai/proposals/{runId}/reject") {
+            call.respondAi {
+                val user = call.requireUser(dependencies)
+                aiProposal.reject(call.requiredProjectId(), call.requiredAiRunId(), user.id)
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/ai/proposals/{runId}/cancel") {
+            call.respondAi {
+                val user = call.requireUser(dependencies)
+                aiProposal.cancel(call.requiredProjectId(), call.requiredAiRunId(), user.id)
             }
         }
 
@@ -476,6 +529,14 @@ private fun ApplicationCall.pageRequest(): WebPageRequest = try {
 private fun ApplicationCall.requiredStagedId(): String = parameters["stagedId"]
     ?.takeIf(String::isNotBlank)
     ?: throw WebWorkflowFailure("missing-staged-id", "A staged change id is required.")
+
+private fun ApplicationCall.requiredAiRunId(): String = parameters["runId"]
+    ?.takeIf(String::isNotBlank)
+    ?: throw WebWorkflowFailure("unknown-ai-run", "An AI proposal run id is required.")
+
+private fun ApplicationCall.requiredAiEditId(): String = parameters["editId"]
+    ?.takeIf(String::isNotBlank)
+    ?: throw WebWorkflowFailure("unknown-ai-edit", "An AI proposal edit id is required.")
 
 private fun ApplicationCall.requiredJobId(): String = parameters["jobId"]
     ?.takeIf(String::isNotBlank)

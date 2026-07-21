@@ -37,7 +37,13 @@ public class ProposalValidator(
         issues += validatePreview(proposal, currentProject)
         issues += validateCurrentBaseline(proposal, currentProject)
         issues += validateSemanticEquivalence(proposal, semanticEquivalenceResult)
-        issues += semanticMetadataValidator.validate(currentProject.graph, proposal.changeSet.changes)
+        // Validate metadata against the complete draft graph. Keep baseline
+        // resources visible as well so removing an existing label or
+        // definition remains a valid operation.
+        val validationGraph = proposal.preview?.graph?.let { previewGraph ->
+            GraphState(currentProject.graph.triples + previewGraph.triples)
+        } ?: currentProject.graph
+        issues += semanticMetadataValidator.validate(validationGraph, proposal.changeSet.changes)
         issues += validateEditSpecificRules(proposal, currentProject.graph)
 
         return report(issues)
@@ -517,6 +523,10 @@ public class ProposalValidator(
         changes: List<com.entio.core.GraphChange>,
     ) {
         private val currentTriples: Set<GraphTriple> = currentGraph.triples
+        private val removedTriples: Set<GraphTriple> = changes
+            .filter { it.kind == GraphChangeKind.Removal }
+            .map { it.triple }
+            .toSet()
         private val plannedTriples: Set<GraphTriple> = changes
             .filter { it.kind == GraphChangeKind.Addition }
             .map { it.triple }
@@ -528,11 +538,11 @@ public class ProposalValidator(
             }
             .toSet()
 
-        fun isKnownResource(resource: RdfResource): Boolean = resource in currentResources() || resource in plannedDeclarations
+        fun isKnownResource(resource: RdfResource): Boolean = resource.value in BUILT_IN_RESOURCES || resource in currentResources() || resource in plannedDeclarations
 
         fun isClass(resource: RdfResource): Boolean = hasType(resource, OWL_CLASS) || hasType(resource, RDFS_CLASS)
 
-        fun hasExplicitType(resource: RdfResource): Boolean = currentTriples.any {
+        fun hasExplicitType(resource: RdfResource): Boolean = allTriples().any {
             it.subjectResource == resource && it.predicate.value == RDF_TYPE && it.objectTerm is Iri
         }
 
@@ -568,7 +578,7 @@ public class ProposalValidator(
             }
             .toSet()
 
-        private fun allTriples(): Set<GraphTriple> = currentTriples + plannedTriples
+        private fun allTriples(): Set<GraphTriple> = (currentTriples - removedTriples) + plannedTriples
     }
 
     private enum class PropertyKind(
@@ -632,6 +642,21 @@ public class ProposalValidator(
             XSD_DATE,
             XSD_DATE_TIME,
         )
+        private val BUILT_IN_RESOURCES: Set<String> = setOf(
+            RDF_TYPE,
+            RDF_PROPERTY,
+            RDFS_LABEL,
+            RDFS_SUBCLASS_OF,
+            RDFS_DOMAIN,
+            RDFS_RANGE,
+            OWL_CLASS,
+            RDFS_CLASS,
+            OWL_OBJECT_PROPERTY,
+            OWL_DATATYPE_PROPERTY,
+            OWL_NAMED_INDIVIDUAL,
+            OWL_ANNOTATION_PROPERTY,
+            RDF_LANG_STRING,
+        ) + SUPPORTED_DATATYPES
         private val STRUCTURAL_PREDICATES: Set<String> = setOf(
             RDF_TYPE,
             RDFS_LABEL,
