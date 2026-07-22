@@ -7,7 +7,7 @@ import StagingPanel from "./StagingPanel";
 describe("staging panel", () => {
   afterEach(() => cleanup());
 
-  it("keeps staged changes removable while proposal preview is running", async () => {
+  it("keeps individual edits behind proposal details while preview is running", async () => {
     let resolvePreview: ((response: Response) => void) | undefined;
     const preview = new Promise<Response>((resolve) => { resolvePreview = resolve; });
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -24,14 +24,7 @@ describe("staging panel", () => {
     render(<QueryClientProvider client={client}><StagingPanel projectId="simple" /></QueryClientProvider>);
 
     expect(await screen.findByText("Updating staged changes...")).toBeInTheDocument();
-    const remove = screen.getByRole("button", { name: "Remove" });
-    expect(remove).toBeEnabled();
-    fireEvent.click(remove);
-
-    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledWith(
-      "/api/v1/projects/simple/staged/stage-1",
-      expect.objectContaining({ method: "DELETE" }),
-    ));
+    expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
     resolvePreview?.(json(stagingResponse([])));
   });
 
@@ -128,14 +121,15 @@ describe("staging panel", () => {
 
     render(<QueryClientProvider client={client}><StagingPanel projectId="simple" /></QueryClientProvider>);
 
-    expect(await screen.findByText("Minimum Accounts")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Retry proposal" })).toBeEnabled();
     expect(screen.queryByText("Updating staged changes...")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Retry proposal" }));
 
     expect(await screen.findByRole("button", { name: "Accept" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "View Details" }));
+    expect(await screen.findByText("Minimum Accounts")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Reject" }).some((button) => !(button as HTMLButtonElement).disabled)).toBe(true);
     expect(screen.getByRole("heading", { name: "Ready for review" })).toBeInTheDocument();
   });
 
@@ -170,6 +164,30 @@ describe("staging panel", () => {
     expect(await screen.findByText("The shared review queue is empty.")).toBeInTheDocument();
     expect(screen.queryByText("Customer")).not.toBeInTheDocument();
     expect(screen.getByText("Proposal rejected. Its source files were not changed.")).toBeInTheDocument();
+  });
+
+  it("shows each AI edit in proposal details across multiple sources", async () => {
+    const aiTriple = { aiRunId: "run-1", operation: "remove", subjectIri: "https://example.com/Customer", subjectLabel: "Customer", predicateIri: "https://example.com/ownsAccount", predicateLabel: "owns account", objectIri: "https://example.com/Account101", objectLabel: "Account 101" };
+    const ontologyEntry = { ...stagedEntry(), id: "stage-ontology", summary: "AI proposal: Remove Customer associations", sourceId: "simple", normalizedValues: aiTriple };
+    const shapesEntry = { ...stagedEntry(), id: "stage-shapes", summary: "AI proposal: Remove Customer associations", sourceId: "shapes", normalizedValues: aiTriple };
+    const proposal = { id: "proposal-1", status: "READYFORREVIEW", stagedChangeIds: [ontologyEntry.id, shapesEntry.id], baselineProjectFingerprint: "baseline", validationMessages: [], validationIssues: [], diff: [], targetSourceIds: ["simple", "shapes"], shaclImpact: null, message: null };
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (init?.method === "POST" && path.endsWith("/proposal/preview")) return json({ ...stagingResponse([ontologyEntry, shapesEntry]), proposal });
+      if (path.endsWith("/staged")) return json({ ...stagingResponse([ontologyEntry, shapesEntry]), proposal });
+      if (path.endsWith("/summary")) return json({});
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${path}`);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+
+    render(<QueryClientProvider client={client}><StagingPanel projectId="simple" /></QueryClientProvider>);
+
+    expect(await screen.findByRole("button", { name: "View Details" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "View Details" }));
+    expect((await screen.findAllByText("Remove Customer associations"))).toHaveLength(2);
+    expect(screen.getAllByText("Customer — owns account — Account 101")).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(2);
   });
 });
 

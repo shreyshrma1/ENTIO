@@ -181,6 +181,7 @@ public enum class ExternalMatchReasonType {
     ParentCompatibility,
     DomainCompatibility,
     RangeCompatibility,
+    RelatedConcept,
     CuratedPackage,
     LocalProjectUse,
 }

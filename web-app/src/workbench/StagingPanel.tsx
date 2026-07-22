@@ -14,6 +14,7 @@ export default function StagingPanel({ projectId }: { projectId: string }) {
   const failedPreviewRevision = useRef<string | null>(null);
   const previewMutation = useRef(actions.preview.mutate);
   const [notification, setNotification] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const decisionBusy = actions.approve.isPending || actions.reject.isPending || actions.apply.isPending || actions.accept.isPending;
   const preparingProposal = entries.length > 0 && actions.preview.isPending && !proposal;
   const busy = preparingProposal || actions.discard.isPending || decisionBusy;
@@ -96,19 +97,26 @@ export default function StagingPanel({ projectId }: { projectId: string }) {
     }
   }
 
+  async function removeEntry(entry: WebStagedEntry) {
+    try {
+      await actions.discard.mutateAsync(entry.id);
+    } catch {
+      // The mutation state renders the server error without creating an unhandled rejection.
+    }
+  }
+
   return (
     <section className="staging-panel" aria-labelledby="staging-heading" aria-busy={busy}>
       <div className="section-heading"><h2 id="staging-heading">Review queue</h2><span>{entries.length}</span></div>
       {actions.preview.isError ? <div className="workflow-error"><p role="alert">Could not prepare proposal. {actions.preview.error.message}</p><button className="button small" type="button" onClick={retryProposal} disabled={actions.preview.isPending}>Retry proposal</button></div> : null}
       {actionError ? <p className="workflow-error" role="alert">{actionError}</p> : null}
       {busy ? <p role="status">Updating staged changes...</p> : null}
-      {entries.length ? <ul className="staged-list">{entries.map((entry) => <li className={approved ? "staged-item-approved" : "staged-item-pending"} key={entry.id}>
-        <div className="staged-item-copy"><div className="staged-item-heading"><strong>{stagedChangeTitle(entry)}</strong><span className="staged-status">{displayStatus(entry.status)}</span></div><small>{stagedChangeType(entry)} · Staged by {entry.authorId}{entry.comment ? ` · ${entry.comment}` : ""}</small></div>
-        <button className="button small" type="button" onClick={() => void actions.discard.mutateAsync(entry.id)} disabled={actions.discard.isPending || decisionBusy}>Remove</button>
-      </li>)}</ul> : <div className="empty-review-queue"><strong>No staged changes</strong><span>The shared review queue is empty.</span></div>}
+      {!entries.length && !proposal ? <div className="empty-review-queue"><strong>No staged changes</strong><span>The shared review queue is empty.</span></div> : null}
+      {entries.length && !proposal && busy ? <p role="status">Preparing proposal...</p> : null}
       {proposal && proposal.status !== "APPLIED" && proposal.status !== "REJECTED" ? <div className={`proposal-summary proposal-${proposal.status.toLowerCase()} ${approved ? "proposal-approved" : "proposal-pending"}`} aria-live="polite">
-        <div className="proposal-summary-heading"><div><span className="overline">Proposal</span><h3>{displayStatus(proposal.status)}</h3></div><span className="proposal-status">{displayStatus(proposal.status)}</span></div>
+        <div className="proposal-summary-heading"><div><span className="overline">Proposal</span><h3>{displayStatus(proposal.status)}</h3></div><div className="proposal-summary-controls"><span className="proposal-status">{displayStatus(proposal.status)}</span>{proposal.status === "READYFORREVIEW" || proposal.status === "APPROVED" ? <button className="button primary small" type="button" onClick={() => void acceptProposal()} disabled={decisionBusy}>Accept</button> : null}{proposal.status !== "APPLIED" ? <button className="button danger small" type="button" onClick={() => void rejectCurrentProposal()} disabled={decisionBusy}>Reject</button> : null}</div></div>
         {proposal.message ? <p className="proposal-message">{proposal.message}</p> : null}
+        <p className="proposal-message">This proposal contains {entries.length} staged edit{entries.length === 1 ? "" : "s"} and produces {proposal.diff.length} net graph change{proposal.diff.length === 1 ? "" : "s"}.</p>
         {proposal.status.includes("CONFLICT") || proposal.status.includes("FAILED") ? <p role="alert">This proposal needs review before it can continue.</p> : null}
         {(proposal.validationIssues ?? []).map((issue) => <section className="proposal-validation-issue" key={`${issue.code}:${issue.stagedChangeId}`} aria-labelledby={`proposal-issue-${issue.stagedChangeId}`}>
           <h4 id={`proposal-issue-${issue.stagedChangeId}`}>{displayStatus(issue.code)}</h4>
@@ -118,13 +126,18 @@ export default function StagingPanel({ projectId }: { projectId: string }) {
           </div>
         </section>)}
         {proposal.validationMessages.filter((message) => !(proposal.validationIssues ?? []).some((issue) => issue.message === message)).map((message) => <p key={message} role="alert">{labelFirstValidationMessage(message, entries)}</p>)}
-        {proposal.shaclImpact ? <section className="proposal-impact" aria-labelledby="shacl-impact-heading"><h4 id="shacl-impact-heading">SHACL finding impact</h4><div className="impact-counts"><span><strong>{proposal.shaclImpact.newFindings.length}</strong> new</span><span><strong>{proposal.shaclImpact.worsenedFindings.length}</strong> worsened</span><span><strong>{proposal.shaclImpact.resolvedFindings.length}</strong> resolved</span></div>{proposal.shaclImpact.newFindings.length ? <ul aria-label="New SHACL findings">{proposal.shaclImpact.newFindings.map((finding) => <li key={finding.resultId}><strong>{finding.severity}</strong> · {finding.message}</li>)}</ul> : null}</section> : null}
-        {proposal.diff.length ? <section className="proposal-diff" aria-labelledby="proposal-diff-heading"><h4 id="proposal-diff-heading">Semantic changes</h4><ul aria-label="Proposal semantic diff">{proposal.diff.map((entry, index) => <li key={`${entry.kind}-${entry.subject}-${index}`}><span className={`diff-kind diff-${entry.kind.toLowerCase()}`}>{displayStatus(entry.kind)}</span><span>{labelFirstDiff(entry, entries)}</span></li>)}</ul></section> : null}
+        {proposal.shaclImpact ? <section className="proposal-impact" aria-labelledby="shacl-impact-heading"><h4 id="shacl-impact-heading">SHACL finding impact</h4><div className="proposal-impact-row"><div className="impact-counts"><span><strong>{proposal.shaclImpact.newFindings.length}</strong> new</span><span><strong>{proposal.shaclImpact.worsenedFindings.length}</strong> worsened</span><span><strong>{proposal.shaclImpact.resolvedFindings.length}</strong> resolved</span></div><button className="button small" type="button" onClick={() => setDetailsOpen(true)} disabled={!entries.length}>View Details</button></div>{proposal.shaclImpact.newFindings.length ? <ul aria-label="New SHACL findings">{proposal.shaclImpact.newFindings.map((finding) => <li key={finding.resultId}><strong>{finding.severity}</strong> · {finding.message}</li>)}</ul> : null}</section> : <div className="proposal-summary-footer"><button className="button small" type="button" onClick={() => setDetailsOpen(true)} disabled={!entries.length}>View Details</button></div>}
       </div> : null}
-      {entries.length && proposal && proposal.status !== "REJECTED" ? <div className="proposal-actions">
-        {proposal.status === "READYFORREVIEW" || proposal.status === "APPROVED" ? <button className="button primary" type="button" onClick={() => void acceptProposal()} disabled={decisionBusy}>Accept</button> : null}
-        {proposal.status !== "APPLIED" ? <button className="button danger" type="button" onClick={() => void rejectCurrentProposal()} disabled={decisionBusy}>Reject</button> : null}
-      </div> : null}
+      {detailsOpen && proposal ? <ProposalDetailsDialog
+        entries={entries}
+        diff={proposal.diff}
+        onRemove={removeEntry}
+        onAccept={acceptProposal}
+        onReject={rejectCurrentProposal}
+        onClose={() => setDetailsOpen(false)}
+        canAccept={proposal.status === "READYFORREVIEW" || proposal.status === "APPROVED"}
+        disabled={actions.discard.isPending || decisionBusy}
+      /> : null}
       {notification ? <div className="workflow-toast" role="status" aria-live="polite">{notification}</div> : null}
     </section>
   );
@@ -139,15 +152,51 @@ function stagingActionError(actions: ReturnType<typeof useStagingActions>): stri
   return null;
 }
 
+function ProposalDetailsDialog({ entries, diff, onRemove, onAccept, onReject, onClose, canAccept, disabled }: { entries: WebStagedEntry[]; diff: WebDiffEntry[]; onRemove: (entry: WebStagedEntry) => Promise<void>; onAccept: () => Promise<void>; onReject: () => Promise<void>; onClose: () => void; canAccept: boolean; disabled: boolean }) {
+  return <div className="ai-modal-backdrop"><section className="ai-modal staging-details-modal" role="dialog" aria-modal="true" aria-labelledby="staging-details-heading">
+    <header><div><span className="overline">Proposal</span><h2 id="staging-details-heading">View Details</h2></div><button className="icon-button" type="button" aria-label="Close proposal details" onClick={onClose}>×</button></header>
+    <div className="staging-details-body">
+      <p className="edit-dialog-description">Individual edits in this proposal. Labels are shown instead of IRIs wherever available.</p>
+      <div className="staging-details-list">{entries.map((entry) => <article className="staging-detail-item" key={entry.id}>
+        <div className="staging-detail-heading"><span className={`diff-kind diff-${entryOperation(entry)}`}>{entryOperationLabel(entry)}</span><strong>{stagedChangeTitle(entry)}</strong><span className="staged-status">{displayStatus(entry.status)}</span></div>
+        <code>{stagedTriple(entry)}</code>
+        <small>{entry.sourceId} · Staged by {entry.authorId}{entry.comment ? ` · ${entry.comment}` : ""}</small>
+        <button className="button small" type="button" onClick={() => void onRemove(entry)} disabled={disabled}>Remove</button>
+      </article>)}</div>
+      {diff.length ? <section className="staging-details-diff" aria-labelledby="staging-net-changes-heading"><h4 id="staging-net-changes-heading">Net graph changes</h4><div className="staging-details-list" aria-label="Proposal semantic diff">{diff.map((entry, index) => <article className="staging-detail-item" key={`${entry.kind}-${entry.subject}-${index}`}><div className="staging-detail-heading"><span className={`diff-kind diff-${entry.kind.toLowerCase()}`}>{displayStatus(entry.kind)}</span><strong>{labelFirstDiff(entry, entries)}</strong></div></article>)}</div></section> : null}
+    </div>
+    <footer className="staging-details-footer"><div><button className="button danger" type="button" onClick={() => void onReject()} disabled={disabled}>Reject</button>{canAccept ? <button className="button primary" type="button" onClick={() => void onAccept()} disabled={disabled}>Accept</button> : null}</div><button className="button" type="button" onClick={onClose}>Close</button></footer>
+  </section></div>;
+}
+
+function entryOperation(entry: WebStagedEntry): "added" | "removed" | "changed" {
+  const operation = entry.normalizedValues.operation?.toLowerCase();
+  if (operation === "add" || operation === "addition" || operation === "added") return "added";
+  if (operation === "remove" || operation === "removal" || operation === "removed") return "removed";
+  return entry.summary.toLowerCase().includes("remove") ? "removed" : "changed";
+}
+
+function entryOperationLabel(entry: WebStagedEntry): string {
+  const operation = entryOperation(entry);
+  return operation === "added" ? "Added" : operation === "removed" ? "Removed" : "Edit";
+}
+
+function stagedTriple(entry: WebStagedEntry): string {
+  const values = entry.normalizedValues;
+  if (values.tripleSummary) return values.tripleSummary;
+  const labels = stagedLabelMap([entry]);
+  const subject = values.subjectLabel || displayRdfTerm(values.subjectIri || values.resourceIri || values.shapeIri, labels) || values.resourceLabel || values.shapeLabel || "Subject";
+  const predicate = values.predicateLabel || displayRdfTerm(values.predicateIri || values.propertyIri, labels) || values.propertyLabel || "Predicate";
+  const object = values.objectLabel || displayRdfTerm(values.objectIri || values.objectValue || values.rangeClassIri, labels) || values.value || values.label || values.rangeClassLabel || "Object";
+  return `${subject} — ${predicate} — ${object}`;
+}
+
 function stagedChangeTitle(entry: WebStagedEntry): string {
   return entry.summary.split(" · ").slice(1).join(" · ")
     || entry.normalizedValues.shapeLabel
     || entry.normalizedValues.label
+    || entry.summary.replace(/^AI proposal:\s*/i, "").trim()
     || "Untitled change";
-}
-
-function stagedChangeType(entry: WebStagedEntry): string {
-  return displayStatus(entry.summary.split(" · ")[0] || entry.editType);
 }
 
 function displayStatus(value: string): string {

@@ -4,6 +4,7 @@ import com.entio.core.EntioProject
 import com.entio.core.EntioProjectConfig
 import com.entio.core.EntioResult
 import com.entio.core.ExternalDependencyCategory
+import com.entio.core.ExternalDependencyRequirement
 import com.entio.core.ExternalDependencySelection
 import com.entio.core.ExternalDependencyVisibility
 import com.entio.core.ExternalEntityKind
@@ -48,6 +49,9 @@ class ExternalDependencyReviewerTest {
         assertTrue(
             dependencies.dependencies.filter { it.category == ExternalDependencyCategory.PackageRuntime }
                 .all { it.visibility == ExternalDependencyVisibility.ImplementationOnly },
+        )
+        assertTrue(
+            dependencies.requiredUserVisibleDependencies.all { it.category == ExternalDependencyCategory.SourceOntology },
         )
         assertEquals(
             dependencies.dependencies,
@@ -95,6 +99,39 @@ class ExternalDependencyReviewerTest {
     }
 
     @Test
+    fun treatsAnExistingDependencyIriAsAvailableEvenWhenThePropertyRelationIsNotLocal(): Unit {
+        val session = loadSession()
+        val element = session.allElements().first { candidate ->
+            candidate.descriptor.descriptor.common.entity == Iri(
+                "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/isBeneficiaryOf",
+            )
+        }
+        val agreementIri = Iri("https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement")
+        val project = projectWith(
+            GraphState(
+                triples = setOf(
+                    GraphTriple(
+                        subject = agreementIri,
+                        predicate = RDF_TYPE,
+                        objectTerm = Iri("http://www.w3.org/2002/07/owl#Class"),
+                    ),
+                    GraphTriple(
+                        subject = agreementIri,
+                        predicate = Iri("http://www.w3.org/2000/01/rdf-schema#label"),
+                        objectTerm = com.entio.core.RdfLiteral("Renamed Agreement"),
+                    ),
+                ),
+            ),
+        )
+
+        val dependency = ExternalDependencyReviewer().review(session, element, project).dependencies.first {
+            it.category == ExternalDependencyCategory.PropertyRange && it.externalIri == agreementIri
+        }
+
+        assertEquals(ExternalDependencySelection.AlreadyAvailable, dependency.selection)
+    }
+
+    @Test
     fun includesExplicitClassParentAsUserVisibleDependency(): Unit {
         val session = loadSession()
         val element = session.allElements().first { candidate ->
@@ -109,6 +146,7 @@ class ExternalDependencyReviewerTest {
             dependencies.dependencies.any {
                 it.category == ExternalDependencyCategory.SemanticParent &&
                     it.visibility == ExternalDependencyVisibility.UserVisible &&
+                    it.requirement == ExternalDependencyRequirement.Optional &&
                     it.externalIri != null
             },
         )

@@ -38,8 +38,11 @@ public class FiboSchemaSearchService {
     ): ExternalSchemaSearchResponse {
         val candidates = elements.toList()
         val normalized = QueryNormalization.from(query.text)
+        val lexicalSeeds = candidates
+            .filter { lexicalNameScore(it, normalized) >= RELATED_NAME_THRESHOLD }
+            .associateBy { it.descriptor.descriptor.common.entity }
         val ranked = candidates.mapNotNull { element ->
-            val scored = score(element, query, normalized, candidates, curatedModules) ?: return@mapNotNull null
+            val scored = score(element, query, normalized, candidates, curatedModules, lexicalSeeds) ?: return@mapNotNull null
             if (scored.total < query.minimumScore) null else scored
         }
         val tieGroups = ranked.groupBy { it.tieKey() }
@@ -69,6 +72,7 @@ public class FiboSchemaSearchService {
         normalized: QueryNormalization,
         allElements: List<ExternalCatalogElement>,
         curatedModules: Set<Iri>,
+        lexicalSeeds: Map<com.entio.core.RdfResource, ExternalCatalogElement>,
     ): RankedCandidate? {
         val descriptor = element.descriptor.descriptor
         val external = element.descriptor
@@ -91,23 +95,20 @@ public class FiboSchemaSearchService {
         if (query.context.domainRequired && !context.domainMatch) return null
         if (query.context.rangeRequired && !context.rangeMatch) return null
 
-        val preferredLabelScore = descriptor.common.preferredLabel?.lexicalForm?.let {
-            preferredLabelScore(it, normalized)
-        } ?: 0
-        val alternateLabelScore = descriptor.common.alternateLabels.maxOfOrNull {
-            alternateLabelScore(it.lexicalForm, normalized)
-        } ?: 0
+        val preferredLabelScore = descriptor.common.preferredLabel?.lexicalForm?.let { preferredLabelScore(it, normalized) } ?: 0
+        val alternateLabelScore = descriptor.common.alternateLabels.maxOfOrNull { alternateLabelScore(it.lexicalForm, normalized) } ?: 0
         val iriScore = iriScore(descriptor.common.entity.value, normalized)
         val nameScore = maxOf(preferredLabelScore, alternateLabelScore, iriScore).coerceAtMost(60)
         val definitionScore = descriptor.common.definitions.maxOfOrNull {
             definitionScore(it.lexicalForm, normalized)
         }?.coerceAtMost(20) ?: 0
+        val relatedConcepts = relatedConcepts(element, lexicalSeeds)
         val catalogScore = if (external.moduleIri in curatedModules) 5 else 1
         val localScore = if (external.catalogStatus == ExternalElementCatalogStatus.AlreadyUsed) 3 else 0
         val breakdown = ExternalScoreBreakdown(
             nameOrIri = nameScore,
             definition = definitionScore,
-            semanticContext = context.score,
+            semanticContext = (context.score + relatedConcepts.sumOf { it.points }).coerceAtMost(40),
             catalogStatus = catalogScore,
             localProjectRelevance = localScore,
         )
@@ -116,6 +117,7 @@ public class FiboSchemaSearchService {
             score = breakdown,
             preferredLabelScore = preferredLabelScore,
             definitionScore = definitionScore,
+            relatedConceptScore = relatedConcepts.maxOfOrNull { it.points } ?: 0,
             reasons = reasons(
                 element,
                 query,
@@ -126,6 +128,7 @@ public class FiboSchemaSearchService {
                 nameScore,
                 definitionScore,
                 context,
+                relatedConcepts,
                 catalogScore,
                 localScore,
             ),
@@ -144,6 +147,7 @@ public class FiboSchemaSearchService {
         nameScore: Int,
         definitionScore: Int,
         context: ContextScore,
+        relatedConcepts: List<RelatedConceptMatch>,
         catalogScore: Int,
         localScore: Int,
     ): List<ExternalMatchReason> = buildList {
@@ -189,6 +193,9 @@ public class FiboSchemaSearchService {
         }
         context.rangePoints.takeIf { it > 0 }?.let {
             add(ExternalMatchReason(ExternalMatchReasonType.RangeCompatibility, it, "range", relatedIri = query.context.rangeIri))
+        }
+        relatedConcepts.forEach { related ->
+            add(ExternalMatchReason(ExternalMatchReasonType.RelatedConcept, related.points, related.relationship, relatedIri = related.relatedIri))
         }
         if (catalogScore == 5) {
             add(ExternalMatchReason(ExternalMatchReasonType.CuratedPackage, catalogScore, "catalog", "FIBO Foundations"))
@@ -238,6 +245,46 @@ public class FiboSchemaSearchService {
             rangePoints = if (rangeMatch) 6 else 0,
             score = (parentPoints + propertyPoints + locationPoints).coerceAtMost(12),
         )
+    }
+
+    /** Finds direct ontology relationships to concepts that matched the query text. */
+    private fun relatedConcepts(
+        element: ExternalCatalogElement,
+        lexicalSeeds: Map<com.entio.core.RdfResource, ExternalCatalogElement>,
+    ): List<RelatedConceptMatch> {
+        if (lexicalSeeds.isEmpty()) return emptyList()
+        val descriptor = element.descriptor.descriptor
+        val entity = descriptor.common.entity as? Iri ?: return emptyList()
+        val matches = mutableListOf<RelatedConceptMatch>()
+        when (descriptor) {
+            is OntologyEntityDescriptor.Class -> {
+                descriptor.directSuperclasses
+                    .filter { it in lexicalSeeds }
+                    .forEach { matches += RelatedConceptMatch("subclass", it) }
+                lexicalSeeds.values
+                    .map { it.descriptor.descriptor }
+                    .filterIsInstance<OntologyEntityDescriptor.Class>()
+                    .filter { entity in it.directSuperclasses }
+                    .forEach { matches += RelatedConceptMatch("parent", it.common.entity as Iri) }
+            }
+            is OntologyEntityDescriptor.ObjectProperty -> {
+                descriptor.domains.filter { it in lexicalSeeds }.forEach { matches += RelatedConceptMatch("domain", it) }
+                descriptor.ranges.filter { it in lexicalSeeds }.forEach { matches += RelatedConceptMatch("range", it) }
+            }
+            is OntologyEntityDescriptor.DatatypeProperty -> {
+                descriptor.domains.filter { it in lexicalSeeds }.forEach { matches += RelatedConceptMatch("domain", it) }
+                descriptor.datatypeRanges.filter { it in lexicalSeeds }.forEach { matches += RelatedConceptMatch("range", it) }
+            }
+            else -> Unit
+        }
+        return matches.distinctBy { it.relationship to it.relatedIri }
+    }
+
+    private fun lexicalNameScore(element: ExternalCatalogElement, normalized: QueryNormalization): Int {
+        val descriptor = element.descriptor.descriptor
+        val preferred = descriptor.common.preferredLabel?.lexicalForm?.let { preferredLabelScore(it, normalized) } ?: 0
+        val alternate = descriptor.common.alternateLabels.maxOfOrNull { alternateLabelScore(it.lexicalForm, normalized) } ?: 0
+        return maxOf(preferred, alternate, iriScore(descriptor.common.entity.value, normalized))
     }
 
     private fun hasExplicitAncestor(
@@ -345,11 +392,18 @@ public class FiboSchemaSearchService {
         val score: Int,
     )
 
+    private data class RelatedConceptMatch(
+        val relationship: String,
+        val relatedIri: Iri,
+        val points: Int = RELATED_CONCEPT_POINTS,
+    )
+
     private data class RankedCandidate(
         val element: ExternalCatalogElement,
         val score: ExternalScoreBreakdown,
         val preferredLabelScore: Int,
         val definitionScore: Int,
+        val relatedConceptScore: Int,
         val reasons: List<ExternalMatchReason>,
         val exactIri: Boolean,
         val tieGroupId: String?,
@@ -384,8 +438,12 @@ public class FiboSchemaSearchService {
     }
 
     private companion object {
+        // Expand relationships from strong concept hits, not every definition
+        // or partial name match, to keep result pages focused and useful.
+        private const val RELATED_NAME_THRESHOLD = 42
+        private const val RELATED_CONCEPT_POINTS = 40
         private val STOPWORDS = setOf("a", "an", "the", "of", "for", "to", "in", "on", "by", "with", "from", "and", "or", "as", "at")
-        private val rankedComparator = compareByDescending<RankedCandidate> { it.score.nameOrIri }
+        private val rankedComparator = compareByDescending<RankedCandidate> { maxOf(it.score.nameOrIri, it.relatedConceptScore) }
             .thenByDescending { it.preferredLabelScore }
             .thenByDescending { it.definitionScore }
             .thenByDescending { it.score.semanticContext }

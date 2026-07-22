@@ -22,12 +22,16 @@ import com.entio.core.ShaclTarget
 import com.entio.semantic.ProjectLoader
 import com.entio.semantic.SemanticDescriptionService
 import com.entio.semantic.ShaclShapeAuthoringService
+import com.entio.semantic.FiboCatalogLoader
 import com.entio.web.contract.ProjectRegistry
 import com.entio.web.contract.WebPage
 import com.entio.web.contract.WebPageRequest
 import com.entio.web.contract.toWebPage
+import java.nio.file.Files
+import java.nio.file.Path
 
 private const val WEB_API_VERSION: String = "v1"
+private const val OWL_IMPORTS: String = "http://www.w3.org/2002/07/owl#imports"
 
 public data class WebProjectSummaryResponse(
     val apiVersion: String = WEB_API_VERSION,
@@ -203,6 +207,7 @@ public class ReadOnlyProjectAdapter(
     private val projectLoader: ProjectLoader = ProjectLoader(),
     private val descriptionService: SemanticDescriptionService = SemanticDescriptionService(),
     private val shaclAuthoringService: ShaclShapeAuthoringService = ShaclShapeAuthoringService(),
+    private val fiboCatalogLoader: FiboCatalogLoader = FiboCatalogLoader(defaultFiboPackageRoot()),
 ) {
     public fun summary(projectId: String): WebProjectSummaryResponse {
         val project = load(projectId)
@@ -236,7 +241,7 @@ public class ReadOnlyProjectAdapter(
         request: WebPageRequest,
     ): WebHierarchyResponse {
         val project = load(projectId)
-        val descriptors = descriptionService.describeAll(project)
+        val descriptors = descriptors(project)
             .filterIsInstance<OntologyEntityDescriptor.Class>()
             .filter { sourceId == null || it.common.sourceId == sourceId }
         if (parentIri != null && descriptors.none { it.common.entity == parentIri }) {
@@ -270,7 +275,7 @@ public class ReadOnlyProjectAdapter(
         sourceId: String?,
         request: WebPageRequest,
     ): WebOutlineResponse {
-        val descriptors = descriptionService.describeAll(load(projectId))
+        val descriptors = descriptors(load(projectId))
         val classDescriptors = descriptors
             .filterIsInstance<OntologyEntityDescriptor.Class>()
             .associateBy { it.common.entity.value }
@@ -329,7 +334,7 @@ public class ReadOnlyProjectAdapter(
         sourceId: String?,
     ): WebEntityDetailResponse {
         val project = load(projectId)
-        val descriptors = descriptionService.describeAll(project)
+        val descriptors = descriptors(project)
         val descriptor = descriptors.firstOrNull {
             it.common.entity == entityIri && (sourceId == null || it.common.sourceId == sourceId)
         } ?: throw ProjectReadFailure("missing-entity", "The requested entity was not found.")
@@ -348,7 +353,8 @@ public class ReadOnlyProjectAdapter(
         request: WebPageRequest,
     ): WebSemanticSearchResponse {
         if (query.text.isBlank()) throw ProjectReadFailure("invalid-search-query", "Search text is required.")
-        val results = descriptionService.search(load(projectId), query)
+        val project = load(projectId)
+        val results = descriptionService.search(project, query, importedDescriptors(project))
             .map { result ->
                 WebSemanticSearchHit(
                     iri = result.descriptor.common.entity.value,
@@ -357,7 +363,7 @@ public class ReadOnlyProjectAdapter(
                     sourceId = result.descriptor.common.sourceId,
                     reason = result.reason.name,
                     rank = result.rank,
-                    locality = result.descriptor.common.locality.name,
+                    locality = result.descriptor.common.externalWebLocality(),
                 )
             }
         return WebSemanticSearchResponse(query = query.text, page = results.toWebPage(request))
@@ -365,7 +371,7 @@ public class ReadOnlyProjectAdapter(
 
     public fun shaclShapes(projectId: String): WebShaclShapeListResponse {
         val project = load(projectId)
-        val descriptors = descriptionService.describeAll(project)
+        val descriptors = descriptors(project)
         val labels = descriptors.associate { it.common.entity.value to it.common.displayLabel() }
         val kinds = descriptors.associate { it.common.entity.value to it.common.kind.name }
         val shapes = project.ontologies
@@ -392,6 +398,23 @@ public class ReadOnlyProjectAdapter(
                 "project-load-failed",
                 result.message,
             )
+        }
+    }
+
+    /** Builds the read model without copying imported FIBO triples into the project graph. */
+    private fun descriptors(project: EntioProject): List<OntologyEntityDescriptor> {
+        val local = descriptionService.describeAll(project)
+        val external = importedDescriptors(project)
+        val localIris = local.map { it.common.entity }.toSet()
+        return (local + external.filterNot { it.common.entity in localIris })
+            .sortedWith(compareBy({ it.common.entity.value }, { it.common.sourceId }, { it.common.kind.name }))
+    }
+
+    private fun importedDescriptors(project: EntioProject): List<OntologyEntityDescriptor> {
+        if (project.graph.triples.none { it.predicate.value == OWL_IMPORTS }) return emptyList()
+        return when (val result = fiboCatalogLoader.load(project)) {
+            is EntioResult.Success -> result.value.importedDescriptors(project)
+            is EntioResult.Failure -> throw ProjectReadFailure("external-fibo-import-unavailable", result.message)
         }
     }
 
@@ -515,7 +538,7 @@ public class ReadOnlyProjectAdapter(
             kind = common.kind.name,
             sourceId = common.sourceId,
             sourceOntologyId = common.sourceOntologyId,
-            locality = common.locality.name,
+            locality = common.externalWebLocality(),
             preferredLabelSource = common.preferredLabelSource.name,
             alternateLabels = common.alternateLabels.map(::textValue),
             definitions = common.definitions.map(::textValue),
@@ -632,7 +655,15 @@ public class ReadOnlyProjectAdapter(
 
 }
 
+private fun com.entio.core.SemanticDescriptorCommon.externalWebLocality(): String =
+    if (sourceId == "fibo" && locality.name == "Imported") "External" else locality.name
+
 private fun com.entio.core.SemanticDescriptorCommon.displayLabel(): String =
     preferredLabel?.lexicalForm ?: entity.value.substringAfterLast('#', entity.value.substringAfterLast('/')).ifBlank { entity.value }
 
 private fun String.localName(): String = substringAfterLast('#', substringAfterLast('/')).ifBlank { this }
+
+private fun defaultFiboPackageRoot(): Path {
+    val repositoryPath = Path.of("external-ontologies/fibo")
+    return if (Files.isDirectory(repositoryPath)) repositoryPath else Path.of("..", "external-ontologies", "fibo")
+}

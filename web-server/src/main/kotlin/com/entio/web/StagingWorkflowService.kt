@@ -7,6 +7,7 @@ import com.entio.core.AssignTypeEdit
 import com.entio.core.ChangeProposal
 import com.entio.core.ChangeProposalStatus
 import com.entio.core.ExternalProposalIntent
+import com.entio.core.ExternalCatalogElement
 import com.entio.core.CreateClassEdit
 import com.entio.core.CreateDatatypePropertyEdit
 import com.entio.core.CreateIndividualEdit
@@ -17,6 +18,10 @@ import com.entio.core.EntitySelector
 import com.entio.core.EntioProject
 import com.entio.core.EntioResult
 import com.entio.core.GeneratedIri
+import com.entio.core.GraphChangeKind
+import com.entio.core.GraphTriple
+import com.entio.core.GraphChange
+import com.entio.core.GraphState
 import com.entio.core.Iri
 import com.entio.core.MultiSourceApplyStatus
 import com.entio.core.RdfLiteral
@@ -43,6 +48,7 @@ import com.entio.semantic.ProjectLoader
 import com.entio.semantic.ProposalCreator
 import com.entio.semantic.StagedChangeSetNormalizer
 import com.entio.semantic.TypedOntologyEditTranslator
+import com.entio.semantic.TypedShaclEditTranslator
 import com.entio.web.contract.IdempotencyDecision
 import com.entio.web.contract.InMemoryIdempotencyStore
 import com.entio.web.contract.ProjectRegistry
@@ -113,6 +119,7 @@ public class StagingWorkflowService(
     private val labelResolver: LabelResolver = LabelResolver(),
     private val iriGenerator: DeterministicIriGenerator = DeterministicIriGenerator(),
     private val editTranslator: TypedOntologyEditTranslator = TypedOntologyEditTranslator(),
+    private val shaclEditTranslator: TypedShaclEditTranslator = TypedShaclEditTranslator(),
     private val additionalPostApplyVerification: (String, EntioProject) -> EntioResult<Unit> = { _, _ -> EntioResult.Success(Unit) },
 ) {
     private val sessions: MutableMap<String, ProjectSession> = linkedMapOf()
@@ -233,6 +240,8 @@ public class StagingWorkflowService(
         summary: String,
         userId: String,
         idempotencyKey: String? = null,
+        materializedElements: List<ExternalCatalogElement> = emptyList(),
+        existingGraph: GraphState? = null,
     ): WebStagingResponse {
         val session = session(projectId)
         if (idempotencyKey != null) {
@@ -246,7 +255,7 @@ public class StagingWorkflowService(
         if (project.ontologies.none { it.source.id == sourceId }) {
             throw WebWorkflowFailure("unknown-source", "Ontology source '$sourceId' was not found.")
         }
-        val changeSet = when (val translated = externalIntentTranslator.translate(intent, targetOntologyIri)) {
+        val changeSet = when (val translated = externalIntentTranslator.translate(intent, targetOntologyIri, materializedElements, existingGraph)) {
             is EntioResult.Failure -> throw WebWorkflowFailure("external-proposal-invalid", translated.issues.joinToString { it.message })
             is EntioResult.Success -> translated.value
         }
@@ -449,6 +458,8 @@ public class StagingWorkflowService(
 
     private fun response(projectId: String, session: ProjectSession, message: String? = null): WebStagingResponse {
         val proposal = session.proposal
+        val project = session.entries.takeIf { it.isNotEmpty() }?.let { load(projectId) }
+        val graph = project?.graph?.triples ?: emptySet()
         return WebStagingResponse(
             projectId = projectId,
             status = when {
@@ -468,7 +479,7 @@ public class StagingWorkflowService(
                     authorId = entry.authorId,
                     latestEditorId = entry.latestEditorId,
                     comment = entry.comment,
-                    normalizedValues = entry.staged.normalizedValues,
+                    normalizedValues = graphChangeNormalizedValues(entry.staged, project, graph) + entry.staged.normalizedValues,
                     generatedIris = entry.staged.generatedIris.map(GeneratedIri::iri).map(Iri::value),
                     validationMessages = entry.staged.validationReport?.issues?.map { it.message }.orEmpty(),
                 )
@@ -501,6 +512,69 @@ public class StagingWorkflowService(
                 )
             },
         )
+    }
+
+    private fun graphChangeNormalizedValues(staged: StagedChange, project: EntioProject?, graph: Set<GraphTriple>): Map<String, String> {
+        val changes = materializedGraphChanges(staged, project)
+        if (changes.isEmpty()) return emptyMap()
+        if (changes.size != 1) {
+            return mapOf("tripleSummary" to changes.joinToString("; ") { formatDisplayTriple(it.triple, graph) })
+        }
+        val change = changes.single()
+        val triple = change.triple
+        fun label(resource: RdfResource): String = graph.asSequence()
+            .filter { it.subjectResource.value == resource.value && it.predicate.value in PREFERRED_LABEL_PREDICATES }
+            .mapNotNull { (it.objectTerm as? RdfLiteral)?.lexicalForm?.takeIf(String::isNotBlank) }
+            .firstOrNull()
+            ?: resource.value.substringAfterLast('#').substringAfterLast('/').replace(Regex("([a-z0-9])([A-Z])"), "$1 $2").replace('_', ' ').replace('-', ' ')
+
+        return buildMap {
+            put("operation", if (change.kind == GraphChangeKind.Addition) "add" else "remove")
+            put("subjectIri", triple.subjectResource.value)
+            put("subjectLabel", label(triple.subjectResource))
+            put("predicateIri", triple.predicate.value)
+            put("predicateLabel", label(triple.predicate))
+            when (val objectTerm = triple.objectTerm) {
+                is RdfResource -> {
+                    put("objectIri", objectTerm.value)
+                    put("objectLabel", label(objectTerm))
+                }
+                is RdfLiteral -> put("objectValue", objectTerm.lexicalForm)
+            }
+        }
+    }
+
+    private fun materializedGraphChanges(staged: StagedChange, project: EntioProject?): List<GraphChange> = when (val operation = staged.operation) {
+        is StagedChangeOperation.GraphChanges -> operation.changeSet.changes
+        is StagedChangeOperation.TypedEdit -> when (val translated = editTranslator.translate(operation.edit)) {
+            is EntioResult.Success -> translated.value.changes
+            is EntioResult.Failure -> emptyList()
+        }
+        is StagedChangeOperation.ShaclEdit -> {
+            val shapesGraph = project?.ontologies?.firstOrNull { it.source.id == staged.targetSourceId }?.graph ?: return emptyList()
+            when (val translated = shaclEditTranslator.translate(operation.edit, shapesGraph)) {
+                is EntioResult.Success -> translated.value.changes
+                is EntioResult.Failure -> emptyList()
+            }
+        }
+        is StagedChangeOperation.Delete -> (operation.plan.directStatements + operation.plan.dependentStatements)
+            .distinctBy { it.identityKey }
+            .map { GraphChange(GraphChangeKind.Removal, it.statement) }
+    }
+
+    private fun formatDisplayTriple(triple: GraphTriple, graph: Set<GraphTriple>): String {
+        fun label(resource: RdfResource): String = graph.asSequence()
+            .filter { it.subjectResource.value == resource.value && it.predicate.value in PREFERRED_LABEL_PREDICATES }
+            .mapNotNull { (it.objectTerm as? RdfLiteral)?.lexicalForm?.takeIf(String::isNotBlank) }
+            .firstOrNull()
+            ?: resource.value.substringAfterLast('#').substringAfterLast('/').replace(Regex("([a-z0-9])([A-Z])"), "$1 $2").replace('_', ' ').replace('-', ' ')
+        val subject = label(triple.subjectResource)
+        val predicate = label(triple.predicate)
+        val objectValue = when (val term = triple.objectTerm) {
+            is RdfResource -> label(term)
+            is RdfLiteral -> term.lexicalForm
+        }
+        return "$subject — $predicate — $objectValue"
     }
 
     private fun prepareChange(project: EntioProject, request: WebStageChangeRequest): PreparedChange {
@@ -773,6 +847,10 @@ public class StagingWorkflowService(
         RdfLiteral(value, datatypeIri = Iri(requestedDatatypeIri?.takeIf(String::isNotBlank) ?: XSD_STRING), languageTag = null)
 
     private companion object {
+        private val PREFERRED_LABEL_PREDICATES = setOf(
+            "http://www.w3.org/2000/01/rdf-schema#label",
+            "http://www.w3.org/2004/02/skos/core#prefLabel",
+        )
         private const val XSD_STRING = "http://www.w3.org/2001/XMLSchema#string"
         private val STANDARD_DATATYPES: Map<String, String> = mapOf(
             "string" to "http://www.w3.org/2001/XMLSchema#string",

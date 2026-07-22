@@ -20,10 +20,15 @@ internal class AiSemanticProposalValidator {
         val propertyResources = planned.filter { it.predicate == RDF_TYPE && (it.objectTerm as? com.entio.core.RdfResource)?.value in PROPERTY_TYPES }
             .map { it.subjectResource.value }
             .toSet()
-        return additions.filter { it.predicate == RDFS_DOMAIN || it.predicate == RDFS_RANGE }
-            .filter { it.subjectResource.value in classResources && it.subjectResource.value !in propertyResources }
-            .map { triple ->
-                "RDFS ${if (triple.predicate == RDFS_DOMAIN) "domain" else "range"} axioms require a property subject; '${triple.subjectResource.value}' is declared as a class."
+        return edits.filter { it.operation == "add" }
+            .mapNotNull { edit ->
+                val triple = edit.toGraphTriple() ?: return@mapNotNull null
+                if (triple.predicate != RDFS_DOMAIN && triple.predicate != RDFS_RANGE) return@mapNotNull null
+                if (triple.subjectResource.value !in classResources || triple.subjectResource.value in propertyResources) return@mapNotNull null
+                "Deterministic semantic validation error for edit '${edit.id}' in source '${edit.sourceId}': " +
+                    "RDFS ${if (triple.predicate == RDFS_DOMAIN) "domain" else "range"} axioms require a property subject; " +
+                    "'${triple.subjectResource.value}' is declared as a class. Violation: ${formatTriple(triple)}. " +
+                    "Repair action: remove the domain/range edit or change its subject to the declared property IRI."
             }
             .distinct()
     }
@@ -39,5 +44,13 @@ internal class AiSemanticProposalValidator {
             "http://www.w3.org/2002/07/owl#DatatypeProperty",
             "http://www.w3.org/2002/07/owl#AnnotationProperty",
         )
+
+        private fun formatTriple(triple: com.entio.core.GraphTriple): String =
+            "<${triple.subjectResource.value}> <${triple.predicate.value}> ${formatTerm(triple.objectTerm)} ."
+
+        private fun formatTerm(term: com.entio.core.RdfTerm): String = when (term) {
+            is com.entio.core.RdfResource -> "<${term.value}>"
+            is com.entio.core.RdfLiteral -> "\"${term.lexicalForm}\""
+        }
     }
 }

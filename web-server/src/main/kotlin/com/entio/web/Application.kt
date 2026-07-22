@@ -399,12 +399,22 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
         post("/api/v1/projects/{projectId}/external/fibo/proposals") {
             call.respondWorkflow {
                 val user = call.requireUser(dependencies)
-                fibo.stageProposal(call.requiredProjectId(), call.receive<WebFiboProposalRequest>(), user.id)
+                val projectId = call.requiredProjectId()
+                val result = fibo.stageProposal(projectId, call.receive<WebFiboProposalRequest>(), user.id)
+                collaboration.stagedChange(projectId, userId = user.id)
+                result
             }
         }
 
         get("/api/v1/projects/{projectId}/staged") {
             call.respondWorkflow { staging.snapshot(call.requiredProjectId()) }
+        }
+
+        get("/api/v1/projects/{projectId}/activity") {
+            call.respondWorkflow {
+                call.requireUser(dependencies)
+                collaboration.recentSharedActivity(call.requiredProjectId(), call.request.queryParameters["limit"]?.toIntOrNull() ?: 1000)
+            }
         }
 
         post("/api/v1/projects/{projectId}/deletion-dependencies") {
@@ -425,7 +435,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
                 val projectId = call.requiredProjectId()
                 val result = staging.stage(projectId, call.receive<WebStageChangeRequest>(), user.id)
                 jobs.invalidateProposalJobs(projectId)
-                collaboration.stagedChange(projectId, result.entries.lastOrNull()?.id)
+                collaboration.stagedChange(projectId, result.entries.lastOrNull()?.id, user.id)
                 result
             }
         }
@@ -433,9 +443,10 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
         delete("/api/v1/projects/{projectId}/staged/{stagedId}") {
             call.respondWorkflow {
                 val projectId = call.requiredProjectId()
+                val user = call.requireUser(dependencies)
                 val result = staging.discard(projectId, call.requiredStagedId())
                 jobs.invalidateProposalJobs(projectId)
-                collaboration.stagedChange(projectId)
+                collaboration.stagedChange(projectId, userId = user.id)
                 result
             }
         }
@@ -444,7 +455,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
             call.respondWorkflow {
                 val projectId = call.requiredProjectId()
                 val result = staging.preview(projectId, call.requireUser(dependencies).id)
-                collaboration.proposal(projectId, "proposal.previewed", result.proposal?.id)
+                collaboration.proposal(projectId, "proposal.previewed", result.proposal?.id, call.requireUser(dependencies).id)
                 result
             }
         }
@@ -453,7 +464,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
             call.respondWorkflow {
                 val projectId = call.requiredProjectId()
                 val result = staging.approve(projectId, call.requireReviewer(dependencies).id)
-                collaboration.proposal(projectId, "proposal.approved", result.proposal?.id)
+                collaboration.proposal(projectId, "proposal.approved", result.proposal?.id, call.requireReviewer(dependencies).id)
                 result
             }
         }
@@ -463,7 +474,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
                 val projectId = call.requiredProjectId()
                 val result = staging.reject(projectId, call.requireReviewer(dependencies).id)
                 jobs.invalidateProposalJobs(projectId)
-                collaboration.proposal(projectId, "proposal.rejected")
+                collaboration.proposal(projectId, "proposal.rejected", userId = call.requireReviewer(dependencies).id)
                 result
             }
         }
@@ -476,6 +487,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
                     projectId,
                     if (result.proposal?.status == "APPLYFAILED") "proposal.conflicted" else "proposal.applied",
                     result.proposal?.id,
+                    call.requireReviewer(dependencies).id,
                 )
                 result
             }
@@ -491,6 +503,14 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
         get("/api/v1/projects/{projectId}/semantic-jobs/{jobId}") {
             call.respondJob {
                 jobs.find(call.requiredProjectId(), call.requiredJobId())
+                    ?: throw WebWorkflowFailure("unknown-semantic-job", "The requested semantic job was not found.")
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/semantic-jobs/{jobId}/details") {
+            call.respondJob {
+                call.requireUser(dependencies)
+                jobs.details(call.requiredProjectId(), call.requiredJobId())
                     ?: throw WebWorkflowFailure("unknown-semantic-job", "The requested semantic job was not found.")
             }
         }
@@ -699,7 +719,7 @@ private suspend inline fun <reified T : Any> ApplicationCall.respondWorkflow(cro
     )
 }
 
-private suspend fun ApplicationCall.respondJob(block: suspend () -> WebSemanticJobStatus): Unit = try {
+private suspend inline fun <reified T : Any> ApplicationCall.respondJob(crossinline block: suspend () -> T): Unit = try {
     respond(block())
 } catch (failure: WebWorkflowFailure) {
     val status = when (failure.code) {

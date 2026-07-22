@@ -140,6 +140,33 @@ class ApplicationTest {
     }
 
     @Test
+    fun resolvedFiboImportsEnrichReadOnlySuperclassDetailsWithoutCopyingTriples(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-fibo-import")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        val simplePath = projectRoot.resolve("ontology/simple.ttl")
+        val agreementModule = "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/"
+        Files.writeString(
+            simplePath,
+            Files.readString(simplePath) + "\nex:Ontology owl:imports <$agreementModule> .\n",
+        )
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+
+        val agreementIri = "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement"
+        val detail = client.get("/api/v1/projects/simple/entities?iri=${encoded(agreementIri)}")
+        val body = detail.bodyAsText()
+
+        assertEquals(HttpStatusCode.OK, detail.status)
+        assertContains(body, "\"label\":\"agreement\"")
+        assertContains(body, "\"locality\":\"External\"")
+        assertContains(body, "https://www.omg.org/spec/Commons/PartiesAndSituations/Situation")
+        assertContains(body, "\"label\":\"situation\"")
+        assertFalse(Files.readString(simplePath).contains("Agreement rdfs:subClassOf"))
+    }
+
+    @Test
     fun shaclShapeRouteExposesReadableTargetsPathsAndConstraints(): Unit = testApplication {
         val allowedRoot = Files.createTempDirectory("entio-web-shacl-shapes")
         val projectRoot = createReadOnlyFixture(allowedRoot)
@@ -232,10 +259,24 @@ class ApplicationTest {
         assertContains(elementBody, "label")
         assertContains(elementBody, "definitions")
 
+        val unlabeledPropertyModule = client.get(
+            "/api/v1/projects/simple/external/fibo/module-elements?moduleIri=" +
+                encoded("https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/Control/") +
+                "&limit=100",
+        )
+        assertEquals(HttpStatusCode.OK, unlabeledPropertyModule.status)
+        assertContains(unlabeledPropertyModule.bodyAsText(), "\"label\":\"controls\"")
+
         val search = client.get("/api/v1/projects/simple/external/fibo/search?q=agreement&curated=true&limit=2")
         assertEquals(HttpStatusCode.OK, search.status)
         assertContains(search.bodyAsText(), "agreement")
         assertContains(search.bodyAsText(), "page")
+
+        val semanticSearch = client.get("/api/v1/projects/simple/external/fibo/search?q=agreement&limit=15")
+        val semanticSearchBody = semanticSearch.bodyAsText()
+        assertEquals(HttpStatusCode.OK, semanticSearch.status)
+        assertContains(semanticSearchBody, "\"label\":\"situation\"")
+        assertContains(semanticSearchBody, "\"label\":\"has contractual element\"")
 
         val details = client.get(
             "/api/v1/projects/simple/external/fibo/details?iri=" +
@@ -247,6 +288,7 @@ class ApplicationTest {
         assertContains(detailBody, "sequence of characters uniquely identifying")
         assertContains(detailBody, "https://www.omg.org/spec/Commons/ContextualIdentifiers/ContextualIdentifier")
         assertContains(detailBody, "dependencies")
+        assertContains(detailBody, "\"label\":\"Contextual Identifiers\"")
 
         val asset = listOf(
             Path.of("external-ontologies/fibo/indexes/catalog-v1.jsonl"),
@@ -683,11 +725,18 @@ class ApplicationTest {
 
                 val staged = client.post("/api/v1/projects/simple/staged") {
                     contentType(ContentType.Application.Json)
+                    headers.append("X-Entio-User", "bob")
                     setBody("""{"sourceId":"simple","editType":"create-class","label":"Account"}""")
                 }
                 assertEquals(HttpStatusCode.OK, staged.status, staged.bodyAsText())
                 assertEquals("staged-change.updated", nextEvent(incoming.receive())["eventType"])
                 assertEquals("staged-change.updated", nextEvent(incomingA.receive())["eventType"])
+                val history = client.get("/api/v1/projects/simple/activity") {
+                    headers.append("X-Entio-User", "bob")
+                }
+                assertEquals(HttpStatusCode.OK, history.status)
+                assertContains(history.bodyAsText(), "staged-change.updated")
+                assertContains(history.bodyAsText(), "\"userId\":\"bob\"")
             }
 
             val leftA = nextEvent(incomingA.receive())
@@ -733,6 +782,9 @@ class ApplicationTest {
         val shaclFinal = pollJob(client, shaclJobId)
         assertTrue(shaclFinal.lowercase().contains("completed") || shaclFinal.lowercase().contains("failed"), shaclFinal)
         assertContains(shaclFinal, "AssertedOnly")
+        val shaclDetails = client.get("/api/v1/projects/simple/semantic-jobs/$shaclJobId/details")
+        assertEquals(HttpStatusCode.OK, shaclDetails.status)
+        assertContains(shaclDetails.bodyAsText(), "shaclFindings")
     }
 
     @Test

@@ -1,16 +1,25 @@
-<https://example.com/entio/simple#CustomerShape>
+<https://example.com/entio/shapes#CustomerNodeShape>
         a       <http://www.w3.org/ns/shacl#NodeShape>;
-        <http://www.w3.org/2000/01/rdf-schema#label>
-                "Minimum Accounts";
         <http://www.w3.org/ns/shacl#property>
-                <https://example.com/entio/simple#CustomerOwnsAccountShape>;
+                <https://example.com/entio/shapes#CustomerAccountPropShape>;
         <http://www.w3.org/ns/shacl#targetClass>
-                <https://example.com/entio/simple#Customer> .
+                <https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/Customer> .
 
-<https://example.com/entio/simple#CustomerOwnsAccountShape>
-        <http://www.w3.org/ns/shacl#message>
-                "Each customer must own at least one account.";
+<https://example.com/entio/shapes#CustomerAccountPropShape>
         <http://www.w3.org/ns/shacl#minCount>
                 1;
         <http://www.w3.org/ns/shacl#path>
                 <https://example.com/entio/simple#ownsAccount> .
+
+<https://example.com/entio/shapes#BorrowerLoanPropShape>
+        <http://www.w3.org/ns/shacl#minCount>
+                1;
+        <http://www.w3.org/ns/shacl#path>
+                <https://example.com/entio/simple#hasLoan> .
+
+<https://example.com/entio/shapes#BorrowerLoanShape>
+        a       <http://www.w3.org/ns/shacl#NodeShape>;
+        <http://www.w3.org/ns/shacl#property>
+                <https://example.com/entio/shapes#BorrowerLoanPropShape>;
+        <http://www.w3.org/ns/shacl#targetClass>
+                <https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/Borrower> .

@@ -106,4 +106,40 @@ class FiboCatalogLoaderTest {
             session.find(externalIri)?.descriptor?.catalogStatus,
         )
     }
+
+    @Test
+    fun exposesAgreementSuperclassFromResolvedReadOnlyImportClosure(): Unit {
+        val session = assertIs<EntioResult.Success<ExternalFiboCatalogSession>>(FiboCatalogLoader(packageRoot).load()).value
+        val agreementModule = Iri("https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/")
+        val project = EntioProject(
+            config = EntioProjectConfig(name = "imports", ontologySources = emptyList()),
+            resolvedSources = emptyList(),
+            ontologies = emptyList(),
+            symbols = emptyList(),
+            graph = GraphState(
+                triples = setOf(
+                    GraphTriple(
+                        subject = Iri("https://example.com/entio/simple"),
+                        predicate = Iri("http://www.w3.org/2002/07/owl#imports"),
+                        objectTerm = agreementModule,
+                    ),
+                ),
+            ),
+        )
+
+        val descriptors = session.importedDescriptors(project)
+        val agreement = descriptors
+            .filterIsInstance<com.entio.core.OntologyEntityDescriptor.Class>()
+            .first { it.common.entity == Iri("https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement") }
+
+        assertTrue(
+            agreement.directSuperclasses.contains(Iri("https://www.omg.org/spec/Commons/PartiesAndSituations/Situation")),
+        )
+        assertTrue(
+            descriptors.any { it.common.entity == Iri("https://www.omg.org/spec/Commons/PartiesAndSituations/Situation") },
+        )
+        assertTrue(
+            session.moduleImportClosure(listOf(agreementModule)).contains(Iri("https://www.omg.org/spec/Commons/PartiesAndSituations/")),
+        )
+    }
 }

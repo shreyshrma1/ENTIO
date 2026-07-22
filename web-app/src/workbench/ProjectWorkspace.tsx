@@ -11,7 +11,7 @@ import AiProposalPanel from "./AiProposalPanel";
 import ProfileSettings from "./ProfileSettings";
 import Icon from "../components/ui/Icon";
 import StatusBadge from "../components/ui/StatusBadge";
-import { useHierarchy, useProjectOutline, useProjectSearch, useProjectSummary, useShaclShapes, useStagedChanges } from "../web/queries";
+import { useHierarchy, useProjectActivity, useProjectOutline, useProjectSearch, useProjectSummary, useSemanticJobDetails, useShaclShapes, useStagedChanges } from "../web/queries";
 import type { WebEntityDetailResponse, WebEntityReference, WebHierarchyItem, WebOutlineItem, WebShaclConstraintSummary, WebShaclShapeSummary, WebStagedEntry } from "../web/projectApi";
 import { entityKindPresentation } from "./entityKindPresentation";
 import {
@@ -22,7 +22,7 @@ import {
 } from "./ContextualEditing";
 import type { WebStagingEditType } from "./stagingEditTypes";
 
-type ModuleId = "explore" | "changes" | "reasoning" | "constraints" | "fibo" | "activity" | "settings";
+type ModuleId = "explore" | "changes" | "reasoning" | "validation" | "fibo" | "activity" | "settings";
 type RailItemId = ModuleId;
 type OutlineTabId = "classes" | "objects" | "properties";
 
@@ -48,7 +48,7 @@ const modules: Array<{ id: ModuleId; label: string; icon: Parameters<typeof Icon
   { id: "explore", label: "Explore", icon: "explore" },
   { id: "changes", label: "Proposal", icon: "changes" },
   { id: "reasoning", label: "Reasoning", icon: "reasoning" },
-  { id: "constraints", label: "Constraints", icon: "constraints" },
+  { id: "validation", label: "Validation", icon: "constraints" },
   { id: "fibo", label: "FIBO", icon: "fibo" },
   { id: "activity", label: "Activity", icon: "activity" },
   { id: "settings", label: "Settings", icon: "settings" },
@@ -390,7 +390,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
               <span className="visually-hidden" role="status" aria-live="polite">{tabOrderMessage}</span>
             </> : null}
             <div className={`workspace-content ${activeModule === "explore" && activeIri && stagedIsPendingReview && stagedIris.has(activeIri) ? "workspace-content-staged" : ""}`} id="entity-workspace-panel" role="tabpanel" aria-label={activeModule === "explore" ? activeTab ? `${activeTab.label} details` : "Entity details" : `${module.label} workspace`} aria-live="polite">
-              {renderModule(activeModule, projectId, sourceId, shapesSourceId, activeTab, semanticJobIds, (kind, status) => setSemanticJobIds((current) => ({ ...current, [kind]: status.id })), activeTab ? <EntityDetails projectId={projectId} iri={activeTab.iri} stagedEntity={stagedDetails.get(activeTab.iri)} directType={activeTab.directType} initialSection={activeTab.requestedSection} sectionRequestId={activeTab.sectionRequestId} onOpenEntity={openEntity} /> : <EmptyWorkspace />, displayName, saveDisplayName, launchEditor)}
+              {renderModule(activeModule, projectId, sourceId, shapesSourceId, activeTab, semanticJobIds, (kind, status) => setSemanticJobIds((current) => ({ ...current, [kind]: status.id })), activeTab ? <EntityDetails projectId={projectId} iri={activeTab.iri} stagedEntity={stagedDetails.get(activeTab.iri)} stagedEntries={stagedIsPendingReview ? stagedEntries : []} directType={activeTab.directType} initialSection={activeTab.requestedSection} sectionRequestId={activeTab.sectionRequestId} onOpenEntity={openEntity} /> : <EmptyWorkspace />, displayName, saveDisplayName, launchEditor)}
             </div>
             {activeModule !== "changes" ? <div className={`staged-dock ${stagedCount && stagedIsPendingReview ? "staged-dock-pending" : ""}`} aria-label="Shared staged changes"><div><span className="overline">Shared review queue</span><strong>{stagedCount ? `${stagedCount} change${stagedCount === 1 ? "" : "s"} staged` : "No staged changes"}</strong></div><span className="dock-meta">Review the complete proposal, then accept or reject it.</span><button type="button" onClick={() => openModule("changes")}>{stagedCount ? "Review proposal" : "Open proposal"}</button></div> : null}
           </div>
@@ -407,86 +407,139 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
 function renderModule(module: ModuleId, projectId: string, sourceId: string | undefined, shapesSourceId: string | undefined, activeTab: EntityTab | undefined, semanticJobIds: Record<"reasoning" | "shacl", string | null>, onSemanticJobSubmitted: (kind: "reasoning" | "shacl", status: { id: string }) => void, exploreContent: React.ReactNode, displayName: string, onDisplayNameSave: (displayName: string) => void, onOpenEditor: (editor: ContextualEditor, sourceId?: string) => void) {
   if (module === "explore") return <div className="explore-layout"><div className="entity-surface">{exploreContent}</div></div>;
   if (module === "changes") return sourceId ? <div className="module-page proposal-page"><PageIntro eyebrow="Review" title="Proposal" description="Review all staged edits together, then accept and apply them or reject the proposal." /><StagingPanel projectId={projectId} /></div> : <Unavailable />;
-  if (module === "reasoning") return <div className="module-page"><PageIntro eyebrow="Semantic status" title="Reasoning" description="Deterministic reasoning against the applied graph or the current proposal." /><SemanticJobPanel projectId={projectId} initialJobId={semanticJobIds.reasoning} onJobSubmitted={(kind, status) => onSemanticJobSubmitted(kind, status)} /></div>;
-  if (module === "constraints") return <ConstraintsWorkspace projectId={projectId} shapesSourceId={shapesSourceId} initialJobId={semanticJobIds.shacl} onJobSubmitted={(kind, status) => onSemanticJobSubmitted(kind, status)} onOpen={(editType) => onOpenEditor({ kind: "typed", editType }, shapesSourceId)} />;
+  if (module === "reasoning") return <ReasoningWorkspace projectId={projectId} initialJobId={semanticJobIds.reasoning} onJobSubmitted={onSemanticJobSubmitted} />;
+  if (module === "validation") return <ValidationWorkspace projectId={projectId} shapesSourceId={shapesSourceId} shaclJobId={semanticJobIds.shacl} onJobSubmitted={onSemanticJobSubmitted} onOpen={(editType) => onOpenEditor({ kind: "typed", editType }, shapesSourceId)} />;
   if (module === "fibo") return sourceId ? <div className="module-page"><PageIntro eyebrow="External ontology" title="FIBO" description="Browse the pinned, read-only catalog and stage reuse proposals through the shared review queue." /><ExternalOntologyPanel projectId={projectId} sourceId={sourceId} /></div> : <Unavailable />;
   if (module === "activity") return <div className="module-page"><PageIntro eyebrow="Collaboration" title="Activity" description="Quiet presence and activity signals keep shared work understandable." /><CollaborationActivity projectId={projectId} activeEntityIri={activeTab?.iri ?? null} /></div>;
   return <div className="module-page"><PageIntro eyebrow="Workspace" title="Settings" description="Manage your local profile and optional provider credentials." /><div className="settings-grid"><ProfileSettings displayName={displayName} onSave={onDisplayNameSave} /><AiCredentialSettings /></div></div>;
 }
 
-function PageIntro({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
-  return <header className="module-intro"><span className="overline">{eyebrow}</span><h1>{title}</h1><p>{description}</p></header>;
+function PageIntro({ eyebrow: _eyebrow, title: _title, description }: { eyebrow: string; title: string; description: string }) {
+  return <header className="module-intro"><p>{description}</p></header>;
 }
 
 function CollaborationActivity({ projectId, activeEntityIri }: { projectId: string; activeEntityIri: string | null }) {
-  return <section className="activity-surface"><CollaborationPresence projectId={projectId} activeEntityIri={activeEntityIri} /><p className="muted">Activity is delivered by the collaboration channel and reflects server-authoritative project events.</p></section>;
+  const activity = useProjectActivity(projectId);
+  return <section className="activity-surface"><CollaborationPresence projectId={projectId} activeEntityIri={activeEntityIri} /><div className="activity-history"><div className="section-heading compact"><div><span className="overline">Project history</span><h2>Shared updates</h2></div><span>{activity.data?.events.length ?? 0}</span></div>{activity.isPending ? <p role="status">Loading activity...</p> : null}{activity.isError ? <p role="alert">Could not load activity history.</p> : null}{!activity.isPending && !activity.isError && !activity.data?.events.length ? <p className="muted">No shared updates yet.</p> : null}<ol aria-label="Project activity history">{activity.data?.events.map((event) => <li key={event.eventId}><span className="activity-event-marker" aria-hidden="true" /> <div><strong>{describeActivityEvent(event.eventType)}</strong><span>{event.userId ?? "Entio"} · {formatActivityTime(event.timestamp)}</span></div></li>)}</ol>{activity.data?.truncated ? <p className="muted">Older updates are not currently loaded.</p> : null}</div></section>;
 }
 
-interface ConstraintsWorkspaceProps {
+function describeActivityEvent(eventType: string): string {
+  if (eventType === "staged-change.updated") return "Staged changes updated";
+  if (eventType === "proposal.previewed") return "Proposal previewed";
+  if (eventType === "proposal.approved") return "Proposal approved";
+  if (eventType === "proposal.rejected") return "Proposal rejected";
+  if (eventType === "proposal.applied") return "Proposal applied";
+  if (eventType === "proposal.conflicted") return "Proposal application conflicted";
+  if (eventType.startsWith("semantic-job.")) return "Semantic job updated";
+  return eventType;
+}
+
+function formatActivityTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? value : date.toLocaleString([], { dateStyle: "short", timeStyle: "short" });
+}
+
+interface ReasoningWorkspaceProps {
   projectId: string;
-  shapesSourceId?: string;
   initialJobId: string | null;
   onJobSubmitted: (kind: "reasoning" | "shacl", status: { id: string }) => void;
-  onOpen: (editType: WebStagingEditType) => void;
 }
 
-function ConstraintsWorkspace({ projectId, shapesSourceId, initialJobId, onJobSubmitted, onOpen }: ConstraintsWorkspaceProps) {
-  const shapes = useShaclShapes(projectId);
-  const staged = useStagedChanges(projectId);
-  const stagedShapes = (staged.data?.entries ?? []).filter((entry) => entry.editType.startsWith("shacl-"));
-
-  return <div className="module-page constraints-page">
-    <PageIntro eyebrow="Constraints" title="SHACL workspace" description="Author reviewed shapes, inspect applied rules, and validate the applied graph or current proposal." />
-    <section className="constraints-toolbar" aria-labelledby="constraint-authoring-heading">
-      <div><span className="overline">Shape authoring</span><h2 id="constraint-authoring-heading">Manage constraints</h2><p>Every edit enters the shared review queue. Source files change only after proposal approval.</p></div>
-      {shapesSourceId ? <div className="button-row">
-        <button className="button primary" type="button" onClick={() => onOpen("shacl-create-node-shape")}>Add node shape</button>
-        <button className="button" type="button" onClick={() => onOpen("shacl-create-property-shape")}>Add property constraint</button>
-        <button className="button" type="button" onClick={() => onOpen("shacl-update-constraint")}>Update constraint</button>
-        <button className="button" type="button" onClick={() => onOpen("shacl-remove-constraint")}>Remove constraint</button>
-        <button className="button danger" type="button" onClick={() => onOpen("shacl-delete-shape")}>Delete shape</button>
-      </div> : <p role="note" className="workflow-warning">No writable SHACL shapes source is configured.</p>}
-    </section>
-
-    <section className="constraints-library" aria-labelledby="constraints-library-heading">
-      <div className="section-heading compact"><div><span className="overline">Shape graph</span><h2 id="constraints-library-heading">Applied and staged shapes</h2></div><span>{(shapes.data?.shapes.length ?? 0) + stagedShapes.length}</span></div>
-      {shapes.isPending ? <p role="status">Loading shapes...</p> : null}
-      {shapes.isError ? <p role="alert" className="workflow-error">Could not load shapes. {shapes.error.message}</p> : null}
-      {!shapes.isPending && !shapes.isError && !shapes.data?.shapes.length && !stagedShapes.length ? <div className="constraints-empty"><strong>No SHACL shapes</strong><span>Add a node shape to begin defining validation rules.</span></div> : null}
-      <div className="constraints-shape-list">
-        {shapes.data?.shapes.map((shape) => <ConstraintShapeSummary key={shape.iri} shape={shape} />)}
-        {stagedShapes.map((entry) => <article className="constraint-shape-summary constraint-shape-staged" key={entry.id}>
-          <header><div><strong>{entry.normalizedValues.shapeLabel || entry.summary}</strong><span>{humanizeShaclEdit(entry.editType)}</span></div><StatusBadge tone="staged">Staged</StatusBadge></header>
-          <p>Pending proposal review in {entry.sourceId}.</p>
-        </article>)}
-      </div>
-    </section>
-
-    <section className="constraints-validation" aria-labelledby="constraints-validation-heading">
-      <div className="section-heading compact"><div><span className="overline">Validation</span><h2 id="constraints-validation-heading">Run SHACL validation</h2></div></div>
-      <SemanticJobPanel projectId={projectId} initialJobId={initialJobId} onJobSubmitted={onJobSubmitted} />
+function ReasoningWorkspace({ projectId, initialJobId, onJobSubmitted }: ReasoningWorkspaceProps) {
+  return <div className="module-page reasoning-page">
+    <PageIntro eyebrow="Semantic status" title="Reasoning" description="Deterministic reasoning against the applied graph or the current proposal." />
+    <section className="reasoning-section" aria-label="Reasoning">
+      <SemanticJobPanel projectId={projectId} initialJobId={initialJobId} headingId="reasoning-job-heading" showShacl={false} onJobSubmitted={onJobSubmitted} />
     </section>
   </div>;
 }
 
-function ConstraintShapeSummary({ shape }: { shape: WebShaclShapeSummary }) {
+interface ValidationWorkspaceProps {
+  projectId: string;
+  shapesSourceId?: string;
+  shaclJobId: string | null;
+  onJobSubmitted: (kind: "reasoning" | "shacl", status: { id: string }) => void;
+  onOpen: (editType: WebStagingEditType) => void;
+}
+
+function ValidationWorkspace({ projectId, shapesSourceId, shaclJobId, onJobSubmitted, onOpen }: ValidationWorkspaceProps) {
+  const shapes = useShaclShapes(projectId);
+  const shaclDetails = useSemanticJobDetails(projectId, shaclJobId);
+  const [actionDialog, setActionDialog] = useState<"add" | "manage" | null>(null);
+  const [viewConstraints, setViewConstraints] = useState(false);
+  const [viewValidationResults, setViewValidationResults] = useState(false);
+  const findings = shaclDetails.data?.shaclFindings ?? [];
+  const validationComplete = shaclDetails.data?.job.status === "Completed";
+
+  return <div className="module-page validation-page">
+    <PageIntro eyebrow="Validation" title="Validation" description="Validate the applied graph or current proposal against its SHACL constraints." />
+    <section className="constraints-toolbar" aria-labelledby="constraint-authoring-heading">
+      <div><span className="overline">Shape authoring</span><h2 id="constraint-authoring-heading">Manage constraints</h2><p>Every edit enters the shared review queue. Source files change only after proposal approval.</p></div>
+      {shapesSourceId ? <div className="button-row">
+        <button className="button primary" type="button" onClick={() => setActionDialog("add")}>Add constraint</button>
+        <button className="button" type="button" onClick={() => setActionDialog("manage")}>Manage constraints</button>
+      </div> : <p role="note" className="workflow-warning">No writable SHACL shapes source is configured.</p>}
+    </section>
+
+    <section className="constraints-validation" aria-labelledby="constraints-validation-heading">
+      <div className="section-heading compact"><div><span className="overline">Validation</span><h2 id="constraints-validation-heading">Validate SHACL</h2><p className="muted">Run validation to check every constraint below.</p></div></div>
+      <SemanticJobPanel projectId={projectId} initialJobId={shaclJobId} headingId="shacl-job-heading" showReasoning={false} showHeading={false} autoStartReasoning={false} onJobSubmitted={onJobSubmitted} />
+      {validationComplete ? <div className="validation-result-action"><button className="button primary" type="button" onClick={() => setViewValidationResults(true)}>View Results</button></div> : null}
+    </section>
+    {actionDialog ? <ConstraintActionDialog mode={actionDialog} onClose={() => setActionDialog(null)} onView={() => { setActionDialog(null); setViewConstraints(true); }} onOpen={(editType) => { setActionDialog(null); onOpen(editType); }} /> : null}
+    {viewConstraints ? <ConstraintViewDialog shapes={shapes.data?.shapes ?? []} loading={shapes.isPending} error={shapes.isError ? shapes.error.message : null} onClose={() => setViewConstraints(false)} /> : null}
+    {viewValidationResults ? <ConstraintViewDialog title="Validation results" description="SHACL validation results for the selected graph." shapes={shapes.data?.shapes ?? []} findings={findings} checked loading={shapes.isPending} error={shapes.isError ? shapes.error.message : null} onClose={() => setViewValidationResults(false)} /> : null}
+  </div>;
+}
+
+function ConstraintActionDialog({ mode, onClose, onView, onOpen }: { mode: "add" | "manage"; onClose: () => void; onView: () => void; onOpen: (editType: WebStagingEditType) => void }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const title = mode === "add" ? "Add constraint" : "Manage constraints";
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="edit-dialog constraint-action-dialog" role="dialog" aria-modal="true" aria-labelledby="constraint-action-heading">
+      <header className="edit-dialog-header"><div><span className="overline">SHACL</span><h2 id="constraint-action-heading">{title}</h2></div><button className="icon-button" type="button" aria-label="Close constraint actions" onClick={onClose}>×</button></header>
+      {confirmDelete ? <div className="constraint-delete-confirm"><h3>Delete a shape?</h3><p>This removes a SHACL shape through the review workflow. The source file will not change until the proposal is approved.</p><div className="button-row"><button className="button" type="button" onClick={() => setConfirmDelete(false)}>Cancel</button><button className="button danger" type="button" onClick={() => onOpen("shacl-delete-shape")}>Continue to delete</button></div></div> : <div className="constraint-action-options">
+        {mode === "add" ? <>
+          <button className="constraint-action-option" type="button" onClick={() => onOpen("shacl-create-node-shape")}><strong>Create node shape</strong><span>Define a shape that targets a class or node.</span></button>
+          <button className="constraint-action-option" type="button" onClick={() => onOpen("shacl-create-property-shape")}><strong>Add property constraint</strong><span>Constrain a property on an existing shape.</span></button>
+        </> : <>
+          <button className="constraint-action-option" type="button" onClick={onView}><strong>View constraints</strong><span>Review the current shapes and property rules.</span></button>
+          <button className="constraint-action-option" type="button" onClick={() => onOpen("shacl-update-constraint")}><strong>Update constraint</strong><span>Change an existing rule or validation message.</span></button>
+          <button className="constraint-action-option" type="button" onClick={() => onOpen("shacl-remove-constraint")}><strong>Remove constraint</strong><span>Remove one property rule from a shape.</span></button>
+          <button className="constraint-action-option constraint-action-danger" type="button" onClick={() => setConfirmDelete(true)}><strong>Delete shape</strong><span>Remove an entire SHACL shape.</span></button>
+        </>}
+      </div>}
+    </section>
+  </div>;
+}
+
+function ConstraintViewDialog({ title = "View constraints", description = "Current node shapes and property constraints in the project.", shapes, findings = [], checked = false, loading, error, onClose }: { title?: string; description?: string; shapes: WebShaclShapeSummary[]; findings?: Array<{ shapeIri: string; constraint: string }>; checked?: boolean; loading: boolean; error: string | null; onClose: () => void }) {
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="edit-dialog constraint-view-dialog" role="dialog" aria-modal="true" aria-labelledby="constraint-view-heading">
+      <header className="edit-dialog-header"><div><span className="overline">SHACL</span><h2 id="constraint-view-heading">{title}</h2></div><button className="icon-button" type="button" aria-label={title === "View constraints" ? "Close constraint view" : "Close validation results"} onClick={onClose}>×</button></header>
+      <p className="edit-dialog-description">{description}</p>
+      {loading ? <p role="status">Loading constraints...</p> : null}
+      {error ? <p role="alert" className="workflow-error">Could not load constraints. {error}</p> : null}
+      {!loading && !error && !shapes.length ? <div className="constraints-empty"><strong>No SHACL shapes</strong><span>No constraints are configured for this project.</span></div> : null}
+      {!loading && !error ? <div className="constraints-shape-list">{shapes.map((shape) => <ConstraintShapeSummary key={shape.iri} shape={shape} findings={findings} checked={checked} />)}</div> : null}
+    </section>
+  </div>;
+}
+
+function ConstraintShapeSummary({ shape, findings, checked }: { shape: WebShaclShapeSummary; findings: Array<{ shapeIri: string; constraint: string }>; checked: boolean }) {
   return <article className="constraint-shape-summary">
     <header><div><strong>{shape.label}</strong><span>{shape.targets.map((target) => `${humanizeShaclTarget(target.kind)}: ${target.label}`).join(" · ") || "No target"}</span></div><StatusBadge tone={shape.severity === "Violation" ? "danger" : "neutral"}>{shape.severity}</StatusBadge></header>
     {shape.message ? <p>{shape.message}</p> : null}
     <div className="constraint-shape-rules">
-      {shape.constraints.map((constraint, index) => <ConstraintRule key={`node-${constraint.kind}-${index}`} constraint={constraint} context="Node" />)}
-      {shape.propertyShapes.flatMap((propertyShape) => propertyShape.constraints.map((constraint, index) => <ConstraintRule key={`${propertyShape.iri}-${constraint.kind}-${index}`} constraint={constraint} context={propertyShape.path.label} />))}
+      {shape.constraints.map((constraint, index) => <ConstraintRule key={`node-${constraint.kind}-${index}`} constraint={constraint} context="Node" checked={checked} violated={findings.some((finding) => finding.shapeIri === shape.iri && finding.constraint === constraint.kind)} />)}
+      {shape.propertyShapes.flatMap((propertyShape) => propertyShape.constraints.map((constraint, index) => <ConstraintRule key={`${propertyShape.iri}-${constraint.kind}-${index}`} constraint={constraint} context={propertyShape.path.label} checked={checked} violated={findings.some((finding) => finding.shapeIri === propertyShape.iri && finding.constraint === constraint.kind)} />))}
     </div>
     <details><summary>Technical details</summary><code>{shape.iri}</code></details>
   </article>;
 }
 
-function ConstraintRule({ constraint, context }: { constraint: WebShaclConstraintSummary; context: string }) {
-  return <div className="constraint-rule"><span>{context}</span><strong>{humanizeShaclName(constraint.kind)}</strong><span>{constraint.valueLabel ?? constraint.value ?? "Enabled"}</span></div>;
-}
-
-function humanizeShaclEdit(value: string): string {
-  return value.replace(/^shacl-/, "").split("-").map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`).join(" ");
+function ConstraintRule({ constraint, context, checked, violated }: { constraint: WebShaclConstraintSummary; context: string; checked: boolean; violated: boolean }) {
+  return <div className={`constraint-rule ${checked ? (violated ? "constraint-rule-violated" : "constraint-rule-valid") : "constraint-rule-unchecked"}`}><span>{context}</span><strong>{humanizeShaclName(constraint.kind)}</strong><span>{constraint.valueLabel ?? constraint.value ?? "Enabled"}</span><span className="constraint-rule-status" aria-label={checked ? (violated ? "Constraint violated" : "Constraint satisfied") : "Constraint not validated"}>{checked ? (violated ? "×" : "✓") : "—"}</span></div>;
 }
 
 function humanizeShaclTarget(value: string): string {

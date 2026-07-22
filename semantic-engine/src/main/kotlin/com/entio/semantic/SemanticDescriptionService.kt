@@ -46,10 +46,12 @@ public class SemanticDescriptionService(
     public fun search(
         project: EntioProject,
         query: SemanticSearchQuery,
+        additionalDescriptors: List<OntologyEntityDescriptor> = emptyList(),
     ): List<SemanticSearchResult> {
         val normalizedQuery = query.text.trim().lowercase(Locale.ROOT)
         if (normalizedQuery.isEmpty()) return emptyList()
-        val descriptors = assembler.assemble(project, query.preferredLanguage)
+        val descriptors = (assembler.assemble(project, query.preferredLanguage) + additionalDescriptors)
+            .distinctBy { listOf(it.common.entity.value, it.common.sourceId, it.common.kind.name) }
         val descriptorsByEntity = descriptors.groupBy { it.common.entity.value }
 
         return descriptors

@@ -33,6 +33,7 @@ internal data class LoadedFiboIndex(
     val modules: List<ExternalOntologyModule>,
     val curatedModules: List<ExternalOntologyModule>,
     val iriMap: Map<Iri, String>,
+    val packageRoot: Path,
 )
 
 public class FiboCatalogLoader(
@@ -117,6 +118,7 @@ public class FiboCatalogLoader(
             modules = modules,
             curatedModules = curatedModules,
             iriMap = iriMap,
+            packageRoot = packageRoot,
         )
     }
 
@@ -294,6 +296,7 @@ public class ExternalFiboCatalogSession internal constructor(
     private val project: EntioProject?,
 ) {
     private val loaded: LoadedFiboIndex get() = index
+    private val importsCache = mutableMapOf<Iri, List<Iri>>()
 
     public val source: ExternalOntologySource get() = loaded.source
     public val manifest: ExternalOntologyManifest get() = loaded.manifest
@@ -315,6 +318,60 @@ public class ExternalFiboCatalogSession internal constructor(
 
     /** Returns the loaded compact index in deterministic order for read-only services. */
     public fun allElements(): List<ExternalCatalogElement> = loaded.elements.map { it.withProjectStatus() }
+
+    /**
+     * Returns read-only descriptors from the approved FIBO modules imported by [project].
+     * The descriptors are a view over the pinned catalog and do not alter the project graph.
+     */
+    public fun importedDescriptors(project: EntioProject): List<OntologyEntityDescriptor> {
+        val roots = project.graph.triples
+            .filter { it.predicate.value == "http://www.w3.org/2002/07/owl#imports" }
+            .mapNotNull { it.objectTerm as? Iri }
+            .toSet()
+        val importedModules = moduleImportClosure(roots)
+        val importedElements = loaded.elements
+            .filter { it.descriptor.moduleIri in importedModules }
+        val importedIris = importedElements
+            .mapNotNull { it.descriptor.descriptor.common.entity as? Iri }
+            .toSet()
+        return importedElements
+            .map { it.descriptor.descriptor.restrictTo(importedIris) }
+            .sortedWith(compareBy({ it.common.entity.value }, { it.common.sourceId }, { it.common.kind.name }))
+    }
+
+    private fun OntologyEntityDescriptor.restrictTo(availableIris: Set<Iri>): OntologyEntityDescriptor = when (this) {
+        is OntologyEntityDescriptor.Class -> copy(
+            directSubclasses = directSubclasses.filter(availableIris::contains),
+        )
+        else -> this
+    }
+
+    /** Returns the supplied modules and all mapped transitive imports in deterministic order. */
+    public fun moduleImportClosure(roots: Collection<Iri>): Set<Iri> {
+        val pending = ArrayDeque(roots.sortedBy(Iri::value))
+        val visited = linkedSetOf<Iri>()
+        while (pending.isNotEmpty()) {
+            val moduleIri = pending.removeFirst()
+            if (!visited.add(moduleIri)) continue
+            importsFor(moduleIri)
+                .sortedBy(Iri::value)
+                .forEach(pending::addLast)
+        }
+        return visited
+    }
+
+    /** Returns the direct owl:imports declared by a mapped FIBO module. */
+    public fun importsFor(moduleIri: Iri): List<Iri> = importsCache.getOrPut(moduleIri) {
+        val relativePath = loaded.iriMap[moduleIri] ?: return@getOrPut emptyList()
+        val source = Files.readString(loaded.packageRoot.resolve(relativePath))
+        val rdfXmlImports = Regex("<owl:imports\\s+rdf:resource=\\\"([^\\\"]+)\\\"")
+            .findAll(source)
+            .map { Iri(it.groupValues[1]) }
+        val turtleImports = Regex("owl:imports\\s+<([^>]+)>")
+            .findAll(source)
+            .map { Iri(it.groupValues[1]) }
+        (rdfXmlImports + turtleImports).distinct().sortedBy(Iri::value).toList()
+    }
 
     private fun <T> page(items: List<T>, page: Int, pageSize: Int): ExternalCatalogPage<T> {
         require(page >= 0) { "Page must not be negative." }

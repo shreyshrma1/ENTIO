@@ -74,6 +74,9 @@ class OpenAiProposalClientTest {
         assertTrue(proposalInstructions.contains("serialization only"))
         assertTrue(proposalInstructions.contains("one RDF triple in each edit"))
         assertTrue(proposalInstructions.contains("Never use compact names"))
+        assertTrue(proposalInstructions.contains("answer every question directly"))
+        assertTrue(proposalInstructions.contains("distinguish the node shape from its property shapes"))
+        assertTrue(proposalInstructions.contains("Do not substitute a similarly labeled property-shape IRI"))
         assertEquals("json_schema", ObjectMapper().readTree(requestBodies[0]).path("text").path("format").path("type").asText())
         assertEquals("json_object", ObjectMapper().readTree(requestBodies[1]).path("text").path("format").path("type").asText())
         assertTrue(ObjectMapper().readTree(requestBodies[2]).path("text").isMissingNode)
@@ -107,6 +110,8 @@ class OpenAiProposalClientTest {
         assertTrue(root.path("instructions").asText().contains("proposal", ignoreCase = false))
         assertTrue(root.path("instructions").asText().contains("{\"responseKind\":\"answer\"}"))
         assertTrue(root.path("instructions").asText().contains("Use `clarification`, never `clarify`."))
+        assertTrue(root.path("instructions").asText().contains("questions about the current ontology or private proposal"))
+        assertTrue(root.path("instructions").asText().contains("does not by itself make a message a proposal request"))
         assertEquals("json_schema", root.path("text").path("format").path("type").asText())
         assertEquals("entio_response_route", root.path("text").path("format").path("name").asText())
         assertEquals("Model a Loan class.", root.path("input").last().path("content").asText())
@@ -151,5 +156,43 @@ class OpenAiProposalClientTest {
         assertTrue(messages[0].path("content").asText().contains("FIBO ACCESS BOUNDARY"))
         assertEquals("Wouldn't declaration use rdf:type?", messages[3].path("content").asText())
         assertFalse(requestBody.contains("CONVERSATION CONTEXT:"))
+    }
+
+    @Test
+    fun explainsHowToRepairConflictingDomainAndRangeAxioms(): Unit = runBlocking {
+        var requestBody = ""
+        val engine = MockEngine { request ->
+            requestBody = (request.body as TextContent).text
+            respond(
+                """{"output_text":"{\"mode\":\"proposal\",\"answer\":\"Repaired.\",\"summary\":\"Repair\",\"evidence\":[],\"edits\":[]}"}""",
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val configuration = OpenAiProposalConfiguration(maxRetries = 0)
+        val client = OpenAiProposalClient(configuration, createProposalHttpClient(configuration, engine))
+
+        val result = client.use {
+            it.generate(
+                "secret",
+                "gpt-test",
+                AiProposalGenerationInput(
+                    userRequest = "Repair hasLoan.",
+                    ontologyContext = "hasLoan has declared range Loan.",
+                    fiboContext = "",
+                    currentProposal = "{\"edits\":[]}",
+                    validationFindings = listOf("Object Customer is not an instance of the declared range Loan for property hasLoan."),
+                    repairAttempt = 1,
+                    repairMode = "proposal",
+                    responseKind = AiResponseKind.Proposal,
+                ),
+            )
+        }
+
+        assertIs<AiProposalGenerationResult.Completed>(result)
+        val root = ObjectMapper().readTree(requestBody)
+        val instructions = root.path("input").last().path("content").asText()
+        assertTrue(instructions.contains("remove the old conflicting triple"))
+        assertTrue(instructions.contains("asserted triple"))
+        assertTrue(instructions.contains("prior private proposal"))
     }
 }

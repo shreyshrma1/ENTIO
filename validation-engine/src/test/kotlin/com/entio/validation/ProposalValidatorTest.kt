@@ -369,6 +369,62 @@ class ProposalValidatorTest {
     }
 
     @Test
+    fun shaclVocabularyPredicatesAreAcceptedAsStructuralTriples(): Unit {
+        val source = tempSource()
+        val shape = iri("CustomerShape")
+        val customer = iri("Customer")
+        val shTargetClass = Iri("http://www.w3.org/ns/shacl#targetClass")
+        val graph = GraphState(
+            setOf(
+                typeTriple("Customer"),
+                GraphTriple(shape, Iri(RDF_TYPE), Iri("http://www.w3.org/ns/shacl#NodeShape")),
+                GraphTriple(shape, shTargetClass, customer),
+            ),
+        )
+        val project = project(source = source, graph = graph)
+        val replacement = iri("FiboCustomer")
+        val proposal = proposal(
+            project = project,
+            changeSet = ChangeSet(
+                listOf(
+                    GraphChange(GraphChangeKind.Addition, GraphTriple(shape, shTargetClass, replacement)),
+                ),
+            ),
+        )
+
+        val report = validator.validateProposal(proposal, project)
+
+        assertEquals(ValidationStatus.Valid, report.status)
+        assertTrue(report.issues.none { issue -> issue.code == "missing-referenced-resource" })
+    }
+
+    @Test
+    fun ontologyImportsMayReferenceExternalOntologyWithoutLocalDeclarations(): Unit {
+        val source = tempSource()
+        val project = project(source = source)
+        val proposal = proposal(
+            project = project,
+            changeSet = ChangeSet(
+                listOf(
+                    GraphChange(
+                        GraphChangeKind.Addition,
+                        GraphTriple(
+                            subject = Iri("https://example.com/entio/simple#"),
+                            predicate = Iri(OWL_IMPORTS),
+                            objectTerm = Iri("https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val report = validator.validateProposal(proposal, project)
+
+        assertEquals(ValidationStatus.Valid, report.status)
+        assertTrue(report.issues.none { issue -> issue.code == "missing-referenced-resource" })
+    }
+
+    @Test
     fun validatesNewPropertyMetadataAndDatatypeRangeAgainstCompleteDraft(): Unit {
         val source = tempSource()
         val loan = iri("Loan")
@@ -501,6 +557,7 @@ class ProposalValidatorTest {
 
     private companion object {
         private const val RDF_TYPE: String = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+        private const val OWL_IMPORTS: String = "http://www.w3.org/2002/07/owl#imports"
         private val RDF_PROPERTY: Iri = Iri("http://www.w3.org/1999/02/22-rdf-syntax-ns#Property")
         private val RDFS_SUBCLASS_OF: Iri = Iri("http://www.w3.org/2000/01/rdf-schema#subClassOf")
         private val RDFS_DOMAIN: Iri = Iri("http://www.w3.org/2000/01/rdf-schema#domain")

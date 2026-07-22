@@ -66,6 +66,44 @@ class FiboSchemaSearchServiceTest {
     }
 
     @Test
+    fun widerPinnedCatalogIncludesBorrowerOutsideCuratedFoundations(): Unit {
+        val session = loadSession()
+        val service = FiboSchemaSearchService()
+        val borrowerIri = Iri("https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/Borrower")
+
+        val wider = service.search(
+            session,
+            ExternalSchemaSearchQuery(text = "borrower", curatedOnly = false, pageSize = 25),
+        )
+        val curated = service.search(
+            session,
+            ExternalSchemaSearchQuery(text = "borrower", curatedOnly = true, pageSize = 25),
+        )
+
+        assertTrue(wider.candidates.any { it.descriptor.descriptor.common.entity == borrowerIri })
+        assertTrue(curated.candidates.none { it.descriptor.descriptor.common.entity == borrowerIri })
+    }
+
+    @Test
+    fun textSearchIncludesDirectParentsAndPropertiesUsingMatchedConcept(): Unit {
+        val session = loadSession()
+        val response = FiboSchemaSearchService().search(
+            session,
+            ExternalSchemaSearchQuery(text = "agreement", pageSize = 100),
+        )
+
+        val situationIri = Iri("https://www.omg.org/spec/Commons/PartiesAndSituations/Situation")
+        val agreementIri = Iri("https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement")
+        assertTrue(response.candidates.any { it.descriptor.descriptor.common.entity == situationIri })
+        assertTrue(response.candidates.any { candidate ->
+            val descriptor = candidate.descriptor.descriptor
+            descriptor is com.entio.core.OntologyEntityDescriptor.ObjectProperty && agreementIri in descriptor.domains
+        })
+        assertTrue(response.candidates.first { it.descriptor.descriptor.common.entity == situationIri }
+            .reasons.any { it.type.name == "RelatedConcept" && it.matchedField == "parent" })
+    }
+
+    @Test
     fun appliesKindCuratedAndRequiredDomainFiltersBeforeRanking(): Unit {
         val session = loadSession()
         val curatedModules = session.browseCuratedModules(pageSize = 100).items.map { it.ontologyIri }.toSet()

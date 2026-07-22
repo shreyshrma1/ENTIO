@@ -63,7 +63,7 @@ public class ExternalDependencyReviewer {
                         closure = ExternalDependencyClosure.PackageTransitive,
                         visibility = ExternalDependencyVisibility.ImplementationOnly,
                         selection = ExternalDependencySelection.AlreadyAvailable,
-                        reason = "The pinned package resolves this ontology import as runtime coverage.",
+                        reason = "The pinned FIBO package resolves this ontology import as runtime coverage.",
                         externalIri = importedIri,
                         sourceModule = element.descriptor.moduleIri,
                         maturity = element.descriptor.maturity,
@@ -80,15 +80,15 @@ public class ExternalDependencyReviewer {
                         add(
                             dependency(
                                 category = ExternalDependencyCategory.SemanticParent,
-                                requirement = ExternalDependencyRequirement.Required,
+                                requirement = ExternalDependencyRequirement.Optional,
                                 closure = ExternalDependencyClosure.Direct,
                                 visibility = ExternalDependencyVisibility.UserVisible,
-                                selection = if (hasAssertedRelation(project, selectedIri, SUBCLASS_OF, parentIri)) {
+                                selection = if (isAssertedInProject(project, parentIri)) {
                                     ExternalDependencySelection.AlreadyAvailable
                                 } else {
                                     ExternalDependencySelection.Missing
                                 },
-                                reason = "The selected class explicitly declares this superclass.",
+                                reason = "The selected class declares this superclass; availability is checked by its exact IRI.",
                                 externalIri = parentIri,
                                 sourceModule = element.descriptor.moduleIri,
                                 maturity = element.descriptor.maturity,
@@ -101,15 +101,15 @@ public class ExternalDependencyReviewer {
                         add(
                             dependency(
                                 category = ExternalDependencyCategory.PropertyDomain,
-                                requirement = ExternalDependencyRequirement.Required,
+                                requirement = ExternalDependencyRequirement.Optional,
                                 closure = ExternalDependencyClosure.Direct,
                                 visibility = ExternalDependencyVisibility.UserVisible,
-                                selection = if (hasAssertedRelation(project, selectedIri, DOMAIN, domainIri)) {
+                                selection = if (isAssertedInProject(project, domainIri)) {
                                     ExternalDependencySelection.AlreadyAvailable
                                 } else {
                                     ExternalDependencySelection.Missing
                                 },
-                                reason = "The selected object property explicitly declares this domain.",
+                                reason = "The selected object property declares this domain; availability is checked by its exact IRI.",
                                 externalIri = domainIri,
                                 sourceModule = element.descriptor.moduleIri,
                                 maturity = element.descriptor.maturity,
@@ -120,15 +120,15 @@ public class ExternalDependencyReviewer {
                         add(
                             dependency(
                                 category = ExternalDependencyCategory.PropertyRange,
-                                requirement = ExternalDependencyRequirement.Required,
+                                requirement = ExternalDependencyRequirement.Optional,
                                 closure = ExternalDependencyClosure.Direct,
                                 visibility = ExternalDependencyVisibility.UserVisible,
-                                selection = if (hasAssertedRelation(project, selectedIri, RANGE, rangeIri)) {
+                                selection = if (isAssertedInProject(project, rangeIri)) {
                                     ExternalDependencySelection.AlreadyAvailable
                                 } else {
                                     ExternalDependencySelection.Missing
                                 },
-                                reason = "The selected object property explicitly declares this range.",
+                                reason = "The selected object property declares this range; availability is checked by its exact IRI.",
                                 externalIri = rangeIri,
                                 sourceModule = element.descriptor.moduleIri,
                                 maturity = element.descriptor.maturity,
@@ -141,15 +141,15 @@ public class ExternalDependencyReviewer {
                         add(
                             dependency(
                                 category = ExternalDependencyCategory.PropertyDomain,
-                                requirement = ExternalDependencyRequirement.Required,
+                                requirement = ExternalDependencyRequirement.Optional,
                                 closure = ExternalDependencyClosure.Direct,
                                 visibility = ExternalDependencyVisibility.UserVisible,
-                                selection = if (hasAssertedRelation(project, selectedIri, DOMAIN, domainIri)) {
+                                selection = if (isAssertedInProject(project, domainIri)) {
                                     ExternalDependencySelection.AlreadyAvailable
                                 } else {
                                     ExternalDependencySelection.Missing
                                 },
-                                reason = "The selected datatype property explicitly declares this domain.",
+                                reason = "The selected datatype property declares this domain; availability is checked by its exact IRI.",
                                 externalIri = domainIri,
                                 sourceModule = element.descriptor.moduleIri,
                                 maturity = element.descriptor.maturity,
@@ -160,15 +160,15 @@ public class ExternalDependencyReviewer {
                         add(
                             dependency(
                                 category = ExternalDependencyCategory.PropertyRange,
-                                requirement = ExternalDependencyRequirement.Required,
+                                requirement = ExternalDependencyRequirement.Optional,
                                 closure = ExternalDependencyClosure.Direct,
                                 visibility = ExternalDependencyVisibility.UserVisible,
-                                selection = if (hasAssertedRelation(project, selectedIri, RANGE, datatypeIri)) {
+                                selection = if (isAssertedInProject(project, datatypeIri)) {
                                     ExternalDependencySelection.AlreadyAvailable
                                 } else {
                                     ExternalDependencySelection.Missing
                                 },
-                                reason = "The selected datatype property explicitly declares this datatype range.",
+                                reason = "The selected datatype property declares this datatype range; availability is checked by its exact IRI.",
                                 externalIri = datatypeIri,
                                 sourceModule = element.descriptor.moduleIri,
                                 maturity = element.descriptor.maturity,
@@ -183,7 +183,7 @@ public class ExternalDependencyReviewer {
                 add(
                     dependency(
                         category = ExternalDependencyCategory.Metadata,
-                        requirement = ExternalDependencyRequirement.Required,
+                        requirement = ExternalDependencyRequirement.Optional,
                         closure = ExternalDependencyClosure.Direct,
                         visibility = ExternalDependencyVisibility.UserVisible,
                         selection = ExternalDependencySelection.Missing,
@@ -242,20 +242,14 @@ public class ExternalDependencyReviewer {
         triple.predicate == OWL_IMPORTS && triple.objectTerm == moduleIri
     } == true
 
+    // Labels are presentation metadata. Availability must survive label edits, so this
+    // helper intentionally checks only exact IRI identity in the loaded graph.
     private fun isAssertedInProject(project: EntioProject?, iri: Iri): Boolean = project?.graph?.triples?.any { triple ->
         triple.subjectResource == iri || triple.objectTerm == iri
     } == true
 
-    private fun hasAssertedRelation(project: EntioProject?, subject: Iri, predicate: Iri, objectIri: Iri): Boolean =
-        project?.graph?.triples?.any { triple ->
-            triple.subjectResource == subject && triple.predicate == predicate && triple.objectTerm == objectIri
-        } == true
-
     private companion object {
         private val OWL_IMPORTS = Iri("http://www.w3.org/2002/07/owl#imports")
-        private val SUBCLASS_OF = Iri("http://www.w3.org/2000/01/rdf-schema#subClassOf")
-        private val DOMAIN = Iri("http://www.w3.org/2000/01/rdf-schema#domain")
-        private val RANGE = Iri("http://www.w3.org/2000/01/rdf-schema#range")
         private val dependencyComparator = compareBy<ExternalDependency> { it.category.ordinal }
             .thenBy { it.externalIri?.value.orEmpty() }
             .thenBy { it.sourceModule?.value.orEmpty() }

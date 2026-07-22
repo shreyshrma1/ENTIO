@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSemanticJob, useSemanticJobActions, useStagedChanges } from "../web/queries";
 import type { WebSemanticJobStatus } from "../web/projectApi";
 
@@ -6,9 +6,14 @@ interface SemanticJobPanelProps {
   projectId: string;
   initialJobId?: string | null;
   onJobSubmitted?: (kind: "reasoning" | "shacl", status: WebSemanticJobStatus) => void;
+  showReasoning?: boolean;
+  showShacl?: boolean;
+  showHeading?: boolean;
+  autoStartReasoning?: boolean;
+  headingId?: string;
 }
 
-export default function SemanticJobPanel({ projectId, initialJobId = null, onJobSubmitted }: SemanticJobPanelProps) {
+export default function SemanticJobPanel({ projectId, initialJobId = null, onJobSubmitted, showReasoning = true, showShacl = true, showHeading = true, autoStartReasoning = true, headingId = "semantic-jobs-heading" }: SemanticJobPanelProps) {
   const [scope, setScope] = useState<"applied" | "proposal">("applied");
   const [jobId, setJobId] = useState<string | null>(initialJobId);
   const job = useSemanticJob(projectId, jobId);
@@ -16,8 +21,15 @@ export default function SemanticJobPanel({ projectId, initialJobId = null, onJob
   const staged = useStagedChanges(projectId);
   const hasProposal = Boolean(staged.data?.proposal);
   const busy = actions.submit.isPending;
+  const autoStarted = useRef(false);
 
   useEffect(() => { setJobId(initialJobId); }, [initialJobId]);
+
+  useEffect(() => {
+    if (!autoStartReasoning || !showReasoning || initialJobId || autoStarted.current) return;
+    autoStarted.current = true;
+    start("reasoning");
+  }, [autoStartReasoning, initialJobId, showReasoning, projectId]);
 
   function start(kind: "reasoning" | "shacl") {
     actions.submit.mutate(
@@ -35,19 +47,20 @@ export default function SemanticJobPanel({ projectId, initialJobId = null, onJob
   const terminal = status && ["Completed", "Failed", "Cancelled", "Incomplete", "Stale"].includes(status.status);
 
   return (
-    <section className="semantic-job-panel" aria-labelledby="semantic-jobs-heading" aria-busy={busy || job.isPending}>
-      <div className="section-heading">
-        <h2 id="semantic-jobs-heading">Reasoning and SHACL</h2>
+    <section className="semantic-job-panel" aria-labelledby={showHeading ? headingId : undefined} aria-label={showHeading ? undefined : "SHACL validation"} aria-busy={busy || job.isPending}>
+      {showHeading ? <div className="section-heading">
+        <h2 id={headingId}>{showReasoning ? "Reasoning" : "SHACL validation"}</h2>
         {status ? <span className={`job-state job-${status.status.toLowerCase()}`}>{status.status}</span> : null}
-      </div>
+      </div> : null}
       <div className="semantic-job-controls">
-        <label htmlFor="semantic-job-scope">Graph scope</label>
-        <select id="semantic-job-scope" value={scope} onChange={(event) => setScope(event.target.value as "applied" | "proposal")}>
-          <option value="applied">Applied graph</option>
-          <option value="proposal" disabled={!hasProposal}>Current proposal</option>
-        </select>
-        <button className="button primary" type="button" onClick={() => start("reasoning")} disabled={busy || (scope === "proposal" && !hasProposal)}>Refresh reasoning</button>
-        <button className="button" type="button" onClick={() => start("shacl")} disabled={busy || (scope === "proposal" && !hasProposal)}>Validate SHACL</button>
+        <label htmlFor="semantic-job-scope">Graph scope
+          <select id="semantic-job-scope" value={scope} onChange={(event) => setScope(event.target.value as "applied" | "proposal")}>
+            <option value="applied">Applied graph</option>
+            <option value="proposal" disabled={!hasProposal}>Current proposal</option>
+          </select>
+        </label>
+        {showReasoning ? <button className="button primary" type="button" onClick={() => start("reasoning")} disabled={scope === "proposal" && !hasProposal}>Refresh reasoning</button> : null}
+        {showShacl ? <button className={`button ${showReasoning ? "" : "primary"}`} type="button" onClick={() => start("shacl")} disabled={scope === "proposal" && !hasProposal}>Validate SHACL</button> : null}
       </div>
       {actions.submit.isError ? <p role="alert">Could not start semantic work. {actions.submit.error.message}</p> : null}
       {actions.cancel.isError ? <p role="alert">Could not cancel semantic work. {actions.cancel.error.message}</p> : null}
@@ -64,7 +77,7 @@ export default function SemanticJobPanel({ projectId, initialJobId = null, onJob
           {status.status === "Stale" ? <p role="alert">This result is stale because the graph or staged proposal changed.</p> : null}
           {!terminal && status.status !== "Queued" ? <button className="button small" type="button" onClick={() => actions.cancel.mutate(status.id)} disabled={actions.cancel.isPending}>Cancel semantic job</button> : null}
         </div>
-      ) : <p className="muted">Run deterministic reasoning or SHACL validation against the applied graph or current proposal.</p>}
+      ) : showReasoning && !showShacl ? null : <p className="muted">Choose a graph, then run validation.</p>}
     </section>
   );
 }

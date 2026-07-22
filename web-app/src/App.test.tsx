@@ -25,7 +25,10 @@ describe("web workbench shell", () => {
         return json({
           apiVersion: "v1",
           project: { id: "simple", displayName: "Simple ontology", name: "simple-ontology" },
-          sources: [{ id: "simple", path: "ontology/simple.ttl", format: "turtle", roles: ["ontology"], tripleCount: 4 }],
+          sources: [
+            { id: "simple", path: "ontology/simple.ttl", format: "turtle", roles: ["ontology"], tripleCount: 4 },
+            { id: "shapes", path: "ontology/shapes.ttl", format: "turtle", roles: ["shapes"], tripleCount: 0 },
+          ],
           symbolCount: 2,
           graphTripleCount: 4,
         });
@@ -146,6 +149,17 @@ describe("web workbench shell", () => {
     expect(await screen.findByText("Display name updated.")).toHaveAttribute("role", "status");
     fireEvent.click(screen.getByRole("button", { name: "Account" }));
     expect(screen.getByText("Shrey Sharma")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Validation" }));
+    expect(screen.getByRole("heading", { name: "Manage constraints" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add constraint" }));
+    expect(screen.getByRole("dialog", { name: "Add constraint" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Create node shape/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close constraint actions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage constraints" }));
+    expect(screen.getByRole("button", { name: /View constraints/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /View constraints/ }));
+    expect(screen.getByRole("dialog", { name: "View constraints" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close constraint view" }));
     fireEvent.click(screen.getByRole("tab", { name: "Explore" }));
     fireEvent.click(screen.getByRole("button", { name: "Close Shrey" }));
     fireEvent.click(screen.getByRole("button", { name: "Close Customer" }));
@@ -185,7 +199,7 @@ describe("web workbench shell", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Proposal", level: 1 })).toBeInTheDocument();
+    expect(await screen.findByText("Review all staged edits together, then accept and apply them or reject the proposal.")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Proposal" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("heading", { name: "Review queue" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument();

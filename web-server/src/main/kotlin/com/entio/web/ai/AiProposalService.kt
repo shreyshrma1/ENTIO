@@ -10,6 +10,8 @@ import com.entio.core.GraphState
 import com.entio.core.GraphTriple
 import com.entio.core.Iri
 import com.entio.core.RdfLiteral
+import com.entio.core.RdfResource
+import com.entio.core.RdfTerm
 import com.entio.core.ShaclGraphRole
 import com.entio.web.FiboWebService
 import com.entio.web.StagingWorkflowService
@@ -52,7 +54,9 @@ private data class ProposalState(
     var validation: WebAiProposalValidation? = null,
     var message: String? = null,
     var job: Job? = null,
+    var stageAttempt: Long = 0,
     var currentGraph: GraphState? = null,
+    var sourceGraphs: Map<String, Set<com.entio.core.GraphTriple>> = emptyMap(),
     var editableSourceIds: Set<String> = emptySet(),
     val messages: MutableList<WebAiConversationMessage> = mutableListOf(),
 )
@@ -64,6 +68,18 @@ private data class ParsedAiResponse(
     val edits: List<WebAiProposalEdit>,
     val evidence: List<AiEvidenceClaim>,
 )
+
+/**
+ * A structured proposal was returned, but one or more edits could not be
+ * normalized. Keeping the edits that did parse lets the repair pass preserve
+ * the user's complete request instead of starting over with only the failing
+ * edit.
+ */
+private class ProposalParseFailure(
+    message: String,
+    cause: Throwable?,
+    val partialEdits: List<WebAiProposalEdit>,
+) : IllegalArgumentException(message, cause)
 
 /** Owns private AI proposal runs; it never applies or writes ontology/configuration files. */
 public class AiProposalService internal constructor(
@@ -117,6 +133,12 @@ public class AiProposalService internal constructor(
     public fun get(projectId: String, runId: String, userId: String): WebAiProposalRunResponse {
         val state = owned(projectId, runId, userId)
         synchronizeStagedState(state)
+        synchronized(state) {
+            // Older in-memory runs may have been generated before semantic
+            // duplicate cleanup was added. Normalize them when reopened so a
+            // user does not need to discard an otherwise valid proposal.
+            state.edits = deduplicateEdits(state.edits)
+        }
         return response(state)
     }
 
@@ -156,16 +178,41 @@ public class AiProposalService internal constructor(
             if (state.status != WebAiProposalStatus.READY) throw WebWorkflowFailure("ai-proposal-not-ready", "The AI proposal is not ready to stage.")
             val validation = state.validation ?: throw WebWorkflowFailure("ai-proposal-not-validated", "Validate the proposal before staging it.")
             if (!validation.valid) throw WebWorkflowFailure("ai-proposal-invalid", "The AI proposal has deterministic validation findings.")
-            state.edits.groupBy(WebAiProposalEdit::sourceId).forEach { (sourceId, edits) ->
-                val changes = edits.map(::toGraphChange)
+            // The project may have changed while the proposal was waiting for
+            // review. Re-check against freshly loaded source graphs so an edit
+            // that has since become an add-existing/remove-missing no-op can
+            // never enter the shared queue.
+            val currentProject = when (val loaded = projectLoader.loadProject(projectRegistry.rootFor(projectId))) {
+                is EntioResult.Failure -> throw WebWorkflowFailure("project-load-failed", loaded.message)
+                is EntioResult.Success -> loaded.value
+            }
+            state.sourceGraphs = currentProject.ontologies.associate { ontology -> ontology.source.id to ontology.graph.triples }
+            val staleNoOpIssues = noOpEditFindings(state)
+            if (staleNoOpIssues.isNotEmpty()) {
+                state.validation = WebAiProposalValidation(false, staleNoOpIssues)
+                throw WebWorkflowFailure("ai-proposal-stale", "The project changed while this proposal was waiting for review; regenerate the affected edits.")
+            }
+            // If a previous staging attempt failed after adding some entries,
+            // remove only this run's leftovers before retrying. This prevents
+            // a retry from creating duplicate shared edits while preserving
+            // other users' staged work.
+            staging.snapshot(projectId).entries
+                .filter { it.normalizedValues["aiRunId"] == state.runId }
+                .forEach { staging.discard(projectId, it.id) }
+            // A rejected shared proposal may be restored and staged again. The
+            // idempotency key must identify that new staging attempt, rather
+            // than replaying the entries from the rejected attempt.
+            val attempt = ++state.stageAttempt
+            state.edits.forEachIndexed { index, edit ->
+                val change = toGraphChange(edit)
                 staging.stageGraphChanges(
                     projectId,
-                    sourceId,
-                    ChangeSet(changes),
-                    "AI proposal: ${state.summary ?: state.prompt.take(80)}",
+                    edit.sourceId,
+                    ChangeSet(listOf(change)),
+                    "AI proposal: ${edit.summary.ifBlank { state.summary ?: state.prompt.take(80) }}",
                     userId,
-                    "ai-${state.runId}-$sourceId",
-                    mapOf("aiRunId" to state.runId),
+                    "ai-${state.runId}-$attempt-$index-${edit.id}",
+                    aiStageMetadata(edit, change.triple, currentProject.graph.triples, state.runId),
                 )
             }
             staging.preview(projectId, userId)
@@ -217,7 +264,10 @@ public class AiProposalService internal constructor(
             val ontologyContext = project.resolvedSources.joinToString("\n\n") { source ->
                 "SOURCE ${source.id} (${source.path.fileName}):\n${Files.readString(source.path)}"
             }
-            synchronized(state) { state.currentGraph = project.graph }
+            synchronized(state) {
+                state.currentGraph = project.graph
+                state.sourceGraphs = project.ontologies.associate { ontology -> ontology.source.id to ontology.graph.triples }
+            }
             val privateDraftEdits = synchronized(state) { state.edits.toList() }
             val effectiveDraftGraph = effectiveDraftGraph(project.graph, privateDraftEdits)
             val typedOntologyContext = ontologyContextBuilder.build(
@@ -236,7 +286,10 @@ public class AiProposalService internal constructor(
             }?.id ?: project.resolvedSources.firstOrNull()?.id
             synchronized(state) {
                 state.editableSourceIds = project.resolvedSources
-                    .filter { source -> ShaclGraphRole.Ontology in source.roles || ShaclGraphRole.Data in source.roles }
+                    .filter { source ->
+                        (ShaclGraphRole.Ontology in source.roles || ShaclGraphRole.Data in source.roles || ShaclGraphRole.Shapes in source.roles) &&
+                            Files.isWritable(source.path)
+                    }
                     .map { it.id }
                     .toSet()
             }
@@ -245,6 +298,7 @@ public class AiProposalService internal constructor(
             var repairAttempt = 0
             var repairMode: String? = null
             val seenFailures = mutableSetOf<String>()
+            var parsePreservedEdits = emptyList<WebAiProposalEdit>()
             synchronized(state) { addUpdate(state, "Determining whether to answer, clarify, or prepare a proposal") }
             val responseKind = requestProviderRoute(
                 state,
@@ -273,7 +327,7 @@ public class AiProposalService internal constructor(
             )
             val fiboContext = if (externalContextRequest.useFibo) {
                 val query = externalContextRequest.query.orEmpty()
-                synchronized(state) { addUpdate(state, "Searching the curated FIBO catalog") }
+                synchronized(state) { addUpdate(state, "Searching the pinned FIBO catalog") }
                 searchFiboContext(state.projectId, query)
             } else {
                 synchronized(state) { addUpdate(state, "AI determined curated FIBO context was not needed") }
@@ -314,11 +368,19 @@ public class AiProposalService internal constructor(
                     throw failure
                 } catch (failure: Exception) {
                     val finding = "The generated proposal could not be parsed or validated: ${failure.message ?: "unknown proposal error"}"
+                    val parseFailure = failure as? ProposalParseFailure
+                    if (parseFailure != null) {
+                        parsePreservedEdits = deduplicateEdits(state.edits + parseFailure.partialEdits)
+                    }
                     synchronized(state) {
                         state.validation = WebAiProposalValidation(false, listOf(finding))
                         addUpdate(state, "The generated proposal needs repair: $finding", listOf(finding))
                     }
-                    currentProposal = text
+                    currentProposal = if (parsePreservedEdits.isNotEmpty()) {
+                        proposalContext(parsePreservedEdits)
+                    } else {
+                        text
+                    }
                     val fingerprint = "parse:${text.hashCode()}:$finding"
                     if (!seenFailures.add(fingerprint)) {
                         finishUnrepaired(state)
@@ -357,14 +419,19 @@ public class AiProposalService internal constructor(
                 val validation = synchronized(state) {
                     if (state.status == WebAiProposalStatus.CANCELLED) return
                     state.responseMode = WebAiResponseMode.PROPOSAL
-                    // A follow-up is additive from the user's perspective. Preserve
-                    // the existing private draft when the model returns only the
-                    // newly requested edits.
-                    state.edits = if (continuing && repairAttempt == 0) {
-                        mergePrivateDraftEdits(privateDraftEdits, parsed.edits)
-                    } else {
-                        parsed.edits
-                    }
+                    // A follow-up preserves unaffected draft edits while allowing
+                    // the model to revise or retract the requested portions.
+                    state.edits = deduplicateEdits(
+                        when {
+                            parsePreservedEdits.isNotEmpty() -> parsePreservedEdits + parsed.edits
+                            continuing && repairAttempt == 0 -> mergePrivateDraftEdits(privateDraftEdits, parsed.edits, state.sourceGraphs)
+                            else -> parsed.edits
+                        },
+                    )
+                    // The successfully parsed response is now the authoritative
+                    // replacement. Only malformed-response recovery needs the
+                    // one-time preservation merge above.
+                    parsePreservedEdits = emptyList()
                     state.summary = parsed.summary ?: state.summary
                     validate(state)
                     state.validation ?: WebAiProposalValidation(false, listOf("The proposal could not be validated."))
@@ -384,9 +451,17 @@ public class AiProposalService internal constructor(
                 }
 
                 val findings = validation.messages.ifEmpty {
-                    listOf("Deterministic validation rejected the proposal without a detailed message.")
+                    standardizeValidationFindings(
+                        state,
+                        listOf("Deterministic validation rejected the proposal without a detailed message."),
+                    )
                 }
-                currentProposal = text
+                // Give the repair pass the normalized edits that actually
+                // failed validation, rather than only the provider's raw
+                // response. This makes prior domain/range axioms explicit so
+                // the model can replace conflicting axioms instead of
+                // appending another one.
+                currentProposal = proposalContext(state.edits)
                 val fingerprint = "validation:${text.hashCode()}:${findings.joinToString("|")}"
                 if (!seenFailures.add(fingerprint)) {
                     finishUnrepaired(state)
@@ -461,15 +536,19 @@ public class AiProposalService internal constructor(
         if (query.isBlank()) return "No FIBO search terms were requested by the model."
         val queries = query.split(',', ';', '\n').map(String::trim).filter(String::isNotBlank).distinct().take(8)
         val items = queries.flatMap { term ->
-            fibo.search(projectId, term, null, null, true, WebPageRequest(limit = 8)).page.items
+            // The AI may use every element in Entio's pinned, read-only FIBO
+            // package. Curated foundations remain part of that package, but
+            // domain modules such as FBC and LOAN are also valid retrieval
+            // sources when the user explicitly asks for FIBO concepts.
+            fibo.search(projectId, term, null, null, false, WebPageRequest(limit = 8)).page.items
         }.distinctBy { it.iri }.take(20)
         return buildString {
-            appendLine("Server-retrieved read-only FIBO catalog results for: ${queries.joinToString(", ")}")
+            appendLine("Server-retrieved read-only FIBO catalog results (curated foundations and wider pinned catalog) for: ${queries.joinToString(", ")}")
             if (items.isEmpty()) {
-                appendLine("No matching entries were returned from the pinned curated catalog.")
+                appendLine("No matching entries were returned from the pinned FIBO catalog.")
             } else {
                 items.forEach { item ->
-                    appendLine("${item.kind} ${item.label} <${item.iri}>: ${item.definitions.firstOrNull().orEmpty()}")
+                    appendLine("${item.kind} ${item.label} <${item.iri}> [catalogStatus=${item.catalogStatus}; module=${item.moduleIri}]: ${item.definitions.firstOrNull().orEmpty()}")
                 }
             }
         }.trim()
@@ -478,10 +557,13 @@ public class AiProposalService internal constructor(
     private fun finishUnrepaired(state: ProposalState) {
         synchronized(state) {
             if (state.status == WebAiProposalStatus.CANCELLED) return
-            state.status = WebAiProposalStatus.READY
-            state.message = "The proposal still has deterministic validation findings. Review or send a follow-up to repair it."
+            // A proposal with deterministic findings is not review-ready. It
+            // remains available for a follow-up, but cannot be staged or
+            // presented as an approvable proposal until the repair succeeds.
+            state.status = WebAiProposalStatus.FAILED
+            state.message = "The proposal could not be made ready because deterministic validation findings remain. Send a follow-up to repair it."
             addUpdate(state, "Repair stopped after the AI repeated the same proposal failure", state.validation?.messages.orEmpty())
-            addUpdate(state, "Proposal ready for review with validation findings")
+            addUpdate(state, "Proposal is not ready for review until the findings are repaired")
         }
     }
 
@@ -494,11 +576,75 @@ public class AiProposalService internal constructor(
     private fun mergePrivateDraftEdits(
         existing: List<WebAiProposalEdit>,
         incoming: List<WebAiProposalEdit>,
+        sourceGraphs: Map<String, Set<GraphTriple>>,
     ): List<WebAiProposalEdit> {
-        val merged = linkedMapOf<String, WebAiProposalEdit>()
-        existing.forEach { edit -> merged[edit.id] = edit }
-        incoming.forEach { edit -> merged[edit.id] = edit }
-        return merged.values.toList()
+        val merged = existing.toMutableList()
+        incoming.forEach { next ->
+            val sameIdIndex = merged.indexOfFirst { it.id == next.id }
+            if (sameIdIndex >= 0) {
+                val previous = merged.removeAt(sameIdIndex)
+                if (isDraftCancellation(previous, next, sourceGraphs)) return@forEach
+                merged += next
+                return@forEach
+            }
+
+            val oppositeIndex = merged.indexOfFirst { previous ->
+                previous.sourceId == next.sourceId &&
+                    previous.operation != next.operation &&
+                    sameTriple(previous, next)
+            }
+            if (oppositeIndex >= 0) {
+                val previous = merged.removeAt(oppositeIndex)
+                // A removal of a triple introduced only by the private draft
+                // retracts that pending addition; it must not become a staged
+                // removal against the applied source graph.
+                if (isDraftCancellation(previous, next, sourceGraphs)) return@forEach
+                // Conversely, adding back a triple that was only pending for
+                // removal cancels that removal when the source already has it.
+                if (previous.operation == "remove" && sourceContains(previous, sourceGraphs)) return@forEach
+                merged += next
+                return@forEach
+            }
+            merged += next
+        }
+        return merged
+    }
+
+    private fun isDraftCancellation(
+        previous: WebAiProposalEdit,
+        next: WebAiProposalEdit,
+        sourceGraphs: Map<String, Set<GraphTriple>>,
+    ): Boolean {
+        if (previous.operation == "add" && next.operation == "remove") {
+            return sameTriple(previous, next) && !sourceContains(previous, sourceGraphs)
+        }
+        if (previous.operation == "remove" && next.operation == "add") {
+            return sameTriple(previous, next) && sourceContains(previous, sourceGraphs)
+        }
+        return false
+    }
+
+    private fun sameTriple(first: WebAiProposalEdit, second: WebAiProposalEdit): Boolean =
+        toGraphChange(first).triple == toGraphChange(second).triple
+
+    private fun sourceContains(edit: WebAiProposalEdit, sourceGraphs: Map<String, Set<GraphTriple>>): Boolean =
+        sourceGraphs[edit.sourceId]?.contains(toGraphChange(edit).triple) == true
+
+    /** Keep one review item for an exact RDF operation while preserving edits that differ by operation or value. */
+    private fun deduplicateEdits(edits: List<WebAiProposalEdit>): List<WebAiProposalEdit> {
+        val seen = linkedSetOf<String>()
+        return edits.filter { edit ->
+            val key = listOf(
+                edit.operation,
+                edit.subject,
+                edit.predicate,
+                edit.objectKind,
+                edit.objectValue,
+                edit.datatype.orEmpty(),
+                edit.language.orEmpty(),
+            ).joinToString("\u0000")
+            seen.add(key)
+        }
     }
 
     private fun effectiveDraftGraph(appliedGraph: GraphState, edits: List<WebAiProposalEdit>): GraphState {
@@ -512,7 +658,7 @@ public class AiProposalService internal constructor(
 
     private fun validate(state: ProposalState) {
         if (state.edits.isEmpty()) {
-            state.validation = WebAiProposalValidation(false, listOf("The proposal contains no edits."))
+            state.validation = WebAiProposalValidation(false, listOf("Deterministic validation error at proposal level: the proposal contains no edits. Repair action: return at least one graph edit for the requested ontology outcome."))
             return
         }
         val unknownSourceIds = state.edits.map(WebAiProposalEdit::sourceId).toSet() - state.editableSourceIds
@@ -520,7 +666,22 @@ public class AiProposalService internal constructor(
             val allowed = state.editableSourceIds.sorted().joinToString().ifBlank { "none" }
             state.validation = WebAiProposalValidation(
                 false,
-                listOf("Unknown or non-editable ontology source ID(s): ${unknownSourceIds.sorted().joinToString()}. Allowed source IDs: $allowed."),
+                listOf("Deterministic validation error for source ID(s) '${unknownSourceIds.sorted().joinToString()}': the source is unknown or non-editable. Allowed source IDs: $allowed. Repair action: use an exact editable sourceId from the project context."),
+            )
+            return
+        }
+        // Reject no-op edits before asking the staging planner to build a
+        // preview. The planner quite correctly refuses an entirely empty
+        // effective change set, but that exception would hide the actionable
+        // per-edit finding needed by the AI repair pass.
+        val noOpIssues = noOpEditFindings(state)
+        if (noOpIssues.isNotEmpty()) {
+            val semanticIssues = state.currentGraph?.let { semanticProposalValidator.validate(it, state.edits) }.orEmpty()
+            val findings = standardizeValidationFindings(state, semanticIssues + noOpIssues)
+            state.validation = WebAiProposalValidation(
+                valid = false,
+                messages = findings,
+                diff = emptyList(),
             )
             return
         }
@@ -528,10 +689,139 @@ public class AiProposalService internal constructor(
         val preview = staging.previewGraphChanges(state.projectId, bySource, state.userId)
         val proposal = preview.proposal
         val semanticIssues = state.currentGraph?.let { semanticProposalValidator.validate(it, state.edits) }.orEmpty()
+        val findings = standardizeValidationFindings(state, proposal?.validationMessages.orEmpty() + semanticIssues + noOpIssues)
         state.validation = WebAiProposalValidation(
-            valid = proposal?.validationMessages?.isEmpty() == true && semanticIssues.isEmpty() && proposal.status == "READYFORREVIEW",
-            messages = proposal?.validationMessages.orEmpty() + semanticIssues,
+            valid = proposal?.validationMessages?.isEmpty() == true && semanticIssues.isEmpty() && noOpIssues.isEmpty() && proposal.status == "READYFORREVIEW",
+            messages = findings,
             diff = proposal?.diff.orEmpty(),
+        )
+    }
+
+    /** Adds the responsible proposal source and exact triple to every deterministic finding. */
+    private fun standardizeValidationFindings(state: ProposalState, findings: List<String>): List<String> = findings.map { finding ->
+        if (finding.contains("source '") && finding.contains("Violation:")) return@map finding
+        val indexed = Regex("changeSet\\.changes\\[(\\d+)]").find(finding)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        val tokenMatches = state.edits.filter { edit ->
+            listOf(edit.subject, edit.predicate, edit.objectValue, edit.id, edit.sourceId).any { token -> token.isNotBlank() && finding.contains(token) }
+        }
+        val proposalOrder = state.edits.groupBy(WebAiProposalEdit::sourceId)
+            .toSortedMap()
+            .values
+            .flatten()
+        val matching = when {
+            tokenMatches.isNotEmpty() -> tokenMatches
+            indexed != null -> proposalOrder.getOrNull(indexed)?.let(::listOf).orEmpty()
+            else -> emptyList()
+        }
+        if (matching.size == 1) {
+            val edit = matching.single()
+            "$finding Source: edit '${edit.id}' in ontology source '${edit.sourceId}'. Violation triple: ${formatEditTriple(edit)}. Repair action: correct or remove this edit as indicated."
+        } else if (matching.isNotEmpty()) {
+            val sources = matching.joinToString("; ") { edit -> "edit '${edit.id}' in source '${edit.sourceId}': ${formatEditTriple(edit)}" }
+            "$finding Source: multiple proposal edits may be involved: $sources. Repair action: inspect these exact edits and correct the violating one(s)."
+        } else {
+            val sourceSummary = state.edits.distinctBy(WebAiProposalEdit::sourceId).joinToString(", ") { "'${it.sourceId}'" }
+            "$finding Source: proposal-level validation; affected ontology source(s): ${sourceSummary.ifBlank { "none" }}. Repair action: use the exact source and triple context from the proposal edits to correct this finding."
+        }
+    }.distinct()
+
+    private fun formatEditTriple(edit: WebAiProposalEdit): String {
+        val objectTerm = when (edit.objectKind.lowercase()) {
+            "iri" -> "<${edit.objectValue}>"
+            "blank" -> "_:${edit.objectValue.removePrefix("_:")}"
+            else -> buildString {
+                append('"')
+                append(edit.objectValue.replace("\\", "\\\\").replace("\"", "\\\""))
+                append('"')
+                edit.language?.let { append("@$it") }
+                edit.datatype?.let { append("^^<$it>") }
+            }
+        }
+        return "<${edit.subject}> <${edit.predicate}> $objectTerm ."
+    }
+
+    private fun noOpEditFindings(state: ProposalState): List<String> {
+        val graphs = state.sourceGraphs.mapValues { (_, triples) -> triples.toMutableSet() }.toMutableMap()
+        val initialGraphs = graphs.mapValues { (_, triples) -> triples.toSet() }
+        val perEditFindings = state.edits.mapNotNull { edit ->
+            val graph = graphs[edit.sourceId] ?: return@mapNotNull null
+            val triple = toGraphChange(edit).triple
+            val changed = if (edit.operation == "add") graph.add(triple) else graph.remove(triple)
+            if (changed) {
+                null
+            } else {
+                val requestedState = if (edit.operation == "add") "already exists" else "does not exist"
+                val repairAction = if (edit.operation == "add") {
+                    "remove this edit from the proposal"
+                } else {
+                    "remove this edit from the proposal or correct its subject, predicate, or object"
+                }
+                "Deterministic no-op validation error for edit '${edit.id}' in source '${edit.sourceId}': " +
+                    "the requested ${edit.operation} operation is invalid because the exact triple $requestedState. " +
+                    "Violation: ${formatTriple(triple)}. Repair action: $repairAction."
+            }
+        }
+        if (perEditFindings.isNotEmpty()) return perEditFindings
+        return if (graphs.mapValues { (_, triples) -> triples.toSet() } == initialGraphs) {
+            val proposedTriples = state.edits.map { edit -> formatTriple(toGraphChange(edit).triple) }.distinct().joinToString("; ")
+            listOf("Deterministic no-op validation error: the proposal produces no net graph change; its edits cancel each other out or leave every source unchanged. Proposed triples: $proposedTriples. Repair action: keep only edits that change the source graph.")
+        } else {
+            emptyList()
+        }
+    }
+
+    private fun formatTriple(triple: GraphTriple): String =
+        "${formatTerm(triple.subjectResource)} ${formatTerm(triple.predicate)} ${formatTerm(triple.objectTerm)} ."
+
+    private fun formatTerm(term: RdfTerm): String = when (term) {
+        is RdfResource -> "<${term.value}>"
+        is RdfLiteral -> buildString {
+            append('"')
+            append(term.lexicalForm.replace("\\", "\\\\").replace("\"", "\\\""))
+            append('"')
+            term.languageTag?.let { append("@$it") }
+            term.datatypeIri?.let { append("^^<${it.value}>") }
+        }
+    }
+
+    private fun aiStageMetadata(
+        edit: WebAiProposalEdit,
+        triple: GraphTriple,
+        graph: Set<GraphTriple>,
+        runId: String,
+    ): Map<String, String> = buildMap {
+        put("proposalSource", "native-ai")
+        put("aiRunId", runId)
+        put("aiEditId", edit.id)
+        put("operation", edit.operation)
+        put("subjectIri", triple.subjectResource.value)
+        put("subjectLabel", preferredLabel(triple.subjectResource.value, graph))
+        put("predicateIri", triple.predicate.value)
+        put("predicateLabel", preferredLabel(triple.predicate.value, graph))
+        when (val objectTerm = triple.objectTerm) {
+            is RdfResource -> {
+                put("objectIri", objectTerm.value)
+                put("objectLabel", preferredLabel(objectTerm.value, graph))
+            }
+            is RdfLiteral -> {
+                put("objectValue", objectTerm.lexicalForm)
+                objectTerm.datatypeIri?.let { put("objectDatatypeIri", it.value) }
+                objectTerm.languageTag?.let { put("objectLanguage", it) }
+            }
+        }
+    }
+
+    private fun preferredLabel(iri: String, graph: Set<GraphTriple>): String = graph
+        .asSequence()
+        .filter { it.subjectResource.value == iri && it.predicate.value in PREFERRED_LABEL_PREDICATES }
+        .mapNotNull { (it.objectTerm as? RdfLiteral)?.lexicalForm?.takeIf(String::isNotBlank) }
+        .firstOrNull()
+        ?: iri.substringAfterLast('#').substringAfterLast('/').replace(Regex("([a-z0-9])([A-Z])"), "$1 $2").replace('_', ' ').replace('-', ' ')
+
+    private companion object {
+        private val PREFERRED_LABEL_PREDICATES = setOf(
+            "http://www.w3.org/2000/01/rdf-schema#label",
+            "http://www.w3.org/2004/02/skos/core#prefLabel",
         )
     }
 
@@ -601,8 +891,12 @@ public class AiProposalService internal constructor(
         }
         .orEmpty()
 
-    private fun parseEdits(root: JsonNode, defaultSourceId: String?): List<WebAiProposalEdit> = root.path("edits").mapIndexed { index, node ->
-            WebAiProposalEdit(
+    private fun parseEdits(root: JsonNode, defaultSourceId: String?): List<WebAiProposalEdit> {
+        val parsed = mutableListOf<WebAiProposalEdit>()
+        val failures = mutableListOf<String>()
+        root.path("edits").forEachIndexed { index, node ->
+            try {
+                parsed += WebAiProposalEdit(
                 id = node.path("id").asText("edit-${index + 1}"),
                 sourceId = node.path("sourceId").asText("").ifBlank { defaultSourceId.orEmpty() }.requireNotBlank("sourceId"),
                 operation = node.path("operation").asText().lowercase().also { require(it == "add" || it == "remove") { "operation must be add or remove" } },
@@ -614,8 +908,28 @@ public class AiProposalService internal constructor(
                 language = node.path("language").asText(null),
                 summary = node.path("summary").asText("AI ontology edit"),
                 rationale = node.path("rationale").asText(null),
-            )
+                )
+            } catch (failure: IllegalArgumentException) {
+                failures += formatMalformedEditFinding(index, node, failure.message ?: "invalid proposal edit", defaultSourceId)
+            }
         }
+        if (failures.isNotEmpty()) {
+            throw ProposalParseFailure(failures.joinToString(" "), null, parsed.toList())
+        }
+        return parsed
+    }
+
+    private fun formatMalformedEditFinding(index: Int, node: JsonNode, violation: String, defaultSourceId: String?): String {
+        val id = node.path("id").asText("edit-${index + 1}")
+        val sourceId = node.path("sourceId").asText("").ifBlank { defaultSourceId ?: "unspecified" }
+        val subject = node.path("subject").asText("<missing subject>")
+        val predicate = node.path("predicate").asText("<missing predicate>")
+        val objectKind = node.path("objectKind").asText("<missing object kind>")
+        val objectValue = node.path("objectValue").asText("<missing object>")
+        return "Deterministic validation error for edit #${index + 1} '$id' in source '$sourceId': $violation. " +
+            "Proposed triple: subject='$subject' predicate='$predicate' objectKind='$objectKind' object='$objectValue'. " +
+            "Repair action: correct this edit and return the complete proposal again."
+    }
 
     private fun toGraphChange(edit: WebAiProposalEdit): GraphChange {
         val objectTerm = when (edit.objectKind) {

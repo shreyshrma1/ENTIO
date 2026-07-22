@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useEntityDetails, useProjectSources, useShaclShapes, useStagedChanges, useStagingActions } from "../web/queries";
 import type {
   WebEntityDetailResponse,
   WebEntityReference,
   WebRdfValue,
+  WebTextValue,
   WebRelationship,
   WebStageChangeRequest,
   WebStagedEntry,
@@ -19,6 +20,7 @@ interface EntityDetailsProps {
   projectId: string;
   iri: string;
   stagedEntity?: WebEntityDetailResponse;
+  stagedEntries?: WebStagedEntry[];
   directType?: WebEntityReference | null;
   initialSection?: EntitySectionTarget;
   sectionRequestId?: number;
@@ -28,13 +30,19 @@ interface EntityDetailsProps {
 export type EntitySectionTarget = "overview" | "shacl";
 type EditorSectionId = "overview" | "hierarchy" | "properties" | "schema" | "relationships" | "shacl";
 type ClassPropertyDirection = "outgoing" | "incoming" | "datatype";
+type StagedField = "preferredLabel" | "definition" | "alternateLabel" | "types" | "superclasses" | "subclasses" | "domains" | "ranges" | "properties" | "relationships" | "shacl";
 
-export default function EntityDetails({ projectId, iri, stagedEntity, directType, initialSection, sectionRequestId, onOpenEntity }: EntityDetailsProps) {
+export default function EntityDetails({ projectId, iri, stagedEntity, stagedEntries = [], directType, initialSection, sectionRequestId, onOpenEntity }: EntityDetailsProps) {
   const details = useEntityDetails(projectId, iri, !stagedEntity);
+  const sourceEntity = stagedEntity ?? details.data;
+  const entity = useMemo(
+    () => sourceEntity ? mergeStagedEntity(sourceEntity, stagedEntries) : undefined,
+    [sourceEntity, stagedEntries],
+  );
+  const stagedFields = useMemo(() => entity ? stagedEntityFields(entity.iri, stagedEntries) : new Set<StagedField>(), [entity, stagedEntries]);
 
   if (!stagedEntity && details.isPending) return <p role="status">Loading entity details...</p>;
   if (!stagedEntity && details.isError) return <p role="alert">Could not load this entity. {details.error.message}</p>;
-  const entity = stagedEntity ?? details.data;
   if (!entity) return <p role="alert">Could not load this entity.</p>;
 
   return (
@@ -51,15 +59,17 @@ export default function EntityDetails({ projectId, iri, stagedEntity, directType
       </div>
       <p className="entity-meta">Source: {entity.sourceId} · {stagedEntity ? "pending proposal review" : entity.locality.toLowerCase()}</p>
       {entity.locality !== "External"
-        ? <EntityDetailWorkspace projectId={projectId} entity={entity} directType={directType} initialSection={initialSection} sectionRequestId={sectionRequestId} onOpenEntity={onOpenEntity} />
+        ? <EntityDetailWorkspace projectId={projectId} entity={entity} appliedEntity={sourceEntity ?? entity} stagedFields={stagedFields} directType={directType} initialSection={initialSection} sectionRequestId={sectionRequestId} onOpenEntity={onOpenEntity} />
         : <ExternalEntityOverview entity={entity} />}
     </article>
   );
 }
 
-function EntityDetailWorkspace({ projectId, entity, directType, initialSection, sectionRequestId, onOpenEntity }: {
+function EntityDetailWorkspace({ projectId, entity, appliedEntity, stagedFields, directType, initialSection, sectionRequestId, onOpenEntity }: {
   projectId: string;
   entity: WebEntityDetailResponse;
+  appliedEntity: WebEntityDetailResponse;
+  stagedFields: ReadonlySet<StagedField>;
   directType?: WebEntityReference | null;
   initialSection?: EntitySectionTarget;
   sectionRequestId?: number;
@@ -112,7 +122,7 @@ function EntityDetailWorkspace({ projectId, entity, directType, initialSection, 
     const stagedTypes = entries
       .filter((entry) => entry.editType === "assign-type" && entry.normalizedValues.resourceIri === entity.iri)
       .map((entry) => stagedChoice(entry, "typeIri", "typeLabel", "Class"));
-    setType(mergeChoices(entity.assertedTypes.map(classChoice), stagedTypes));
+    setType(mergeChoices(appliedEntity.assertedTypes.map(classChoice), stagedTypes));
 
     const removedSuperclasses = new Set(entries
       .filter((entry) => entry.editType === "remove-superclass" && entry.normalizedValues.classIri === entity.iri)
@@ -121,7 +131,7 @@ function EntityDetailWorkspace({ projectId, entity, directType, initialSection, 
       .filter((entry) => entry.editType === "add-superclass" && entry.normalizedValues.classIri === entity.iri)
       .map((entry) => stagedChoice(entry, "superclassIri", "superclassLabel", "Class"));
     setSuperclasses(mergeChoices(
-      entity.directSuperclasses.filter((item) => !removedSuperclasses.has(item.iri)).map(classChoice),
+      appliedEntity.directSuperclasses.filter((item) => !removedSuperclasses.has(item.iri)).map(classChoice),
       stagedSuperclasses,
     ).slice(-1));
 
@@ -132,10 +142,10 @@ function EntityDetailWorkspace({ projectId, entity, directType, initialSection, 
       .filter((entry) => entry.editType === "add-superclass" && entry.normalizedValues.superclassIri === entity.iri)
       .map((entry) => stagedChoice(entry, "classIri", "classLabel", "Class"));
     setSubclass(mergeChoices(
-      entity.directSubclasses.filter((item) => !removedSubclasses.has(item.iri)).map(classChoice),
+      appliedEntity.directSubclasses.filter((item) => !removedSubclasses.has(item.iri)).map(classChoice),
       stagedSubclasses,
     ));
-  }, [entity, stagedChanges.data?.entries]);
+  }, [appliedEntity, entity, stagedChanges.data?.entries]);
 
   useEffect(() => () => {
     autoStageTimers.current.forEach((timer) => window.clearTimeout(timer));
@@ -221,8 +231,8 @@ function EntityDetailWorkspace({ projectId, entity, directType, initialSection, 
     const label = value.trim();
     scheduleAutoChange(
       "preferred-label",
-      label && label !== entity.label
-        ? { editType: "set-entity-label", resourceIri: entity.iri, resourceLabel: entity.label, label }
+      label && label !== appliedEntity.label
+        ? { editType: "set-entity-label", resourceIri: entity.iri, resourceLabel: appliedEntity.label, label }
         : null,
       (entry) => entry.editType === "set-entity-label" && entry.normalizedValues.resourceIri === entity.iri,
       "Preferred label synchronized with the review queue.",
@@ -231,7 +241,7 @@ function EntityDetailWorkspace({ projectId, entity, directType, initialSection, 
 
   function changeDefinition(value: string) {
     setDefinition(value);
-    const original = entity.definitions[0]?.value ?? "";
+    const original = appliedEntity.definitions[0]?.value ?? "";
     const next = value.trim();
     const request = next === original
       ? null
@@ -252,7 +262,7 @@ function EntityDetailWorkspace({ projectId, entity, directType, initialSection, 
 
   function changeAlternateLabel(value: string) {
     setAlternateLabel(value);
-    const original = entity.alternateLabels[0]?.value ?? "";
+    const original = appliedEntity.alternateLabels[0]?.value ?? "";
     const next = value.trim();
     const request = next === original
       ? null
@@ -376,7 +386,7 @@ function EntityDetailWorkspace({ projectId, entity, directType, initialSection, 
 
   function changeDomain(next: SemanticClassChoice[]) {
     setDomain(next);
-    const applied = entity.domains[0];
+    const applied = appliedEntity.domains[0];
     const selected = next[0];
     const desired: Array<Omit<WebStageChangeRequest, "sourceId">> = [];
     if (applied && applied.iri !== selected?.iri) desired.push({ editType: "remove-property-domain", propertyIri: entity.iri, propertyLabel: entity.label, domainClassIri: applied.iri, domainClassLabel: applied.label });
@@ -391,7 +401,7 @@ function EntityDetailWorkspace({ projectId, entity, directType, initialSection, 
 
   function changeRange(next: SemanticClassChoice[]) {
     setRange(next);
-    const applied = entity.ranges[0];
+    const applied = appliedEntity.ranges[0];
     const selected = next[0];
     const desired: Array<Omit<WebStageChangeRequest, "sourceId">> = [];
     if (applied && applied.iri !== selected?.iri) desired.push({ editType: "remove-property-range", propertyIri: entity.iri, propertyLabel: entity.label, rangeIri: applied.iri, rangeLabel: applied.label });
@@ -406,7 +416,7 @@ function EntityDetailWorkspace({ projectId, entity, directType, initialSection, 
 
   function changeDatatypeRange(value: string) {
     setDatatypeRange(value);
-    const applied = entity.ranges[0];
+    const applied = appliedEntity.ranges[0];
     const desired: Array<Omit<WebStageChangeRequest, "sourceId">> = [];
     if (applied && readableDatatype(applied) !== value) desired.push({ editType: "remove-property-range", propertyIri: entity.iri, propertyLabel: entity.label, rangeIri: applied.iri, rangeLabel: applied.label });
     if (!applied || readableDatatype(applied) !== value) desired.push({ editType: "set-property-range", propertyIri: entity.iri, propertyLabel: entity.label, rangeLabel: value });
@@ -476,6 +486,7 @@ function EntityDetailWorkspace({ projectId, entity, directType, initialSection, 
     <div className="entity-tab-panel" role="tabpanel">
       {activeSection === "overview" ? <OverviewTab
         entity={entity}
+        stagedFields={stagedFields}
         preferredLabel={preferredLabel}
         definition={definition}
         alternateLabel={alternateLabel}
@@ -487,11 +498,11 @@ function EntityDetailWorkspace({ projectId, entity, directType, initialSection, 
       /> : null}
 
       {activeSection === "hierarchy" && !isProperty ? <div className="entity-tab-sections">
-        {isObject ? <SemanticListSection title="Types">
+        {isObject ? <SemanticListSection title="Types" staged={stagedFields.has("types")}>
           <div className="inline-semantic-editor auto-staged-editor">
             <SemanticClassPicker projectId={projectId} id="entity-type" label="Add asserted type" selected={type} onChange={(next) => {
               setType(next);
-              const original = new Set(entity.assertedTypes.map((item) => item.iri));
+              const original = new Set(appliedEntity.assertedTypes.map((item) => item.iri));
               const requests = next
                 .filter((item) => !original.has(item.iri))
                 .map((item) => ({ editType: "assign-type", resourceIri: entity.iri, resourceLabel: entity.label, typeIri: item.iri, typeLabel: item.label }));
@@ -501,45 +512,45 @@ function EntityDetailWorkspace({ projectId, entity, directType, initialSection, 
                 (entry) => entry.editType === "assign-type" && entry.normalizedValues.resourceIri === entity.iri,
                 requestTypeKey,
               );
-            }} excludeIri={entity.iri} selectionPresentation="list" appliedIris={entity.assertedTypes.map((item) => item.iri)} removableApplied={false} />
+            }} excludeIri={entity.iri} selectionPresentation="list" appliedIris={appliedEntity.assertedTypes.map((item) => item.iri)} removableApplied={false} />
           </div>
         </SemanticListSection> : null}
 
-        {isClass ? <SemanticListSection title="Superclass">
+        {isClass ? <SemanticListSection title="Superclass" staged={stagedFields.has("superclasses")}>
           <div className="inline-semantic-editor auto-staged-editor">
             <SemanticClassPicker projectId={projectId} id="entity-superclasses" label="Direct superclass (one allowed)" selected={superclasses} onChange={(next) => {
               setSuperclasses(next);
-              const original = new Map(entity.directSuperclasses.map((item) => [item.iri, item]));
+              const original = new Map(appliedEntity.directSuperclasses.map((item) => [item.iri, item]));
               const current = new Map(next.map((item) => [item.iri, item]));
               const requests: Array<Omit<WebStageChangeRequest, "sourceId">> = [];
               next.filter((item) => !original.has(item.iri)).forEach((item) => requests.push({ editType: "add-superclass", classIri: entity.iri, classLabel: entity.label, superclassIri: item.iri, superclassLabel: item.label }));
-              entity.directSuperclasses.filter((item) => !current.has(item.iri)).forEach((item) => requests.push({ editType: "remove-superclass", classIri: entity.iri, classLabel: entity.label, superclassIri: item.iri, superclassLabel: item.label }));
+              appliedEntity.directSuperclasses.filter((item) => !current.has(item.iri)).forEach((item) => requests.push({ editType: "remove-superclass", classIri: entity.iri, classLabel: entity.label, superclassIri: item.iri, superclassLabel: item.label }));
               void synchronizeOperations(
                 "superclasses",
                 requests,
                 (entry) => ["add-superclass", "remove-superclass"].includes(entry.editType) && entry.normalizedValues.classIri === entity.iri,
                 requestHierarchyKey,
               );
-            }} excludeIri={entity.iri} multiple={false} selectionPresentation="list" appliedIris={entity.directSuperclasses.map((item) => item.iri)} />
+            }} excludeIri={entity.iri} multiple={false} selectionPresentation="list" appliedIris={appliedEntity.directSuperclasses.map((item) => item.iri)} />
           </div>
         </SemanticListSection> : null}
 
-        {isClass ? <SemanticListSection title="Subclasses">
+        {isClass ? <SemanticListSection title="Subclasses" staged={stagedFields.has("subclasses")}>
           <div className="inline-semantic-editor auto-staged-editor">
             <SemanticClassPicker projectId={projectId} id="entity-subclass" label="Add existing or staged subclass" selected={subclass} onChange={(next) => {
               setSubclass(next);
-              const original = new Map(entity.directSubclasses.map((item) => [item.iri, item]));
+              const original = new Map(appliedEntity.directSubclasses.map((item) => [item.iri, item]));
               const current = new Map(next.map((item) => [item.iri, item]));
               const requests: Array<Omit<WebStageChangeRequest, "sourceId">> = [];
               next.filter((item) => !original.has(item.iri)).forEach((item) => requests.push({ editType: "add-superclass", classIri: item.iri, classLabel: item.label, superclassIri: entity.iri, superclassLabel: entity.label }));
-              entity.directSubclasses.filter((item) => !current.has(item.iri)).forEach((item) => requests.push({ editType: "remove-superclass", classIri: item.iri, classLabel: item.label, superclassIri: entity.iri, superclassLabel: entity.label }));
+              appliedEntity.directSubclasses.filter((item) => !current.has(item.iri)).forEach((item) => requests.push({ editType: "remove-superclass", classIri: item.iri, classLabel: item.label, superclassIri: entity.iri, superclassLabel: entity.label }));
               void synchronizeOperations(
                 "subclasses",
                 requests,
                 (entry) => ["add-superclass", "remove-superclass"].includes(entry.editType) && entry.normalizedValues.superclassIri === entity.iri && entry.normalizedValues.classIri !== entity.iri,
                 requestHierarchyKey,
               );
-            }} excludeIri={entity.iri} selectionPresentation="list" appliedIris={entity.directSubclasses.map((item) => item.iri)} />
+            }} excludeIri={entity.iri} selectionPresentation="list" appliedIris={appliedEntity.directSubclasses.map((item) => item.iri)} />
           </div>
         </SemanticListSection> : null}
 
@@ -548,6 +559,7 @@ function EntityDetailWorkspace({ projectId, entity, directType, initialSection, 
       {activeSection === "schema" ? <SchemaTab
         projectId={projectId}
         entity={entity}
+        stagedFields={stagedFields}
         isProperty={isProperty}
         isDatatypeProperty={isDatatypeProperty}
         domain={domain}
@@ -560,6 +572,7 @@ function EntityDetailWorkspace({ projectId, entity, directType, initialSection, 
 
       {activeSection === "properties" && isClass ? <ClassPropertiesTab
         entity={entity}
+        stagedFields={stagedFields}
         stagedEntries={stagedChanges.data?.entries ?? []}
         pending={actions.stage.isPending}
         onAdd={setPropertyDialog}
@@ -601,6 +614,7 @@ function EntityDetailWorkspace({ projectId, entity, directType, initialSection, 
         onCommitDatatype={commitDatatypeValue}
         onCommitIncoming={commitIncoming}
         stagedEntries={stagedChanges.data?.entries ?? []}
+        stagedFields={stagedFields}
         onDiscard={(entryId) => actions.discard.mutateAsync(entryId).then(() => undefined)}
       /> : null}
 
@@ -615,6 +629,7 @@ function EntityDetailWorkspace({ projectId, entity, directType, initialSection, 
         constraintValue={constraintValue}
         severity={severity}
         validationMessage={validationMessage}
+        stagedFields={stagedFields}
         pending={actions.stage.isPending}
         onShapeLabelChange={setShapeLabel}
         onTargetChange={setShaclTarget}
@@ -643,6 +658,7 @@ function EntityDetailWorkspace({ projectId, entity, directType, initialSection, 
 
 interface OverviewTabProps {
   entity: WebEntityDetailResponse;
+  stagedFields: ReadonlySet<StagedField>;
   preferredLabel: string;
   definition: string;
   alternateLabel: string;
@@ -659,19 +675,19 @@ function OverviewTab(props: OverviewTabProps) {
   const isProperty = kind.endsWith("property");
   const directType = props.directType ?? props.entity.assertedTypes.find((type) => !isBuiltInIndividualType(type.iri)) ?? null;
   return <div className="entity-tab-sections">
-    <EditableFactSection title="Preferred label" values={[props.entity.label]}>
+    <EditableFactSection title="Preferred label" values={[props.entity.label]} staged={props.stagedFields.has("preferredLabel")}>
       <div className="inline-value-editor auto-staged-editor">
         <label className="visually-hidden" htmlFor="entity-preferred-label">Preferred label</label>
         <input id="entity-preferred-label" value={props.preferredLabel} onChange={(event) => props.onPreferredLabelChange(event.target.value)} />
       </div>
     </EditableFactSection>
-    <EditableFactSection title="Definitions" values={props.entity.definitions.map((item) => item.value)}>
+    <EditableFactSection title="Definitions" values={props.entity.definitions.map((item) => item.value)} staged={props.stagedFields.has("definition")}>
       <div className="inline-value-editor auto-staged-editor">
         <label className="visually-hidden" htmlFor="entity-definition">Definition</label>
         <textarea id="entity-definition" value={props.definition} onChange={(event) => props.onDefinitionChange(event.target.value)} placeholder="Add a human-readable definition" rows={2} />
       </div>
     </EditableFactSection>
-    <EditableFactSection title="Alternate labels" values={props.entity.alternateLabels.map((item) => item.value)}>
+    <EditableFactSection title="Alternate labels" values={props.entity.alternateLabels.map((item) => item.value)} staged={props.stagedFields.has("alternateLabel")}>
       <div className="inline-value-editor auto-staged-editor">
         <label className="visually-hidden" htmlFor="entity-alternate-label">Alternate label</label>
         <input id="entity-alternate-label" value={props.alternateLabel} onChange={(event) => props.onAlternateLabelChange(event.target.value)} placeholder="Add an alternate label" />
@@ -720,6 +736,7 @@ function isBuiltInIndividualType(iri: string): boolean {
 
 function ClassPropertiesTab({
   entity,
+  stagedFields,
   stagedEntries,
   pending,
   onAdd,
@@ -727,6 +744,7 @@ function ClassPropertiesTab({
   onRemove,
 }: {
   entity: WebEntityDetailResponse;
+  stagedFields: ReadonlySet<StagedField>;
   stagedEntries: WebStagedEntry[];
   pending: boolean;
   onAdd: (direction: ClassPropertyDirection) => void;
@@ -736,7 +754,7 @@ function ClassPropertiesTab({
   const [activePropertyKind, setActivePropertyKind] = useState<ClassPropertyDirection>("outgoing");
   const properties = classPropertyRows(entity, stagedEntries, activePropertyKind);
   const copy = CLASS_PROPERTY_SECTIONS[activePropertyKind];
-  return <div className="relationship-workspace class-properties-workspace">
+  return <div className={`relationship-workspace class-properties-workspace ${stagedFields.has("properties") ? "staged-field-group" : ""}`}>
     <div className="relationship-subtabs" role="tablist" aria-label="Class property kinds">
       <EditorTab id="outgoing" label="Outgoing" active={activePropertyKind} onSelect={setActivePropertyKind} />
       <EditorTab id="incoming" label="Incoming" active={activePropertyKind} onSelect={setActivePropertyKind} />
@@ -844,6 +862,7 @@ function ClassPropertyDialog({
 interface SchemaTabProps {
   projectId: string;
   entity: WebEntityDetailResponse;
+  stagedFields: ReadonlySet<StagedField>;
   isProperty: boolean;
   isDatatypeProperty: boolean;
   domain: SemanticClassChoice[];
@@ -856,13 +875,13 @@ interface SchemaTabProps {
 
 function SchemaTab(props: SchemaTabProps) {
   return <div className="entity-tab-sections">
-    <EditableFactSection title="Domains" values={props.entity.domains.map((item) => item.label)} unavailable={!props.isProperty ? "Domain declarations apply to properties." : undefined}>
+    <EditableFactSection title="Domains" values={props.entity.domains.map((item) => item.label)} staged={props.stagedFields.has("domains")} unavailable={!props.isProperty ? "Domain declarations apply to properties." : undefined}>
       {props.isProperty ? <div className="inline-semantic-editor auto-staged-editor">
         <SemanticClassPicker projectId={props.projectId} id="entity-domain" label="Set domain" selected={props.domain} onChange={props.onDomainChange} multiple={false} />
       </div> : null}
     </EditableFactSection>
 
-    <EditableFactSection title="Ranges" values={props.entity.ranges.map((item) => item.label)} unavailable={!props.isProperty ? "Range declarations apply to properties." : undefined}>
+    <EditableFactSection title="Ranges" values={props.entity.ranges.map((item) => item.label)} staged={props.stagedFields.has("ranges")} unavailable={!props.isProperty ? "Range declarations apply to properties." : undefined}>
       {props.isProperty && props.isDatatypeProperty ? <div className="inline-value-editor auto-staged-editor">
         <label htmlFor="entity-datatype-range">Datatype range</label>
         <select id="entity-datatype-range" value={props.datatypeRange} onChange={(event) => props.onDatatypeRangeChange(event.target.value)}>
@@ -879,6 +898,7 @@ function SchemaTab(props: SchemaTabProps) {
 interface RelationshipsTabProps {
   projectId: string;
   entity: WebEntityDetailResponse;
+  stagedFields: ReadonlySet<StagedField>;
   editable: boolean;
   outgoingProperty: SemanticEntityChoice[];
   outgoingObject: SemanticEntityChoice[];
@@ -904,7 +924,7 @@ interface RelationshipsTabProps {
 function RelationshipsTab(props: RelationshipsTabProps) {
   const [activeRelationship, setActiveRelationship] = useState<"outgoing" | "incoming" | "datatype">("outgoing");
   const rows = relationshipRows(props.entity, props.stagedEntries, activeRelationship);
-  return <div className="relationship-workspace">
+  return <div className={`relationship-workspace ${props.stagedFields.has("relationships") ? "staged-field-group" : ""}`}>
     <div className="relationship-subtabs" role="tablist" aria-label="Relationship kinds">
       <EditorTab id="outgoing" label="Outgoing" active={activeRelationship} onSelect={setActiveRelationship} />
       <EditorTab id="incoming" label="Incoming" active={activeRelationship} onSelect={setActiveRelationship} />
@@ -990,6 +1010,7 @@ function RelationshipRows({ title, empty, rows, onDiscard }: { title: string; em
 interface ShaclTabProps {
   projectId: string;
   entity: WebEntityDetailResponse;
+  stagedFields: ReadonlySet<StagedField>;
   shapesSourceId?: string;
   shapeLabel: string;
   target: SemanticClassChoice[];
@@ -1078,7 +1099,7 @@ function ShaclTab(props: ShaclTabProps) {
     return [...nodeRows, ...propertyRows];
   });
 
-  return <div className="contextual-shacl-workspace">
+  return <div className={`contextual-shacl-workspace ${props.stagedFields.has("shacl") ? "staged-field-group" : ""}`}>
     <header className="contextual-shacl-header">
       <div><h3>{title}</h3><p>{description}</p></div>
       <div className="contextual-shacl-actions"><span>{constraintRows.length + contextualStaged.length}</span>{canAuthor ? <button className="button small" type="button" onClick={() => setDialog({ mode: "add" })}>Add constraint</button> : null}</div>
@@ -1128,7 +1149,7 @@ function ShaclTab(props: ShaclTabProps) {
   </div>;
 }
 
-interface ShaclConstraintDialogProps extends Omit<ShaclTabProps, "target" | "path"> {
+interface ShaclConstraintDialogProps extends Omit<ShaclTabProps, "target" | "path" | "stagedFields"> {
   state: ShaclConstraintDialogState;
   selectedTarget: SemanticClassChoice[];
   selectedPath: SemanticEntityChoice[];
@@ -1260,8 +1281,8 @@ function formatShaclTarget(value: string): string {
   return formatConstraintKind(value.replace(/^Target/, "Target "));
 }
 
-function EditableFactSection({ title, values, unavailable, children }: { title: string; values: string[]; unavailable?: string; children?: React.ReactNode }) {
-  return <section className="editable-fact-section" aria-labelledby={`${slug(title)}-heading`}>
+function EditableFactSection({ title, values, staged, unavailable, children }: { title: string; values: string[]; staged?: boolean; unavailable?: string; children?: React.ReactNode }) {
+  return <section className={`editable-fact-section ${staged ? "staged-field" : ""}`} aria-labelledby={`${slug(title)}-heading`}>
     <div className="editable-fact-heading">
       <h3 id={`${slug(title)}-heading`}>{title}</h3>
       <FactValues values={values} />
@@ -1270,8 +1291,8 @@ function EditableFactSection({ title, values, unavailable, children }: { title: 
   </section>;
 }
 
-function SemanticListSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return <section className="semantic-list-section" aria-labelledby={`${slug(title)}-heading`}>
+function SemanticListSection({ title, staged, children }: { title: string; staged?: boolean; children: React.ReactNode }) {
+  return <section className={`semantic-list-section ${staged ? "staged-field-group" : ""}`} aria-labelledby={`${slug(title)}-heading`}>
     <h3 id={`${slug(title)}-heading`}>{title}</h3>
     {children}
   </section>;
@@ -1374,6 +1395,130 @@ function mergeChoices(applied: SemanticEntityChoice[], staged: SemanticEntityCho
 
 function readableDatatype(reference: WebEntityReference) {
   return reference.iri.split(/[#/]/).filter(Boolean).at(-1) ?? reference.label;
+}
+
+/**
+ * Overlay pending typed edits on the applied entity response. Source files are
+ * intentionally unchanged until approval, so the editor must render the
+ * review queue as the current working state while a proposal is pending.
+ */
+function mergeStagedEntity(entity: WebEntityDetailResponse, entries: WebStagedEntry[]): WebEntityDetailResponse {
+  if (!entries.length) return entity;
+  const relevantEntries = entries.filter((entry) => entryTouchesEntity(entry, entity.iri));
+  if (!relevantEntries.length) return entity;
+  const merged: WebEntityDetailResponse = {
+    ...entity,
+    alternateLabels: [...entity.alternateLabels],
+    definitions: [...entity.definitions],
+    annotations: [...entity.annotations],
+    directSuperclasses: [...entity.directSuperclasses],
+    directSubclasses: [...entity.directSubclasses],
+    directlyTypedIndividuals: [...entity.directlyTypedIndividuals],
+    assertedTypes: [...entity.assertedTypes],
+    domains: [...entity.domains],
+    ranges: [...entity.ranges],
+    outgoingRelationships: [...entity.outgoingRelationships],
+    incomingRelationships: [...entity.incomingRelationships],
+  };
+
+  relevantEntries.slice().sort((left, right) => left.order - right.order).forEach((entry) => {
+    const values = entry.normalizedValues;
+    const editType = entry.editType || entry.summary.split(" · ")[0];
+    const targetIri = values.targetIri ?? values.resourceIri ?? values.classIri ?? values.propertyIri;
+    if (targetIri !== entity.iri && !entryTouchesEntity(entry, entity.iri)) return;
+
+    if (editType === "set-entity-label" && values.resourceIri === entity.iri && values.label) {
+      merged.label = values.label;
+      merged.preferredLabelSource = "Staged edit";
+    }
+    if (["add-definition", "replace-definition", "remove-definition"].includes(editType) && values.targetIri === entity.iri) {
+      merged.definitions = applyTextEdit(merged.definitions, editType, values.existingValue ?? values.value, values.value);
+    }
+    if (["add-alternate-label", "replace-alternate-label", "remove-alternate-label"].includes(editType) && values.targetIri === entity.iri) {
+      merged.alternateLabels = applyTextEdit(merged.alternateLabels, editType, values.existingValue ?? values.value, values.value);
+    }
+    if (editType === "add-superclass" && values.classIri === entity.iri && values.superclassIri) {
+      merged.directSuperclasses = addReference(merged.directSuperclasses, stagedReference(values.superclassIri, values.superclassLabel, "Class", entry.sourceId));
+    }
+    if (editType === "remove-superclass" && values.classIri === entity.iri && values.superclassIri) {
+      merged.directSuperclasses = merged.directSuperclasses.filter((item) => item.iri !== values.superclassIri);
+    }
+    if (editType === "add-superclass" && values.superclassIri === entity.iri && values.classIri) {
+      merged.directSubclasses = addReference(merged.directSubclasses, stagedReference(values.classIri, values.classLabel, "Class", entry.sourceId));
+    }
+    if (editType === "remove-superclass" && values.superclassIri === entity.iri && values.classIri) {
+      merged.directSubclasses = merged.directSubclasses.filter((item) => item.iri !== values.classIri);
+    }
+    if (editType === "assign-type" && values.resourceIri === entity.iri && values.typeIri) {
+      merged.assertedTypes = addReference(merged.assertedTypes, stagedReference(values.typeIri, values.typeLabel, "Class", entry.sourceId));
+    }
+    if (["set-property-domain", "remove-property-domain"].includes(editType) && values.propertyIri === entity.iri) {
+      const reference = values.domainClassIri ? stagedReference(values.domainClassIri, values.domainClassLabel, "Class", entry.sourceId) : undefined;
+      if (editType === "set-property-domain" && reference) merged.domains = addReference(merged.domains, reference);
+      if (editType === "remove-property-domain" && values.domainClassIri) merged.domains = merged.domains.filter((item) => item.iri !== values.domainClassIri);
+    }
+    if (["set-property-range", "remove-property-range"].includes(editType) && values.propertyIri === entity.iri) {
+      const reference = values.rangeIri ? stagedReference(values.rangeIri, values.rangeLabel, null, entry.sourceId) : values.rangeLabel ? stagedReference(values.rangeLabel, values.rangeLabel, null, entry.sourceId) : undefined;
+      if (editType === "set-property-range" && reference) merged.ranges = addReference(merged.ranges, reference);
+      if (editType === "remove-property-range" && values.rangeIri) merged.ranges = merged.ranges.filter((item) => item.iri !== values.rangeIri);
+    }
+  });
+  return merged;
+}
+
+function applyTextEdit(values: WebTextValue[], editType: string, existingValue?: string, nextValue?: string): WebTextValue[] {
+  const existing = existingValue ?? "";
+  if (editType === "remove-definition" || editType === "remove-alternate-label") {
+    return values.filter((item) => item.value !== existing);
+  }
+  if (editType === "replace-definition" || editType === "replace-alternate-label") {
+    const replaced = values.map((item) => item.value === existing ? { ...item, value: nextValue ?? "" } : item);
+    return nextValue && !replaced.some((item) => item.value === nextValue) ? [...replaced, { value: nextValue, language: null, datatype: null }] : replaced;
+  }
+  return nextValue && !values.some((item) => item.value === nextValue)
+    ? [...values, { value: nextValue, language: null, datatype: null }]
+    : values;
+}
+
+function addReference(values: WebEntityReference[], reference: WebEntityReference): WebEntityReference[] {
+  return values.some((item) => item.iri === reference.iri) ? values : [...values, reference];
+}
+
+function stagedReference(iri: string, label: string | undefined, kind: string | null, sourceId: string): WebEntityReference {
+  return { iri, label: label ?? readableIriLabel(iri), kind, sourceId };
+}
+
+function entryTouchesEntity(entry: WebStagedEntry, iri: string): boolean {
+  return Object.values(entry.normalizedValues).includes(iri) || entry.generatedIris.includes(iri);
+}
+
+function stagedEntityFields(iri: string, entries: WebStagedEntry[]): ReadonlySet<StagedField> {
+  const fields = new Set<StagedField>();
+  entries.forEach((entry) => {
+    const values = entry.normalizedValues;
+    const type = entry.editType || entry.summary.split(" · ")[0];
+    if (["create-class", "create-individual", "create-object-property", "create-datatype-property"].includes(type) && entry.generatedIris.includes(iri)) fields.add("preferredLabel");
+    if (type === "set-entity-label" && values.resourceIri === iri) fields.add("preferredLabel");
+    if (["add-definition", "replace-definition", "remove-definition"].includes(type) && values.targetIri === iri) fields.add("definition");
+    if (["add-alternate-label", "replace-alternate-label", "remove-alternate-label"].includes(type) && values.targetIri === iri) fields.add("alternateLabel");
+    if (type === "assign-type" && values.resourceIri === iri) fields.add("types");
+    if (["add-superclass", "remove-superclass"].includes(type)) {
+      if (values.classIri === iri) fields.add("superclasses");
+      if (values.superclassIri === iri) fields.add("subclasses");
+    }
+    if (["set-property-domain", "remove-property-domain"].includes(type)) {
+      if (values.propertyIri === iri) fields.add("domains");
+      if (values.domainClassIri === iri) fields.add("properties");
+    }
+    if (["set-property-range", "remove-property-range"].includes(type)) {
+      if (values.propertyIri === iri) fields.add("ranges");
+      if (values.rangeIri === iri) fields.add("properties");
+    }
+    if (["add-object-property-assertion", "add-datatype-property-assertion"].includes(type)
+      && (values.subjectIri === iri || values.objectIri === iri)) fields.add("relationships");
+    if (type.startsWith("shacl-") && entryTouchesEntity(entry, iri)) fields.add("shacl");
+  });
+  return fields;
 }
 
 function relationshipRows(entity: WebEntityDetailResponse, entries: WebStagedEntry[], kind: "outgoing" | "incoming" | "datatype"): RelationshipRow[] {

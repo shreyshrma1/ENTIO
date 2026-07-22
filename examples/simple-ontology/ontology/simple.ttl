@@ -1,19 +1,3 @@
-<https://example.com/entio/simple#Account>
-        a       <http://www.w3.org/2000/01/rdf-schema#Class>;
-        <http://www.w3.org/2000/01/rdf-schema#label>
-                "Account";
-        <http://www.w3.org/2004/02/skos/core#definition>
-                "An entity representing an account that holds financial assets or liabilities." .
-
-<https://example.com/entio/simple#Checking>
-        a       <http://www.w3.org/2002/07/owl#Class>;
-        <http://www.w3.org/2000/01/rdf-schema#label>
-                "Checking Account";
-        <http://www.w3.org/2000/01/rdf-schema#subClassOf>
-                <https://example.com/entio/simple#Account>;
-        <http://www.w3.org/2004/02/skos/core#definition>
-                "An entity representing a checking account that allows deposits, withdrawals, and other transactions." .
-
 <https://example.com/entio/simple#Invoice>
         a       <http://www.w3.org/2002/07/owl#Class>;
         <http://www.w3.org/2000/01/rdf-schema#label>
@@ -21,30 +5,14 @@
         <http://www.w3.org/2004/02/skos/core#definition>
                 "A document that specifies the details and costs of goods or services provided to a customer." .
 
-<https://example.com/entio/simple#20874>
-        a       <https://example.com/entio/simple#Invoice> , <http://www.w3.org/2002/07/owl#NamedIndividual>;
+<https://example.com/entio/simple#Loan123>
+        a       <https://example.com/entio/simple#Loan>;
         <http://www.w3.org/2000/01/rdf-schema#label>
-                "Invoice 20874";
-        <http://www.w3.org/2004/02/skos/core#definition>
-                "An individual representing Invoice 20874 with its associated properties." .
-
-<https://example.com/entio/simple#ownsAccount>
-        a       <http://www.w3.org/1999/02/22-rdf-syntax-ns#Property>;
-        <http://www.w3.org/2000/01/rdf-schema#domain>
-                <https://example.com/entio/simple#Checking> , <https://example.com/entio/simple#Customer>;
-        <http://www.w3.org/2000/01/rdf-schema#label>
-                "owns account";
-        <http://www.w3.org/2000/01/rdf-schema#range>
-                <https://example.com/entio/simple#Account>;
-        <http://www.w3.org/2004/02/skos/core#definition>
-                "An object property representing the ownership relationship between entities." .
-
-<https://example.com/entio/simple#Customer>
-        a       <http://www.w3.org/2000/01/rdf-schema#Class>;
-        <http://www.w3.org/2000/01/rdf-schema#label>
-                "Customer";
-        <http://www.w3.org/2004/02/skos/core#definition>
-                "An individual who interacts with the financial institution by owning accounts, making transactions, and accessing services." .
+                "Loan 123";
+        <https://example.com/entio/simple#InterestRate>
+                5.5;
+        <https://example.com/entio/simple#LoanAmount>
+                15000.00 .
 
 <https://example.com/entio/simple#dateOpened>
         a       <http://www.w3.org/2002/07/owl#DatatypeProperty>;
@@ -57,12 +25,86 @@
         <http://www.w3.org/2004/02/skos/core#definition>
                 "A property that represents the date an account was opened." .
 
+<https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Beneficiary>
+        a       <http://www.w3.org/2002/07/owl#Class>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "Beneficiary";
+        <http://www.w3.org/2000/01/rdf-schema#subClassOf>
+                <https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/Customer>;
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "party that receives some benefit or advantage or profits from something" .
+
+<https://example.com/entio/simple#ownsAccount>
+        a       <http://www.w3.org/1999/02/22-rdf-syntax-ns#Property>;
+        <http://www.w3.org/2000/01/rdf-schema#domain>
+                <https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/Customer>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "owns account";
+        <http://www.w3.org/2000/01/rdf-schema#range>
+                <https://example.com/entio/simple#Account>;
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "An object property representing the ownership relationship between entities." .
+
+<https://example.com/entio/simple#>
+        <http://www.w3.org/2002/07/owl#imports>
+                <https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/> , <https://www.omg.org/spec/Commons/PartiesAndSituations/> , <https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/> .
+
+<https://www.omg.org/spec/Commons/PartiesAndSituations/Situation>
+        a       <http://www.w3.org/2002/07/owl#Class>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "Situation";
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "setting, state of being, or relationship that is relatively stable for some period of time" .
+
+<https://example.com/entio/simple#20874>
+        a       <https://example.com/entio/simple#Invoice> , <http://www.w3.org/2002/07/owl#NamedIndividual>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "Invoice 20874";
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "An individual representing Invoice 20874 with its associated properties." .
+
+<https://example.com/entio/simple#Loan>
+        a       <http://www.w3.org/2002/07/owl#Class>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "Loan";
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "An entity representing a loan that is borrowed and to be repaid with interest." .
+
+<https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/Customer>
+        a       <http://www.w3.org/2000/01/rdf-schema#Class>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "Customer";
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "A party that receives or consumes products (goods or services) and has the ability to choose between different products and suppliers." .
+
+<https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/isBeneficiaryOf>
+        a       <http://www.w3.org/2002/07/owl#ObjectProperty>;
+        <http://www.w3.org/2000/01/rdf-schema#domain>
+                <https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Beneficiary>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "is beneficiary of";
+        <http://www.w3.org/2000/01/rdf-schema#range>
+                <https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement>;
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "specifies the agreement that a beneficiary is named in" .
+
+<https://example.com/entio/simple#hasLoan>
+        a       <http://www.w3.org/2002/07/owl#ObjectProperty>;
+        <http://www.w3.org/2000/01/rdf-schema#domain>
+                <https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/Customer>;
+        <http://www.w3.org/2000/01/rdf-schema#range>
+                <https://example.com/entio/simple#Loan>;
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "A property representing the relationship between a customer and the loans they possess." .
+
 <https://example.com/entio/simple#Shrey>
-        a       <https://example.com/entio/simple#Customer> , <http://www.w3.org/2002/07/owl#NamedIndividual>;
+        a       <https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/Customer> , <http://www.w3.org/2002/07/owl#NamedIndividual>;
         <http://www.w3.org/2000/01/rdf-schema#label>
                 "Shrey";
         <http://www.w3.org/2004/02/skos/core#definition>
                 "An individual representing a customer named Shrey interacting with the financial institution.";
+        <https://example.com/entio/simple#hasLoan>
+                <https://example.com/entio/simple#Loan123>;
         <https://example.com/entio/simple#ownsAccount>
                 <https://example.com/entio/simple#Account101> .
 
@@ -74,3 +116,49 @@
                 "An individual representing Account 101 with its associated properties.";
         <https://example.com/entio/simple#dateOpened>
                 "2026-07-17"^^<http://www.w3.org/2001/XMLSchema#date> .
+
+<https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement>
+        a       <http://www.w3.org/2002/07/owl#Class>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "Agreement";
+        <http://www.w3.org/2000/01/rdf-schema#subClassOf>
+                <https://www.omg.org/spec/Commons/PartiesAndSituations/Situation>;
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "negotiated understanding between two or more parties, reflecting the offer and acceptance of commitments on the part of either party" .
+
+<https://example.com/entio/simple#Account>
+        a       <http://www.w3.org/2000/01/rdf-schema#Class>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "Account";
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "An entity representing an account that holds financial assets or liabilities." .
+
+<https://example.com/entio/simple#LoanAmount>
+        a       <http://www.w3.org/2002/07/owl#DatatypeProperty>;
+        <http://www.w3.org/2000/01/rdf-schema#domain>
+                <https://example.com/entio/simple#Loan>;
+        <http://www.w3.org/2000/01/rdf-schema#range>
+                <http://www.w3.org/2001/XMLSchema#decimal> .
+
+<https://example.com/entio/simple#InterestRate>
+        a       <http://www.w3.org/2002/07/owl#DatatypeProperty>;
+        <http://www.w3.org/2000/01/rdf-schema#domain>
+                <https://example.com/entio/simple#Loan>;
+        <http://www.w3.org/2000/01/rdf-schema#range>
+                <http://www.w3.org/2001/XMLSchema#decimal> .
+
+<https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/Borrower>
+        a       <http://www.w3.org/2000/01/rdf-schema#Class>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "Borrower";
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "Party to a credit agreement that is obligated to repay the amount borrowed (principal) with interest and other fees according to the terms of the instrument" .
+
+<https://example.com/entio/simple#Checking>
+        a       <http://www.w3.org/2002/07/owl#Class>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "Checking Account";
+        <http://www.w3.org/2000/01/rdf-schema#subClassOf>
+                <https://example.com/entio/simple#Account>;
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "An entity representing a checking account that allows deposits, withdrawals, and other transactions." .

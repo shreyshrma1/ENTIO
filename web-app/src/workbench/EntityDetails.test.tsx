@@ -58,6 +58,33 @@ describe("entity details editing", () => {
     ));
   });
 
+  it("renders staged annotation edits in the editor and highlights the changed field", async () => {
+    const stagedEntry: WebStagedEntry = {
+      id: "stage-alternate-label",
+      order: 1,
+      sourceId: "simple",
+      summary: "add-alternate-label · Customer",
+      editType: "add-alternate-label",
+      status: "STAGED",
+      authorId: "bob",
+      latestEditorId: "bob",
+      comment: null,
+      normalizedValues: {
+        targetIri: "https://example.com/Customer",
+        targetLabel: "Customer",
+        value: "borrower",
+      },
+      generatedIris: [],
+      validationMessages: [],
+    };
+
+    renderEntity(classEntity(), { stagedEntries: [stagedEntry] });
+
+    const alternateLabel = screen.getByRole("textbox", { name: "Alternate label" });
+    expect(alternateLabel).toHaveValue("borrower");
+    expect(alternateLabel.closest(".editable-fact-section")).toHaveClass("staged-field");
+  });
+
   it("does not expose a schema tab for objects and limits relationship targets to individuals", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
@@ -524,6 +551,7 @@ describe("entity details editing", () => {
 
 function renderEntity(entity: WebEntityDetailResponse, options: {
   directType?: WebEntityReference | null;
+  stagedEntries?: WebStagedEntry[];
   onOpenEntity?: (entity: WebEntityReference, section?: "overview" | "shacl") => void;
 } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -531,6 +559,7 @@ function renderEntity(entity: WebEntityDetailResponse, options: {
     projectId="simple"
     iri={entity.iri}
     stagedEntity={entity}
+    stagedEntries={options.stagedEntries}
     directType={options.directType}
     onOpenEntity={options.onOpenEntity}
   /></QueryClientProvider>);

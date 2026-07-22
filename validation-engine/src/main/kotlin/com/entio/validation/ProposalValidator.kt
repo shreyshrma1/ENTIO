@@ -246,12 +246,25 @@ public class ProposalValidator(
                 }
             }
 
+            OWL_IMPORTS -> {
+                // Imports are ontology-level links. The imported ontology is
+                // intentionally external to the local graph, so its subject
+                // and object must not be required to have local declarations.
+                if (triple.objectTerm !is Iri) {
+                    issues += issue(
+                        code = "invalid-import-reference",
+                        message = "owl:imports must point to an absolute IRI resource.",
+                        source = source,
+                    )
+                }
+            }
+
             RDFS_LABEL -> {
                 // SemanticMetadataValidator owns all metadata predicates, including labels.
             }
 
             else -> {
-                if (triple.predicate.value !in STRUCTURAL_PREDICATES &&
+                if (!isStructuralPredicate(triple.predicate) &&
                     triple.predicate.value !in SEMANTIC_METADATA_PREDICATES &&
                     !facts.isAnnotationProperty(triple.predicate)
                 ) {
@@ -289,6 +302,9 @@ public class ProposalValidator(
 
         return issues
     }
+
+    private fun isStructuralPredicate(predicate: Iri): Boolean =
+        predicate.value in STRUCTURAL_PREDICATES || predicate.value.startsWith(SHACL_NAMESPACE)
 
     private fun validateRemoval(
         triple: GraphTriple,
@@ -611,6 +627,8 @@ public class ProposalValidator(
         private const val RDFS_SUBCLASS_OF: String = "http://www.w3.org/2000/01/rdf-schema#subClassOf"
         private const val RDFS_DOMAIN: String = "http://www.w3.org/2000/01/rdf-schema#domain"
         private const val RDFS_RANGE: String = "http://www.w3.org/2000/01/rdf-schema#range"
+        private const val OWL_IMPORTS: String = "http://www.w3.org/2002/07/owl#imports"
+        private const val SHACL_NAMESPACE: String = "http://www.w3.org/ns/shacl#"
         private const val RDF_PROPERTY: String = "http://www.w3.org/1999/02/22-rdf-syntax-ns#Property"
         private const val OWL_CLASS: String = "http://www.w3.org/2002/07/owl#Class"
         private const val RDFS_CLASS: String = "http://www.w3.org/2000/01/rdf-schema#Class"
@@ -663,6 +681,7 @@ public class ProposalValidator(
             RDFS_SUBCLASS_OF,
             RDFS_DOMAIN,
             RDFS_RANGE,
+            OWL_IMPORTS,
         )
         private val SEMANTIC_METADATA_PREDICATES: Set<String> = setOf(
             RDFS_LABEL,

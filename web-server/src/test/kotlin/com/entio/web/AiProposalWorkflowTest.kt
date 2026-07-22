@@ -28,6 +28,132 @@ import kotlinx.coroutines.delay
 
 class AiProposalWorkflowTest {
     @Test
+    fun duplicateEquivalentAiEditsBecomeOneStagedEdit(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-ai-duplicate-edits")
+        val projectRoot = fixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot)).also { it.register("simple", "Simple", projectRoot) }
+        val proposalProvider = FixtureProposalProvider()
+        application {
+            module(
+                WebApplicationDependencies(
+                    projectRegistry = registry,
+                    aiModelProvider = DevelopmentAiModelProviderClient(
+                        models = listOf(AiProviderModelDescriptor("openai", "gpt-test")),
+                        verificationByModelId = mapOf("gpt-test" to com.entio.web.ai.provider.AiModelVerificationResult.Verified),
+                    ),
+                    aiProposalProvider = proposalProvider,
+                ),
+            )
+        }
+        client.put("/api/v1/ai/credentials") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"providerId":"openai","apiKey":"test-secret"}""")
+        }
+        client.put("/api/v1/ai/model-selection") {
+            headers.append("Idempotency-Key", "ai-duplicate-select")
+            contentType(ContentType.Application.Json)
+            setBody("""{"modelId":"gpt-test"}""")
+        }
+
+        val started = client.post("/api/v1/projects/simple/ai/proposals") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"prompt":"duplicate-edits"}""")
+        }
+        val runId = Regex("\\\"runId\\\":\\\"([^\\\"]+)").find(started.bodyAsText())!!.groupValues[1]
+        val ready = poll(client, runId)
+        assertContains(ready, "READY")
+        assertEquals(1, Regex("\\\"id\\\":\\\"duplicate-").findAll(ready).count())
+
+        val staged = client.post("/api/v1/projects/simple/ai/proposals/$runId/stage")
+        assertEquals(HttpStatusCode.OK, staged.status, staged.bodyAsText())
+        val stagedBody = client.get("/api/v1/projects/simple/staged").bodyAsText()
+        assertEquals(1, Regex("\\\"aiEditId\\\":").findAll(stagedBody).count())
+        assertContains(stagedBody, "subjectLabel")
+        assertContains(stagedBody, "Loan")
+    }
+
+    @Test
+    fun noOpAiEditIsReturnedForRepair(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-ai-no-op")
+        val projectRoot = fixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot)).also { it.register("simple", "Simple", projectRoot) }
+        val proposalProvider = FixtureProposalProvider()
+        application {
+            module(
+                WebApplicationDependencies(
+                    projectRegistry = registry,
+                    aiModelProvider = DevelopmentAiModelProviderClient(
+                        models = listOf(AiProviderModelDescriptor("openai", "gpt-test")),
+                        verificationByModelId = mapOf("gpt-test" to com.entio.web.ai.provider.AiModelVerificationResult.Verified),
+                    ),
+                    aiProposalProvider = proposalProvider,
+                ),
+            )
+        }
+        client.put("/api/v1/ai/credentials") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"providerId":"openai","apiKey":"test-secret"}""")
+        }
+        client.put("/api/v1/ai/model-selection") {
+            headers.append("Idempotency-Key", "ai-no-op-select")
+            contentType(ContentType.Application.Json)
+            setBody("""{"modelId":"gpt-test"}""")
+        }
+
+        val started = client.post("/api/v1/projects/simple/ai/proposals") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"prompt":"noop"}""")
+        }
+        val runId = Regex("\\\"runId\\\":\\\"([^\\\"]+)").find(started.bodyAsText())!!.groupValues[1]
+        val ready = poll(client, runId)
+        assertContains(ready, "READY")
+        assertContains(ready, "no-op")
+        assertContains(ready, "Asking AI to diagnose and repair")
+        assertContains(ready, "https://example.com/simple#Missing")
+        assertContains(ready, "Repair action")
+        assertContains(ready, "loan-class")
+    }
+
+    @Test
+    fun unrepairedNoOpCannotBecomeReviewReady(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-ai-no-op-failure")
+        val projectRoot = fixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot)).also { it.register("simple", "Simple", projectRoot) }
+        application {
+            module(
+                WebApplicationDependencies(
+                    projectRegistry = registry,
+                    aiModelProvider = DevelopmentAiModelProviderClient(
+                        models = listOf(AiProviderModelDescriptor("openai", "gpt-test")),
+                        verificationByModelId = mapOf("gpt-test" to com.entio.web.ai.provider.AiModelVerificationResult.Verified),
+                    ),
+                    aiProposalProvider = FixtureProposalProvider(),
+                ),
+            )
+        }
+        client.put("/api/v1/ai/credentials") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"providerId":"openai","apiKey":"test-secret"}""")
+        }
+        client.put("/api/v1/ai/model-selection") {
+            headers.append("Idempotency-Key", "ai-no-op-failure-select")
+            contentType(ContentType.Application.Json)
+            setBody("""{"modelId":"gpt-test"}""")
+        }
+
+        val started = client.post("/api/v1/projects/simple/ai/proposals") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"prompt":"noop-unrepairable"}""")
+        }
+        val runId = Regex("\\\"runId\\\":\\\"([^\\\"]+)").find(started.bodyAsText())!!.groupValues[1]
+        val failed = poll(client, runId)
+        assertContains(failed, "FAILED")
+        assertFalse(failed.contains("Proposal ready for review with validation findings"))
+        assertContains(failed, "no-op")
+        assertContains(failed, "Deterministic validation found")
+    }
+
+    @Test
     fun privateProposalUsesGenericGraphEditsAndDoesNotWriteBeforeStage(): Unit = testApplication {
         val allowedRoot = Files.createTempDirectory("entio-ai-proposal")
         val projectRoot = fixture(allowedRoot)
@@ -86,6 +212,12 @@ class AiProposalWorkflowTest {
         assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "declarations/types:")
         assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "asserted domains:")
         assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "rdfs:domain")
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "Treat deletion as dependency-aware graph cleanup")
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "SHACL node-shape structure")
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "`sh:targetClass` and `sh:property` belong to the node shape")
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "Semantic construction patterns are guidance, not a fixed plan")
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "A complete SHACL property constraint normally has")
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "Treat replacement as an IRI migration")
 
         val explanation = client.post("/api/v1/projects/simple/ai/proposals") {
             contentType(ContentType.Application.Json)
@@ -129,7 +261,9 @@ class AiProposalWorkflowTest {
         assertContains(staged.bodyAsText(), "STAGED")
         assertEquals(before, Files.readString(source))
         assertEquals(configBefore, Files.readString(projectRoot.resolve("entio.yaml")))
-        assertContains(client.get("/api/v1/projects/simple/staged").bodyAsText(), "ai-graph-change")
+        val stagedBody = client.get("/api/v1/projects/simple/staged").bodyAsText()
+        assertContains(stagedBody, "ai-graph-change")
+        assertEquals(4, Regex("\\\"aiEditId\\\":").findAll(stagedBody).count())
 
         val sharedRejected = client.post("/api/v1/projects/simple/proposal/reject") {
             headers.append("X-Entio-User", "bob")
@@ -139,6 +273,16 @@ class AiProposalWorkflowTest {
         assertContains(restored.bodyAsText(), "\"status\":\"READY\"")
         assertContains(restored.bodyAsText(), "loan-class")
         assertContains(restored.bodyAsText(), "has-loan")
+
+        val restaged = client.post("/api/v1/projects/simple/ai/proposals/$runId/stage")
+        assertEquals(HttpStatusCode.OK, restaged.status, restaged.bodyAsText())
+        assertContains(restaged.bodyAsText(), "\"status\":\"STAGED\"")
+        assertContains(client.get("/api/v1/projects/simple/staged").bodyAsText(), "ai-graph-change")
+
+        val rejectedAgain = client.post("/api/v1/projects/simple/proposal/reject") {
+            headers.append("X-Entio-User", "bob")
+        }
+        assertEquals(HttpStatusCode.OK, rejectedAgain.status)
 
         val rejected = client.post("/api/v1/projects/simple/ai/proposals/$runId/reject")
         assertEquals(HttpStatusCode.OK, rejected.status)
@@ -195,6 +339,54 @@ class AiProposalWorkflowTest {
     }
 
     @Test
+    fun followUpCanReviseAndRetractPrivateDraftEdits(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-ai-draft-revision")
+        val projectRoot = fixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot)).also { it.register("simple", "Simple", projectRoot) }
+        val proposalProvider = FixtureProposalProvider()
+        application {
+            module(
+                WebApplicationDependencies(
+                    projectRegistry = registry,
+                    aiModelProvider = DevelopmentAiModelProviderClient(
+                        models = listOf(AiProviderModelDescriptor("openai", "gpt-test")),
+                        verificationByModelId = mapOf("gpt-test" to com.entio.web.ai.provider.AiModelVerificationResult.Verified),
+                    ),
+                    aiProposalProvider = proposalProvider,
+                ),
+            )
+        }
+        client.put("/api/v1/ai/credentials") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"providerId":"openai","apiKey":"test-secret"}""")
+        }
+        client.put("/api/v1/ai/model-selection") {
+            headers.append("Idempotency-Key", "ai-draft-revision-select")
+            contentType(ContentType.Application.Json)
+            setBody("""{"modelId":"gpt-test"}""")
+        }
+
+        val started = client.post("/api/v1/projects/simple/ai/proposals") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"prompt":"draft-revision"}""")
+        }
+        val runId = Regex("\\\"runId\\\":\\\"([^\\\"]+)").find(started.bodyAsText())!!.groupValues[1]
+        assertContains(poll(client, runId), "borrower-target")
+
+        val followUp = client.post("/api/v1/projects/simple/ai/proposals") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"prompt":"draft-revision-followup","runId":"$runId"}""")
+        }
+        assertEquals(HttpStatusCode.OK, followUp.status)
+        val continued = poll(client, runId)
+
+        assertContains(continued, "READY")
+        assertContains(continued, "https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/Borrower")
+        assertFalse(continued.contains("\"id\":\"borrower-class\""))
+        assertFalse(continued.contains("https://example.com/simple#Borrower\""))
+    }
+
+    @Test
     fun deterministicValidationIsSentBackForPostGenerationRepair(): Unit = testApplication {
         val allowedRoot = Files.createTempDirectory("entio-ai-repair")
         val projectRoot = fixture(allowedRoot)
@@ -238,6 +430,8 @@ class AiProposalWorkflowTest {
         assertTrue(proposalProvider.lastInput?.repairAttempt ?: 0 >= 1)
         assertTrue(proposalProvider.lastInput?.validationFindings.orEmpty().isNotEmpty())
         assertContains(proposalProvider.lastInput?.validationFindings.orEmpty().joinToString("\n").lowercase(), "property subject")
+        assertContains(proposalProvider.lastInput?.validationFindings.orEmpty().joinToString("\n"), "source 'simple'")
+        assertContains(proposalProvider.lastInput?.validationFindings.orEmpty().joinToString("\n"), "Violation: <https://example.com/simple#Loan>")
 
         val explanation = client.post("/api/v1/projects/simple/ai/proposals") {
             contentType(ContentType.Application.Json)
@@ -250,6 +444,51 @@ class AiProposalWorkflowTest {
         val stagedAfterAnswer = client.post("/api/v1/projects/simple/ai/proposals/$runId/stage")
         assertEquals(HttpStatusCode.OK, stagedAfterAnswer.status)
         assertContains(stagedAfterAnswer.bodyAsText(), "STAGED")
+    }
+
+    @Test
+    fun malformedShaclEditRepairPreservesTheCompleteProposal(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-ai-malformed-shacl")
+        val projectRoot = fixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot)).also { it.register("simple", "Simple", projectRoot) }
+        val proposalProvider = FixtureProposalProvider()
+        application {
+            module(
+                WebApplicationDependencies(
+                    projectRegistry = registry,
+                    aiModelProvider = DevelopmentAiModelProviderClient(
+                        models = listOf(AiProviderModelDescriptor("openai", "gpt-test")),
+                        verificationByModelId = mapOf("gpt-test" to com.entio.web.ai.provider.AiModelVerificationResult.Verified),
+                    ),
+                    aiProposalProvider = proposalProvider,
+                ),
+            )
+        }
+        client.put("/api/v1/ai/credentials") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"providerId":"openai","apiKey":"test-secret"}""")
+        }
+        client.put("/api/v1/ai/model-selection") {
+            headers.append("Idempotency-Key", "ai-malformed-shacl-select")
+            contentType(ContentType.Application.Json)
+            setBody("""{"modelId":"gpt-test"}""")
+        }
+
+        val started = client.post("/api/v1/projects/simple/ai/proposals") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"prompt":"malformed-shacl"}""")
+        }
+        val runId = Regex("\\\"runId\\\":\\\"([^\\\"]+)").find(started.bodyAsText())!!.groupValues[1]
+        val ready = poll(client, runId)
+
+        assertContains(ready, "READY")
+        assertContains(ready, "customer-account-path")
+        assertContains(ready, "borrower-class")
+        assertContains(ready, "borrower-loan-min-count")
+        assertTrue(proposalProvider.callCount >= 2)
+        assertContains(proposalProvider.lastInput?.currentProposal.orEmpty(), "customer-target")
+        assertContains(proposalProvider.lastInput?.currentProposal.orEmpty(), "borrower-class")
+        assertContains(proposalProvider.lastInput?.validationFindings.orEmpty().joinToString(), "subject must be an absolute IRI")
     }
 
     @Test
@@ -353,6 +592,74 @@ private class FixtureProposalProvider : AiProposalProvider {
                   {"id":"loan-class","sourceId":"simple","operation":"add","subject":"https://example.com/simple#Loan","predicate":"http://www.w3.org/1999/02/22-rdf-syntax-ns#type","objectKind":"iri","objectValue":"http://www.w3.org/2002/07/owl#Class","summary":"Create Loan class","rationale":"A new class is needed for the requested concept."},
                   {"id":"loan-domain-mistake","sourceId":"simple","operation":"add","subject":"https://example.com/simple#Loan","predicate":"http://www.w3.org/2000/01/rdf-schema#domain","objectKind":"iri","objectValue":"https://example.com/simple#Customer","summary":"Set an invalid domain","rationale":"This intentionally exercises semantic role validation."},
                   {"id":"loan-interest-use","sourceId":"simple","operation":"add","subject":"https://example.com/simple#Loan","predicate":"https://example.com/simple#interestRate","objectKind":"literal","objectValue":"4.5","datatype":"http://www.w3.org/2001/XMLSchema#decimal","summary":"Use interest rate","rationale":"The initial proposal intentionally exercises post-generation validation repair."}
+                ]}
+            """.trimIndent())
+        }
+        if (input.userRequest == "malformed-shacl" && input.validationFindings.isEmpty()) {
+            return AiProposalGenerationResult.Completed("""
+                {"mode":"proposal","summary":"Customer and Borrower constraints","edits":[
+                  {"id":"customer-target","sourceId":"simple","operation":"add","subject":"https://example.com/simple#CustomerShape","predicate":"http://www.w3.org/ns/shacl#targetClass","objectKind":"iri","objectValue":"https://example.com/simple#Customer","summary":"Target Customer","rationale":"Validate Customer instances."},
+                  {"id":"customer-property","sourceId":"simple","operation":"add","subject":"https://example.com/simple#CustomerShape","predicate":"http://www.w3.org/ns/shacl#property","objectKind":"iri","objectValue":"https://example.com/simple#CustomerAccountPropertyShape","summary":"Link account property shape","rationale":"Attach the account minimum constraint."},
+                  {"id":"customer-account-path","sourceId":"simple","operation":"add","subject":"_:CustomerAccountPropertyShape","predicate":"http://www.w3.org/ns/shacl#path","objectKind":"iri","objectValue":"https://example.com/simple#ownsAccount","summary":"Set account path","rationale":"ownsAccount is the relevant property for account ownership."},
+                  {"id":"borrower-class","sourceId":"simple","operation":"add","subject":"https://example.com/simple#Borrower","predicate":"http://www.w3.org/1999/02/22-rdf-syntax-ns#type","objectKind":"iri","objectValue":"http://www.w3.org/2002/07/owl#Class","summary":"Declare Borrower","rationale":"The request includes a Borrower class."},
+                  {"id":"borrower-loan-min-count","sourceId":"simple","operation":"add","subject":"https://example.com/simple#BorrowerLoanPropertyShape","predicate":"http://www.w3.org/ns/shacl#minCount","objectKind":"literal","objectValue":"1","datatype":"http://www.w3.org/2001/XMLSchema#integer","summary":"Require one loan","rationale":"Borrowers must have at least one loan."}
+                ]}
+            """.trimIndent())
+        }
+        if (input.userRequest == "draft-revision") {
+            return AiProposalGenerationResult.Completed("""
+                {"mode":"proposal","summary":"Local Borrower draft","edits":[
+                  {"id":"borrower-class","sourceId":"simple","operation":"add","subject":"https://example.com/simple#Borrower","predicate":"http://www.w3.org/1999/02/22-rdf-syntax-ns#type","objectKind":"iri","objectValue":"http://www.w3.org/2002/07/owl#Class","summary":"Declare local Borrower","rationale":"Initial draft for the borrower concept."},
+                  {"id":"borrower-target","sourceId":"simple","operation":"add","subject":"https://example.com/simple#BorrowerShape","predicate":"http://www.w3.org/ns/shacl#targetClass","objectKind":"iri","objectValue":"https://example.com/simple#Borrower","summary":"Target local Borrower","rationale":"Initial shape target."}
+                ]}
+            """.trimIndent())
+        }
+        if (input.userRequest == "draft-revision-followup") {
+            return AiProposalGenerationResult.Completed("""
+                {"mode":"proposal","summary":"FIBO Borrower draft","edits":[
+                  {"id":"borrower-target","sourceId":"simple","operation":"add","subject":"https://example.com/simple#BorrowerShape","predicate":"http://www.w3.org/ns/shacl#targetClass","objectKind":"iri","objectValue":"https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/Borrower","summary":"Target FIBO Borrower","rationale":"Use the existing FIBO Borrower concept."},
+                  {"id":"remove-local-borrower","sourceId":"simple","operation":"remove","subject":"https://example.com/simple#Borrower","predicate":"http://www.w3.org/1999/02/22-rdf-syntax-ns#type","objectKind":"iri","objectValue":"http://www.w3.org/2002/07/owl#Class","summary":"Retract local Borrower","rationale":"The local class is replaced by FIBO Borrower."}
+                ]}
+            """.trimIndent())
+        }
+        if (input.userRequest == "malformed-shacl") {
+            return AiProposalGenerationResult.Completed("""
+                {"mode":"proposal","summary":"Customer and Borrower constraints","edits":[
+                  {"id":"customer-target","sourceId":"simple","operation":"add","subject":"https://example.com/simple#CustomerShape","predicate":"http://www.w3.org/ns/shacl#targetClass","objectKind":"iri","objectValue":"https://example.com/simple#Customer","summary":"Target Customer","rationale":"Validate Customer instances."},
+                  {"id":"customer-property","sourceId":"simple","operation":"add","subject":"https://example.com/simple#CustomerShape","predicate":"http://www.w3.org/ns/shacl#property","objectKind":"iri","objectValue":"https://example.com/simple#CustomerAccountPropertyShape","summary":"Link account property shape","rationale":"Attach the account minimum constraint."},
+                  {"id":"customer-account-path","sourceId":"simple","operation":"add","subject":"https://example.com/simple#CustomerAccountPropertyShape","predicate":"http://www.w3.org/ns/shacl#path","objectKind":"iri","objectValue":"https://example.com/simple#ownsAccount","summary":"Set account path","rationale":"ownsAccount is the relevant property for account ownership."},
+                  {"id":"customer-account-min-count","sourceId":"simple","operation":"add","subject":"https://example.com/simple#CustomerAccountPropertyShape","predicate":"http://www.w3.org/ns/shacl#minCount","objectKind":"literal","objectValue":"1","datatype":"http://www.w3.org/2001/XMLSchema#integer","summary":"Require one account","rationale":"Customers must have at least one account."},
+                  {"id":"borrower-class","sourceId":"simple","operation":"add","subject":"https://example.com/simple#Borrower","predicate":"http://www.w3.org/1999/02/22-rdf-syntax-ns#type","objectKind":"iri","objectValue":"http://www.w3.org/2002/07/owl#Class","summary":"Declare Borrower","rationale":"The request includes a Borrower class."},
+                  {"id":"borrower-loan-min-count","sourceId":"simple","operation":"add","subject":"https://example.com/simple#BorrowerLoanPropertyShape","predicate":"http://www.w3.org/ns/shacl#minCount","objectKind":"literal","objectValue":"1","datatype":"http://www.w3.org/2001/XMLSchema#integer","summary":"Require one loan","rationale":"Borrowers must have at least one loan."}
+                ]}
+            """.trimIndent())
+        }
+        if (input.userRequest == "duplicate-edits") {
+            return AiProposalGenerationResult.Completed("""
+                {"mode":"proposal","summary":"Duplicate edit proposal","edits":[
+                  {"id":"duplicate-one","sourceId":"simple","operation":"add","subject":"https://example.com/simple#Loan","predicate":"http://www.w3.org/1999/02/22-rdf-syntax-ns#type","objectKind":"iri","objectValue":"http://www.w3.org/2002/07/owl#Class","summary":"Create Loan class","rationale":"Create the requested class."},
+                  {"id":"duplicate-two","sourceId":"simple","operation":"add","subject":"https://example.com/simple#Loan","predicate":"http://www.w3.org/1999/02/22-rdf-syntax-ns#type","objectKind":"iri","objectValue":"http://www.w3.org/2002/07/owl#Class","summary":"Create Loan class again","rationale":"This duplicate should be removed."}
+                ]}
+            """.trimIndent())
+        }
+        if (input.userRequest == "noop" && input.validationFindings.isEmpty()) {
+            return AiProposalGenerationResult.Completed("""
+                {"mode":"proposal","summary":"No-op proposal","edits":[
+                  {"id":"noop-edit","sourceId":"simple","operation":"remove","subject":"https://example.com/simple#Missing","predicate":"http://www.w3.org/2000/01/rdf-schema#label","objectKind":"literal","objectValue":"Missing","summary":"Remove missing label","rationale":"This intentionally exercises no-op repair."}
+                ]}
+            """.trimIndent())
+        }
+        if (input.userRequest == "noop-unrepairable") {
+            return AiProposalGenerationResult.Completed("""
+                {"mode":"proposal","summary":"Unrepairable no-op proposal","edits":[
+                  {"id":"noop-edit","sourceId":"simple","operation":"remove","subject":"https://example.com/simple#Missing","predicate":"http://www.w3.org/2000/01/rdf-schema#label","objectKind":"literal","objectValue":"Missing","summary":"Remove missing label","rationale":"This intentionally remains invalid."}
+                ]}
+            """.trimIndent())
+        }
+        if (input.userRequest == "noop") {
+            return AiProposalGenerationResult.Completed("""
+                {"mode":"proposal","summary":"Repaired proposal","edits":[
+                  {"id":"loan-class","sourceId":"simple","operation":"add","subject":"https://example.com/simple#Loan","predicate":"http://www.w3.org/1999/02/22-rdf-syntax-ns#type","objectKind":"iri","objectValue":"http://www.w3.org/2002/07/owl#Class","summary":"Create Loan class","rationale":"The repaired edit changes the graph."}
                 ]}
             """.trimIndent())
         }

@@ -195,7 +195,9 @@ public class FiboWebService(
         )
         val intent = intent(request, element, selectedDependencies.dependencies)
         val targetOntologyIri = Iri(request.targetOntologyIri)
-        when (val translated = translator.translate(intent, targetOntologyIri)) {
+        val materializedElements = materializedElements(session, element, request.selectedDependencyIris.toSet())
+        val currentProject = project(projectId)
+        when (val translated = translator.translate(intent, targetOntologyIri, materializedElements, currentProject.graph)) {
             is com.entio.core.EntioResult.Failure -> throw WebWorkflowFailure("external-proposal-invalid", translated.message)
             is com.entio.core.EntioResult.Success -> Unit
         }
@@ -207,7 +209,27 @@ public class FiboWebService(
             summary = "${request.intentType}: ${elementLabel(element)}",
             userId = userId,
             idempotencyKey = request.idempotencyKey,
+            materializedElements = materializedElements,
+            existingGraph = currentProject.graph,
         )
+    }
+
+    private fun materializedElements(
+        session: ExternalFiboCatalogSession,
+        selected: ExternalCatalogElement,
+        selectedDependencyIris: Set<String>,
+    ): List<ExternalCatalogElement> {
+        val descriptor = selected.descriptor.descriptor
+        val dependencyIris = when (descriptor) {
+            is com.entio.core.OntologyEntityDescriptor.Class -> descriptor.directSuperclasses
+            is com.entio.core.OntologyEntityDescriptor.ObjectProperty -> descriptor.domains + descriptor.ranges
+            is com.entio.core.OntologyEntityDescriptor.DatatypeProperty -> descriptor.domains + descriptor.datatypeRanges
+            else -> emptyList()
+        }
+        return (listOf(selected) + dependencyIris
+            .filter { it.value in selectedDependencyIris }
+            .mapNotNull { session.find(it) })
+            .distinctBy { it.descriptor.descriptor.common.entity.value }
     }
 
     private fun intent(
@@ -272,7 +294,7 @@ public class FiboWebService(
         }
         return WebFiboElement(
             iri = common.entity.value,
-            label = common.preferredLabel?.lexicalForm ?: common.entity.value,
+            label = common.preferredLabel?.lexicalForm ?: readableExternalLabel(common.entity.value),
             kind = element.kind.name,
             moduleIri = element.descriptor.moduleIri.value,
             domain = element.descriptor.domain,
@@ -288,12 +310,25 @@ public class FiboWebService(
     }
 
     private fun ExternalDependency.toWebDependency(session: ExternalFiboCatalogSession): WebFiboDependency {
-        val label = externalIri?.let { iri -> session.find(iri)?.let(::elementLabel) }
+        val label = externalIri?.let { iri ->
+            session.find(iri)?.let(::elementLabel)
+                ?: session.catalog.modules.firstOrNull { it.ontologyIri == iri }?.label
+        }
         return WebFiboDependency(category.name, requirement.name, visibility.name, selection.name, reason, externalIri?.value, label)
     }
 
     private fun elementLabel(element: ExternalCatalogElement): String = element.descriptor.descriptor.common.preferredLabel?.lexicalForm
-        ?: element.descriptor.descriptor.common.entity.value
+        ?: readableExternalLabel(element.descriptor.descriptor.common.entity.value)
+
+    /** Keep catalog entries readable when the source omits an explicit label. */
+    private fun readableExternalLabel(iri: String): String {
+        val localName = iri.substringAfterLast('#', iri.substringAfterLast('/')).ifBlank { iri }
+        return localName
+            .replace(Regex("([a-z0-9])([A-Z])"), "$1 $2")
+            .replace(Regex("([A-Z]+)([A-Z][a-z])"), "$1 $2")
+            .replace('_', ' ')
+            .replace('-', ' ')
+    }
 
     private fun WebPageRequest.page(): Int = if (offset == 0) 0 else offset / limit
 

@@ -9,6 +9,7 @@ import {
   loadProjects,
   searchProject,
   loadStagedChanges,
+  loadProjectActivity,
   stageChange,
   discardStagedChange,
   previewStagedChanges,
@@ -17,6 +18,7 @@ import {
   applyProposal,
   cancelSemanticJob,
   loadSemanticJob,
+  loadSemanticJobDetails,
   submitSemanticJob,
   type WebSemanticJobRequest,
   type WebSemanticJobStatus,
@@ -60,6 +62,7 @@ export const queryKeys = {
   shaclShapes: (projectId: string) => ["project", projectId, "shacl", "shapes"] as const,
   search: (projectId: string, text: string) => ["project", projectId, "search", text] as const,
   staged: (projectId: string) => ["project", projectId, "staged"] as const,
+  activity: (projectId: string) => ["project", projectId, "activity"] as const,
   semanticJob: (projectId: string, jobId: string) => ["project", projectId, "semantic-job", jobId] as const,
   fiboModules: (projectId: string) => ["project", projectId, "fibo", "modules"] as const,
   fiboElements: (projectId: string, moduleIri: string) => ["project", projectId, "fibo", "elements", moduleIri] as const,
@@ -132,6 +135,15 @@ export function useStagedChanges(projectId: string) {
   return useQuery({ queryKey: queryKeys.staged(projectId), queryFn: () => loadStagedChanges(projectId), enabled: projectId.length > 0 });
 }
 
+export function useProjectActivity(projectId: string) {
+  return useQuery({
+    queryKey: queryKeys.activity(projectId),
+    queryFn: () => loadProjectActivity(projectId),
+    enabled: projectId.length > 0,
+    refetchInterval: 5_000,
+  });
+}
+
 export function useStagingActions(projectId: string) {
   const queryClient = useQueryClient();
   const refresh = (data: Awaited<ReturnType<typeof loadStagedChanges>>) => {
@@ -176,6 +188,18 @@ export function useSemanticJob(projectId: string, jobId: string | null) {
   });
 }
 
+export function useSemanticJobDetails(projectId: string, jobId: string | null) {
+  return useQuery({
+    queryKey: [...queryKeys.semanticJob(projectId, jobId ?? ""), "details"],
+    queryFn: () => loadSemanticJobDetails(projectId, jobId!),
+    enabled: projectId.length > 0 && Boolean(jobId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.job.status;
+      return status && ["Completed", "Failed", "Cancelled", "Incomplete", "Stale"].includes(status) ? false : 750;
+    },
+  });
+}
+
 export function useSemanticJobActions(projectId: string) {
   const queryClient = useQueryClient();
   const refresh = (status: WebSemanticJobStatus) => {
@@ -198,7 +222,9 @@ export function useFiboModules(projectId: string) {
 export function useFiboModuleElements(projectId: string, moduleIri: string | null) {
   return useQuery<{ moduleIri: string; page: WebPage<WebFiboElement> }>({
     queryKey: queryKeys.fiboElements(projectId, moduleIri ?? ""),
-    queryFn: () => loadFiboModuleElements(projectId, moduleIri!),
+    // Module cards advertise their full catalog size, so load the complete
+    // page rather than the compact 15-item default used by the API helper.
+    queryFn: () => loadFiboModuleElements(projectId, moduleIri!, { limit: 100 }),
     enabled: projectId.length > 0 && Boolean(moduleIri),
   });
 }

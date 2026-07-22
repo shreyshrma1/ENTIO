@@ -57,8 +57,8 @@ public class CollaborationHub(
         }
     }
 
-    public fun recentSharedActivity(projectId: String, limit: Int = 20): WebActivitySnapshot {
-        require(limit in 1..100) { "activity-limit-must-be-between-1-and-100" }
+    public fun recentSharedActivity(projectId: String, limit: Int = 1000): WebActivitySnapshot {
+        require(limit in 1..1000) { "activity-limit-must-be-between-1-and-1000" }
         projectRegistry.find(projectId) ?: throw WebWorkflowFailure("unknown-project", "The requested project is not registered.")
         val activity = rooms[projectId]?.let { room -> synchronized(room) { room.sharedActivity.toList() } }.orEmpty()
         return WebActivitySnapshot(
@@ -68,16 +68,18 @@ public class CollaborationHub(
         )
     }
 
-    public suspend fun stagedChange(projectId: String, stagedChangeId: String? = null, proposalId: String? = null): Unit = publishByProject(
+    public suspend fun stagedChange(projectId: String, stagedChangeId: String? = null, userId: String? = null, proposalId: String? = null): Unit = publishByProject(
         projectId,
         "staged-change.updated",
+        userId = userId,
         stagedChangeId = stagedChangeId,
         proposalId = proposalId,
     )
 
-    public suspend fun proposal(projectId: String, eventType: String, proposalId: String? = null): Unit = publishByProject(
+    public suspend fun proposal(projectId: String, eventType: String, proposalId: String? = null, userId: String? = null): Unit = publishByProject(
         projectId,
         eventType,
+        userId = userId,
         proposalId = proposalId,
     )
 
@@ -90,6 +92,7 @@ public class CollaborationHub(
     private suspend fun publishByProject(
         projectId: String,
         eventType: String,
+        userId: String? = null,
         stagedChangeId: String? = null,
         proposalId: String? = null,
         jobId: String? = null,
@@ -97,7 +100,7 @@ public class CollaborationHub(
     ): Unit {
         projectRegistry.find(projectId) ?: throw WebWorkflowFailure("unknown-project", "The requested project is not registered.")
         val room = rooms.getOrPut(projectId) { CollaborationRoom(projectId) }
-        publish(room, eventType, stagedChangeId = stagedChangeId, proposalId = proposalId, jobId = jobId, data = data)
+        publish(room, eventType, userId = userId, stagedChangeId = stagedChangeId, proposalId = proposalId, jobId = jobId, data = data)
     }
 
     private suspend fun handleClientEvent(room: CollaborationRoom, socket: WebSocketServerSession, userId: String, raw: String): Unit {
@@ -139,7 +142,6 @@ public class CollaborationHub(
         val sockets = synchronized(room) {
             if (event.isSharedWorkflowActivity()) {
                 room.sharedActivity += event
-                while (room.sharedActivity.size > MAX_SHARED_ACTIVITY) room.sharedActivity.removeFirst()
             }
             room.clients.keys.toList()
         }
@@ -194,13 +196,10 @@ public class CollaborationHub(
         socket.send(Frame.Text(objectMapper.writeValueAsString(event)))
     }
 
-    private fun WebCollaborationEvent.isSharedWorkflowActivity(): Boolean = userId == null && (
+    private fun WebCollaborationEvent.isSharedWorkflowActivity(): Boolean = (
         eventType.startsWith("staged-change.") ||
             eventType.startsWith("proposal.") ||
             eventType.startsWith("semantic-job.")
         )
 
-    private companion object {
-        const val MAX_SHARED_ACTIVITY: Int = 100
-    }
 }
