@@ -92,6 +92,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const [mapOpen, setMapOpen] = useState(() => searchParams.get("view") === "map");
   const [mapSeed, setMapSeed] = useState<WebEntityReference | undefined>();
   const [mapViewState, setMapViewState] = useState<OntologyMapViewState>({ selectedNodeId: null });
+  const [mapLoadedEntities, setMapLoadedEntities] = useState<Record<string, string>>({});
   const [activeModule, setActiveModule] = useState<ModuleId>(initialModule);
   const [railExpanded, setRailExpanded] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -134,6 +135,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
     setMapOpen(searchParams.get("view") === "map");
     setMapSeed(undefined);
     setMapViewState({ selectedNodeId: null });
+    setMapLoadedEntities({});
   }, [initialModule, projectId]);
 
   useEffect(() => {
@@ -175,6 +177,22 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   }, []);
 
   function openEntity(entity: WebEntityReference, section?: EntitySectionTarget) {
+    const supportedMapKind = ["Class", "ObjectProperty", "DatatypeProperty", "Individual"].includes(entity.kind ?? "");
+    if (mapActive && entity.sourceId === sourceId && supportedMapKind) {
+      const loadedId = mapLoadedEntities[`${entity.sourceId}\u0000${entity.iri}`];
+      if (loadedId) {
+        setMapViewState((current) => ({ ...current, selectedNodeId: loadedId }));
+        return;
+      }
+      if ((mapViewState.expanded || Boolean(mapViewState.positions)) && !window.confirm("Replace the temporary map with a view centered on this entity?")) return;
+      setMapSeed(entity);
+      setMapViewState({ selectedNodeId: null });
+      return;
+    }
+    openEntityDetails(entity, section);
+  }
+
+  function openEntityDetails(entity: WebEntityReference, section?: EntitySectionTarget) {
     setTabs((existing) => {
       const current = existing.find((tab) => tab.iri === entity.iri);
       if (!current) return [...existing, { ...entity, openedAt: Date.now(), requestedSection: section, sectionRequestId: section ? Date.now() : undefined }];
@@ -203,6 +221,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
     setMapOpen(false);
     setMapSeed(undefined);
     setMapViewState({ selectedNodeId: null });
+    setMapLoadedEntities({});
     navigate(activeTab ? `/projects/${encodeURIComponent(projectId)}?iri=${encodeURIComponent(activeTab.iri)}` : `/projects/${encodeURIComponent(projectId)}`);
   }
 
@@ -415,7 +434,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
               <span className="visually-hidden" role="status" aria-live="polite">{tabOrderMessage}</span>
             </> : null}
             <div className={`workspace-content ${activeModule === "explore" && activeIri && stagedIsPendingReview && stagedIris.has(activeIri) ? "workspace-content-staged" : ""}`} id="entity-workspace-panel" role="tabpanel" aria-label={activeModule === "explore" ? activeTab ? `${activeTab.label} details` : "Entity details" : `${module.label} workspace`} aria-live="polite">
-              {renderModule(activeModule, projectId, sourceId, shapesSourceId, activeTab, semanticJobIds, (kind, status) => setSemanticJobIds((current) => ({ ...current, [kind]: status.id })), mapActive && mapOpen && sourceId ? <OntologyMapShell projectId={projectId} sourceId={sourceId} seed={mapSeed} state={mapViewState} onStateChange={setMapViewState} onViewDetails={openEntity} /> : activeTab ? <EntityDetails projectId={projectId} iri={activeTab.iri} stagedEntity={stagedDetails.get(activeTab.iri)} stagedEntries={stagedIsPendingReview ? stagedEntries : []} directType={activeTab.directType} initialSection={activeTab.requestedSection} sectionRequestId={activeTab.sectionRequestId} onOpenEntity={openEntity} /> : <EmptyWorkspace onOpenMap={openMap} />, displayName, saveDisplayName, launchEditor)}
+              {renderModule(activeModule, projectId, sourceId, shapesSourceId, activeTab, semanticJobIds, (kind, status) => setSemanticJobIds((current) => ({ ...current, [kind]: status.id })), mapActive && mapOpen && sourceId ? <OntologyMapShell projectId={projectId} sourceId={sourceId} seed={mapSeed} state={mapViewState} onStateChange={setMapViewState} onViewDetails={openEntityDetails} onLoadedEntities={setMapLoadedEntities} /> : activeTab ? <EntityDetails projectId={projectId} iri={activeTab.iri} stagedEntity={stagedDetails.get(activeTab.iri)} stagedEntries={stagedIsPendingReview ? stagedEntries : []} directType={activeTab.directType} initialSection={activeTab.requestedSection} sectionRequestId={activeTab.sectionRequestId} onOpenEntity={openEntity} /> : <EmptyWorkspace onOpenMap={openMap} />, displayName, saveDisplayName, launchEditor)}
             </div>
             {activeModule !== "changes" ? <div className={`staged-dock ${stagedCount && stagedIsPendingReview ? "staged-dock-pending" : ""}`} aria-label="Shared staged changes"><div><span className="overline">Shared review queue</span><strong>{stagedCount ? `${stagedCount} change${stagedCount === 1 ? "" : "s"} staged` : "No staged changes"}</strong></div><span className="dock-meta">Review the complete proposal, then accept or reject it.</span><button type="button" onClick={() => openModule("changes")}>{stagedCount ? "Review proposal" : "Open proposal"}</button></div> : null}
           </div>
