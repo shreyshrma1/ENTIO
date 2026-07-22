@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, type PointerEvent } from "react";
 import type { OntologyGraphExpansionCategory, OntologyGraphEdgeKind, OntologyGraphNodeKind, WebOntologyGraphEdge, WebOntologyGraphNode } from "../../web/contracts";
 import type { WebEntityReference } from "../../web/projectApi";
 import { useOntologyGraph } from "../../web/queries";
@@ -19,6 +19,7 @@ export interface OntologyMapViewState extends RendererState {
   layoutMode?: "Hierarchy" | "Focus" | "FullMap";
   expandedClassIds?: string[];
   revealedIndividualIds?: string[];
+  popupPosition?: { x: number; y: number };
 }
 
 const LARGE_BRANCH_LIMIT = 6;
@@ -32,6 +33,9 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   onViewDetails: (entity: WebEntityReference) => void;
   onLoadedEntities?: (entities: Record<string, string>) => void;
 }) {
+  const shellRef = useRef<HTMLElement>(null);
+  const popupRef = useRef<HTMLElement>(null);
+  const popupDrag = useRef<{ pointerId: number; clientX: number; clientY: number; x: number; y: number } | null>(null);
   const graph = useOntologyGraph(projectId, { sourceIds: [sourceId], seed: seed?.sourceId ? { sourceId: seed.sourceId, entityIri: seed.iri } : undefined });
 
   useEffect(() => {
@@ -71,13 +75,33 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
     await graph.refetch();
     requestAnimationFrame(() => document.querySelector<HTMLElement>(".ontology-graph-viewport")?.focus());
   }
-  return <section className="ontology-map-shell" aria-label="Ontology map">
+  function startPopupDrag(event: PointerEvent<HTMLElement>) {
+    if ((event.target as HTMLElement).closest("button")) return;
+    const popup = popupRef.current;
+    const shell = shellRef.current;
+    if (!popup || !shell) return;
+    const popupBounds = popup.getBoundingClientRect();
+    const shellBounds = shell.getBoundingClientRect();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    popupDrag.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, x: popupBounds.left - shellBounds.left, y: popupBounds.top - shellBounds.top };
+  }
+  function movePopup(event: PointerEvent<HTMLElement>) {
+    const drag = popupDrag.current;
+    const popup = popupRef.current;
+    const shell = shellRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || !popup || !shell) return;
+    const x = Math.max(0, Math.min(shell.clientWidth - popup.offsetWidth, drag.x + event.clientX - drag.clientX));
+    const y = Math.max(0, Math.min(shell.clientHeight - popup.offsetHeight, drag.y + event.clientY - drag.clientY));
+    onStateChange({ ...state, popupPosition: { x, y } });
+  }
+  function stopPopupDrag() { popupDrag.current = null; }
+  return <section ref={shellRef} className="ontology-map-shell" aria-label="Ontology map">
     <header><span>Read-only ontology map</span><strong>{nodes.length} loaded entities</strong></header>
     <fieldset disabled={state.stale} className="ontology-map-actions"><legend className="visually-hidden">Current ontology map actions</legend><div className="ontology-layout-modes" role="group" aria-label="Map layout mode">{(["Hierarchy", "Focus", "FullMap"] as const).map((mode) => <button className={(state.layoutMode ?? "Hierarchy") === mode ? "active" : ""} key={mode} type="button" onClick={() => onStateChange({ ...state, layoutMode: mode })}>{mode === "FullMap" ? "Full map" : mode}</button>)}</div><details className="ontology-map-filters"><summary>Filters</summary><fieldset><legend>Local sources</legend><label><input type="checkbox" checked={state.sourceVisible !== false} onChange={() => onStateChange({ ...state, sourceVisible: state.sourceVisible === false })} />{sourceId}</label></fieldset><fieldset><legend>Node kinds</legend>{(["Class", "ObjectProperty", "DatatypeProperty", "Individual"] as OntologyGraphNodeKind[]).map((kind) => <label key={kind}><input type="checkbox" checked={kind === "Individual" ? Boolean(state.revealedIndividualIds?.length) : state.nodeKinds === undefined || state.nodeKinds.includes(kind)} onChange={() => { if (kind === "Individual") { onStateChange({ ...state, revealedIndividualIds: state.revealedIndividualIds?.length ? [] : nodes.filter((node) => node.kind === "Individual").map((node) => node.identity.id) }); return; } const current = state.nodeKinds ?? ["Class", "ObjectProperty", "DatatypeProperty"]; const next = current.includes(kind) ? current.filter((item) => item !== kind) : [...current, kind]; onStateChange({ ...state, nodeKinds: next }); }} />{kind}</label>)}</fieldset><fieldset><legend>Relationships</legend>{(["SubclassOf", "Domain", "Range", "Type", "ObjectAssertion"] as OntologyGraphEdgeKind[]).map((kind) => <label key={kind}><input type="checkbox" checked={state.edgeKinds === undefined || state.edgeKinds.includes(kind)} onChange={() => { const current = state.edgeKinds ?? ["SubclassOf", "Domain", "Range", "Type", "ObjectAssertion"]; const next = current.includes(kind) ? current.filter((item) => item !== kind) : [...current, kind]; onStateChange({ ...state, edgeKinds: next }); }} />{kind}</label>)}</fieldset><button type="button" onClick={() => onStateChange({ ...state, sourceVisible: undefined, nodeKinds: undefined, edgeKinds: undefined, revealedIndividualIds: [] })}>Clear filters</button></details></fieldset>
     <OntologyGraphRenderer nodes={visibleNodes} edges={visibleEdges} state={state} childCounts={childCounts} dimmedNodeIds={dimmedNodeIds} dimmedEdgeIds={dimmedEdgeIds} onStateChange={onStateChange} onViewDetails={(node) => onViewDetails({ iri: node.identity.entityIri, label: node.label, kind: node.kind, sourceId: node.identity.sourceId })} />
-    {selected ? <aside className="ontology-node-popup" role="dialog" aria-label={`${selected.label} map summary`}>
+    {selected ? <aside ref={popupRef} className="ontology-node-popup" role="dialog" aria-label={`${selected.label} map summary`} style={state.popupPosition ? { left: state.popupPosition.x, top: state.popupPosition.y, right: "auto" } : undefined}>
       <button className="ontology-node-popup-close" type="button" aria-label="Close entity summary" onClick={() => onStateChange({ ...state, selectedNodeId: null })}>×</button>
-      <header><h3>{selected.label}</h3><p>{selected.kind} · Asserted</p></header>
+      <header className="ontology-node-popup-drag-handle" onPointerDown={startPopupDrag} onPointerMove={movePopup} onPointerUp={stopPopupDrag} onPointerCancel={stopPopupDrag}><h3>{selected.label}</h3><p>{selected.kind} · Asserted</p></header>
       {selected.definitionExcerpt ? <p className="ontology-node-popup-definition">{selected.definitionExcerpt}</p> : null}
       <section className="ontology-node-popup-details" aria-labelledby="ontology-node-popup-details-title">
         <h4 id="ontology-node-popup-details-title">Details</h4>

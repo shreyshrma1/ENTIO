@@ -19,7 +19,7 @@ Entio therefore owns a small deterministic hierarchy-layout helper and React/SVG
 - `Hierarchy`, `Focus`, and `Full map` modes reuse the same bounded server graph without assigning new semantic meaning.
 - Large branches show child counts and remain collapsed after the first bounded group. Temporary positions remain stable as the bounded map changes.
 - Cross-branch relationships use curved, lower-emphasis paths; selection highlights the asserted neighborhood and subdues unrelated nodes and edges.
-- The map summary pop-up is intentionally limited to identity, provenance, an optional definition, three compact relationship counts, and a handoff to the full entity details view.
+- The compact, draggable map summary is intentionally limited to identity, provenance, an optional definition, three relationship counts, and a handoff to the full entity details view. Its constrained position is temporary map-tab state.
 - Accessible HTML buttons inside SVG `foreignObject` nodes provide distinct class, object-property, datatype-property, and individual marks and styling.
 - Every directed SVG edge renders its server-provided label and updates from current endpoint positions during drag.
 - Movement below four CSS pixels remains a click; movement at or above the threshold drags.

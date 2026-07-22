@@ -54,6 +54,13 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await expect(popup.getByRole("button", { name: /edit/i })).toHaveCount(0);
   await expect(popup.getByRole("button")).toHaveCount(2);
   await expect(popup).toHaveScreenshot("ontology-map-popup.png");
+  const popupBeforeDrag = await popup.boundingBox();
+  const popupHandle = await popup.locator("header").boundingBox();
+  await page.mouse.move(popupHandle!.x + 20, popupHandle!.y + 12);
+  await page.mouse.down();
+  await page.mouse.move(popupHandle!.x - 60, popupHandle!.y + 52, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => (await popup.boundingBox())?.x).toBeLessThan(popupBeforeDrag!.x);
   await node.focus();
   await page.keyboard.press("ArrowDown");
   await expect(page.locator(".ontology-node:focus")).not.toHaveAttribute("id", "ontology-node-n0");
