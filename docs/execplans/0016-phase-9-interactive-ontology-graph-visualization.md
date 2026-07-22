@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved for implementation.
+Complete. All ordered slices, completion artifacts, acceptance gates, and full-phase verification passed.
 
 Implementation must proceed one slice at a time in the exact dependency order below.
 
@@ -792,7 +792,12 @@ git diff --check
 git status --short
 ```
 
-The performance harness command must be added to this section once Slice 8 chooses its exact checked-in entry point; absence of a reproducible command blocks completion.
+The checked-in production-browser performance harness is:
+
+```bash
+cd web-app
+npx playwright test --config playwright.performance.config.ts e2e/ontology-map.spec.ts
+```
 
 ## Rollback Notes
 
@@ -818,7 +823,7 @@ The performance harness command must be added to this section once Slice 8 choos
 
 ## Boundary Check
 
-- Current phase: Phase 9 has been explicitly requested for specification and planning, but remains unimplemented until approval and verification.
+- Current phase: Phase 9 is implemented and verified; its completion evidence is recorded in `docs/phase-summaries/phase-9-summary.md`.
 - Non-goals: the plan excludes graph editing, AI grouping, inferred visualization, external catalogs, durable layouts, graph export, new storage, arbitrary query, CLI/VS Code work, and production identity infrastructure.
 - Speculative infrastructure: it adds no module, database, persistence, collaboration protocol, semantic job type, new server framework, or frontend graph framework.
 - Module responsibility: `core-types` holds neutral contracts; `semantic-engine` owns RDF/ontology interpretation; `web-server` owns scoped read adaptation; `web-app` owns drawing and temporary interaction. `shared` remains unchanged.
