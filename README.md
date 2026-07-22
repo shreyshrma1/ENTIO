@@ -18,13 +18,15 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository contains the completed Phase 1 Kotlin/JVM Core Semantic Engine through the Phase 8 planning and implementation records. Native AI execution is not part of the current product surface; the remaining provider boundary is limited to credential entry, model discovery, and model selection.
+This repository contains the completed Phase 1 Kotlin/JVM Core Semantic Engine through the Phase 8 historical planning and implementation records. Phase 9, Interactive Ontology Graph Visualization, is the current active phase and has approved scope, specification, and ExecPlan documents. Phase 9 implementation has not yet been completed.
+
+Native AI execution is not part of the current product surface; the remaining provider boundary is limited to credential entry, model discovery, and model selection.
 
 Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because the core work is ontology loading, RDF/Turtle parsing, deterministic validation, semantic diffing, and CLI behavior.
 
 The current implementation supports small local Entio projects, Turtle/RDF parsing through Apache Jena, RDF-term-aware graph triples, deterministic validation reports, semantic graph diffs, reusable project loading, and a thin CLI.
 
-Phases 2 through 8 are preserved as historical delivery records. The current workbench preserves the Kotlin semantic engine as the authority for RDF and ontology behavior and exposes only optional provider credential and model settings from the former AI surface.
+Phases 2 through 8 are preserved as historical delivery records. The current workbench preserves the Kotlin semantic engine as the authority for RDF and ontology behavior and exposes only optional provider credential and model settings from the former AI surface. Phase 9 plans an additive, read-only ontology map inside Explore without changing the currently implemented behavior until its approved slices are delivered and verified.
 
 ## Workspace Structure
 
@@ -42,9 +44,9 @@ The repository contains the Kotlin/Gradle semantic workspace, a Ktor web adapter
 
 The VS Code extension consumes the Kotlin/JVM core engine through the machine-readable CLI boundary. The React web application consumes versioned Ktor HTTP and WebSocket contracts. Neither client duplicates RDF or semantic policy.
 
-## Current Capabilities
+## Current Implemented Capabilities
 
-The Phase 1 through Phase 6 implementation currently supports:
+The current implementation supports:
 
 - Loading an Entio project configuration.
 - Loading a project through a reusable `ProjectLoader`.
@@ -215,9 +217,22 @@ Phase 2 should not include:
 - OWL reasoning or full SHACL validation.
 - Schema RAG, embeddings, external ontology retrieval, and AI-generated ontology edits.
 
-## Current Planning Boundary
+## Current Phase
 
-Phases 7, 7.5, and 8 remain available as historical planning and implementation records in the documentation. Their native AI execution surfaces have been removed from the current product; only provider credential and model selection settings remain active.
+Phase 9 is the current active phase. Its approved scope is a bounded, read-only interactive ontology map integrated into the existing Explore workspace.
+
+Phase 9 must:
+
+- reuse the existing Explore outline and entity-detail navigation;
+- source supported local entities and asserted relationships from Kotlin-owned semantic services;
+- expose bounded, fingerprint-aware read contracts through Ktor;
+- keep layout, viewport, filters, and selection as temporary React state;
+- preserve all existing editing, proposal, validation, reasoning, SHACL, FIBO, collaboration, CLI, VS Code, and provider-setting behavior;
+- complete the mandatory frontend feasibility gate before implementation slices proceed.
+
+Phase 9 is planned and approved for implementation, but it is not yet an implemented capability. The repository must not claim completion until the ExecPlan's tests, accessibility checks, performance gates, regression verification, ADR, and Phase 9 summary are complete.
+
+Phases 7, 7.5, and 8 remain available as historical planning and implementation records. Their native AI execution surfaces have been removed from the current product; only provider credential and model selection settings remain active.
 
 ## Technical Principle
 
@@ -240,6 +255,7 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 7 Scope](docs/architecture/phase-7-scope.md)
 - [Phase 7.5 Scope](docs/architecture/phase-7.5-scope.md)
 - [Phase 8 Scope](docs/architecture/phase-8-scope.md)
+- [Phase 9 Scope](docs/architecture/phase-9-scope.md)
 - [Technical Approach](docs/architecture/002-technical-approach.md)
 - [Kotlin Engine Guidelines](docs/architecture/003-kotlin-engine-guidelines.md)
 - [Phase 1.5 Spec](docs/specs/0002-phase-1.5-core-semantic-engine-stabilization.md)
@@ -266,3 +282,5 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 8 Spec](docs/specs/0014-phase-8-scalable-ai-ontology-workflow-orchestration.md)
 - [Phase 8 ExecPlan](docs/execplans/0014-phase-8-scalable-ai-ontology-workflow-orchestration.md)
 - [Phase 8 Implementation Summary](docs/phase-summaries/phase-8-summary.md)
+- [Phase 9 Spec](docs/specs/0016-phase-9-interactive-ontology-graph-visualization.md)
+- [Phase 9 ExecPlan](docs/execplans/0016-phase-9-interactive-ontology-graph-visualization.md)

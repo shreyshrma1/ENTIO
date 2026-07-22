@@ -1,10 +1,10 @@
 # Agent Guidance For Entio
 
-This repository now contains the completed Phase 1 Kotlin/JVM Core Semantic Engine foundation, Phase 1.5 stabilization, Phase 2 controlled editing, Phase 2.5 and Phase 2.5+ workbench completion, Phase 3 semantic description layer, Phase 4 reasoning and SHACL foundation, Phase 5 external ontology catalog, and Phase 6 collaborative web workbench and native AI foundation. Earlier planning documents remain for history; the repository is no longer documentation-only.
+This repository contains the implemented Entio foundation through Phase 7.5, with Phase 8 retained as a historical delivery record and Phase 9 now active for interactive ontology graph visualization. Earlier planning documents remain for history; the repository is no longer documentation-only.
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
-Phases 1 through 8 are preserved as historical delivery records. Native AI execution has been removed from the current product surface; only provider credential entry, model discovery, model selection, and their surrounding settings UI remain. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
+Phases 1 through 8 are preserved as historical delivery records. Phase 9 is the current active phase and has approved scope, specification, and ExecPlan documents for interactive ontology graph visualization; it is not implemented until its ordered slices are completed and verified. Native AI execution has been removed from the current product surface; only provider credential entry, model discovery, model selection, and their surrounding settings UI remain. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
 
 ## Product Context
 
@@ -129,9 +129,17 @@ Do not add the following in Phase 2 unless the project direction changes explici
 
 Phase 6 is complete and summarized in `docs/phase-summaries/phase-6-summary.md`.
 
-Phase 7 and Phase 7.5 are complete and summarized in `docs/phase-summaries/phase-7-summary.md` and `docs/phase-summaries/phase-7.5-summary.md`. Later planning documents must not be treated as implemented until their approved slices are completed and verified.
+Phase 7 and Phase 7.5 are complete and summarized in `docs/phase-summaries/phase-7-summary.md` and `docs/phase-summaries/phase-7.5-summary.md`.
 
-Phase 8 remains documented as a historical delivery record in `docs/phase-summaries/phase-8-summary.md`. Its native AI execution surfaces are not active in the current product. Do not infer a later active phase without approved planning documents.
+Phase 8 remains documented as a historical delivery record in `docs/phase-summaries/phase-8-summary.md`. Its native AI execution surfaces are not active in the current product.
+
+Phase 9 is the current active implementation phase. Its approved planning documents are:
+
+- `docs/architecture/phase-9-scope.md`
+- `docs/specs/0016-phase-9-interactive-ontology-graph-visualization.md`
+- `docs/execplans/0016-phase-9-interactive-ontology-graph-visualization.md`
+
+Phase 9 adds a bounded, read-only interactive ontology map to the existing Explore experience. It must preserve Kotlin ownership of ontology semantics, Ktor ownership of scoped read contracts, and React ownership of temporary visualization state. Implementation must follow the approved ExecPlan one slice at a time, beginning with the mandatory Slice 0 feasibility gate. Do not describe Phase 9 behavior as implemented until all required slices, tests, performance gates, and final documentation are complete.
 
 ## Software Architecture Rules
 
