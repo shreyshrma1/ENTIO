@@ -23,16 +23,27 @@ class CliExampleProjectTest {
         assertEquals(0, symbols.exitCode)
         assertEquals(
             """
+                Shape https://example.com/entio/shapes#BorrowerLoanShape [shapes]
+                Shape https://example.com/entio/shapes#CustomerNodeShape [shapes]
                 Individual https://example.com/entio/simple#20874 "Invoice 20874" [simple]
                 Class https://example.com/entio/simple#Account "Account" [simple]
                 Individual https://example.com/entio/simple#Account101 "Account 101" [simple]
                 Class https://example.com/entio/simple#Checking "Checking Account" [simple]
-                Class https://example.com/entio/simple#Customer "Customer" [simple]
-                Shape https://example.com/entio/simple#CustomerShape "Minimum Accounts" [shapes]
+                Property https://example.com/entio/simple#InterestRate [simple]
                 Class https://example.com/entio/simple#Invoice "Invoice" [simple]
+                Class https://example.com/entio/simple#Loan "Loan" [simple]
+                Individual https://example.com/entio/simple#Loan123 "Loan 123" [simple]
+                Property https://example.com/entio/simple#LoanAmount [simple]
                 Individual https://example.com/entio/simple#Shrey "Shrey" [simple]
                 Property https://example.com/entio/simple#dateOpened "date opened" [simple]
+                Property https://example.com/entio/simple#hasLoan [simple]
                 Property https://example.com/entio/simple#ownsAccount "owns account" [simple]
+                Class https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/Borrower "Borrower" [simple]
+                Class https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement "Agreement" [simple]
+                Class https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Beneficiary "Beneficiary" [simple]
+                Property https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/isBeneficiaryOf "is beneficiary of" [simple]
+                Class https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/Customer "Customer" [simple]
+                Class https://www.omg.org/spec/Commons/PartiesAndSituations/Situation "Situation" [simple]
             """.trimIndent() + "\n",
             symbols.out,
         )

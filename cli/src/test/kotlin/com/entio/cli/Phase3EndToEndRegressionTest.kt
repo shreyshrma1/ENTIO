@@ -160,7 +160,8 @@ class Phase3EndToEndRegressionTest {
     private data class CliRun(val exitCode: Int, val out: String, val err: String)
 
     private companion object {
-        private const val CUSTOMER_IRI = "https://example.com/entio/simple#Customer"
+        private const val CUSTOMER_IRI =
+            "https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/Customer"
         private const val NOTE_IRI = "https://example.com/entio/simple#note"
         private const val XSD_STRING = "http://www.w3.org/2001/XMLSchema#string"
     }

@@ -114,10 +114,11 @@ class Phase4EndToEndRegressionTest {
         projectRoot.resolve("ontology/shapes.ttl").writeText(
             """
             @prefix ex: <https://example.com/entio/simple#> .
+            @prefix fibo-ps: <https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/> .
             @prefix sh: <http://www.w3.org/ns/shacl#> .
 
             ex:CustomerShape a sh:NodeShape ;
-                sh:targetClass ex:Customer ;
+                sh:targetClass fibo-ps:Customer ;
                 sh:property ex:CustomerCodePropertyShape .
             ex:CustomerCodePropertyShape sh:path ex:customerCode ;
                 sh:minCount 1 .
@@ -130,11 +131,12 @@ class Phase4EndToEndRegressionTest {
             ontologyPath.readText() + """
 
             @prefix ex: <https://example.com/entio/simple#> .
+            @prefix fibo-ps: <https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/> .
             @prefix owl: <http://www.w3.org/2002/07/owl#> .
             @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
             ex:BusinessParty a owl:Class .
-            ex:Customer rdfs:subClassOf ex:BusinessParty .
+            fibo-ps:Customer rdfs:subClassOf ex:BusinessParty .
             """.trimIndent() + "\n",
         )
     }

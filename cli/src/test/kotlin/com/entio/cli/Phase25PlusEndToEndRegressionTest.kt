@@ -111,7 +111,7 @@ class Phase25PlusEndToEndRegressionTest {
             "generate-iri",
             fixture.projectRoot.toString(),
             "--label",
-            "Customer",
+            "Loan",
             "--kind",
             "Class",
         )
