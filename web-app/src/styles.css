@@ -980,12 +980,15 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-edge path { fill: none; stroke: #8092b8; stroke-width: 1.7; }
 .ontology-edge.edge-Domain path, .ontology-edge.edge-Range path, .ontology-edge.edge-ObjectAssertion path { stroke: #8b5cc7; }
 .ontology-edge.edge-Type path { stroke: #8092b8; }
+.ontology-edge.cross-link { opacity: .38; }
+.ontology-edge.dimmed { opacity: .12; }
 .ontology-edge text { fill: #677289; font-size: 11px; font-weight: 650; text-anchor: middle; paint-order: stroke; stroke: #f8f9fc; stroke-width: 4px; stroke-linejoin: round; }
 .ontology-edge marker path { fill: #8092b8; stroke: none; }
 .ontology-node { width: 100%; height: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 9px; border: 1.5px solid #8bb5ff; border-radius: 11px; background: #fff; color: #28354c; padding: 11px 12px; text-align: left; cursor: grab; box-shadow: 0 4px 8px rgb(48 59 90 / 8%); }
 .ontology-node:active { cursor: grabbing; }
 .ontology-node > span { display: grid; place-items: center; min-width: 22px; min-height: 22px; border-radius: 5px; background: #5f87ea; color: #fff; font-size: 9px; font-weight: 800; }
 .ontology-node strong { min-width: 0; padding-top: 3px; overflow: hidden; font-size: 13px; font-weight: 800; line-height: 1.25; text-overflow: ellipsis; }
+.ontology-node strong small { display: block; margin-top: 4px; color: #768197; font-size: 9px; font-weight: 650; }
 .ontology-node.node-ObjectProperty { border-color: #c7a7ef; background: #fbf8ff; }
 .ontology-node.node-ObjectProperty > span { background: #8b5cc7; }
 .ontology-node.node-DatatypeProperty { border-color: #8fd8b7; border-style: dashed; background: #f7fffb; }
@@ -994,6 +997,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-node.node-Individual > span { background: #d99535; }
 .ontology-node.selected { border-color: #316de8; border-width: 2.5px; box-shadow: none; }
 .ontology-node:focus-visible { outline: 3px solid rgb(49 109 232 / 35%); outline-offset: 2px; }
+.ontology-node.dimmed { opacity: .24; }
+.ontology-layout-modes { display: flex; gap: 5px; margin: 6px 0 8px; }
+.ontology-layout-modes button.active { border-color: var(--primary-500); background: var(--primary-50); color: var(--primary-700); }
 .ontology-loaded-list ul { max-height: 160px; overflow: auto; columns: 2; }
 .ontology-loaded-list button { border: 0; background: transparent; color: inherit; text-align: left; }
 .ontology-map-filters fieldset { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 8px 0; border: 1px solid var(--border-subtle); }

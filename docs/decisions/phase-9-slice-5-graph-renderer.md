@@ -8,11 +8,16 @@ Complete.
 
 Slice 0 approved a focused React/SVG renderer rather than a graph dependency. Phase 9 needs bounded read-only rendering, native two-axis reachability across zoom levels, accessible nodes, and temporary client layout without moving semantic meaning into React.
 
-Entio therefore owns a small deterministic layered-layout helper and React/SVG renderer under `workbench/ontology-map`. Kotlin still owns node and edge meaning. React owns only coordinates, selection, focus, zoom, scroll, pan, and temporary drag positions.
+Entio therefore owns a small deterministic hierarchy-layout helper and React/SVG renderer under `workbench/ontology-map`. Kotlin still owns node and edge meaning. React owns only coordinates, selection, focus, visibility, zoom, scroll, pan, and temporary drag positions.
 
 ## Delivered behavior
 
-- Stable label/ID tie-breaking produces a deterministic left-to-right layered layout.
+- Asserted subclass edges produce the primary left-to-right class tree; non-hierarchy relationships never control class placement.
+- Siblings are ordered deterministically by subclass, connected-property, typed-individual, and relationship counts, followed by label and IRI.
+- Object and datatype properties are anchored below their asserted domain class, while individuals remain hidden until explicitly revealed.
+- `Hierarchy`, `Focus`, and `Full map` modes reuse the same bounded server graph without assigning new semantic meaning.
+- Large branches show child counts and remain collapsed after the first bounded group until explicitly expanded. Newly loaded nodes are inserted near an asserted parent without moving existing positions.
+- Cross-branch relationships use curved, lower-emphasis paths; selection highlights the asserted neighborhood and subdues unrelated nodes and edges.
 - Accessible HTML buttons inside SVG `foreignObject` nodes provide distinct class, object-property, datatype-property, and individual marks and styling.
 - Every directed SVG edge renders its server-provided label and updates from current endpoint positions during drag.
 - Movement below four CSS pixels remains a click; movement at or above the threshold drags.

@@ -13,93 +13,103 @@ export function layeredGraphLayout(nodes: WebOntologyGraphNode[], edges: WebOnto
   const ordered = [...nodes].sort((a, b) => a.label.localeCompare(b.label) || a.identity.id.localeCompare(b.identity.id));
   const ids = new Set(ordered.map((node) => node.identity.id));
   const graphEdges = edges.filter((edge) => ids.has(edge.sourceNodeId) && ids.has(edge.targetNodeId));
-  // Assertions may be cyclic by design. They influence row proximity but not the structural columns.
-  const rankEdges = graphEdges.filter((edge) => edge.kind !== "ObjectAssertion");
-  const components = stronglyConnectedComponents(ordered.map((node) => node.identity.id), rankEdges);
-  const componentByNode = new Map(components.flatMap((component, index) => component.map((id) => [id, index] as const)));
-  const outgoing = new Map(components.map((_, index) => [index, new Set<number>()]));
-  const indegree = new Map(components.map((_, index) => [index, 0]));
-  rankEdges.forEach((edge) => {
-    const from = componentByNode.get(edge.sourceNodeId)!;
-    const to = componentByNode.get(edge.targetNodeId)!;
-    if (from === to || outgoing.get(from)!.has(to)) return;
-    outgoing.get(from)!.add(to);
-    indegree.set(to, indegree.get(to)! + 1);
+  const classes = ordered.filter((node) => node.kind === "Class");
+  const classIds = new Set(classes.map((node) => node.identity.id));
+  const facts = classOrderingFacts(classes, graphEdges);
+  const compare = (a: WebOntologyGraphNode, b: WebOntologyGraphNode) => compareClasses(a, b, facts);
+  const parents = new Map(classes.map((node) => [node.identity.id, [] as string[]]));
+  graphEdges.filter((edge) => edge.kind === "SubclassOf" && classIds.has(edge.sourceNodeId) && classIds.has(edge.targetNodeId)).forEach((edge) => parents.get(edge.sourceNodeId)!.push(edge.targetNodeId));
+  const byId = new Map(ordered.map((node) => [node.identity.id, node]));
+  const primaryParent = new Map<string, string>();
+  parents.forEach((items, child) => {
+    const selected = items.map((id) => byId.get(id)!).sort(compare)[0];
+    if (selected) primaryParent.set(child, selected.identity.id);
   });
-  const componentRank = new Map(components.map((_, index) => [index, 0]));
-  const queue = [...components.keys()].filter((index) => indegree.get(index) === 0).sort((a, b) => componentName(components[a], ordered).localeCompare(componentName(components[b], ordered)));
-  while (queue.length) {
-    const current = queue.shift()!;
-    [...outgoing.get(current)!].sort((a, b) => a - b).forEach((next) => {
-      componentRank.set(next, Math.max(componentRank.get(next)!, componentRank.get(current)! + 1));
-      indegree.set(next, indegree.get(next)! - 1);
-      if (indegree.get(next) === 0) queue.push(next);
-    });
+  const children = new Map(classes.map((node) => [node.identity.id, [] as WebOntologyGraphNode[]]));
+  primaryParent.forEach((parent, child) => children.get(parent)?.push(byId.get(child)!));
+  children.forEach((items) => items.sort(compare));
+  const roots = classes.filter((node) => !primaryParent.has(node.identity.id)).sort(compare);
+  const positions: Record<string, GraphPoint> = {};
+  const placed = new Set<string>();
+  let nextRow = 0;
+  function placeClass(node: WebOntologyGraphNode, depth: number): number {
+    if (placed.has(node.identity.id)) return positions[node.identity.id]?.y ?? WORLD_PADDING + nextRow * (NODE_HEIGHT + ROW_GAP);
+    placed.add(node.identity.id);
+    const branch = children.get(node.identity.id)!.filter((child) => !placed.has(child.identity.id));
+    const childRows = branch.map((child) => placeClass(child, depth + 1));
+    const y = childRows.length ? (childRows[0] + childRows[childRows.length - 1]) / 2 : WORLD_PADDING + nextRow++ * (NODE_HEIGHT + ROW_GAP);
+    positions[node.identity.id] = { x: WORLD_PADDING + depth * (NODE_WIDTH + LAYER_GAP), y };
+    return y;
   }
-  const connected = new Set(rankEdges.flatMap((edge) => [edge.sourceNodeId, edge.targetNodeId]));
-  const maxConnectedRank = Math.max(0, ...ordered.filter((node) => connected.has(node.identity.id)).map((node) => componentRank.get(componentByNode.get(node.identity.id)!)!));
-  const layers = new Map<number, typeof ordered>();
-  ordered.forEach((node) => {
-    const rank = connected.has(node.identity.id) ? componentRank.get(componentByNode.get(node.identity.id)!)! : maxConnectedRank;
-    layers.set(rank, [...(layers.get(rank) ?? []), node]);
+  roots.forEach((root) => { placeClass(root, 0); nextRow += 1; });
+  classes.filter((node) => !placed.has(node.identity.id)).sort(compare).forEach((node) => { placeClass(node, 0); nextRow += 1; });
+
+  const occupiedByLane = new Map<number, number[]>();
+  classes.forEach((node) => {
+    const point = positions[node.identity.id];
+    occupiedByLane.set(point.x, [...(occupiedByLane.get(point.x) ?? []), point.y]);
   });
-  const ranks = [...layers.keys()].sort((a, b) => a - b);
-  for (let pass = 0; pass < 4; pass += 1) {
-    reorderLayers(ranks, layers, graphEdges, "forward");
-    reorderLayers([...ranks].reverse(), layers, graphEdges, "backward");
-  }
-  return Object.fromEntries(ranks.flatMap((rank) => layers.get(rank)!.map((node, row) => [node.identity.id, {
-    x: WORLD_PADDING + rank * (NODE_WIDTH + LAYER_GAP),
-    y: WORLD_PADDING + row * (NODE_HEIGHT + ROW_GAP),
-  }] as const)));
-}
-
-function stronglyConnectedComponents(nodeIds: string[], edges: WebOntologyGraphEdge[]): string[][] {
-  const adjacency = new Map(nodeIds.map((id) => [id, [] as string[]]));
-  edges.forEach((edge) => adjacency.get(edge.sourceNodeId)?.push(edge.targetNodeId));
-  adjacency.forEach((targets) => targets.sort());
-  let nextIndex = 0;
-  const stack: string[] = [];
-  const onStack = new Set<string>();
-  const index = new Map<string, number>();
-  const low = new Map<string, number>();
-  const components: string[][] = [];
-  function visit(id: string) {
-    index.set(id, nextIndex); low.set(id, nextIndex); nextIndex += 1; stack.push(id); onStack.add(id);
-    adjacency.get(id)!.forEach((target) => {
-      if (!index.has(target)) { visit(target); low.set(id, Math.min(low.get(id)!, low.get(target)!)); }
-      else if (onStack.has(target)) low.set(id, Math.min(low.get(id)!, index.get(target)!));
-    });
-    if (low.get(id) !== index.get(id)) return;
-    const component: string[] = [];
-    let member: string;
-    do { member = stack.pop()!; onStack.delete(member); component.push(member); } while (member !== id);
-    components.push(component.sort());
-  }
-  nodeIds.forEach((id) => { if (!index.has(id)) visit(id); });
-  return components;
-}
-
-function componentName(component: string[], nodes: WebOntologyGraphNode[]): string {
-  const labels = new Map(nodes.map((node) => [node.identity.id, node.label]));
-  return component.map((id) => labels.get(id) ?? id).sort()[0];
-}
-
-function reorderLayers(ranks: number[], layers: Map<number, WebOntologyGraphNode[]>, edges: WebOntologyGraphEdge[], direction: "forward" | "backward") {
-  const rowById = () => new Map([...layers.values()].flatMap((layer) => layer.map((node, row) => [node.identity.id, row] as const)));
-  ranks.forEach((rank) => {
-    const rows = rowById();
-    layers.get(rank)!.sort((a, b) => {
-      const aMean = neighborMean(a.identity.id, edges, rows, direction);
-      const bMean = neighborMean(b.identity.id, edges, rows, direction);
-      return aMean - bMean || a.label.localeCompare(b.label) || a.identity.id.localeCompare(b.identity.id);
-    });
+  ordered.filter((node) => node.kind !== "Class").forEach((node) => {
+    const anchorEdge = graphEdges.find((edge) => edge.sourceNodeId === node.identity.id && ((node.kind === "Individual" && edge.kind === "Type") || (node.kind !== "Individual" && edge.kind === "Domain")));
+    const anchor = anchorEdge ? positions[anchorEdge.targetNodeId] : undefined;
+    const x = anchor?.x ?? WORLD_PADDING;
+    const desiredY = anchor ? anchor.y + NODE_HEIGHT + 16 : WORLD_PADDING + nextRow++ * (NODE_HEIGHT + ROW_GAP);
+    const lane = occupiedByLane.get(x) ?? [];
+    let y = desiredY;
+    while (lane.some((taken) => Math.abs(taken - y) < NODE_HEIGHT + 16)) y += NODE_HEIGHT + 16;
+    lane.push(y); occupiedByLane.set(x, lane); positions[node.identity.id] = { x, y };
   });
+  return positions;
 }
 
-function neighborMean(id: string, edges: WebOntologyGraphEdge[], rows: Map<string, number>, direction: "forward" | "backward"): number {
-  const neighbors = edges.flatMap((edge) => direction === "forward" && edge.targetNodeId === id ? [edge.sourceNodeId] : direction === "backward" && edge.sourceNodeId === id ? [edge.targetNodeId] : []);
-  return neighbors.length ? neighbors.reduce((sum, neighbor) => sum + (rows.get(neighbor) ?? 0), 0) / neighbors.length : Number.MAX_SAFE_INTEGER;
+interface ClassFacts { subclasses: number; properties: number; individuals: number; relationships: number }
+
+function classOrderingFacts(classes: WebOntologyGraphNode[], edges: WebOntologyGraphEdge[]): Map<string, ClassFacts> {
+  const facts = new Map(classes.map((node) => [node.identity.id, { subclasses: 0, properties: 0, individuals: 0, relationships: 0 }]));
+  edges.forEach((edge) => {
+    if (edge.kind === "SubclassOf" && facts.has(edge.targetNodeId)) facts.get(edge.targetNodeId)!.subclasses += 1;
+    if ((edge.kind === "Domain" || edge.kind === "Range") && facts.has(edge.targetNodeId)) facts.get(edge.targetNodeId)!.properties += 1;
+    if (edge.kind === "Type" && facts.has(edge.targetNodeId)) facts.get(edge.targetNodeId)!.individuals += 1;
+    if (facts.has(edge.sourceNodeId)) facts.get(edge.sourceNodeId)!.relationships += 1;
+    if (facts.has(edge.targetNodeId)) facts.get(edge.targetNodeId)!.relationships += 1;
+  });
+  return facts;
+}
+
+function compareClasses(a: WebOntologyGraphNode, b: WebOntologyGraphNode, facts: Map<string, ClassFacts>): number {
+  const left = facts.get(a.identity.id)!;
+  const right = facts.get(b.identity.id)!;
+  return right.subclasses - left.subclasses || right.properties - left.properties || right.individuals - left.individuals || right.relationships - left.relationships || a.label.localeCompare(b.label) || a.identity.entityIri.localeCompare(b.identity.entityIri);
+}
+
+export function classChildCounts(nodes: WebOntologyGraphNode[], edges: WebOntologyGraphEdge[]): Record<string, number> {
+  const classIds = new Set(nodes.filter((node) => node.kind === "Class").map((node) => node.identity.id));
+  const counts: Record<string, number> = {};
+  classIds.forEach((id) => { counts[id] = 0; });
+  edges.filter((edge) => edge.kind === "SubclassOf" && classIds.has(edge.sourceNodeId) && classIds.has(edge.targetNodeId)).forEach((edge) => { counts[edge.targetNodeId] += 1; });
+  return counts;
+}
+
+export function positionsForExpansion(existing: Record<string, GraphPoint>, oldIds: Set<string>, nodes: WebOntologyGraphNode[], edges: WebOntologyGraphEdge[]): Record<string, GraphPoint> {
+  const next = { ...existing };
+  let fallback: Record<string, GraphPoint> | undefined;
+  nodes.filter((node) => !oldIds.has(node.identity.id)).forEach((node, index) => {
+    const outbound = edges.filter((candidate) => candidate.sourceNodeId === node.identity.id && next[candidate.targetNodeId]);
+    const edge = outbound.find((candidate) => candidate.kind === "SubclassOf")
+      ?? outbound.find((candidate) => candidate.kind === "Domain")
+      ?? outbound.find((candidate) => candidate.kind === "Type")
+      ?? outbound[0];
+    const anchor = edge ? next[edge.targetNodeId] : undefined;
+    if (anchor) {
+      next[node.identity.id] = edge?.kind === "SubclassOf"
+        ? { x: anchor.x + NODE_WIDTH + LAYER_GAP, y: anchor.y + index * (NODE_HEIGHT + 18) }
+        : { x: anchor.x, y: anchor.y + NODE_HEIGHT + 16 + index * (NODE_HEIGHT + 18) };
+    } else {
+      fallback ??= layeredGraphLayout(nodes, edges);
+      next[node.identity.id] = fallback[node.identity.id];
+    }
+  });
+  return next;
 }
 
 export function graphWorldBounds(positions: Record<string, GraphPoint>): GraphBounds {

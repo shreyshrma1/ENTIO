@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type WheelEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type WheelEvent } from "react";
 import type { WebOntologyGraphEdge, WebOntologyGraphNode } from "../../web/contracts";
 import { anchoredScroll, clampZoom, curvedEdgePath, directionalNeighbor, draggedPoint, edgeLabelPoint, graphNodeSize, graphWorldBounds, layeredGraphLayout, type GraphPoint } from "./graphLayout";
 
@@ -7,23 +7,40 @@ const kindMark = { Class: "C", ObjectProperty: "OP", DatatypeProperty: "DP", Ind
 
 export interface RendererState { selectedNodeId: string | null; positions?: Record<string, GraphPoint>; zoom?: number }
 
-export default function OntologyGraphRenderer({ nodes, edges, state, onStateChange, onViewDetails }: {
+export default function OntologyGraphRenderer({ nodes, edges, state, childCounts = {}, dimmedNodeIds = new Set(), dimmedEdgeIds = new Set(), onStateChange, onViewDetails }: {
   nodes: WebOntologyGraphNode[];
   edges: WebOntologyGraphEdge[];
   state: RendererState;
+  childCounts?: Record<string, number>;
+  dimmedNodeIds?: Set<string>;
+  dimmedEdgeIds?: Set<string>;
   onStateChange: (state: RendererState) => void;
   onViewDetails: (node: WebOntologyGraphNode) => void;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
-  const defaultPositions = useMemo(() => layeredGraphLayout(nodes, edges), [nodes, edges]);
+  const geometryKey = `${nodes.map((node) => node.identity.id).join("\u0001")}\u0002${edges.map((edge) => edge.id).join("\u0001")}`;
+  // Presentation-only selection and emphasis create new arrays without changing graph geometry.
+  const defaultPositions = useMemo(() => layeredGraphLayout(nodes, edges), [geometryKey]);
   const positions = Object.fromEntries(nodes.map((node) => [node.identity.id, state.positions?.[node.identity.id] ?? defaultPositions[node.identity.id]]));
   const persistedPositions = { ...state.positions, ...positions };
   const zoom = state.zoom ?? 1;
   const bounds = graphWorldBounds(positions);
   const pointer = useRef<{ id: string; x: number; y: number; origin: GraphPoint; dragged: boolean } | null>(null);
   const pan = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  const initiallyFocused = useRef(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const nodesById = useMemo(() => new Map(nodes.map((node) => [node.identity.id, node])), [nodes]);
+
+  useEffect(() => {
+    const element = viewport.current;
+    if (!element || initiallyFocused.current || !nodes.length) return;
+    const first = [...nodes].sort((a, b) => positions[a.identity.id].x - positions[b.identity.id].x || positions[a.identity.id].y - positions[b.identity.id].y || a.identity.id.localeCompare(b.identity.id))[0];
+    const target = positions[state.selectedNodeId ?? ""] ?? positions[first.identity.id];
+    if (!target) return;
+    initiallyFocused.current = true;
+    element.scrollLeft = Math.max(0, (target.x - bounds.minX) * zoom - 28);
+    element.scrollTop = Math.max(0, (target.y - bounds.minY) * zoom - 28);
+  }, [bounds.minX, bounds.minY, nodes, positions, state.selectedNodeId, zoom]);
 
   function setZoom(nextValue: number, clientX?: number, clientY?: number) {
     const element = viewport.current;
@@ -95,8 +112,8 @@ export default function OntologyGraphRenderer({ nodes, edges, state, onStateChan
             <marker id="ontology-arrow" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" /></marker>
           </defs>
           <g transform={`scale(${zoom}) translate(${-bounds.minX} ${-bounds.minY})`}>
-            {edges.map((edge) => { const from = positions[edge.sourceNodeId]; const to = positions[edge.targetNodeId]; if (!from || !to) return null; const label = edgeLabelPoint(from, to); return <g key={edge.id} className={`ontology-edge edge-${edge.kind}`}><path d={curvedEdgePath(from, to)} markerEnd="url(#ontology-arrow)" /><text x={label.x} y={label.y}>{edge.label}</text></g>; })}
-            {nodes.map((node) => { const point = positions[node.identity.id]; return <foreignObject key={node.identity.id} x={point.x} y={point.y} width={graphNodeSize.width} height={graphNodeSize.height}><button id={`ontology-node-${node.identity.id}`} className={`ontology-node node-${node.kind} ${state.selectedNodeId === node.identity.id ? "selected" : ""}`} type="button" aria-label={`${node.kind}: ${node.label}`} onClick={() => onStateChange({ ...state, positions: persistedPositions, zoom, selectedNodeId: node.identity.id })} onPointerDown={(event) => nodePointerDown(event, node.identity.id)} onPointerMove={nodePointerMove} onPointerUp={() => nodePointerUp(node.identity.id)} onKeyDown={(event) => keyNavigate(event, node.identity.id)} onDoubleClick={() => onViewDetails(node)}><span aria-hidden="true">{kindMark[node.kind]}</span><strong>{node.label}</strong></button></foreignObject>; })}
+            {edges.map((edge) => { const from = positions[edge.sourceNodeId]; const to = positions[edge.targetNodeId]; if (!from || !to) return null; const label = edgeLabelPoint(from, to); const crossLink = edge.kind !== "SubclassOf" && edge.kind !== "Domain" && edge.kind !== "Range" && edge.kind !== "Type"; return <g key={edge.id} className={`ontology-edge edge-${edge.kind} ${crossLink ? "cross-link" : ""} ${dimmedEdgeIds.has(edge.id) ? "dimmed" : ""}`}><path d={curvedEdgePath(from, to)} markerEnd="url(#ontology-arrow)" /><text x={label.x} y={label.y}>{edge.label}</text></g>; })}
+            {nodes.map((node) => { const point = positions[node.identity.id]; const childCount = childCounts[node.identity.id] ?? 0; return <foreignObject key={node.identity.id} x={point.x} y={point.y} width={graphNodeSize.width} height={graphNodeSize.height}><button id={`ontology-node-${node.identity.id}`} className={`ontology-node node-${node.kind} ${state.selectedNodeId === node.identity.id ? "selected" : ""} ${dimmedNodeIds.has(node.identity.id) ? "dimmed" : ""}`} type="button" aria-label={`${node.kind}: ${node.label}`} onClick={() => onStateChange({ ...state, positions: persistedPositions, zoom, selectedNodeId: node.identity.id })} onPointerDown={(event) => nodePointerDown(event, node.identity.id)} onPointerMove={nodePointerMove} onPointerUp={() => nodePointerUp(node.identity.id)} onKeyDown={(event) => keyNavigate(event, node.identity.id)} onDoubleClick={() => onViewDetails(node)}><span aria-hidden="true">{kindMark[node.kind]}</span><strong>{node.label}{childCount ? <small>{childCount} children</small> : null}</strong></button></foreignObject>; })}
           </g>
         </svg>
       </div>

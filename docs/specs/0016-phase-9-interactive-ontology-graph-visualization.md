@@ -128,9 +128,17 @@ One map tab may hold at most 300 nodes and 600 edges. Before an expansion would 
 
 ### 6. Layout And Rendering
 
-The first release provides one deterministic left-to-right layered layout named `Hierarchy`. It orders nodes by semantic kind, label, source ID, and IRI, and uses stable tie-breaking so identical graph responses produce identical initial positions.
+The default `Hierarchy` mode is a deterministic left-to-right class tree: root classes, subclasses, then deeper subclasses. Asserted `SubclassOf` edges alone establish the main tree. Multiple asserted parents and other cross-branch relationships remain visible but do not control tree placement.
 
-Users may manually reposition nodes after layout. Attached edges update during dragging. A drag exceeding four CSS pixels is treated as a drag and must not also select/open the node.
+Sibling classes are ordered by descending direct subclass count, connected property count, directly typed individual count, and total incoming/outgoing relationship count, then by label and IRI. These facts affect presentation only. Identical graph fingerprints and view settings produce identical positions.
+
+Object properties stay close to their asserted domain and connect to their asserted range. Datatype properties render as compact items below their asserted domain. Individuals are hidden initially and are revealed only through an explicit expansion. Large loaded branches are initially collapsed behind child counts and bounded expand/load-more actions.
+
+The toolbar provides `Hierarchy`, `Focus`, and `Full map` modes. `Focus` shows the selected entity's asserted neighborhood. `Full map` shows the currently loaded bounded graph without allowing cross-links to control class-tree placement. Radial layout is not prioritized.
+
+Selection emphasizes only asserted context: a class's parents, children, properties, and directly related classes; a property's domains and ranges; or an individual's asserted types and direct assertions. Unrelated branches and cross-links are visually subdued.
+
+Users may manually reposition nodes after layout. Attached edges update during dragging. Expanded/collapsed state and manual positions survive while the map tab remains open. A bounded branch expansion inserts new nodes near their parent and preserves existing coordinates instead of rerunning the entire layout. A drag exceeding four CSS pixels is treated as a drag and must not also select/open the node.
 
 The mandatory Slice 0 feasibility gate selected a focused React/SVG renderer using the repository's existing React stack and no graph, layout, or gesture dependency. The preferred `@xyflow/react` candidate passed license, React 19, audit, and build checks, but its transform-owned viewport did not make an external native scroll world's bounds follow zoom without a second, fragile geometry system. React therefore owns accessible SVG node and edge presentation plus the bounded deterministic layered layout, while server responses remain the only source of semantic meaning.
 

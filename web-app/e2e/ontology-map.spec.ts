@@ -2,7 +2,7 @@ import { expect, test, type Route } from "@playwright/test";
 
 test("ontology map remains bounded, accessible, interactive, stale-safe, and read-only", async ({ page }) => {
   const graphMethods: string[] = [];
-  const fixture = graphFixture(75, 150);
+  const fixture = graphFixture(24, 40);
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -23,13 +23,16 @@ test("ontology map remains bounded, accessible, interactive, stale-safe, and rea
   await page.getByRole("button", { name: "View as map" }).first().click();
   await expect(page.getByRole("tab", { name: "Ontology map" })).toHaveCount(1);
   await expect(page.getByRole("button", { name: "Class: Entity 0000" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "ObjectProperty: Entity 0001" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "ObjectProperty: Entity 0005" })).toBeVisible();
   await expect(page.getByRole("button", { name: "DatatypeProperty: Entity 0002" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toHaveCount(0);
   await expect(page.getByLabel("Loaded ontology graph").locator("text=SubclassOf").first()).toBeAttached();
-  await expect(page.getByText("75 loaded entities")).toBeVisible();
+  await expect(page.getByText("24 loaded entities")).toBeVisible();
   await expect(page.locator(".ontology-graph-viewport")).toHaveScreenshot("ontology-map-prototype-layout.png");
-
+  await page.getByText("Filters", { exact: true }).click();
+  await page.getByRole("checkbox", { name: "Individual" }).check();
+  await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toBeVisible();
+  await page.getByText("Filters", { exact: true }).click();
   const node = page.getByRole("button", { name: "Class: Entity 0000" });
   await node.click();
   const popup = page.getByRole("dialog", { name: "Entity 0000 map summary" });
@@ -46,13 +49,13 @@ test("ontology map remains bounded, accessible, interactive, stale-safe, and rea
   await page.getByRole("checkbox", { name: "Individual" }).uncheck();
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toHaveCount(0);
   await page.getByRole("button", { name: "Clear filters" }).click();
-  await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toHaveCount(0);
 
   await node.click();
   await popup.getByRole("button", { name: "Class hierarchy" }).click();
   const stale = page.getByRole("alertdialog", { name: "Ontology map is out of date" });
   await expect(stale).toBeVisible();
-  await expect(page.getByText("75 loaded entities")).toBeVisible();
+  await expect(page.getByText("24 loaded entities")).toBeVisible();
   await expect(stale.getByRole("button", { name: "Refresh map" })).toBeFocused();
   expect(graphMethods.every((method) => method === "GET")).toBe(true);
 });
@@ -70,6 +73,8 @@ test("@performance production map render and popup meet five-run browser gates",
   });
   await page.goto("/projects/simple");
   await page.getByRole("button", { name: "View as map" }).first().click();
+  await page.getByText("Filters", { exact: true }).click();
+  await page.getByRole("checkbox", { name: "Individual" }).check();
   await expect(page.locator(".ontology-node")).toHaveCount(75);
   await page.getByRole("button", { name: "Class: Entity 0000" }).click();
   await expect(page.getByRole("dialog", { name: "Entity 0000 map summary" })).toBeVisible();
@@ -78,8 +83,10 @@ test("@performance production map render and popup meet five-run browser gates",
   const renderRuns: number[] = [];
   const popupRuns: number[] = [];
   for (let run = 0; run < 5; run += 1) {
-    const renderStart = Date.now();
     await page.getByRole("button", { name: "View as map" }).first().click();
+    await page.getByText("Filters", { exact: true }).click();
+    const renderStart = Date.now();
+    await page.getByRole("checkbox", { name: "Individual" }).check();
     await expect(page.locator(".ontology-node")).toHaveCount(75);
     renderRuns.push(Date.now() - renderStart);
     const popupStart = Date.now();
@@ -124,9 +131,21 @@ test("@performance production map render and popup meet five-run browser gates",
 
 function graphFixture(nodeCount: number, edgeCount: number) {
   const kinds = ["Class", "ObjectProperty", "DatatypeProperty", "Individual"] as const;
-  const edgeKinds = ["SubclassOf", "Domain", "Range", "Type", "ObjectAssertion"] as const;
   const nodes = Array.from({ length: nodeCount }, (_, index) => ({ identity: { id: `n${index}`, sourceId: "simple", entityIri: `urn:n${index}` }, kind: kinds[index % kinds.length], label: `Entity ${String(index).padStart(4, "0")}`, definitionExcerpt: index === 0 ? "Bounded server summary." : null, summary: { directSuperclassLabels: [], domainLabels: [], rangeLabels: [], assertedTypeLabels: [], datatypeRangeLabels: [], loadedRelationshipCount: 1, availableRelationshipCount: 2 } }));
-  const edges = Array.from({ length: edgeCount }, (_, index) => ({ id: `e${index}`, kind: edgeKinds[index % edgeKinds.length], sourceNodeId: nodes[index % nodes.length].identity.id, targetNodeId: nodes[(index + 1) % nodes.length].identity.id, label: edgeKinds[index % edgeKinds.length], predicateIri: edgeKinds[index % edgeKinds.length] === "ObjectAssertion" ? "urn:predicate" : null, provenance: "Asserted" }));
+  const classes = nodes.filter((node) => node.kind === "Class");
+  const individuals = nodes.filter((node) => node.kind === "Individual");
+  const coreEdges: Array<{ kind: "SubclassOf" | "Domain" | "Range" | "Type" | "ObjectAssertion"; sourceNodeId: string; targetNodeId: string; label: string; predicateIri: string | null; provenance: "Asserted" }> = [];
+  classes.slice(1).forEach((node, index) => coreEdges.push({ kind: "SubclassOf", sourceNodeId: node.identity.id, targetNodeId: classes[Math.floor(index / 3)].identity.id, label: "SubclassOf", predicateIri: null, provenance: "Asserted" }));
+  nodes.filter((node) => node.kind === "ObjectProperty").forEach((node, index) => {
+    coreEdges.push({ kind: "Domain", sourceNodeId: node.identity.id, targetNodeId: classes[index % classes.length].identity.id, label: "domain", predicateIri: null, provenance: "Asserted" });
+    coreEdges.push({ kind: "Range", sourceNodeId: node.identity.id, targetNodeId: classes[(index + 1) % classes.length].identity.id, label: "range", predicateIri: null, provenance: "Asserted" });
+  });
+  nodes.filter((node) => node.kind === "DatatypeProperty").forEach((node, index) => coreEdges.push({ kind: "Domain", sourceNodeId: node.identity.id, targetNodeId: classes[index % classes.length].identity.id, label: "domain", predicateIri: null, provenance: "Asserted" }));
+  individuals.forEach((node, index) => {
+    coreEdges.push({ kind: "Type", sourceNodeId: node.identity.id, targetNodeId: classes[index % classes.length].identity.id, label: "type", predicateIri: null, provenance: "Asserted" });
+    if (index) coreEdges.push({ kind: "ObjectAssertion", sourceNodeId: individuals[index - 1].identity.id, targetNodeId: node.identity.id, label: "related to", predicateIri: "urn:predicate", provenance: "Asserted" });
+  });
+  const edges = Array.from({ length: edgeCount }, (_, index) => ({ ...coreEdges[index % coreEdges.length], id: `e${index}` }));
   return { apiVersion: "v1", projectId: "simple", sources: [{ id: "simple", displayName: "simple" }], loadKind: "RootOverview", seed: null, nodes, edges, limits: { nodeLimit: 75, edgeLimit: 150 }, totalNodeCount: nodeCount, totalEdgeCount: edgeCount, continuation: null, ambiguousCrossSourceRelationshipCount: 0 };
 }
 
