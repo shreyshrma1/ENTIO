@@ -1,6 +1,8 @@
 package com.entio.cli
 
 import com.entio.core.EntioResult
+import com.entio.core.ExternalEntityKind
+import com.entio.core.Iri
 import com.entio.semantic.FiboCatalogLoader
 import com.entio.semantic.ExternalFiboCatalogSession
 import java.io.PrintWriter
@@ -55,8 +57,12 @@ class ExternalCatalogCliTest {
     @Test
     fun dependencyReviewAndProposalPreparationExposeExplicitBlockedState(): Unit {
         val session = loadSession()
-        val module = session.browseCuratedModules(pageSize = 1).items.single()
-        val element = session.browseModule(module.ontologyIri, pageSize = 1).items.single()
+        val element = requireNotNull(
+            session.find(
+                Iri("https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Documents/FinancialRecord"),
+                ExternalEntityKind.Class,
+            ),
+        )
         val entityIri = element.descriptor.descriptor.common.entity.value
 
         val dependencies = runCli("external-dependencies", projectRoot.toString(), entityIri, "--kind", element.kind.name)

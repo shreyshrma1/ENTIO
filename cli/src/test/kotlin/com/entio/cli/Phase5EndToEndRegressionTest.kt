@@ -181,7 +181,14 @@ class Phase5EndToEndRegressionTest {
             ),
         )
         val appliedProposal = assertIs<EntioResult.Success<com.entio.core.ChangeProposal>>(
-            ExternalProposalPreparer().prepare(appliedProject, "simple", Iri(TARGET_ONTOLOGY), appliedIntent, "phase5-applied", "Phase 5 applied reuse"),
+            ExternalProposalPreparer().prepare(
+                project = appliedProject,
+                targetSourceId = "simple",
+                targetOntologyIri = Iri(TARGET_ONTOLOGY),
+                intent = appliedIntent,
+                id = "phase5-applied",
+                title = "Phase 5 applied reuse",
+            ),
         ).value.copy(status = ChangeProposalStatus.Approved)
         val applied = ProposalApplier().applyProposal(appliedFixture.projectRoot, appliedProposal)
         assertIs<ApplyProposalResult.Applied>(applied)
@@ -203,7 +210,14 @@ class Phase5EndToEndRegressionTest {
             ),
         )
         val rollbackProposal = assertIs<EntioResult.Success<com.entio.core.ChangeProposal>>(
-            ExternalProposalPreparer().prepare(rollbackProject, "simple", Iri(TARGET_ONTOLOGY), rollbackIntent, "phase5-rollback", "Phase 5 rollback"),
+            ExternalProposalPreparer().prepare(
+                project = rollbackProject,
+                targetSourceId = "simple",
+                targetOntologyIri = Iri(TARGET_ONTOLOGY),
+                intent = rollbackIntent,
+                id = "phase5-rollback",
+                title = "Phase 5 rollback",
+            ),
         ).value.copy(status = ChangeProposalStatus.Approved)
         val rollbackBytes = rollbackFixture.ontologyPath.readBytes()
         val rolledBack = ProposalApplier(

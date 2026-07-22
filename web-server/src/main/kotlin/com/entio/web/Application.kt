@@ -58,6 +58,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
     install(WebSockets)
 
     val readOnly = ReadOnlyProjectAdapter(dependencies.projectRegistry)
+    val ontologyGraph = OntologyGraphWebService(dependencies.projectRegistry)
     val staging = StagingWorkflowService(dependencies.projectRegistry)
     val collaboration = CollaborationHub(dependencies.projectRegistry, staging::snapshot)
     val fibo = FiboWebService(dependencies.projectRegistry, staging)
@@ -292,6 +293,37 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
 
         get("/api/v1/projects/{projectId}/sources") {
             call.respondReadOnly { readOnly.sources(call.requiredProjectId(), call.pageRequest()) }
+        }
+
+        get("/api/v1/projects/{projectId}/graph") {
+            call.respondOntologyGraph {
+                val user = call.requireBrowseUser(dependencies)
+                ontologyGraph.initial(
+                    userId = user.id,
+                    projectId = call.requiredProjectId(),
+                    requestedSourceIds = call.request.queryParameters.getAll("sourceId").orEmpty().toSet(),
+                    seedSourceId = call.request.queryParameters["seedSourceId"],
+                    seedIri = call.request.queryParameters["seedIri"],
+                    expectedFingerprint = call.request.queryParameters["expectedFingerprint"],
+                    continuation = call.request.queryParameters["continuation"],
+                )
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/graph/neighborhood") {
+            call.respondOntologyGraph {
+                val user = call.requireBrowseUser(dependencies)
+                ontologyGraph.neighborhood(
+                    userId = user.id,
+                    projectId = call.requiredProjectId(),
+                    requestedSourceIds = call.request.queryParameters.getAll("sourceId").orEmpty().toSet(),
+                    entitySourceId = call.request.queryParameters["entitySourceId"],
+                    entityIri = call.request.queryParameters["entityIri"],
+                    requestedCategories = call.request.queryParameters.getAll("category").orEmpty().toSet(),
+                    expectedFingerprint = call.request.queryParameters["expectedFingerprint"],
+                    continuation = call.request.queryParameters["continuation"],
+                )
+            }
         }
 
         get("/api/v1/projects/{projectId}/hierarchy") {
@@ -586,6 +618,14 @@ private fun ApplicationCall.requireReviewer(dependencies: WebApplicationDependen
     return user
 }
 
+private fun ApplicationCall.requireBrowseUser(dependencies: WebApplicationDependencies): com.entio.web.contract.WebSessionUser {
+    val user = requireUser(dependencies)
+    if (!dependencies.authorization.isAllowed(user.role, com.entio.web.contract.WebAction.BROWSE)) {
+        throw OntologyGraphWebFailure("forbidden", "Browse permission is required for ontology graph reads.")
+    }
+    return user
+}
+
 private fun descriptorKind(value: String): SemanticDescriptorKind =
     SemanticDescriptorKind.entries.firstOrNull { it.name.equals(value, ignoreCase = true) }
         ?: throw ProjectReadFailure("invalid-kind", "Unknown semantic entity kind '$value'.")
@@ -610,6 +650,22 @@ private suspend fun ApplicationCall.respondReadOnly(block: () -> Any): Unit = tr
             message = failure.message ?: "The read request could not be completed.",
         ),
     )
+}
+
+private suspend fun ApplicationCall.respondOntologyGraph(block: () -> Any): Unit = try {
+    respond(block())
+} catch (failure: OntologyGraphWebFailure) {
+    val status = when (failure.code) {
+        "unknown-project", "unknown-graph-entity" -> HttpStatusCode.NotFound
+        "forbidden" -> HttpStatusCode.Forbidden
+        "project-load-failed" -> HttpStatusCode.UnprocessableEntity
+        "stale-graph-fingerprint" -> HttpStatusCode.Conflict
+        else -> HttpStatusCode.BadRequest
+    }
+    respond(status, WebErrorResponse(requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}", code = failure.code, message = failure.message ?: "The ontology graph request could not be completed."))
+} catch (failure: WebWorkflowFailure) {
+    val status = if (failure.code == "unknown-development-user") HttpStatusCode.Unauthorized else HttpStatusCode.BadRequest
+    respond(status, WebErrorResponse(requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}", code = failure.code, message = failure.message ?: "The ontology graph request could not be completed."))
 }
 
 private suspend fun ApplicationCall.respondExternal(block: () -> Any): Unit = try {

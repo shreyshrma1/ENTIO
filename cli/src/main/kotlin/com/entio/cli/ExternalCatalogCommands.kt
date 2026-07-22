@@ -73,7 +73,14 @@ internal class ExternalCatalogCliSupport(
         intent: ExternalProposalIntent,
         proposalId: String,
         title: String,
-    ) = proposalPreparer.prepare(project, targetSourceId, targetOntologyIri, intent, proposalId, title)
+    ) = proposalPreparer.prepare(
+        project = project,
+        targetSourceId = targetSourceId,
+        targetOntologyIri = targetOntologyIri,
+        intent = intent,
+        id = proposalId,
+        title = title,
+    )
 
     private fun findPackageRoot(projectRoot: Path?): Path? {
         val candidates = buildList {
