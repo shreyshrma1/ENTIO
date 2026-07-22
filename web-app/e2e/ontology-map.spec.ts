@@ -1,6 +1,6 @@
 import { expect, test, type Route } from "@playwright/test";
 
-test("ontology map remains bounded, accessible, interactive, stale-safe, and read-only", async ({ page }) => {
+test("ontology map remains bounded, accessible, interactive, and read-only", async ({ page }) => {
   const graphMethods: string[] = [];
   const fixture = graphFixture(24, 40);
   await page.route("**/api/v1/**", async (route) => {
@@ -45,8 +45,15 @@ test("ontology map remains bounded, accessible, interactive, stale-safe, and rea
   const node = page.getByRole("button", { name: "Class: Entity 0000" });
   await node.click();
   const popup = page.getByRole("dialog", { name: "Entity 0000 map summary" });
-  await expect(popup).toContainText("Asserted");
+  await expect(popup.getByRole("heading", { name: "Entity 0000" })).toBeVisible();
+  await expect(popup).toContainText("Class · Asserted");
+  await expect(popup.getByRole("heading", { name: "Details" })).toBeVisible();
+  await expect(popup).toContainText("Direct subclasses: 6");
+  await expect(popup).toContainText("Loaded relationships: 1");
+  await expect(popup).toContainText("Available relationships: 2");
   await expect(popup.getByRole("button", { name: /edit/i })).toHaveCount(0);
+  await expect(popup.getByRole("button")).toHaveCount(2);
+  await expect(popup).toHaveScreenshot("ontology-map-popup.png");
   await node.focus();
   await page.keyboard.press("ArrowDown");
   await expect(page.locator(".ontology-node:focus")).not.toHaveAttribute("id", "ontology-node-n0");
@@ -61,12 +68,6 @@ test("ontology map remains bounded, accessible, interactive, stale-safe, and rea
   await page.getByRole("button", { name: "Clear filters" }).click();
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toHaveCount(0);
 
-  await node.click();
-  await popup.getByRole("button", { name: "Class hierarchy" }).click();
-  const stale = page.getByRole("alertdialog", { name: "Ontology map is out of date" });
-  await expect(stale).toBeVisible();
-  await expect(page.getByText("24 loaded entities")).toBeVisible();
-  await expect(stale.getByRole("button", { name: "Refresh map" })).toBeFocused();
   expect(graphMethods.every((method) => method === "GET")).toBe(true);
 });
 

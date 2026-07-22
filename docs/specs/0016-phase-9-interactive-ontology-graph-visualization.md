@@ -170,15 +170,12 @@ The pop-up remains within the visible graph viewport where practical and reposit
 The pop-up uses data already present in the graph response and shows:
 
 - preferred label;
-- entity kind;
-- source display identity (never a filesystem path);
+- entity kind and `Asserted` provenance as subdued text below the label;
 - bounded definition excerpt;
-- direct superclass summary for a class;
-- domain and range summary for a property;
-- asserted type summary for an individual;
-- counts of loaded and available related entities;
-- `Asserted` provenance;
-- `View Details`.
+- a compact `Details` box containing inline direct-subclass, loaded-relationship, and available-relationship counts;
+- one `View Details` action.
+
+The close control is a small icon button in the top-right corner. Neighborhood expansion, hierarchy, schema, type, and assertion actions do not appear in this summary; the existing entity details view remains the richer inspection surface.
 
 `View Details` opens or focuses the existing Explore entity-detail tab using the stable IRI and source ID, closes the pop-up, and leaves the map tab and its state open.
 

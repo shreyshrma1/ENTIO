@@ -10,7 +10,7 @@ const ROW_GAP = 34;
 const TREE_GAP_X = 260;
 const TREE_GAP_Y = 180;
 const CLUSTER_GAP = 280;
-const EDGE_LABEL_CLEARANCE = 34;
+const EDGE_LABEL_CLEARANCE = 24;
 export const WORLD_PADDING = 80;
 
 export function layeredGraphLayout(nodes: WebOntologyGraphNode[], edges: WebOntologyGraphEdge[]): Record<string, GraphPoint> {
@@ -161,9 +161,10 @@ function propertyMidpoint(domain: GraphPoint, range: GraphPoint, id: string): Gr
 function nearestFreePoint(desired: GraphPoint, occupied: GraphPoint[]): GraphPoint {
   for (let ring = 0; ring <= 10; ring += 1) {
     const candidates = ring === 0 ? [desired] : [
+      { x: desired.x + ring * (NODE_WIDTH + EDGE_LABEL_CLEARANCE), y: desired.y },
+      { x: desired.x - ring * (NODE_WIDTH + EDGE_LABEL_CLEARANCE), y: desired.y },
       { x: desired.x, y: desired.y + ring * (NODE_HEIGHT + 22) },
       { x: desired.x, y: desired.y - ring * (NODE_HEIGHT + 22) },
-      { x: desired.x + (ring % 2 ? 48 : -48), y: desired.y + ring * (NODE_HEIGHT + 22) },
     ];
     const free = candidates.find((candidate) => occupied.every((point) => Math.abs(point.x - candidate.x) >= NODE_WIDTH + EDGE_LABEL_CLEARANCE || Math.abs(point.y - candidate.y) >= NODE_HEIGHT + EDGE_LABEL_CLEARANCE));
     if (free) return free;
