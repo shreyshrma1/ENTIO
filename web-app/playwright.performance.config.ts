@@ -2,8 +2,9 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
-  grepInvert: /@performance/,
-  fullyParallel: true,
+  testMatch: "ontology-map.spec.ts",
+  grep: /@performance/,
+  fullyParallel: false,
   reporter: "list",
   use: {
     baseURL: "http://127.0.0.1:5173",
@@ -11,8 +12,8 @@ export default defineConfig({
     ...devices["Desktop Chrome"],
   },
   webServer: {
-    command: "npm run dev -- --host 127.0.0.1",
+    command: "npm run build && npx vite preview --host 127.0.0.1 --port 5173",
     url: "http://127.0.0.1:5173",
-    reuseExistingServer: true,
+    reuseExistingServer: false,
   },
 });
