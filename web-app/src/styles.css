@@ -982,7 +982,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-edge.edge-Type path { stroke: #8092b8; }
 .ontology-edge.cross-link { opacity: .38; }
 .ontology-edge.dimmed { opacity: .12; }
-.ontology-edge text { fill: #677289; font-size: 11px; font-weight: 650; text-anchor: middle; paint-order: stroke; stroke: #f8f9fc; stroke-width: 4px; stroke-linejoin: round; }
+.ontology-edge text { fill: #677289; font-size: 11px; font-weight: 650; text-anchor: middle; dominant-baseline: middle; paint-order: stroke; stroke: #f8f9fc; stroke-width: 5px; stroke-linejoin: round; }
 .ontology-edge marker path { fill: #8092b8; stroke: none; }
 .ontology-node { width: 100%; height: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 9px; border: 1.5px solid #8bb5ff; border-radius: 11px; background: #fff; color: #28354c; padding: 11px 12px; text-align: left; cursor: grab; box-shadow: 0 4px 8px rgb(48 59 90 / 8%); }
 .ontology-node:active { cursor: grabbing; }

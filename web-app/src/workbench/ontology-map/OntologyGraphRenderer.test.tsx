@@ -34,4 +34,13 @@ describe("accessible ontology graph renderer", () => {
     expect(onStateChange).toHaveBeenCalled();
     expect(onStateChange.mock.calls.some(([next]) => next.selectedNodeId === "node-0")).toBe(false);
   });
+
+  it("captures trackpad pinch zoom inside the map without blocking ordinary scrolling", () => {
+    const onStateChange = vi.fn();
+    const renderer = render(<OntologyGraphRenderer nodes={nodes} edges={[]} state={{ selectedNodeId: null, zoom: 1 }} onStateChange={onStateChange} onViewDetails={vi.fn()} />);
+    const viewport = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport")!;
+    expect(fireEvent.wheel(viewport, { ctrlKey: false, deltaY: 100, clientX: 20, clientY: 20 })).toBe(true);
+    expect(fireEvent.wheel(viewport, { ctrlKey: true, deltaY: -100, clientX: 20, clientY: 20 })).toBe(false);
+    expect(onStateChange).toHaveBeenCalledWith(expect.objectContaining({ zoom: expect.any(Number) }));
+  });
 });

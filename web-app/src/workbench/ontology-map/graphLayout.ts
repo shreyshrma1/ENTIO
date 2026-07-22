@@ -10,6 +10,7 @@ const ROW_GAP = 34;
 const TREE_GAP_X = 260;
 const TREE_GAP_Y = 180;
 const CLUSTER_GAP = 280;
+const EDGE_LABEL_CLEARANCE = 34;
 export const WORLD_PADDING = 80;
 
 export function layeredGraphLayout(nodes: WebOntologyGraphNode[], edges: WebOntologyGraphEdge[]): Record<string, GraphPoint> {
@@ -164,7 +165,7 @@ function nearestFreePoint(desired: GraphPoint, occupied: GraphPoint[]): GraphPoi
       { x: desired.x, y: desired.y - ring * (NODE_HEIGHT + 22) },
       { x: desired.x + (ring % 2 ? 48 : -48), y: desired.y + ring * (NODE_HEIGHT + 22) },
     ];
-    const free = candidates.find((candidate) => occupied.every((point) => Math.abs(point.x - candidate.x) >= NODE_WIDTH + 18 || Math.abs(point.y - candidate.y) >= NODE_HEIGHT + 18));
+    const free = candidates.find((candidate) => occupied.every((point) => Math.abs(point.x - candidate.x) >= NODE_WIDTH + EDGE_LABEL_CLEARANCE || Math.abs(point.y - candidate.y) >= NODE_HEIGHT + EDGE_LABEL_CLEARANCE));
     if (free) return free;
   }
   return { x: desired.x, y: desired.y + occupied.length * (NODE_HEIGHT + 22) };
@@ -272,7 +273,10 @@ export function curvedEdgePath(from: GraphPoint, to: GraphPoint): string {
 export function edgeLabelPoint(from: GraphPoint, to: GraphPoint): GraphPoint {
   const a = boundaryPoint(from, to);
   const b = boundaryPoint(to, from);
-  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 7 };
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const length = Math.max(1, Math.hypot(dx, dy));
+  return { x: (a.x + b.x) / 2 - (dy / length) * 14, y: (a.y + b.y) / 2 + (dx / length) * 14 };
 }
 
 function boundaryPoint(from: GraphPoint, to: GraphPoint): GraphPoint {

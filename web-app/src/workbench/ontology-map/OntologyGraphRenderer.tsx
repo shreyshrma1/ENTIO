@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type WheelEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { WebOntologyGraphEdge, WebOntologyGraphNode } from "../../web/contracts";
 import { anchoredScroll, clampZoom, curvedEdgePath, directionalNeighbor, draggedPoint, edgeLabelPoint, graphNodeSize, graphWorldBounds, layeredGraphLayout, type GraphPoint } from "./graphLayout";
 
@@ -62,11 +62,17 @@ export default function OntologyGraphRenderer({ nodes, edges, state, childCounts
     requestAnimationFrame(() => { element.scrollLeft = anchoredScroll(element.scrollLeft, anchorX, zoom, next); element.scrollTop = anchoredScroll(element.scrollTop, anchorY, zoom, next); });
   }
 
-  function wheel(event: WheelEvent<HTMLDivElement>) {
-    if (!event.ctrlKey) return;
-    event.preventDefault();
-    setZoom(zoom * Math.exp(-event.deltaY * 0.002), event.clientX, event.clientY);
-  }
+  useEffect(() => {
+    const element = viewport.current;
+    if (!element) return;
+    const capturePinch = (event: globalThis.WheelEvent) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      setZoom(zoom * Math.exp(-event.deltaY * 0.002), event.clientX, event.clientY);
+    };
+    element.addEventListener("wheel", capturePinch, { passive: false });
+    return () => element.removeEventListener("wheel", capturePinch);
+  }, [zoom, state, persistedPositions]);
 
   function nodePointerDown(event: PointerEvent, id: string) {
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -122,7 +128,7 @@ export default function OntologyGraphRenderer({ nodes, edges, state, childCounts
 
   return <div className="ontology-graph" onKeyDown={(event) => { if (event.key === "Escape" && state.selectedNodeId) onStateChange({ ...state, selectedNodeId: null }); }}>
     <div className="ontology-graph-controls"><button type="button" onClick={() => setZoom(zoom - 0.1)} aria-label="Zoom out">−</button><output aria-label="Zoom percentage">{Math.round(zoom * 100)}%</output><button type="button" onClick={() => setZoom(zoom + 0.1)} aria-label="Zoom in">+</button><button type="button" onClick={fit}>Fit</button><button type="button" onClick={reset}>Reset</button></div>
-    <div className="ontology-graph-viewport" ref={viewport} tabIndex={0} onWheel={wheel} onKeyDown={(event) => { if (event.code === "Space") setSpaceHeld(true); }} onKeyUp={(event) => { if (event.code === "Space") setSpaceHeld(false); }} onPointerDown={(event) => { if (spaceHeld || event.button === 1) { pan.current = { x: event.clientX, y: event.clientY, left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop }; event.currentTarget.setPointerCapture(event.pointerId); } }} onPointerMove={(event) => { if (pan.current) { event.currentTarget.scrollLeft = pan.current.left - (event.clientX - pan.current.x); event.currentTarget.scrollTop = pan.current.top - (event.clientY - pan.current.y); } }} onPointerUp={() => { pan.current = null; }}>
+    <div className="ontology-graph-viewport" ref={viewport} tabIndex={0} onKeyDown={(event) => { if (event.code === "Space") setSpaceHeld(true); }} onKeyUp={(event) => { if (event.code === "Space") setSpaceHeld(false); }} onPointerDown={(event) => { if (spaceHeld || event.button === 1) { pan.current = { x: event.clientX, y: event.clientY, left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop }; event.currentTarget.setPointerCapture(event.pointerId); } }} onPointerMove={(event) => { if (pan.current) { event.currentTarget.scrollLeft = pan.current.left - (event.clientX - pan.current.x); event.currentTarget.scrollTop = pan.current.top - (event.clientY - pan.current.y); } }} onPointerUp={() => { pan.current = null; }}>
       <div className="ontology-graph-world" style={{ width: bounds.width * zoom, height: bounds.height * zoom }}>
         <svg width={bounds.width * zoom} height={bounds.height * zoom} role="img" aria-label="Loaded ontology graph">
           <defs>

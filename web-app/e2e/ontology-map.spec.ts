@@ -30,6 +30,14 @@ test("ontology map remains bounded, accessible, interactive, stale-safe, and rea
   await expect(page.getByText("24 loaded entities")).toBeVisible();
   await expect(page.getByRole("button", { name: "Class: Entity 0000" })).toBeInViewport();
   await expect(page.locator(".ontology-graph-viewport")).toHaveScreenshot("ontology-map-prototype-layout.png");
+  const browserZoomBefore = await page.evaluate(() => ({ scale: window.visualViewport?.scale ?? 1, devicePixelRatio: window.devicePixelRatio }));
+  const mapPinchZoomBefore = Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""));
+  await page.locator(".ontology-graph-viewport").hover();
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, -120);
+  await page.keyboard.up("Control");
+  await expect.poll(async () => Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""))).toBeGreaterThan(mapPinchZoomBefore);
+  expect(await page.evaluate(() => ({ scale: window.visualViewport?.scale ?? 1, devicePixelRatio: window.devicePixelRatio }))).toEqual(browserZoomBefore);
   await page.getByText("Filters", { exact: true }).click();
   await page.getByRole("checkbox", { name: "Individual" }).check();
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toBeVisible();

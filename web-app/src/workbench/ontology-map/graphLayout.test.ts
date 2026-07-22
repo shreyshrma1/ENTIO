@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anchoredScroll, clampZoom, curvedEdgePath, directionalNeighbor, draggedPoint, graphWorldBounds, layeredGraphLayout, positionsForExpansion } from "./graphLayout";
+import { anchoredScroll, clampZoom, curvedEdgePath, directionalNeighbor, draggedPoint, edgeLabelPoint, graphWorldBounds, layeredGraphLayout, positionsForExpansion } from "./graphLayout";
 
 const node = (id: string, label: string) => ({ identity: { id, sourceId: "s", entityIri: `urn:${id}` }, kind: "Class" as const, label, definitionExcerpt: null, summary: { directSuperclassLabels: [], domainLabels: [], rangeLabels: [], assertedTypeLabels: [], datatypeRangeLabels: [], loadedRelationshipCount: 0, availableRelationshipCount: 0 } });
 
@@ -18,6 +18,13 @@ describe("ontology graph geometry", () => {
     expect(directionalNeighbor("a", "right", positions)).toBe("b");
     expect(clampZoom(0.1)).toBe(0.25);
     expect(clampZoom(3)).toBe(2);
+  });
+
+  it("places vertical edge labels beside the arrow in the gap between cards", () => {
+    const label = edgeLabelPoint({ x: 80, y: 80 }, { x: 80, y: 186 });
+    expect(Math.abs(label.x - (80 + 184 / 2))).toBe(14);
+    expect(label.y).toBeGreaterThan(80 + 72);
+    expect(label.y).toBeLessThan(186);
   });
 
   it("separates four-pixel drags and preserves the zoom pointer anchor", () => {
