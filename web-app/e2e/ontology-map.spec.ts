@@ -20,7 +20,7 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   });
 
   await page.goto("/projects/simple");
-  await page.getByRole("button", { name: "View as map" }).first().click();
+  await page.getByRole("button", { name: "View Map" }).first().click();
   await expect(page.getByRole("tab", { name: "Ontology map" })).toHaveCount(1);
   await expect(page.getByRole("button", { name: "Class: Entity 0000" })).toBeVisible();
   await expect(page.getByRole("button", { name: "ObjectProperty: Entity 0005" })).toBeVisible();
@@ -94,7 +94,7 @@ test("@performance production map render and popup meet five-run browser gates",
     return json(route, { apiVersion: "v1", page: { items: [], offset: 0, limit: 50, total: 0, nextOffset: null } });
   });
   await page.goto("/projects/simple");
-  await page.getByRole("button", { name: "View as map" }).first().click();
+  await page.getByRole("button", { name: "View Map" }).first().click();
   await page.getByText("Filters", { exact: true }).click();
   await page.getByRole("checkbox", { name: "Individual" }).check();
   await expect(page.locator(".ontology-node")).toHaveCount(75);
@@ -105,7 +105,7 @@ test("@performance production map render and popup meet five-run browser gates",
   const renderRuns: number[] = [];
   const popupRuns: number[] = [];
   for (let run = 0; run < 5; run += 1) {
-    await page.getByRole("button", { name: "View as map" }).first().click();
+    await page.getByRole("button", { name: "View Map" }).first().click();
     await page.getByText("Filters", { exact: true }).click();
     const renderStart = Date.now();
     await page.getByRole("checkbox", { name: "Individual" }).check();
@@ -124,7 +124,7 @@ test("@performance production map render and popup meet five-run browser gates",
   expect(median(renderRuns)).toBeLessThanOrEqual(500);
   expect(Math.max(...renderRuns)).toBeLessThanOrEqual(1_000);
   expect(Math.max(...popupRuns)).toBeLessThanOrEqual(100);
-  await page.getByRole("button", { name: "View as map" }).first().click();
+  await page.getByRole("button", { name: "View Map" }).first().click();
   const interactionRuns: Array<{ fps: number; worstLongTask: number }> = [];
   for (let run = 0; run < 6; run += 1) {
     const sample = await page.evaluate(() => new Promise<{ fps: number; worstLongTask: number }>((resolve) => {
