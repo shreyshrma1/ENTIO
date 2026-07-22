@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved for implementation through the ordered Phase 9 ExecPlan. This status does not mean the feature is already implemented.
+Implemented through the completed ordered Phase 9 ExecPlan. Delivery evidence is recorded in the [Phase 9 implementation summary](../phase-summaries/phase-9-summary.md).
 
 ## Problem
 

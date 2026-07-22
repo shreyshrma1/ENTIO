@@ -18,7 +18,7 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository contains the completed Phase 1 Kotlin/JVM Core Semantic Engine through the Phase 8 historical planning and implementation records. Phase 9, Interactive Ontology Graph Visualization, is the current active phase and has approved scope, specification, and ExecPlan documents. Phase 9 implementation has not yet been completed.
+This repository contains the implemented Entio foundation through Phase 9. Phase 9, Interactive Ontology Graph Visualization, is complete.
 
 Native AI execution is not part of the current product surface; the remaining provider boundary is limited to credential entry, model discovery, and model selection.
 
@@ -26,7 +26,7 @@ Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because th
 
 The current implementation supports small local Entio projects, Turtle/RDF parsing through Apache Jena, RDF-term-aware graph triples, deterministic validation reports, semantic graph diffs, reusable project loading, and a thin CLI.
 
-Phases 2 through 8 are preserved as historical delivery records. The current workbench preserves the Kotlin semantic engine as the authority for RDF and ontology behavior and exposes only optional provider credential and model settings from the former AI surface. Phase 9 plans an additive, read-only ontology map inside Explore without changing the currently implemented behavior until its approved slices are delivered and verified.
+Phases 2 through 8 are preserved as historical delivery records. The current workbench preserves the Kotlin semantic engine as the authority for RDF and ontology behavior and exposes only optional provider credential and model settings from the former AI surface. Phase 9 adds an additive, bounded, read-only ontology map inside Explore.
 
 ## Workspace Structure
 
@@ -79,6 +79,9 @@ The current implementation supports:
 - Browsing FIBO content and staging supported external reuse intents from the browser.
 - Storing optional per-user provider credentials in server memory without returning the secret to the browser.
 - Discovering models available to the current provider credential and requiring explicit model selection and verification.
+- Opening a project-scoped ontology map from Explore to inspect bounded local classes, properties, individuals, and asserted relationships without modifying ontology data.
+- Expanding, searching, filtering, dragging, panning, scrolling, zooming, and navigating the map while retaining temporary state only for the open tab.
+- Rejecting stale or invalid graph continuations through fingerprint-aware, authorized Ktor read contracts.
 
 Implemented CLI commands:
 
@@ -219,18 +222,18 @@ Phase 2 should not include:
 
 ## Current Phase
 
-Phase 9 is the current active phase. Its approved scope is a bounded, read-only interactive ontology map integrated into the existing Explore workspace.
+Phase 9 is complete. It delivers a bounded, read-only interactive ontology map integrated into the existing Explore workspace.
 
-Phase 9 must:
+Phase 9:
 
-- reuse the existing Explore outline and entity-detail navigation;
-- source supported local entities and asserted relationships from Kotlin-owned semantic services;
-- expose bounded, fingerprint-aware read contracts through Ktor;
-- keep layout, viewport, filters, and selection as temporary React state;
-- preserve all existing editing, proposal, validation, reasoning, SHACL, FIBO, collaboration, CLI, VS Code, and provider-setting behavior;
-- complete the mandatory frontend feasibility gate before implementation slices proceed.
+- reuses the existing Explore outline and entity-detail navigation;
+- sources supported local entities and asserted relationships from Kotlin-owned semantic services;
+- exposes bounded, fingerprint-aware read contracts through Ktor;
+- keeps layout, viewport, filters, and selection as temporary React state;
+- preserves all existing editing, proposal, validation, reasoning, SHACL, FIBO, collaboration, CLI, VS Code, and provider-setting behavior;
+- uses a focused React/SVG renderer with no added graph dependency.
 
-Phase 9 is planned and approved for implementation, but it is not yet an implemented capability. The repository must not claim completion until the ExecPlan's tests, accessibility checks, performance gates, regression verification, ADR, and Phase 9 summary are complete.
+The implementation summary records its exact bounds, verification evidence, limitations, and rollback path. Later graph editing, inference visualization, external catalog visualization, persistence, and shared layouts remain out of scope.
 
 Phases 7, 7.5, and 8 remain available as historical planning and implementation records. Their native AI execution surfaces have been removed from the current product; only provider credential and model selection settings remain active.
 
@@ -284,3 +287,4 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 8 Implementation Summary](docs/phase-summaries/phase-8-summary.md)
 - [Phase 9 Spec](docs/specs/0016-phase-9-interactive-ontology-graph-visualization.md)
 - [Phase 9 ExecPlan](docs/execplans/0016-phase-9-interactive-ontology-graph-visualization.md)
+- [Phase 9 Implementation Summary](docs/phase-summaries/phase-9-summary.md)
