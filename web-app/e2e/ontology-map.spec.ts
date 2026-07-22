@@ -28,6 +28,7 @@ test("ontology map remains bounded, accessible, interactive, stale-safe, and rea
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toHaveCount(0);
   await expect(page.getByLabel("Loaded ontology graph").locator("text=SubclassOf").first()).toBeAttached();
   await expect(page.getByText("24 loaded entities")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Class: Entity 0000" })).toBeInViewport();
   await expect(page.locator(".ontology-graph-viewport")).toHaveScreenshot("ontology-map-prototype-layout.png");
   await page.getByText("Filters", { exact: true }).click();
   await page.getByRole("checkbox", { name: "Individual" }).check();
@@ -41,8 +42,9 @@ test("ontology map remains bounded, accessible, interactive, stale-safe, and rea
   await node.focus();
   await page.keyboard.press("ArrowDown");
   await expect(page.locator(".ontology-node:focus")).not.toHaveAttribute("id", "ontology-node-n0");
+  const zoomBefore = Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""));
   await page.getByRole("button", { name: "Zoom in" }).click();
-  await expect(page.getByLabel("Zoom percentage")).toContainText("110%");
+  await expect.poll(async () => Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""))).toBe(zoomBefore + 10);
   await page.getByRole("button", { name: "Fit" }).click();
   await page.getByRole("button", { name: "Close entity summary" }).click();
   await page.getByText("Filters", { exact: true }).click();

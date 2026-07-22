@@ -7,6 +7,9 @@ const NODE_WIDTH = 184;
 const NODE_HEIGHT = 72;
 const LAYER_GAP = 116;
 const ROW_GAP = 34;
+const TREE_GAP_X = 260;
+const TREE_GAP_Y = 180;
+const CLUSTER_GAP = 280;
 export const WORLD_PADDING = 80;
 
 export function layeredGraphLayout(nodes: WebOntologyGraphNode[], edges: WebOntologyGraphEdge[]): Record<string, GraphPoint> {
@@ -29,37 +32,146 @@ export function layeredGraphLayout(nodes: WebOntologyGraphNode[], edges: WebOnto
   primaryParent.forEach((parent, child) => children.get(parent)?.push(byId.get(child)!));
   children.forEach((items) => items.sort(compare));
   const roots = classes.filter((node) => !primaryParent.has(node.identity.id)).sort(compare);
+  const trees = buildClassTrees([...roots, ...classes.filter((node) => !roots.includes(node)).sort(compare)], children);
+  const treeByClass = new Map(trees.flatMap((tree, index) => tree.ids.map((id) => [id, index] as const)));
+  const treeLinks = propertyTreeLinks(graphEdges, treeByClass);
+  const treeComponents = connectedTreeComponents(trees.length, treeLinks, trees);
   const positions: Record<string, GraphPoint> = {};
-  const placed = new Set<string>();
-  let nextRow = 0;
-  function placeClass(node: WebOntologyGraphNode, depth: number): number {
-    if (placed.has(node.identity.id)) return positions[node.identity.id]?.y ?? WORLD_PADDING + nextRow * (NODE_HEIGHT + ROW_GAP);
-    placed.add(node.identity.id);
-    const branch = children.get(node.identity.id)!.filter((child) => !placed.has(child.identity.id));
-    const childRows = branch.map((child) => placeClass(child, depth + 1));
-    const y = childRows.length ? (childRows[0] + childRows[childRows.length - 1]) / 2 : WORLD_PADDING + nextRow++ * (NODE_HEIGHT + ROW_GAP);
-    positions[node.identity.id] = { x: WORLD_PADDING + depth * (NODE_WIDTH + LAYER_GAP), y };
-    return y;
-  }
-  roots.forEach((root) => { placeClass(root, 0); nextRow += 1; });
-  classes.filter((node) => !placed.has(node.identity.id)).sort(compare).forEach((node) => { placeClass(node, 0); nextRow += 1; });
-
-  const occupiedByLane = new Map<number, number[]>();
-  classes.forEach((node) => {
-    const point = positions[node.identity.id];
-    occupiedByLane.set(point.x, [...(occupiedByLane.get(point.x) ?? []), point.y]);
+  let clusterX = WORLD_PADDING;
+  let clusterY = WORLD_PADDING;
+  let clusterRowHeight = 0;
+  treeComponents.forEach((component) => {
+    const cellWidth = Math.max(...component.map((index) => trees[index].width)) + TREE_GAP_X;
+    const cellHeight = Math.max(...component.map((index) => trees[index].height)) + TREE_GAP_Y;
+    const columns = component.length === 1 ? 1 : Math.max(2, Math.round(Math.sqrt(component.length * (cellHeight / cellWidth) * 1.35)));
+    const width = columns * cellWidth - TREE_GAP_X;
+    const height = Math.ceil(component.length / columns) * cellHeight - TREE_GAP_Y;
+    if (clusterX > WORLD_PADDING && clusterX + width > 1_400) {
+      clusterX = WORLD_PADDING;
+      clusterY += clusterRowHeight + CLUSTER_GAP;
+      clusterRowHeight = 0;
+    }
+    component.forEach((treeIndex, order) => {
+      const tree = trees[treeIndex];
+      const offsetX = clusterX + (order % columns) * cellWidth;
+      const offsetY = clusterY + Math.floor(order / columns) * cellHeight;
+      tree.positions.forEach((point, id) => { positions[id] = { x: point.x + offsetX, y: point.y + offsetY }; });
+    });
+    clusterX += width + CLUSTER_GAP;
+    clusterRowHeight = Math.max(clusterRowHeight, height);
   });
-  ordered.filter((node) => node.kind !== "Class").forEach((node) => {
-    const anchorEdge = graphEdges.find((edge) => edge.sourceNodeId === node.identity.id && ((node.kind === "Individual" && edge.kind === "Type") || (node.kind !== "Individual" && edge.kind === "Domain")));
-    const anchor = anchorEdge ? positions[anchorEdge.targetNodeId] : undefined;
-    const x = anchor?.x ?? WORLD_PADDING;
-    const desiredY = anchor ? anchor.y + NODE_HEIGHT + 16 : WORLD_PADDING + nextRow++ * (NODE_HEIGHT + ROW_GAP);
-    const lane = occupiedByLane.get(x) ?? [];
-    let y = desiredY;
-    while (lane.some((taken) => Math.abs(taken - y) < NODE_HEIGHT + 16)) y += NODE_HEIGHT + 16;
-    lane.push(y); occupiedByLane.set(x, lane); positions[node.identity.id] = { x, y };
+
+  const occupied = Object.values(positions);
+  ordered.filter((node) => node.kind !== "Class").forEach((node, index) => {
+    const outbound = graphEdges.filter((edge) => edge.sourceNodeId === node.identity.id);
+    const domain = outbound.find((edge) => edge.kind === "Domain" && positions[edge.targetNodeId]);
+    const range = outbound.find((edge) => edge.kind === "Range" && positions[edge.targetNodeId]);
+    const type = outbound.find((edge) => edge.kind === "Type" && positions[edge.targetNodeId]);
+    const domainPoint = domain ? positions[domain.targetNodeId] : undefined;
+    const rangePoint = range ? positions[range.targetNodeId] : undefined;
+    const anchor = domainPoint ?? (type ? positions[type.targetNodeId] : undefined);
+    const desired = domainPoint && rangePoint && domain?.targetNodeId !== range?.targetNodeId
+      ? propertyMidpoint(domainPoint, rangePoint, node.identity.id)
+      : anchor
+        ? { x: anchor.x, y: anchor.y + NODE_HEIGHT + 26 }
+        : { x: WORLD_PADDING + (index % 4) * (NODE_WIDTH + LAYER_GAP), y: clusterY + clusterRowHeight + TREE_GAP_Y };
+    positions[node.identity.id] = nearestFreePoint(desired, occupied);
+    occupied.push(positions[node.identity.id]);
   });
   return positions;
+}
+
+interface ClassTree { ids: string[]; positions: Map<string, GraphPoint>; width: number; height: number; rootId: string }
+
+function buildClassTrees(candidates: WebOntologyGraphNode[], children: Map<string, WebOntologyGraphNode[]>): ClassTree[] {
+  const assigned = new Set<string>();
+  const trees: ClassTree[] = [];
+  candidates.forEach((root) => {
+    if (assigned.has(root.identity.id)) return;
+    const positions = new Map<string, GraphPoint>();
+    let leafRow = 0;
+    let maxDepth = 0;
+    function place(node: WebOntologyGraphNode, depth: number): number {
+      if (assigned.has(node.identity.id)) return positions.get(node.identity.id)?.y ?? leafRow * (NODE_HEIGHT + ROW_GAP);
+      assigned.add(node.identity.id);
+      maxDepth = Math.max(maxDepth, depth);
+      const branch = (children.get(node.identity.id) ?? []).filter((child) => !assigned.has(child.identity.id));
+      const childRows = branch.map((child) => place(child, depth + 1));
+      const y = childRows.length ? (childRows[0] + childRows[childRows.length - 1]) / 2 : leafRow++ * (NODE_HEIGHT + ROW_GAP);
+      positions.set(node.identity.id, { x: depth * (NODE_WIDTH + LAYER_GAP), y });
+      return y;
+    }
+    place(root, 0);
+    const ids = [...positions.keys()];
+    trees.push({ ids, positions, width: NODE_WIDTH + maxDepth * (NODE_WIDTH + LAYER_GAP), height: NODE_HEIGHT + Math.max(0, leafRow - 1) * (NODE_HEIGHT + ROW_GAP), rootId: root.identity.id });
+  });
+  return trees;
+}
+
+function propertyTreeLinks(edges: WebOntologyGraphEdge[], treeByClass: Map<string, number>): Map<number, Map<number, number>> {
+  const links = new Map<number, Map<number, number>>();
+  const byProperty = new Map<string, WebOntologyGraphEdge[]>();
+  edges.filter((edge) => edge.kind === "Domain" || edge.kind === "Range").forEach((edge) => byProperty.set(edge.sourceNodeId, [...(byProperty.get(edge.sourceNodeId) ?? []), edge]));
+  byProperty.forEach((propertyEdges) => {
+    const domains = propertyEdges.filter((edge) => edge.kind === "Domain").map((edge) => treeByClass.get(edge.targetNodeId)).filter((id): id is number => id !== undefined);
+    const ranges = propertyEdges.filter((edge) => edge.kind === "Range").map((edge) => treeByClass.get(edge.targetNodeId)).filter((id): id is number => id !== undefined);
+    domains.forEach((domain) => ranges.forEach((range) => {
+      if (domain === range) return;
+      links.set(domain, links.get(domain) ?? new Map()); links.set(range, links.get(range) ?? new Map());
+      links.get(domain)!.set(range, (links.get(domain)!.get(range) ?? 0) + 1);
+      links.get(range)!.set(domain, (links.get(range)!.get(domain) ?? 0) + 1);
+    }));
+  });
+  return links;
+}
+
+function connectedTreeComponents(count: number, links: Map<number, Map<number, number>>, trees: ClassTree[]): number[][] {
+  const remaining = new Set(Array.from({ length: count }, (_, index) => index));
+  const components: number[][] = [];
+  while (remaining.size) {
+    const seed = [...remaining].sort((a, b) => (links.get(b)?.size ?? 0) - (links.get(a)?.size ?? 0) || trees[a].rootId.localeCompare(trees[b].rootId))[0];
+    const queue = [seed];
+    const component: number[] = [];
+    remaining.delete(seed);
+    while (queue.length) {
+      const current = queue.shift()!;
+      component.push(current);
+      [...(links.get(current)?.entries() ?? [])].sort(([a, aw], [b, bw]) => bw - aw || trees[a].rootId.localeCompare(trees[b].rootId)).forEach(([neighbor]) => {
+        if (!remaining.delete(neighbor)) return;
+        queue.push(neighbor);
+      });
+    }
+    components.push(component);
+  }
+  return components;
+}
+
+function propertyMidpoint(domain: GraphPoint, range: GraphPoint, id: string): GraphPoint {
+  const direction = stableParity(id) ? 1 : -1;
+  const dx = range.x - domain.x;
+  const dy = range.y - domain.y;
+  const length = Math.max(1, Math.hypot(dx, dy));
+  return {
+    x: (domain.x + range.x) / 2 - (dy / length) * 58 * direction,
+    y: (domain.y + range.y) / 2 + (dx / length) * 58 * direction,
+  };
+}
+
+function nearestFreePoint(desired: GraphPoint, occupied: GraphPoint[]): GraphPoint {
+  for (let ring = 0; ring <= 10; ring += 1) {
+    const candidates = ring === 0 ? [desired] : [
+      { x: desired.x, y: desired.y + ring * (NODE_HEIGHT + 22) },
+      { x: desired.x, y: desired.y - ring * (NODE_HEIGHT + 22) },
+      { x: desired.x + (ring % 2 ? 48 : -48), y: desired.y + ring * (NODE_HEIGHT + 22) },
+    ];
+    const free = candidates.find((candidate) => occupied.every((point) => Math.abs(point.x - candidate.x) >= NODE_WIDTH + 18 || Math.abs(point.y - candidate.y) >= NODE_HEIGHT + 18));
+    if (free) return free;
+  }
+  return { x: desired.x, y: desired.y + occupied.length * (NODE_HEIGHT + 22) };
+}
+
+function stableParity(value: string): boolean {
+  return [...value].reduce((sum, character) => sum + character.charCodeAt(0), 0) % 2 === 0;
 }
 
 interface ClassFacts { subclasses: number; properties: number; individuals: number; relationships: number }

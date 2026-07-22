@@ -23,7 +23,8 @@ export default function OntologyGraphRenderer({ nodes, edges, state, childCounts
   const defaultPositions = useMemo(() => layeredGraphLayout(nodes, edges), [geometryKey]);
   const positions = Object.fromEntries(nodes.map((node) => [node.identity.id, state.positions?.[node.identity.id] ?? defaultPositions[node.identity.id]]));
   const persistedPositions = { ...state.positions, ...positions };
-  const zoom = state.zoom ?? 1;
+  const [initialZoom, setInitialZoom] = useState<number | null>(null);
+  const zoom = state.zoom ?? initialZoom ?? 1;
   const bounds = graphWorldBounds(positions);
   const pointer = useRef<{ id: string; x: number; y: number; origin: GraphPoint; dragged: boolean } | null>(null);
   const suppressClick = useRef(false);
@@ -35,13 +36,20 @@ export default function OntologyGraphRenderer({ nodes, edges, state, childCounts
   useEffect(() => {
     const element = viewport.current;
     if (!element || initiallyFocused.current || !nodes.length) return;
+    if (state.zoom === undefined && initialZoom === null) {
+      const fitZoom = clampZoom(Math.min(1, (element.clientWidth - 40) / bounds.width, (element.clientHeight - 40) / bounds.height));
+      if (fitZoom < 1) {
+        setInitialZoom(fitZoom);
+        return;
+      }
+    }
     const first = [...nodes].sort((a, b) => positions[a.identity.id].x - positions[b.identity.id].x || positions[a.identity.id].y - positions[b.identity.id].y || a.identity.id.localeCompare(b.identity.id))[0];
     const target = positions[state.selectedNodeId ?? ""] ?? positions[first.identity.id];
     if (!target) return;
     initiallyFocused.current = true;
-    element.scrollLeft = Math.max(0, (target.x - bounds.minX) * zoom - 28);
-    element.scrollTop = Math.max(0, (target.y - bounds.minY) * zoom - 28);
-  }, [bounds.minX, bounds.minY, nodes, positions, state.selectedNodeId, zoom]);
+    element.scrollLeft = Math.max(0, (target.x + graphNodeSize.width / 2 - bounds.minX) * zoom - element.clientWidth / 2);
+    element.scrollTop = Math.max(0, (target.y + graphNodeSize.height / 2 - bounds.minY) * zoom - element.clientHeight / 2);
+  }, [bounds.height, bounds.minX, bounds.minY, bounds.width, initialZoom, nodes, positions, state.selectedNodeId, state.zoom, zoom]);
 
   function setZoom(nextValue: number, clientX?: number, clientY?: number) {
     const element = viewport.current;

@@ -54,6 +54,22 @@ describe("ontology graph geometry", () => {
     expect(positions.dense.x).toBeLessThan(positions.grandchild.x);
   });
 
+  it("packs property-connected class trees together and separates unrelated trees", () => {
+    const domain = node("domain", "Domain");
+    const range = node("range", "Range");
+    const unrelated = node("unrelated", "Unrelated");
+    const property = { ...node("property", "connects"), kind: "ObjectProperty" as const };
+    const positions = layeredGraphLayout([domain, range, unrelated, property], [
+      { id: "domain-edge", kind: "Domain", sourceNodeId: "property", targetNodeId: "domain", label: "domain", predicateIri: null, provenance: "Asserted" },
+      { id: "range-edge", kind: "Range", sourceNodeId: "property", targetNodeId: "range", label: "range", predicateIri: null, provenance: "Asserted" },
+    ]);
+    const connectedDistance = Math.hypot(positions.domain.x - positions.range.x, positions.domain.y - positions.range.y);
+    const unrelatedDistance = Math.hypot(positions.domain.x - positions.unrelated.x, positions.domain.y - positions.unrelated.y);
+    expect(connectedDistance).toBeLessThan(unrelatedDistance);
+    expect(positions.property.x).toBeGreaterThan(Math.min(positions.domain.x, positions.range.x));
+    expect(positions.property.x).toBeLessThan(Math.max(positions.domain.x, positions.range.x));
+  });
+
   it("inserts expanded hierarchy and property nodes beside their asserted anchors", () => {
     const root = node("root", "Root");
     const child = node("child", "Child");

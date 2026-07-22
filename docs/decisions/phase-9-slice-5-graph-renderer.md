@@ -14,6 +14,7 @@ Entio therefore owns a small deterministic hierarchy-layout helper and React/SVG
 
 - Asserted subclass edges produce the primary left-to-right class tree; non-hierarchy relationships never control class placement.
 - Siblings are ordered deterministically by subclass, connected-property, typed-individual, and relationship counts, followed by label and IRI.
+- Separate class trees are packed into deterministic layout clusters using only asserted property domain/range connectivity. Property-connected trees stay near each other, while disconnected tree clusters receive additional spacing; these are presentation clusters, not semantic groups.
 - Object and datatype properties are anchored below their asserted domain class, while individuals remain hidden until explicitly revealed.
 - `Hierarchy`, `Focus`, and `Full map` modes reuse the same bounded server graph without assigning new semantic meaning.
 - Large branches show child counts and remain collapsed after the first bounded group until explicitly expanded. Newly loaded nodes are inserted near an asserted parent without moving existing positions.
