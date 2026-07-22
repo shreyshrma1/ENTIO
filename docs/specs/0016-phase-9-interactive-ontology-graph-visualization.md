@@ -132,7 +132,7 @@ The first release provides one deterministic left-to-right layered layout named 
 
 Users may manually reposition nodes after layout. Attached edges update during dragging. A drag exceeding four CSS pixels is treated as a drag and must not also select/open the node.
 
-Phase 9 permits one focused frontend graph interaction dependency after a documented implementation spike verifies all required interaction, accessibility, license, bundle, and test behavior. `@xyflow/react` is the preferred candidate because it supplies node/edge rendering and viewport interaction without moving semantic policy into React. A second layout library is not approved by this spec; the bounded deterministic layered layout remains Entio presentation code. If the spike fails a stop condition in the ExecPlan, implementation pauses for spec amendment rather than silently adding another framework.
+The mandatory Slice 0 feasibility gate selected a focused React/SVG renderer using the repository's existing React stack and no graph, layout, or gesture dependency. The preferred `@xyflow/react` candidate passed license, React 19, audit, and build checks, but its transform-owned viewport did not make an external native scroll world's bounds follow zoom without a second, fragile geometry system. React therefore owns accessible SVG node and edge presentation plus the bounded deterministic layered layout, while server responses remain the only source of semantic meaning.
 
 The minimap and alternate radial/automatic layouts are deferred.
 
@@ -416,9 +416,6 @@ The client keeps the last valid graph when an expansion, search-centered load, o
 
 ## Open Questions
 
-- Is `@xyflow/react` acceptable as the single focused frontend dependency, subject to the ExecPlan spike and ADR, or should the spec be amended to require a dependency-free renderer?
-- Should source filtering default to all local ontology sources, as specified, or only the currently selected outline source?
-- Which specific machine should be recorded as the supported development-hardware baseline for the performance gate?
-- Should the four-pixel drag threshold be adjusted after pointer-device usability testing?
+No product-scope question blocks implementation. All allowed local ontology sources are selected by default, and Slice 0 records the development-hardware baseline and dependency-free React/SVG decision. The approved four-pixel drag threshold remains subject to verification on real pointer devices without changing scope.
 
-All other Phase 9 scope questions are resolved by this draft: asserted-only facts; no literals, annotation properties, SHACL shapes, inferred edges, minimap, or alternate layouts; temporary state survives only while the tab remains open; outline/search misses use bounded centered replacement; and the keyboard model and performance gates are defined above.
+Phase 9 uses asserted-only facts; no literals, annotation properties, SHACL shapes, inferred edges, minimap, or alternate layouts; temporary state survives only while the tab remains open; outline/search misses use bounded centered replacement; and the keyboard model and performance gates are defined above.
