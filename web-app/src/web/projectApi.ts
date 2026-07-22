@@ -12,6 +12,10 @@ import { withDevelopmentIdentity } from "./session";
 
 export type WebFetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+export class WebApiError extends Error {
+  constructor(public readonly code: string, message: string) { super(message); this.name = "WebApiError"; }
+}
+
 const defaultFetcher: WebFetcher = (input, init) => globalThis.fetch(input, withDevelopmentIdentity(init));
 
 export async function loadProjects(fetcher: WebFetcher = defaultFetcher): Promise<WebProjectListResponse> {
@@ -901,6 +905,6 @@ async function sendJson<T>(
 }
 
 async function webRequestError(response: Response): Promise<Error> {
-  const error = await response.json().catch(() => null) as { message?: string } | null;
-  return new Error(error?.message ?? `Entio web request failed with status ${response.status}.`);
+  const error = await response.json().catch(() => null) as { code?: string; message?: string } | null;
+  return new WebApiError(error?.code ?? "web-request-failed", error?.message ?? `Entio web request failed with status ${response.status}.`);
 }

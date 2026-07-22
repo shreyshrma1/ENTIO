@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadEntityDetails, loadHierarchy, loadOntologyGraph, loadOntologyGraphNeighborhood, loadProjectOutline, loadShaclShapes, searchProject, stageChange, previewStagedChanges, loadAiProviderSettings, discoverAiModels, selectAiModel, retestAiModel, clearAiModelSelection } from "./projectApi";
+import { loadEntityDetails, loadHierarchy, loadOntologyGraph, loadOntologyGraphNeighborhood, loadProjectOutline, loadShaclShapes, searchProject, stageChange, previewStagedChanges, loadAiProviderSettings, discoverAiModels, selectAiModel, retestAiModel, clearAiModelSelection, WebApiError } from "./projectApi";
 
 function response(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -65,6 +65,11 @@ describe("read-only project API", () => {
     expect(requests[1].path).toContain("continuation=next%2Ftoken");
     expect(requests[1].path).not.toContain("offset");
     expect(requests.every(({ signal }) => signal === controller.signal)).toBe(true);
+  });
+
+  it("preserves safe stale error codes without exposing response internals", async () => {
+    const request = loadOntologyGraph("simple", { sourceIds: ["simple"], expectedFingerprint: "old" }, async () => new Response(JSON.stringify({ apiVersion: "v1", requestId: "safe", code: "stale-graph-fingerprint", message: "Refresh the graph." }), { status: 409 }));
+    await expect(request).rejects.toMatchObject({ name: "WebApiError", code: "stale-graph-fingerprint", message: "Refresh the graph." } satisfies Partial<WebApiError>);
   });
 
   it("loads the applied SHACL shape graph through a typed helper", async () => {
