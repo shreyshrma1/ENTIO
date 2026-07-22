@@ -994,4 +994,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-node-popup { position: absolute; z-index: 4; right: 28px; top: 150px; display: grid; gap: 8px; width: min(320px, calc(100% - 56px)); max-height: 55vh; overflow: auto; padding: 16px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-1); box-shadow: 0 14px 35px rgb(23 32 51 / 18%); }
 .ontology-node-popup h3, .ontology-node-popup p, .ontology-node-popup dl { margin: 0; }
 .ontology-node-popup > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.ontology-map-actions { min-width: 0; margin: 0; padding: 0; border: 0; }
+.ontology-map-stale { position: absolute; z-index: 8; inset: 52px 16px 16px; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 24px; border: 2px solid var(--warning); border-radius: 12px; background: color-mix(in srgb, var(--surface-1) 94%, transparent); color: var(--text-primary); text-align: center; }
+.ontology-map-stale h3, .ontology-map-stale p { max-width: 480px; margin: 0; }
 @media (prefers-reduced-motion: reduce) { .ontology-graph *, .ontology-graph *::before, .ontology-graph *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
