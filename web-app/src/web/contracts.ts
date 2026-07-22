@@ -99,3 +99,46 @@ export function normalizePageRequest(request: PageRequest = {}): Required<PageRe
 
   return { offset, limit };
 }
+
+export type OntologyGraphNodeKind = "Class" | "ObjectProperty" | "DatatypeProperty" | "Individual";
+export type OntologyGraphEdgeKind = "SubclassOf" | "Domain" | "Range" | "Type" | "ObjectAssertion";
+export type OntologyGraphExpansionCategory = "ClassHierarchy" | "PropertySchema" | "AssertedTypes" | "ObjectAssertions";
+
+export interface WebOntologyGraphNodeId { id: string; sourceId: string; entityIri: string }
+export interface WebOntologyGraphNodeSummary {
+  directSuperclassLabels: string[]; domainLabels: string[]; rangeLabels: string[];
+  assertedTypeLabels: string[]; datatypeRangeLabels: string[];
+  loadedRelationshipCount: number; availableRelationshipCount: number;
+}
+export interface WebOntologyGraphNode {
+  identity: WebOntologyGraphNodeId; kind: OntologyGraphNodeKind; label: string;
+  definitionExcerpt: string | null; summary: WebOntologyGraphNodeSummary;
+}
+export interface WebOntologyGraphEdge {
+  id: string; kind: OntologyGraphEdgeKind; sourceNodeId: string; targetNodeId: string;
+  label: string; predicateIri: string | null; provenance: "Asserted";
+}
+export interface WebOntologyGraphResponse {
+  apiVersion: typeof WEB_API_VERSION; projectId: string; graphFingerprint: string;
+  sources: Array<{ id: string; displayName: string }>;
+  loadKind: "RootOverview" | "EntityCentered" | "Neighborhood";
+  seed: WebOntologyGraphNodeId | null; nodes: WebOntologyGraphNode[]; edges: WebOntologyGraphEdge[];
+  limits: { nodeLimit: number; edgeLimit: number }; totalNodeCount: number; totalEdgeCount: number;
+  continuation: string | null; ambiguousCrossSourceRelationshipCount: number;
+}
+
+export function normalizeOntologyGraphResponse(value: unknown): WebOntologyGraphResponse {
+  if (!value || typeof value !== "object") throw new Error("malformed-graph-response");
+  const response = value as Partial<WebOntologyGraphResponse>;
+  if (response.apiVersion !== WEB_API_VERSION || !Array.isArray(response.nodes) || !Array.isArray(response.edges)) {
+    throw new Error("malformed-graph-response");
+  }
+  if (response.nodes.some((node) => typeof node?.identity?.id !== "string")) {
+    throw new Error("malformed-graph-reference");
+  }
+  const ids = new Set(response.nodes.map((node) => node.identity.id));
+  if (response.edges.some((edge) => !ids.has(edge.sourceNodeId) || !ids.has(edge.targetNodeId))) {
+    throw new Error("malformed-graph-reference");
+  }
+  return response as WebOntologyGraphResponse;
+}

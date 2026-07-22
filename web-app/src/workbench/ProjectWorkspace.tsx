@@ -21,6 +21,7 @@ import {
   type ContextualEditor,
 } from "./ContextualEditing";
 import type { WebStagingEditType } from "./stagingEditTypes";
+import OntologyMapShell, { type OntologyMapViewState } from "./ontology-map/OntologyMapShell";
 
 type ModuleId = "explore" | "changes" | "reasoning" | "validation" | "fibo" | "activity" | "settings";
 type RailItemId = ModuleId;
@@ -88,6 +89,9 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [tabs, setTabs] = useState<EntityTab[]>([]);
+  const [mapOpen, setMapOpen] = useState(() => searchParams.get("view") === "map");
+  const [mapSeed, setMapSeed] = useState<WebEntityReference | undefined>();
+  const [mapViewState, setMapViewState] = useState<OntologyMapViewState>({ selectedNodeId: null });
   const [activeModule, setActiveModule] = useState<ModuleId>(initialModule);
   const [railExpanded, setRailExpanded] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -114,6 +118,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const search = useProjectSearch(projectId, searchText);
   const staged = useStagedChanges(projectId);
   const activeIri = searchParams.get("iri");
+  const mapActive = searchParams.get("view") === "map";
   const activeTab = useMemo(() => tabs.find((tab) => tab.iri === activeIri), [tabs, activeIri]);
   const stagedEntries = staged.data?.entries ?? [];
   const proposalStatus = staged.data?.proposal?.status;
@@ -126,6 +131,9 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
 
   useEffect(() => {
     setActiveModule(initialModule);
+    setMapOpen(searchParams.get("view") === "map");
+    setMapSeed(undefined);
+    setMapViewState({ selectedNodeId: null });
   }, [initialModule, projectId]);
 
   useEffect(() => {
@@ -179,6 +187,23 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
     });
     setActiveModule("explore");
     navigate(`/projects/${encodeURIComponent(projectId)}?iri=${encodeURIComponent(entity.iri)}`);
+  }
+
+  function openMap() {
+    setMapOpen(true);
+    if (!mapOpen) setMapSeed(activeTab);
+    setActiveModule("explore");
+    const params = new URLSearchParams();
+    params.set("view", "map");
+    if (activeTab) params.set("iri", activeTab.iri);
+    navigate(`/projects/${encodeURIComponent(projectId)}?${params}`);
+  }
+
+  function closeMap() {
+    setMapOpen(false);
+    setMapSeed(undefined);
+    setMapViewState({ selectedNodeId: null });
+    navigate(activeTab ? `/projects/${encodeURIComponent(projectId)}?iri=${encodeURIComponent(activeTab.iri)}` : `/projects/${encodeURIComponent(projectId)}`);
   }
 
   function setClassExpanded(iri: string, expanded: boolean) {
@@ -375,9 +400,9 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
         </aside>
         <section className={`workspace-pane ${assistantOpen ? "workspace-pane-with-ai" : ""}`} aria-label="Entity workspace">
           <div className="workspace-main">
-            <div className="workspace-toolbar"><div><span className="overline">{module.label}</span><span className="toolbar-title">{activeModule === "explore" ? activeTab?.label ?? "Semantic workspace" : module.label}</span></div><div className="toolbar-stats"><span>{summary.data.graphTripleCount} statements</span><StatusBadge tone={stagedCount && stagedIsPendingReview ? "staged" : "neutral"}>{stagedCount} staged</StatusBadge><button className={`assistant-toggle ${assistantOpen ? "assistant-toggle-active" : ""}`} type="button" aria-label={assistantOpen ? "Hide Entio AI sidebar" : "Open Entio AI"} aria-expanded={assistantOpen} onClick={() => setAssistantOpen((value) => !value)}><Icon name="assistant" /><span>AI</span></button></div></div>
-            {activeModule === "explore" && tabs.length ? <>
-              <nav className="entity-tabs" aria-label="Open entities" role="tablist">{tabs.map((tab) => <div
+            <div className="workspace-toolbar"><div><span className="overline">{module.label}</span><span className="toolbar-title">{activeModule === "explore" ? mapActive ? "Ontology map" : activeTab?.label ?? "Semantic workspace" : module.label}</span></div><div className="toolbar-stats">{activeModule === "explore" ? <button type="button" onClick={openMap}>View as map</button> : null}<span>{summary.data.graphTripleCount} statements</span><StatusBadge tone={stagedCount && stagedIsPendingReview ? "staged" : "neutral"}>{stagedCount} staged</StatusBadge><button className={`assistant-toggle ${assistantOpen ? "assistant-toggle-active" : ""}`} type="button" aria-label={assistantOpen ? "Hide Entio AI sidebar" : "Open Entio AI"} aria-expanded={assistantOpen} onClick={() => setAssistantOpen((value) => !value)}><Icon name="assistant" /><span>AI</span></button></div></div>
+            {activeModule === "explore" && (tabs.length || mapOpen) ? <>
+              <nav className="entity-tabs" aria-label="Open entities" role="tablist">{mapOpen ? <div className="entity-tab" role="presentation"><button type="button" role="tab" aria-label="Ontology map" aria-selected={mapActive} tabIndex={mapActive ? 0 : -1} onClick={openMap}>Ontology map<small>Map</small></button><button type="button" className="tab-close" aria-label="Close Ontology map" onClick={closeMap}><Icon name="close" /></button></div> : null}{tabs.map((tab) => <div
                 className={`entity-tab ${stagedIsPendingReview && stagedIris.has(tab.iri) ? "entity-staged" : ""} ${draggedTabIri === tab.iri ? "entity-tab-dragging" : ""}`}
                 key={tab.iri}
                 role="presentation"
@@ -390,7 +415,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
               <span className="visually-hidden" role="status" aria-live="polite">{tabOrderMessage}</span>
             </> : null}
             <div className={`workspace-content ${activeModule === "explore" && activeIri && stagedIsPendingReview && stagedIris.has(activeIri) ? "workspace-content-staged" : ""}`} id="entity-workspace-panel" role="tabpanel" aria-label={activeModule === "explore" ? activeTab ? `${activeTab.label} details` : "Entity details" : `${module.label} workspace`} aria-live="polite">
-              {renderModule(activeModule, projectId, sourceId, shapesSourceId, activeTab, semanticJobIds, (kind, status) => setSemanticJobIds((current) => ({ ...current, [kind]: status.id })), activeTab ? <EntityDetails projectId={projectId} iri={activeTab.iri} stagedEntity={stagedDetails.get(activeTab.iri)} stagedEntries={stagedIsPendingReview ? stagedEntries : []} directType={activeTab.directType} initialSection={activeTab.requestedSection} sectionRequestId={activeTab.sectionRequestId} onOpenEntity={openEntity} /> : <EmptyWorkspace />, displayName, saveDisplayName, launchEditor)}
+              {renderModule(activeModule, projectId, sourceId, shapesSourceId, activeTab, semanticJobIds, (kind, status) => setSemanticJobIds((current) => ({ ...current, [kind]: status.id })), mapActive && mapOpen && sourceId ? <OntologyMapShell projectId={projectId} sourceId={sourceId} seed={mapSeed} state={mapViewState} onStateChange={setMapViewState} onViewDetails={openEntity} /> : activeTab ? <EntityDetails projectId={projectId} iri={activeTab.iri} stagedEntity={stagedDetails.get(activeTab.iri)} stagedEntries={stagedIsPendingReview ? stagedEntries : []} directType={activeTab.directType} initialSection={activeTab.requestedSection} sectionRequestId={activeTab.sectionRequestId} onOpenEntity={openEntity} /> : <EmptyWorkspace onOpenMap={openMap} />, displayName, saveDisplayName, launchEditor)}
             </div>
             {activeModule !== "changes" ? <div className={`staged-dock ${stagedCount && stagedIsPendingReview ? "staged-dock-pending" : ""}`} aria-label="Shared staged changes"><div><span className="overline">Shared review queue</span><strong>{stagedCount ? `${stagedCount} change${stagedCount === 1 ? "" : "s"} staged` : "No staged changes"}</strong></div><span className="dock-meta">Review the complete proposal, then accept or reject it.</span><button type="button" onClick={() => openModule("changes")}>{stagedCount ? "Review proposal" : "Open proposal"}</button></div> : null}
           </div>
@@ -857,7 +882,7 @@ function entityContextMenu(
   return { x, y, label: `${entity.label} actions`, actions };
 }
 
-function EmptyWorkspace() { return <div className="empty-workspace"><span className="overline">Explore</span><h1>Select an entity</h1><p>Choose a class from the outline or search by label to open its details in a tab.</p><div className="empty-hints"><span>Label-first navigation</span><span>Technical details on demand</span></div></div>; }
+function EmptyWorkspace({ onOpenMap }: { onOpenMap: () => void }) { return <div className="empty-workspace"><span className="overline">Explore</span><h1>Select an entity</h1><p>Choose a class from the outline or search by label to open its details in a tab.</p><button type="button" onClick={onOpenMap}>View as map</button><div className="empty-hints"><span>Label-first navigation</span><span>Technical details on demand</span></div></div>; }
 
 function reorderTabs(tabs: EntityTab[], sourceIri: string, targetIri: string): EntityTab[] {
   const sourceIndex = tabs.findIndex((tab) => tab.iri === sourceIri);

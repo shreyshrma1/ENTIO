@@ -4,6 +4,9 @@ import {
   type WebAiProviderSettings,
   type WebPage,
   type WebProjectListResponse,
+  type OntologyGraphExpansionCategory,
+  type WebOntologyGraphResponse,
+  normalizeOntologyGraphResponse,
 } from "./contracts";
 import { withDevelopmentIdentity } from "./session";
 
@@ -735,6 +738,62 @@ export async function loadProjectSources(
     `/api/v1/projects/${encodeURIComponent(projectId)}/sources?offset=${page.offset}&limit=${page.limit}`,
     fetcher,
   );
+}
+
+export interface OntologyGraphInitialOptions {
+  sourceIds: string[];
+  seed?: { sourceId: string; entityIri: string };
+  expectedFingerprint?: string;
+  continuation?: string;
+  signal?: AbortSignal;
+}
+
+export interface OntologyGraphNeighborhoodOptions {
+  sourceIds: string[];
+  entity: { sourceId: string; entityIri: string };
+  categories: OntologyGraphExpansionCategory[];
+  expectedFingerprint: string;
+  continuation?: string;
+  signal?: AbortSignal;
+}
+
+export async function loadOntologyGraph(
+  projectId: string,
+  options: OntologyGraphInitialOptions,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebOntologyGraphResponse> {
+  const params = graphParams(options.sourceIds, options.expectedFingerprint, options.continuation);
+  if (options.seed) {
+    params.set("seedSourceId", options.seed.sourceId);
+    params.set("seedIri", options.seed.entityIri);
+  }
+  return getGraphJson(`/api/v1/projects/${encodeURIComponent(projectId)}/graph?${params}`, options.signal, fetcher);
+}
+
+export async function loadOntologyGraphNeighborhood(
+  projectId: string,
+  options: OntologyGraphNeighborhoodOptions,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebOntologyGraphResponse> {
+  const params = graphParams(options.sourceIds, options.expectedFingerprint, options.continuation);
+  params.set("entitySourceId", options.entity.sourceId);
+  params.set("entityIri", options.entity.entityIri);
+  options.categories.forEach((category) => params.append("category", category));
+  return getGraphJson(`/api/v1/projects/${encodeURIComponent(projectId)}/graph/neighborhood?${params}`, options.signal, fetcher);
+}
+
+function graphParams(sourceIds: string[], fingerprint?: string, continuation?: string): URLSearchParams {
+  const params = new URLSearchParams();
+  sourceIds.forEach((sourceId) => params.append("sourceId", sourceId));
+  if (fingerprint) params.set("expectedFingerprint", fingerprint);
+  if (continuation) params.set("continuation", continuation);
+  return params;
+}
+
+async function getGraphJson(path: string, signal: AbortSignal | undefined, fetcher: WebFetcher): Promise<WebOntologyGraphResponse> {
+  const response = await fetcher(path, { signal });
+  if (!response.ok) throw await webRequestError(response);
+  return normalizeOntologyGraphResponse(await response.json());
 }
 
 export async function loadHierarchy(
