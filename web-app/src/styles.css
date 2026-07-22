@@ -989,4 +989,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-node.selected, .ontology-node:focus-visible { outline: 3px solid color-mix(in srgb, var(--primary-500) 45%, transparent); outline-offset: 2px; }
 .ontology-loaded-list ul { max-height: 160px; overflow: auto; columns: 2; }
 .ontology-loaded-list button { border: 0; background: transparent; color: inherit; text-align: left; }
+.ontology-map-filters fieldset { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 8px 0; border: 1px solid var(--border-subtle); }
+.ontology-map-shell { position: relative; }
+.ontology-node-popup { position: absolute; z-index: 4; right: 28px; top: 150px; display: grid; gap: 8px; width: min(320px, calc(100% - 56px)); max-height: 55vh; overflow: auto; padding: 16px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-1); box-shadow: 0 14px 35px rgb(23 32 51 / 18%); }
+.ontology-node-popup h3, .ontology-node-popup p, .ontology-node-popup dl { margin: 0; }
+.ontology-node-popup > div { display: flex; flex-wrap: wrap; gap: 6px; }
 @media (prefers-reduced-motion: reduce) { .ontology-graph *, .ontology-graph *::before, .ontology-graph *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
