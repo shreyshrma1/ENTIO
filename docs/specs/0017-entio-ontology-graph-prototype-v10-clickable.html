@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Entio Ontology Graph Prototype</title>
+<style>
+  :root{
+    --bg:#f7f8fc;
+    --panel:#ffffff;
+    --panel-2:#fbfcff;
+    --border:#e3e7f1;
+    --text:#172033;
+    --muted:#718096;
+    --accent:#5b5ce2;
+    --accent-2:#7c6cf2;
+    --accent-soft:#eef0ff;
+    --nav:#111a2b;
+    --blue:#3f7bf7;
+    --blue-soft:#eef5ff;
+    --purple:#8c63e8;
+    --purple-soft:#f5efff;
+    --green:#3dbb84;
+    --green-soft:#edf9f4;
+    --warning:#f2a93b;
+    --danger:#e35b68;
+    --shadow:0 6px 24px rgba(31,41,66,.08);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;background:var(--bg);color:var(--text)}
+  button,input,select{font:inherit}
+  button{cursor:pointer}
+  .app{height:100vh;display:grid;grid-template-rows:60px 1fr;overflow:hidden}
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;padding:0 18px 0 12px;
+    background:var(--panel);border-bottom:1px solid var(--border);z-index:5
+  }
+  .brand-row,.top-actions{display:flex;align-items:center;gap:14px}
+  .brand-mark,.rail-mark{display:grid;place-items:center;background:linear-gradient(135deg,#6658e8,#3947c6);color:#fff;font-weight:700;border-radius:11px}
+  .brand-mark{width:34px;height:34px}
+  .brand{font-size:17px;font-weight:750;letter-spacing:.04em}
+  .project-label{color:var(--muted);font-size:13px}
+  .project-name{font-weight:700;font-size:14px;margin-left:-6px}
+  .status-pill{display:flex;align-items:center;gap:7px;padding:5px 10px;border-radius:999px;background:#eaf9ef;color:#26864f;font-size:12px;font-weight:700;border:1px solid #bfe8cd}
+  .dot{width:7px;height:7px;border-radius:50%;background:#2ca25f}
+  .activity{font-size:12px;color:var(--muted);text-align:right;line-height:1.25}
+  .top-link{font-size:13px;color:#4f5b73}
+  .main{display:grid;grid-template-columns:64px 330px minmax(0,1fr);min-height:0}
+  .rail{background:var(--nav);display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:10px}
+  .rail-mark{width:34px;height:34px;margin-bottom:8px}
+  .rail-btn{width:42px;height:42px;border:0;background:transparent;color:#9eabc2;border-radius:10px;font-size:18px}
+  .rail-btn.active{background:#28365a;color:#aebaff;box-shadow:inset 3px 0 0 #6f6cf4}
+  .rail-spacer{flex:1}
+  .sidebar{background:var(--panel);min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--border)}
+  .section-head{padding:16px 14px 14px;border-bottom:1px solid var(--border)}
+  .eyebrow{font-size:12px;font-weight:800;color:var(--accent);letter-spacing:.09em}
+  .title-row{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
+  .section-title{font-size:20px;font-weight:750}
+  .count-pill{font-size:12px;color:#376fd6;background:#edf5ff;border:1px solid #cfe1ff;padding:5px 9px;border-radius:8px}
+  .search-box{margin-top:14px;display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:9px;padding:10px 12px;background:#fff}
+  .search-box input{border:0;outline:0;width:100%;color:var(--text)}
+  .tabs{display:flex;border-bottom:1px solid var(--border);padding:0 14px}
+  .tab{flex:1;padding:13px 4px;border:0;background:transparent;color:#6e7890;font-size:12px;font-weight:700;border-bottom:2px solid transparent}
+  .tab.active{color:var(--accent);border-color:var(--accent)}
+  .filter-panel{padding:15px 14px;overflow:auto}
+  .filter-title{display:flex;align-items:center;justify-content:space-between;font-size:14px;font-weight:750;margin-bottom:16px}
+  .filter-group{margin-bottom:24px}
+  .filter-group h4{font-size:12px;margin:0 0 10px;color:#3c465c}
+  .check-row{display:flex;align-items:center;gap:9px;margin:10px 0;font-size:13px;color:#505a70}
+  .check-row input{accent-color:var(--accent)}
+  .swatch{width:8px;height:8px;border-radius:50%}
+  .grow{flex:1}
+  .group-row{display:flex;align-items:center;gap:9px;padding:7px 0;color:#526075;font-size:13px}
+  .side-footer{margin-top:auto;border-top:1px solid var(--border);padding:12px 14px;font-size:12px;color:#667085}
+  .footer-line{display:flex;justify-content:space-between;padding:7px 0}
+  .workspace{min-width:0;display:flex;flex-direction:column;background:var(--panel-2)}
+  .workspace-head{height:70px;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;background:var(--panel);border-bottom:1px solid var(--border)}
+  .workspace-title .eyebrow{margin-bottom:6px}
+  .workspace-title h1{font-size:18px;margin:0}
+  .head-metrics{display:flex;align-items:center;gap:9px;color:var(--muted);font-size:12px}
+  .badge{padding:5px 9px;border:1px solid var(--border);border-radius:8px;background:#fff}
+  .ai-btn{padding:9px 13px;border-radius:10px;border:1px solid #cbd2ff;background:#f3f2ff;color:#4d4ed9;font-weight:750}
+  .toolbar{display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);background:#fff}
+  .toolbar .search-box{margin:0;min-width:210px;padding:8px 10px}
+  .chip,.tool-select{border:1px solid #d8def0;background:#f8faff;color:#4a5b77;border-radius:8px;padding:8px 10px;font-size:12px}
+  .chip.active{background:var(--accent-soft);color:var(--accent);border-color:#cfd2ff}
+  .clear-btn{border:0;background:transparent;color:#667085;font-size:12px}
+  .toolbar-spacer{flex:1}
+  .graph-shell{position:relative;flex:1;min-height:0;overflow:scroll;overscroll-behavior:contain;scrollbar-gutter:stable both-edges;background:
+    radial-gradient(circle at 1px 1px, #e8ebf5 1px, transparent 1px);
+    background-size:24px 24px;
+  }
+  .graph-canvas{position:relative;width:2200px;height:1600px;min-width:2200px;min-height:1600px;}
+  .canvas-tools{position:absolute;left:14px;top:14px;z-index:3;display:flex;flex-direction:column;gap:5px;padding:5px;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow)}
+  .canvas-tools button,.zoom-tools button{width:34px;height:34px;border:0;background:transparent;border-radius:8px;color:#57627a}
+  .canvas-tools button.active,.canvas-tools button:hover,.zoom-tools button:hover{background:var(--accent-soft);color:var(--accent)}
+  .legend{position:absolute;left:62px;top:14px;z-index:3;width:max-content;max-width:190px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 12px;box-shadow:var(--shadow);font-size:11px}
+  .legend-row{display:flex;align-items:center;gap:8px;margin:6px 0}
+  .legend-icon{width:16px;height:16px;display:grid;place-items:center;border-radius:5px;color:#fff;font-size:10px;font-weight:800}
+  .zoom-tools{position:absolute;right:14px;bottom:58px;z-index:3;display:flex;flex-direction:column;gap:4px;padding:5px;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow)}
+  .zoom-label{font-size:11px;text-align:center;color:var(--muted);padding:3px}
+  .minimap{position:absolute;left:18px;bottom:18px;width:165px;height:118px;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);overflow:hidden;z-index:3}
+  .minimap svg{width:100%;height:100%}
+  .hint{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:3;background:#fff;border:1px solid var(--border);box-shadow:var(--shadow);padding:8px 13px;border-radius:9px;font-size:11px;color:#68738a}
+  #graphSvg{width:100%;height:100%;display:block;touch-action:pan-x pan-y}
+  .edge{fill:none;stroke:#8997b5;stroke-width:1.7;marker-end:url(#arrow)}
+  .edge.object{stroke:var(--purple)}
+  .edge.data{stroke:var(--green);stroke-dasharray:6 5}
+  .edge.subclass{stroke:#8092b8}
+  .edge-label{font-size:11px;fill:#677289;font-weight:650;paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:round}
+  .node{cursor:grab;pointer-events:all}
+  .node *{pointer-events:none}
+  .node:active{cursor:grabbing}
+  .node rect{fill:#fff;stroke-width:1.5;rx:11;filter:drop-shadow(0 4px 8px rgba(48,59,90,.08))}
+  .node.class rect{stroke:#8bb5ff}
+  .node.object-property rect{stroke:#c7a7ef;fill:#fbf8ff}
+  .node.data-property rect{stroke:#8fd8b7;fill:#f7fffb}
+  .node.individual rect{stroke:#f0bd78;fill:#fffaf3}
+  .node.selected rect{stroke:#316de8;stroke-width:2.5;filter:drop-shadow(0 0 0 rgba(0,0,0,0))}
+  .node-title{font-size:13px;font-weight:800;fill:#28354c}
+  .node-desc{font-size:10.5px;fill:#6e7890}
+  .node-type{font-size:9px;font-weight:800;fill:white}
+  .node-type-bg.class{fill:var(--blue)}
+  .node-type-bg.object-property{fill:var(--purple)}
+  .node-type-bg.data-property{fill:var(--green)}
+  .node-type-bg.individual{fill:var(--warning)}
+  .toast{position:absolute;right:18px;top:18px;z-index:20;background:#172033;color:#fff;padding:10px 13px;border-radius:9px;font-size:12px;opacity:0;transform:translateY(-8px);transition:.2s}
+  .toast.show{opacity:1;transform:translateY(0)}
+  @media (max-width:1200px){
+    .main{grid-template-columns:58px 280px minmax(0,1fr)}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand-row">
+      <div class="brand-mark">E</div>
+      <div class="brand">ENTIO</div>
+      <span class="project-label">Project</span>
+      <span class="project-name">simple-ontology</span>
+      <span class="status-pill"><span class="dot"></span>Connected</span>
+    </div>
+    <div class="top-actions">
+      <div class="activity"><strong>0 connected</strong><br>bob opened an entity</div>
+      <span class="top-link">▶ Recent activity</span>
+      <span class="top-link">Projects</span>
+    </div>
+  </header>
+
+  <div class="main">
+    <aside class="rail">
+      <div class="rail-mark">E</div>
+      <button class="rail-btn active" title="Explore">◇</button>
+      <button class="rail-btn" title="Changes">◆</button>
+      <button class="rail-btn" title="Reasoning">⋯</button>
+      <button class="rail-btn" title="Proposals">□</button>
+      <button class="rail-btn" title="Graph">◎</button>
+      <button class="rail-btn" title="External">↗</button>
+      <button class="rail-btn" title="Settings">⚙</button>
+      <div class="rail-spacer"></div>
+      <button class="rail-btn">●</button>
+    </aside>
+
+    <aside class="sidebar">
+      <div class="section-head">
+        <div class="eyebrow">NAVIGATE</div>
+        <div class="title-row">
+          <div class="section-title">Ontology</div>
+          <div class="count-pill">● 21 symbols</div>
+        </div>
+        <div class="search-box">⌕ <input id="entitySearch" placeholder="Search entities" /></div>
+      </div>
+      <div class="tabs">
+        <button class="tab active">Classes 9</button>
+        <button class="tab">Objects 4</button>
+        <button class="tab">Properties 6</button>
+      </div>
+      <div class="filter-panel">
+        <div class="filter-title"><button id="filterToggle" aria-expanded="false" style="border:0;background:transparent;padding:0;font-weight:750;color:inherit">⌁ Filter ▾</button><button id="clearFilters" style="border:0;background:transparent">×</button></div>
+        <div id="filterContent" style="display:none">
+
+        <div class="filter-group">
+          <h4>Type</h4>
+          <label class="check-row"><input type="checkbox" checked data-filter-type="class"><span class="swatch" style="background:var(--blue)"></span><span class="grow">Classes</span><span>9</span></label>
+          <label class="check-row"><input type="checkbox" checked data-filter-type="object-property"><span class="swatch" style="background:var(--purple)"></span><span class="grow">Object properties</span><span>4</span></label>
+          <label class="check-row"><input type="checkbox" checked data-filter-type="data-property"><span class="swatch" style="background:var(--green)"></span><span class="grow">Data properties</span><span>6</span></label>
+          <label class="check-row"><input type="checkbox" checked data-filter-type="individual"><span class="swatch" style="background:var(--warning)"></span><span class="grow">Individuals</span><span>4</span></label>
+        </div>
+
+        <div class="filter-group">
+          <h4>Status</h4>
+          <label class="check-row"><input type="checkbox" checked><span class="grow">All</span><span>21</span></label>
+          <label class="check-row"><input type="checkbox"><span class="grow">Draft</span><span>4</span></label>
+          <label class="check-row"><input type="checkbox"><span class="grow">Approved</span><span>14</span></label>
+          <label class="check-row"><input type="checkbox"><span class="grow">Deprecated</span><span>3</span></label>
+        </div>
+
+        <div class="filter-group">
+          <h4>Group</h4>
+          <div class="group-row">› <span class="grow">Core Banking</span><span>6</span></div>
+          <div class="group-row">› <span class="grow">Parties</span><span>4</span></div>
+          <div class="group-row">› <span class="grow">Financial</span><span>5</span></div>
+          <div class="group-row">› <span class="grow">Documents</span><span>3</span></div>
+          <div class="group-row">› <span class="grow">Agreements</span><span>3</span></div>
+        </div>
+        </div>
+      </div>
+      <div class="side-footer">
+        <div class="footer-line"><span>Sources</span><strong>2</strong></div>
+        <div class="footer-line"><span>Graph statements</span><strong>87</strong></div>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <div class="workspace-head">
+        <div class="workspace-title">
+          <div class="eyebrow">EXPLORE</div>
+          <h1>Ontology Graph</h1>
+        </div>
+        <div class="head-metrics">
+          <span>87 statements</span>
+          <span class="badge">● 0 staged</span>
+          <button class="ai-btn">✦ AI</button>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="search-box">⌕ <input id="graphSearch" placeholder="Search graph" /></div>
+        <button class="chip active" id="typeChip">Type: All ▾</button>
+        <button class="chip">Status: All ▾</button>
+        <button class="chip">Group: All ▾</button>
+        <button class="clear-btn" id="resetView">Clear all</button>
+        <div class="toolbar-spacer"></div>
+        <select class="tool-select" id="layoutSelect">
+          <option value="auto">Layout · Auto</option>
+          <option value="hierarchy">Layout · Hierarchy</option>
+          <option value="radial">Layout · Radial</option>
+        </select>
+        <button class="chip" id="settingsBtn">☷</button>
+      </div>
+
+      <section class="graph-shell" id="graphShell">
+        <div class="graph-canvas" id="graphCanvas">
+        <div class="canvas-tools">
+          <button class="active" data-tool="select">↖</button>
+          <button data-tool="pan">✋</button>
+          <button data-tool="box">▱</button>
+          <button data-tool="link">⌁</button>
+          <button data-tool="comment">▤</button>
+          <button data-tool="arrange">✥</button>
+        </div>
+
+        <div class="legend">
+          <div class="legend-row"><span class="legend-icon" style="background:var(--blue)">C</span>Class</div>
+          <div class="legend-row"><span class="legend-icon" style="background:var(--purple)">P</span>Object property</div>
+          <div class="legend-row"><span class="legend-icon" style="background:var(--green)">D</span>Data property</div>
+          <div class="legend-row"><span class="legend-icon" style="background:var(--warning)">I</span>Individual</div>
+        </div>
+
+        <svg id="graphSvg" width="2200" height="1600" viewBox="0 0 2200 1600" aria-label="Interactive ontology graph">
+          <defs>
+            <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L8,3 z" fill="#8997b5"></path>
+            </marker>
+          </defs>
+          <g id="viewport">
+            <g id="groups"></g>
+            <g id="edges"></g>
+            <g id="nodes"></g>
+          </g>
+        </svg>
+
+        <div class="minimap">
+          <svg viewBox="0 0 300 200">
+            <rect x="0" y="0" width="300" height="200" fill="#fbfcff"/>
+            <g id="miniNodes"></g>
+            <rect id="miniViewport" x="60" y="35" width="170" height="120" fill="none" stroke="#6b5fe8" stroke-width="3"/>
+          </svg>
+        </div>
+
+        <div class="zoom-tools">
+          <button id="zoomIn">＋</button>
+          <button id="zoomOut">−</button>
+          <button id="fitView">⛶</button>
+          <button id="centerView">◎</button>
+          <div class="zoom-label" id="zoomLabel">100%</div>
+        </div>
+
+        <div class="hint">✋ Drag nodes to reposition • Hold Space to pan • Scroll to zoom</div>
+        <div class="popover" id="popover" role="dialog" aria-label="Entity details">
+          <div class="popover-head">
+            <div class="popover-type" id="popoverType">C</div>
+            <div class="popover-title-wrap">
+              <h3 id="popoverTitle">Beneficiary</h3>
+              <div class="popover-subtitle" id="popoverSubtitle">Class · simple · Approved</div>
+            </div>
+            <button class="popover-close" id="closePopover" aria-label="Close">×</button>
+          </div>
+          <p id="popoverText">A party that benefits from an agreement or payment.</p>
+          <div class="popover-meta">
+            <strong>Group</strong><span id="popoverGroup">Parties</span>
+            <strong>Super class</strong><span id="popoverSuper">Customer</span>
+            <strong>Property</strong><span id="popoverProperty">is beneficiary of</span>
+          </div>
+          <div class="popover-related"><b>Related:</b> <span id="popoverRelated">Agreement, PaymentInstruction</span></div>
+          <div class="popover-actions">
+            <button class="primary-mini" id="focusNode">Focus in graph</button>
+          </div>
+        </div>
+        <div class="toast" id="toast">Layout updated</div>
+        </div>
+      </section>
+    </main>
+
+  </div>
+</div>
+
+<script>
+(() => {
+  const svg = document.getElementById('graphSvg');
+  const viewport = document.getElementById('viewport');
+  const nodesLayer = document.getElementById('nodes');
+  const edgesLayer = document.getElementById('edges');
+  const groupsLayer = document.getElementById('groups');
+  const miniNodes = document.getElementById('miniNodes');
+  const popover = document.getElementById('popover');
+  const shell = document.getElementById('graphShell');
+  const graphCanvas = document.getElementById('graphCanvas');
+  const toast = document.getElementById('toast');
+
+  const state = { scale: 1, tx: 0, ty: 0, selected: 'beneficiary', tool: 'select', panning: false, last: null, dragNode: null };
+
+  const nodes = [
+    {id:'customer', label:'Customer', type:'class', x:530, y:70, w:180, h:72, group:'Parties', desc:'A person or organization that uses financial services.', super:'Thing', property:'has account', used:['Borrower','Beneficiary']},
+    {id:'borrower', label:'Borrower', type:'class', x:390, y:190, w:180, h:72, group:'Parties', desc:'An individual or organization that borrows funds.', super:'Customer', property:'hasBorrower', used:['Loan']},
+    {id:'beneficiary', label:'Beneficiary', type:'class', x:700, y:190, w:190, h:72, group:'Parties', desc:'A party that benefits from an agreement or payment.', super:'Customer', property:'is beneficiary of', used:['Agreement','PaymentInstruction']},
+    {id:'hasBorrower', label:'hasBorrower', type:'object-property', x:390, y:330, w:170, h:68, group:'Core Banking', desc:'Relates a loan to the party who borrows.', super:'ObjectProperty', property:'domain Loan', used:['Loan','Borrower']},
+    {id:'beneficiaryOf', label:'is beneficiary of', type:'object-property', x:720, y:330, w:180, h:68, group:'Agreements', desc:'Links a beneficiary to an agreement.', super:'ObjectProperty', property:'domain Beneficiary', used:['Beneficiary','Agreement']},
+    {id:'account', label:'Account', type:'class', x:170, y:490, w:160, h:72, group:'Core Banking', desc:'A financial account held by a customer.', super:'Thing', property:'hasAccount', used:['Customer','Loan']},
+    {id:'hasAccount', label:'hasAccount', type:'object-property', x:360, y:490, w:160, h:68, group:'Core Banking', desc:'Relates a loan to the account it is held in.', super:'ObjectProperty', property:'domain Loan', used:['Loan','Account']},
+    {id:'loan', label:'Loan', type:'class', x:560, y:490, w:170, h:72, group:'Core Banking', desc:'A sum of money lent to a borrower.', super:'Agreement', property:'hasBorrower', used:['Borrower','Account','Amount']},
+    {id:'agreement', label:'Agreement', type:'class', x:880, y:490, w:170, h:72, group:'Agreements', desc:'A formal arrangement between parties.', super:'Thing', property:'hasInvoice', used:['Beneficiary','Invoice']},
+    {id:'amount', label:'Amount', type:'data-property', x:520, y:620, w:150, h:70, group:'Core Banking', desc:'The total amount of the loan. xsd:decimal', super:'DatatypeProperty', property:'domain Loan', used:['Loan']},
+    {id:'interest', label:'Interest rate', type:'data-property', x:700, y:620, w:150, h:70, group:'Core Banking', desc:'The annual interest rate of the loan. xsd:decimal', super:'DatatypeProperty', property:'domain Loan', used:['Loan']},
+    {id:'invoice', label:'Invoice', type:'class', x:930, y:650, w:170, h:72, group:'Agreements', desc:'A bill issued for goods or services provided.', super:'Document', property:'hasInvoice', used:['Agreement']},
+    {id:'loanExample', label:'Loan #1001', type:'individual', x:250, y:650, w:160, h:68, group:'Examples', desc:'Example loan individual.', super:'Loan', property:'hasBorrower', used:['Alice Example','Account #45']},
+    {id:'borrowerExample', label:'Alice Example', type:'individual', x:60, y:650, w:160, h:68, group:'Examples', desc:'Example borrower individual.', super:'Borrower', property:'borrowerOf', used:['Loan #1001']}
+  ];
+
+  const edges = [
+    {from:'borrower',to:'customer',label:'is a',kind:'subclass'},
+    {from:'beneficiary',to:'customer',label:'is a',kind:'subclass'},
+    {from:'hasBorrower',to:'borrower',label:'range',kind:'object'},
+    {from:'hasBorrower',to:'loan',label:'domain',kind:'object'},
+    {from:'beneficiaryOf',to:'beneficiary',label:'domain',kind:'object'},
+    {from:'beneficiaryOf',to:'agreement',label:'range',kind:'object'},
+    {from:'hasAccount',to:'account',label:'range',kind:'object'},
+    {from:'hasAccount',to:'loan',label:'domain',kind:'object'},
+    {from:'amount',to:'loan',label:'domain',kind:'data'},
+    {from:'interest',to:'loan',label:'domain',kind:'data'},
+    {from:'loan',to:'agreement',label:'subclass of',kind:'subclass'},
+    {from:'agreement',to:'invoice',label:'hasInvoice',kind:'object'},
+    {from:'loanExample',to:'loan',label:'type',kind:'subclass'},
+    {from:'borrowerExample',to:'borrower',label:'type',kind:'subclass'},
+    {from:'loanExample',to:'borrowerExample',label:'hasBorrower',kind:'object'}
+  ];
+
+  const groupBoxes = [];
+
+  function typeLabel(type){
+    return {'class':'Class','object-property':'Object property','data-property':'Data property','individual':'Individual'}[type];
+  }
+  function typeIcon(type){
+    return {'class':'C','object-property':'P','data-property':'D','individual':'I'}[type];
+  }
+
+  function renderGroups(){ groupsLayer.innerHTML = ''; }
+
+  function center(n){ return {x:n.x+n.w/2,y:n.y+n.h/2}; }
+
+  function edgePath(e){
+    const a = center(nodes.find(n=>n.id===e.from));
+    const b = center(nodes.find(n=>n.id===e.to));
+    const dx = b.x-a.x, dy=b.y-a.y;
+    const c1x = a.x + dx*.45, c1y = a.y;
+    const c2x = b.x - dx*.45, c2y = b.y;
+    return `M ${a.x} ${a.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${b.x} ${b.y}`;
+  }
+
+  function renderEdges(){
+    edgesLayer.innerHTML = edges.map((e,i)=>{
+      const a=center(nodes.find(n=>n.id===e.from)), b=center(nodes.find(n=>n.id===e.to));
+      const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+      return `<g data-edge="${i}">
+        <path class="edge ${e.kind}" d="${edgePath(e)}"></path>
+        <text class="edge-label" x="${mx}" y="${my-4}" text-anchor="middle">${e.label}</text>
+      </g>`;
+    }).join('');
+  }
+
+  function wrapText(text, max=28){
+    const words=text.split(' '), lines=[]; let line='';
+    words.forEach(w=>{
+      const next=(line+' '+w).trim();
+      if(next.length>max){ if(line)lines.push(line); line=w; } else line=next;
+    });
+    if(line)lines.push(line);
+    return lines.slice(0,3);
+  }
+
+  function renderNodes(){
+    const activeTypes = new Set([...document.querySelectorAll('[data-filter-type]:checked')].map(x=>x.dataset.filterType));
+    const search=(document.getElementById('graphSearch').value || document.getElementById('entitySearch').value).trim().toLowerCase();
+    nodesLayer.innerHTML = nodes.map(n=>{
+      const visible=activeTypes.has(n.type) && (!search || n.label.toLowerCase().includes(search) || n.desc.toLowerCase().includes(search));
+      const lines=wrapText(n.desc);
+      return `<g class="node ${n.type} ${state.selected===n.id?'selected':''}" data-id="${n.id}" transform="translate(${n.x},${n.y})" style="display:${visible?'block':'none'}">
+        <rect width="${n.w}" height="${n.h}"></rect>
+        <rect class="node-type-bg ${n.type}" x="12" y="11" width="18" height="18" rx="5"></rect>
+        <text class="node-type" x="21" y="24" text-anchor="middle">${typeIcon(n.type)}</text>
+        <text class="node-title" x="38" y="24">${n.label}</text>
+        ${lines.map((line,idx)=>`<text class="node-desc" x="14" y="${44+idx*14}">${line}</text>`).join('')}
+      </g>`;
+    }).join('');
+    attachNodeEvents();
+    renderMini();
+  }
+
+  function renderMini(){
+    miniNodes.innerHTML = nodes.map(n=>{
+      const color={'class':'#74a6ff','object-property':'#aa7ee9','data-property':'#66c79c','individual':'#e6a64a'}[n.type];
+      return `<rect x="${n.x/4}" y="${n.y/4}" width="${Math.max(8,n.w/8)}" height="${Math.max(5,n.h/8)}" rx="3" fill="${color}" opacity=".65"/>`;
+    }).join('');
+  }
+
+  function attachNodeEvents(){
+    // Event delegation is installed once below. Nodes are re-rendered often,
+    // so handlers must not be attached to individual temporary SVG elements.
+  }
+
+  let nodePointerState = null;
+
+  nodesLayer.addEventListener('pointerdown', e => {
+    const nodeElement = e.target.closest('.node');
+    if (!nodeElement || state.tool === 'pan') return;
+
+    e.stopPropagation();
+    const id = nodeElement.dataset.id;
+    const node = nodes.find(item => item.id === id);
+    nodePointerState = {
+      id,
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: node.x,
+      origY: node.y,
+      moved: false
+    };
+    nodesLayer.setPointerCapture(e.pointerId);
+  });
+
+  nodesLayer.addEventListener('pointermove', e => {
+    if (!nodePointerState) return;
+
+    const dx = e.clientX - nodePointerState.startX;
+    const dy = e.clientY - nodePointerState.startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) nodePointerState.moved = true;
+
+    if (!nodePointerState.moved) return;
+
+    const node = nodes.find(item => item.id === nodePointerState.id);
+    node.x = nodePointerState.origX + dx / state.scale;
+    node.y = nodePointerState.origY + dy / state.scale;
+
+    const element = nodesLayer.querySelector(`[data-id="${node.id}"]`);
+    if (element) element.setAttribute('transform', `translate(${node.x},${node.y})`);
+
+    renderEdges();
+    renderMini();
+    popover.style.display = 'none';
+  });
+
+  nodesLayer.addEventListener('pointerup', e => {
+    if (!nodePointerState) return;
+
+    const completed = nodePointerState;
+    nodePointerState = null;
+
+    try {
+      nodesLayer.releasePointerCapture(e.pointerId);
+    } catch (_) {}
+
+    if (!completed.moved) {
+      selectNode(completed.id, e.clientX, e.clientY);
+    }
+  });
+
+  nodesLayer.addEventListener('pointercancel', e => {
+    nodePointerState = null;
+    try {
+      nodesLayer.releasePointerCapture(e.pointerId);
+    } catch (_) {}
+  });
+
+  nodesLayer.addEventListener('dblclick', e => {
+    const nodeElement = e.target.closest('.node');
+    if (!nodeElement) return;
+    e.stopPropagation();
+    selectNode(nodeElement.dataset.id, e.clientX, e.clientY);
+    focusSelected();
+  });
+
+  function selectNode(id,cx,cy){
+    state.selected=id;
+    renderNodes();
+    const n=nodes.find(x=>x.id===id);
+
+    document.getElementById('popoverTitle').textContent=n.label;
+    document.getElementById('popoverText').textContent=n.desc;
+    document.getElementById('popoverType').textContent=typeIcon(n.type);
+    document.getElementById('popoverType').style.background={
+      'class':'var(--blue)',
+      'object-property':'var(--purple)',
+      'data-property':'var(--green)',
+      'individual':'var(--warning)'
+    }[n.type];
+    document.getElementById('popoverSubtitle').textContent=`${typeLabel(n.type)} · simple · Approved`;
+    document.getElementById('popoverGroup').textContent=n.group;
+    document.getElementById('popoverSuper').textContent=n.super;
+    document.getElementById('popoverProperty').textContent=n.property;
+    document.getElementById('popoverRelated').textContent=n.used.join(', ');
+
+    const shellRect=shell.getBoundingClientRect();
+    const left=Math.max(12,Math.min((cx||shellRect.left+20)-shellRect.left+12,shell.clientWidth-302));
+    const top=Math.max(12,Math.min((cy||shellRect.top+20)-shellRect.top+12,shell.clientHeight-250));
+    popover.style.left=left+'px';
+    popover.style.top=top+'px';
+    popover.style.display='block';
+  }
+
+  const BASE_CANVAS_WIDTH = 2200;
+  const BASE_CANVAS_HEIGHT = 1600;
+
+  function applyTransform(){
+    // The graph stays in positive logical coordinates. Zoom changes the actual
+    // scrollable surface size instead of translating graph content outside it.
+    viewport.setAttribute('transform', 'matrix(1,0,0,1,0,0)');
+    const scaledWidth = Math.ceil(BASE_CANVAS_WIDTH * state.scale);
+    const scaledHeight = Math.ceil(BASE_CANVAS_HEIGHT * state.scale);
+    graphCanvas.style.width = scaledWidth + 'px';
+    graphCanvas.style.height = scaledHeight + 'px';
+    graphCanvas.style.minWidth = scaledWidth + 'px';
+    graphCanvas.style.minHeight = scaledHeight + 'px';
+    svg.style.width = scaledWidth + 'px';
+    svg.style.height = scaledHeight + 'px';
+    document.getElementById('zoomLabel').textContent = Math.round(state.scale * 100) + '%';
+  }
+
+  function zoomAt(clientX, clientY, nextScale){
+    const shellRect = shell.getBoundingClientRect();
+    const pointerX = clientX - shellRect.left;
+    const pointerY = clientY - shellRect.top;
+    const oldScale = state.scale;
+    const newScale = Math.max(.4, Math.min(2.2, nextScale));
+
+    // Find the logical graph point under the pointer before zooming.
+    const worldX = (shell.scrollLeft + pointerX) / oldScale;
+    const worldY = (shell.scrollTop + pointerY) / oldScale;
+
+    state.scale = newScale;
+    applyTransform();
+
+    // Put the same logical graph point back under the pointer.
+    shell.scrollLeft = worldX * newScale - pointerX;
+    shell.scrollTop = worldY * newScale - pointerY;
+  }
+
+  function focusSelected(){
+    const n=nodes.find(x=>x.id===state.selected); if(!n) return;
+    state.scale = 1.2;
+    applyTransform();
+    shell.scrollLeft = Math.max(0, (n.x + n.w / 2) * state.scale - shell.clientWidth / 2);
+    shell.scrollTop = Math.max(0, (n.y + n.h / 2) * state.scale - shell.clientHeight / 2);
+    popover.style.display='none';
+  }
+
+  function fitView(){
+    state.scale = .88;
+    applyTransform();
+    shell.scrollTop = 0;
+    shell.scrollLeft = 0;
+  }
+
+  shell.addEventListener('wheel', e => {
+    if (e.ctrlKey) {
+      e.preventDefault();
+      const factor = Math.exp(-e.deltaY * 0.0032);
+      zoomAt(e.clientX, e.clientY, state.scale * factor);
+      return;
+    }
+
+    // Explicitly scroll the workspace. This works even though the page itself
+    // is fixed and the pointer is over the SVG.
+    e.preventDefault();
+    const unit = e.deltaMode === 1 ? 18 : e.deltaMode === 2 ? shell.clientHeight : 1;
+    const vertical = e.deltaY * unit;
+    const horizontal = e.deltaX * unit;
+
+    if (e.shiftKey && Math.abs(horizontal) < Math.abs(vertical)) {
+      shell.scrollLeft += vertical;
+    } else {
+      shell.scrollTop += vertical;
+      shell.scrollLeft += horizontal;
+    }
+  }, { passive: false });
+
+  svg.addEventListener('pointerdown',e=>{
+    if(e.target.closest('.node') || nodePointerState) return;
+    if(state.tool==='pan' || e.buttons===1){
+      state.panning=true; state.last={x:e.clientX,y:e.clientY}; svg.setPointerCapture(e.pointerId);
+    }
+    popover.style.display='none';
+  });
+  svg.addEventListener('pointermove',e=>{
+    if(!state.panning) return;
+    shell.scrollLeft -= e.clientX - state.last.x;
+    shell.scrollTop -= e.clientY - state.last.y;
+    state.last = {x:e.clientX,y:e.clientY};
+  });
+  svg.addEventListener('pointerup',()=>state.panning=false);
+
+  let pinchState = null;
+  svg.addEventListener('touchstart', e => {
+    if (e.touches.length !== 2) return;
+    const [a, b] = e.touches;
+    pinchState = {
+      distance: Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY),
+      scale: state.scale
+    };
+  }, { passive: true });
+
+  svg.addEventListener('touchmove', e => {
+    if (e.touches.length !== 2 || !pinchState) return;
+    e.preventDefault();
+    const [a, b] = e.touches;
+    const distance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+    const centerX = (a.clientX + b.clientX) / 2;
+    const centerY = (a.clientY + b.clientY) / 2;
+    zoomAt(centerX, centerY, pinchState.scale * (distance / pinchState.distance));
+  }, { passive: false });
+
+  svg.addEventListener('touchend', e => {
+    if (e.touches.length < 2) pinchState = null;
+  }, { passive: true });
+
+  document.addEventListener('keydown',e=>{ if(e.code==='Space'){ state.tool='pan'; updateToolButtons(); }});
+  document.addEventListener('keyup',e=>{ if(e.code==='Space'){ state.tool='select'; updateToolButtons(); }});
+
+  function updateToolButtons(){
+    document.querySelectorAll('.canvas-tools button').forEach(b=>b.classList.toggle('active',b.dataset.tool===state.tool));
+  }
+  document.querySelectorAll('.canvas-tools button').forEach(b=>b.addEventListener('click',()=>{
+    state.tool=b.dataset.tool; updateToolButtons();
+    if(state.tool==='arrange'){ document.getElementById('layoutSelect').value='auto'; applyLayout('auto'); }
+  }));
+
+  function visibleCenterClientPoint(){
+    const rect = shell.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }
+  document.getElementById('zoomIn').onclick = () => {
+    const p = visibleCenterClientPoint();
+    zoomAt(p.x, p.y, state.scale * 1.15);
+  };
+  document.getElementById('zoomOut').onclick = () => {
+    const p = visibleCenterClientPoint();
+    zoomAt(p.x, p.y, state.scale / 1.15);
+  };
+  document.getElementById('fitView').onclick=fitView;
+  document.getElementById('centerView').onclick=()=>{state.scale=1;applyTransform();shell.scrollTop=0;shell.scrollLeft=0;};
+  document.getElementById('focusNode').onclick=focusSelected;
+  document.getElementById('closePopover').onclick=()=>popover.style.display='none';
+
+  function applyLayout(kind){
+    if(kind==='hierarchy'){
+      const positions={customer:[530,70],borrower:[340,190],beneficiary:[720,190],loan:[520,360],agreement:[800,360],account:[230,510],invoice:[900,520],hasBorrower:[360,330],beneficiaryOf:[730,300],hasAccount:[330,490],amount:[510,600],interest:[690,600],loanExample:[250,650],borrowerExample:[60,650]};
+      nodes.forEach(n=>{if(positions[n.id]){n.x=positions[n.id][0];n.y=positions[n.id][1]}});
+    } else if(kind==='radial'){
+      const cx=600,cy=370,r=260;
+      nodes.forEach((n,i)=>{const a=(Math.PI*2*i/nodes.length)-Math.PI/2;n.x=cx+Math.cos(a)*r-n.w/2;n.y=cy+Math.sin(a)*r-n.h/2});
+    } else {
+      const positions={customer:[530,70],borrower:[390,190],beneficiary:[700,190],hasBorrower:[390,330],beneficiaryOf:[720,330],account:[170,490],hasAccount:[360,490],loan:[560,490],agreement:[880,490],amount:[520,620],interest:[700,620],invoice:[930,650],loanExample:[250,650],borrowerExample:[60,650]};
+      nodes.forEach(n=>{n.x=positions[n.id][0];n.y=positions[n.id][1]});
+    }
+    renderEdges();renderNodes();fitView();showToast('Layout updated');
+  }
+
+  document.getElementById('layoutSelect').onchange=e=>applyLayout(e.target.value);
+  document.getElementById('graphSearch').addEventListener('input',renderNodes);
+  document.getElementById('entitySearch').addEventListener('input',renderNodes);
+  document.querySelectorAll('[data-filter-type]').forEach(cb=>cb.addEventListener('change',renderNodes));
+  document.getElementById('filterToggle').onclick=()=>{
+    const content=document.getElementById('filterContent');
+    const toggle=document.getElementById('filterToggle');
+    const open=content.style.display==='block';
+    content.style.display=open?'none':'block';
+    toggle.setAttribute('aria-expanded',String(!open));
+    toggle.textContent=open?'⌁ Filter ▾':'⌁ Filter ▴';
+  };
+
+  document.getElementById('clearFilters').onclick=()=>{
+    document.querySelectorAll('[data-filter-type]').forEach(cb=>cb.checked=true);
+    document.getElementById('graphSearch').value='';
+    document.getElementById('entitySearch').value='';
+    renderNodes();
+  };
+  document.getElementById('resetView').onclick=()=>{
+    document.getElementById('graphSearch').value='';
+    document.getElementById('entitySearch').value='';
+    document.querySelectorAll('[data-filter-type]').forEach(cb=>cb.checked=true);
+    renderNodes();fitView();
+  };
+
+  function showToast(msg){
+    toast.textContent=msg;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),1500);
+  }
+  document.getElementById('settingsBtn').onclick=()=>showToast('Graph settings opened');
+
+  renderGroups(); renderEdges(); renderNodes(); fitView();
+})();
+</script>
+</body>
+</html>
