@@ -61,6 +61,15 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   const visibleIds = useMemo(() => new Set(visibleNodes.map((node) => node.identity.id)), [visibleNodes]);
   const visibleEdges = useMemo(() => edges.filter((edge) => visibleIds.has(edge.sourceNodeId) && visibleIds.has(edge.targetNodeId) && (state.edgeKinds === undefined || state.edgeKinds.includes(edge.kind))), [edges, state.edgeKinds, visibleIds]);
   const selected = nodes.find((node) => node.identity.id === state.selectedNodeId);
+  useEffect(() => {
+    if (!selected) return;
+    const dismissOutside = (event: globalThis.PointerEvent) => {
+      if (popupRef.current?.contains(event.target as Node)) return;
+      onStateChange({ ...state, selectedNodeId: null });
+    };
+    document.addEventListener("pointerdown", dismissOutside);
+    return () => document.removeEventListener("pointerdown", dismissOutside);
+  }, [onStateChange, selected, state]);
   const emphasizedIds = useMemo(() => selectionNeighborhood(state.selectedNodeId, nodes, edges), [edges, nodes, state.selectedNodeId]);
   const dimmedNodeIds = useMemo(() => state.selectedNodeId ? new Set(visibleNodes.map((node) => node.identity.id).filter((id) => !emphasizedIds.has(id))) : new Set<string>(), [emphasizedIds, state.selectedNodeId, visibleNodes]);
   const dimmedEdgeIds = useMemo(() => state.selectedNodeId ? new Set(visibleEdges.filter((edge) => !(emphasizedIds.has(edge.sourceNodeId) && emphasizedIds.has(edge.targetNodeId))).map((edge) => edge.id)) : new Set<string>(), [emphasizedIds, state.selectedNodeId, visibleEdges]);

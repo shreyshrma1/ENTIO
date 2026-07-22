@@ -61,6 +61,10 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await page.mouse.move(popupHandle!.x - 60, popupHandle!.y + 52, { steps: 4 });
   await page.mouse.up();
   await expect.poll(async () => (await popup.boundingBox())?.x).toBeLessThan(popupBeforeDrag!.x);
+  await page.locator(".ontology-graph-controls").click();
+  await expect(popup).toHaveCount(0);
+  await node.click();
+  await expect(popup).toBeVisible();
   await node.focus();
   await page.keyboard.press("ArrowDown");
   await expect(page.locator(".ontology-node:focus")).not.toHaveAttribute("id", "ontology-node-n0");
@@ -68,7 +72,7 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await page.getByRole("button", { name: "Zoom in" }).click();
   await expect.poll(async () => Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""))).toBe(zoomBefore + 10);
   await page.getByRole("button", { name: "Fit" }).click();
-  await page.getByRole("button", { name: "Close entity summary" }).click();
+  await expect(popup).toHaveCount(0);
   await page.getByText("Filters", { exact: true }).click();
   await page.getByRole("checkbox", { name: "Individual" }).uncheck();
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toHaveCount(0);

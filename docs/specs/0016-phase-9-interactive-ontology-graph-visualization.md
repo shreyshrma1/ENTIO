@@ -175,7 +175,7 @@ The pop-up uses data already present in the graph response and shows:
 - a compact `Details` box containing inline direct-subclass, loaded-relationship, and available-relationship counts;
 - one `View Details` action.
 
-The close control is a small icon button in the top-right corner. The compact card can be dragged by its title area, remains constrained to the map, and preserves its temporary position while the map tab stays open. Neighborhood expansion, hierarchy, schema, type, and assertion actions do not appear in this summary; the existing entity details view remains the richer inspection surface.
+The close control is a small icon button in the top-right corner. Clicking or pointer-pressing anywhere outside the card dismisses it. The compact card can be dragged by its title area, remains constrained to the map, and preserves its temporary position while the map tab stays open. Neighborhood expansion, hierarchy, schema, type, and assertion actions do not appear in this summary; the existing entity details view remains the richer inspection surface.
 
 `View Details` opens or focuses the existing Explore entity-detail tab using the stable IRI and source ID, closes the pop-up, and leaves the map tab and its state open.
 
