@@ -21,4 +21,17 @@ describe("accessible ontology graph renderer", () => {
     fireEvent.doubleClick(screen.getByRole("button", { name: "Individual: Individual label" }));
     expect(onViewDetails).toHaveBeenCalledWith(nodes[3]);
   });
+
+  it("moves a node without selecting it when the pointer action is a drag", () => {
+    const onStateChange = vi.fn();
+    const renderer = render(<OntologyGraphRenderer nodes={nodes} edges={[]} state={{ selectedNodeId: null }} onStateChange={onStateChange} onViewDetails={vi.fn()} />);
+    const classNode = renderer.container.querySelector<HTMLButtonElement>('[aria-label="Class: Class label"]')!;
+    classNode.setPointerCapture = vi.fn();
+    fireEvent.pointerDown(classNode, { pointerId: 1, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(classNode, { pointerId: 1, clientX: 120, clientY: 120 });
+    fireEvent.pointerUp(classNode, { pointerId: 1, clientX: 120, clientY: 120 });
+    fireEvent.click(classNode);
+    expect(onStateChange).toHaveBeenCalled();
+    expect(onStateChange.mock.calls.some(([next]) => next.selectedNodeId === "node-0")).toBe(false);
+  });
 });

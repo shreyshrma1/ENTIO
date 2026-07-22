@@ -26,6 +26,7 @@ export default function OntologyGraphRenderer({ nodes, edges, state, childCounts
   const zoom = state.zoom ?? 1;
   const bounds = graphWorldBounds(positions);
   const pointer = useRef<{ id: string; x: number; y: number; origin: GraphPoint; dragged: boolean } | null>(null);
+  const suppressClick = useRef(false);
   const pan = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   const initiallyFocused = useRef(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
@@ -72,12 +73,20 @@ export default function OntologyGraphRenderer({ nodes, edges, state, childCounts
     const nextPoint = draggedPoint(active.origin, dx, dy, DRAG_THRESHOLD);
     if (!nextPoint) return;
     active.dragged = true;
-    onStateChange({ ...state, zoom, selectedNodeId: active.id, positions: { ...persistedPositions, [active.id]: nextPoint } });
+    onStateChange({ ...state, zoom, positions: { ...persistedPositions, [active.id]: nextPoint } });
   }
 
-  function nodePointerUp(id: string) {
-    if (!pointer.current?.dragged) onStateChange({ ...state, positions: persistedPositions, zoom, selectedNodeId: id });
+  function nodePointerUp() {
+    suppressClick.current = Boolean(pointer.current?.dragged);
     pointer.current = null;
+  }
+
+  function selectNode(id: string) {
+    if (suppressClick.current) {
+      suppressClick.current = false;
+      return;
+    }
+    onStateChange({ ...state, positions: persistedPositions, zoom, selectedNodeId: id });
   }
 
   function keyNavigate(event: KeyboardEvent<HTMLButtonElement>, id: string) {
@@ -113,7 +122,7 @@ export default function OntologyGraphRenderer({ nodes, edges, state, childCounts
           </defs>
           <g transform={`scale(${zoom}) translate(${-bounds.minX} ${-bounds.minY})`}>
             {edges.map((edge) => { const from = positions[edge.sourceNodeId]; const to = positions[edge.targetNodeId]; if (!from || !to) return null; const label = edgeLabelPoint(from, to); const crossLink = edge.kind !== "SubclassOf" && edge.kind !== "Domain" && edge.kind !== "Range" && edge.kind !== "Type"; return <g key={edge.id} className={`ontology-edge edge-${edge.kind} ${crossLink ? "cross-link" : ""} ${dimmedEdgeIds.has(edge.id) ? "dimmed" : ""}`}><path d={curvedEdgePath(from, to)} markerEnd="url(#ontology-arrow)" /><text x={label.x} y={label.y}>{edge.label}</text></g>; })}
-            {nodes.map((node) => { const point = positions[node.identity.id]; const childCount = childCounts[node.identity.id] ?? 0; return <foreignObject key={node.identity.id} x={point.x} y={point.y} width={graphNodeSize.width} height={graphNodeSize.height}><button id={`ontology-node-${node.identity.id}`} className={`ontology-node node-${node.kind} ${state.selectedNodeId === node.identity.id ? "selected" : ""} ${dimmedNodeIds.has(node.identity.id) ? "dimmed" : ""}`} type="button" aria-label={`${node.kind}: ${node.label}`} onClick={() => onStateChange({ ...state, positions: persistedPositions, zoom, selectedNodeId: node.identity.id })} onPointerDown={(event) => nodePointerDown(event, node.identity.id)} onPointerMove={nodePointerMove} onPointerUp={() => nodePointerUp(node.identity.id)} onKeyDown={(event) => keyNavigate(event, node.identity.id)} onDoubleClick={() => onViewDetails(node)}><span aria-hidden="true">{kindMark[node.kind]}</span><strong>{node.label}{childCount ? <small>{childCount} children</small> : null}</strong></button></foreignObject>; })}
+            {nodes.map((node) => { const point = positions[node.identity.id]; const childCount = childCounts[node.identity.id] ?? 0; return <foreignObject key={node.identity.id} x={point.x} y={point.y} width={graphNodeSize.width} height={graphNodeSize.height}><button id={`ontology-node-${node.identity.id}`} className={`ontology-node node-${node.kind} ${state.selectedNodeId === node.identity.id ? "selected" : ""} ${dimmedNodeIds.has(node.identity.id) ? "dimmed" : ""}`} type="button" aria-label={`${node.kind}: ${node.label}`} onClick={() => selectNode(node.identity.id)} onPointerDown={(event) => nodePointerDown(event, node.identity.id)} onPointerMove={nodePointerMove} onPointerUp={nodePointerUp} onPointerCancel={() => { pointer.current = null; suppressClick.current = false; }} onKeyDown={(event) => keyNavigate(event, node.identity.id)} onDoubleClick={() => onViewDetails(node)}><span aria-hidden="true">{kindMark[node.kind]}</span><strong>{node.label}{childCount ? <small>{childCount} children</small> : null}</strong></button></foreignObject>; })}
           </g>
         </svg>
       </div>
