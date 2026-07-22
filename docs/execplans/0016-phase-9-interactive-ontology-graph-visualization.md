@@ -6,7 +6,7 @@ Approved for implementation.
 
 Implementation must proceed one slice at a time in the exact dependency order below.
 
-Slice 0 remains a mandatory feasibility gate for the frontend graph approach. If the preferred dependency cannot satisfy the required interaction and accessibility behavior, implementation must stop and the approved documents must be amended before continuing.
+Slice 0 completed the mandatory frontend feasibility gate and selected the approved focused React/SVG approach recorded in `docs/decisions/phase-9-slice-0-feasibility.md`.
 
 ## Related Spec
 
@@ -26,7 +26,7 @@ Slice 0 remains a mandatory feasibility gate for the frontend graph approach. If
 - Temporary graph state survives switching between Explore tabs and opening entity-detail tabs.
 - Temporary graph state is discarded when the map tab closes, the project changes, the page reloads, the application restarts, or a stale graph is explicitly refreshed.
 - The named development hardware baseline must be recorded in Slice 0 before Slice 1 begins.
-- `@xyflow/react` is the preferred single frontend dependency, subject to Slice 0. If it cannot meet the required scroll, zoom, reachability, and accessibility behavior without fragile overrides, use a focused React/SVG implementation with no graph dependency and amend the spec and ExecPlan before Slice 1.
+- Phase 9 uses a focused React/SVG implementation with no graph, layout, or gesture dependency. Slice 0 found that `@xyflow/react` would require a fragile second geometry system to keep native two-axis scroll bounds synchronized with zoom.
 
 ## Approved Graph Limits
 
@@ -115,7 +115,7 @@ Expected production changes are limited to existing modules and the documentatio
   - add graph contracts/API/query hooks under `src/web/`;
   - add focused map components and helpers under `src/workbench/ontology-map/`;
   - minimally extend `ProjectWorkspace.tsx`, `Icon.tsx` if an existing icon cannot serve the action, and `styles.css`;
-  - update `package.json` and its committed lockfile only if the dependency spike is approved and passes;
+  - leave `package.json` and its committed lockfile unchanged because Slice 0 selected the dependency-free React/SVG approach;
   - add Vitest and Playwright coverage plus deterministic frontend fixtures.
 - `docs`
   - add one ADR for graph ownership, limits, temporary state, and the frontend dependency decision;
@@ -145,7 +145,7 @@ No slices may be implemented in parallel.
 
 #### Goal
 
-Resolve the source spec's open decisions and prove that the preferred focused graph dependency can satisfy the required interaction model before product implementation begins.
+Resolve the source spec's frontend approach and prove whether the preferred focused graph dependency can satisfy the required interaction model before product implementation begins.
 
 #### Allowed Files And Modules
 
@@ -168,7 +168,7 @@ Resolve the source spec's open decisions and prove that the preferred focused gr
 - A short feasibility record covering `@xyflow/react` license, React 19 compatibility, bundle impact, keyboard semantics, custom node rendering, two-axis scroll/pan, pointer-anchored pinch zoom, deterministic viewport testing, reduced motion, and full-node reachability at 25%, 100%, and 200% zoom.
 - Confirmation of the named development-hardware baseline.
 - Confirmation that all allowed local ontology sources are selected by default.
-- Confirmation that the preferred dependency can satisfy the approved interaction model without fragile overrides.
+- A documented selection of the focused React/SVG fallback because the preferred dependency cannot keep native scroll-world bounds synchronized with zoom without fragile overrides.
 - Spec/plan amendments, if needed, before Slice 1.
 
 #### Tests
@@ -443,7 +443,6 @@ Render the server graph with deterministic initial positions and implement the r
 #### Allowed Files And Modules
 
 - `docs/decisions/phase-9-slice-5-graph-renderer.md`
-- `web-app/package.json` and committed lockfile for the single approved dependency
 - components/helpers/tests under `web-app/src/workbench/ontology-map/`
 - minimal additions to `web-app/src/styles.css`
 - `web-app/src/components/ui/Icon.tsx` only if an existing icon cannot represent a required control
@@ -451,7 +450,7 @@ Render the server graph with deterministic initial positions and implement the r
 
 #### Forbidden Actions And Modules
 
-- No second graph/layout/gesture dependency.
+- No graph/layout/gesture dependency.
 - No canvas-only inaccessible node implementation.
 - No server coordinates, durable positions, browser persistence, semantic calculation, editing gestures, minimap, alternate layout, animations under reduced motion, or broad workbench redesign.
 - No modification of ontology, staging, proposal, AI, or collaboration code.
@@ -459,7 +458,7 @@ Render the server graph with deterministic initial positions and implement the r
 #### Expected Changes Or Output
 
 - `docs/decisions/phase-9-slice-5-graph-renderer.md`.
-- Approved `@xyflow/react` integration when Slice 0 proves compliance, or the explicitly amended focused React/SVG alternative with no graph dependency.
+- Focused React/SVG rendering using the existing React stack and no graph dependency, as approved by Slice 0.
 - Deterministic left-to-right layered layout helper with stable tie-breaking.
 - Custom accessible rectangular nodes and labeled directed edges.
 - Four-pixel drag/click disambiguation and edge updates while dragging.
@@ -498,7 +497,7 @@ git diff --check
 
 #### Stop Conditions
 
-- The approved dependency cannot distinguish normal scroll from pinch zoom as specified.
+- The React/SVG renderer cannot distinguish normal scroll from pinch zoom as specified.
 - All visible nodes cannot remain reachable at every zoom.
 - Required accessibility needs a second rendering/navigation framework.
 - Production bundle or measured interaction misses the approved gate materially.
@@ -800,14 +799,14 @@ The performance harness command must be added to this section once Slice 8 choos
 - The map is additive and isolated behind the `View as map` entry point. A safe code rollback removes that entry point and graph tab first, leaving existing entity tabs and outline behavior intact.
 - Remove graph queries/API calls and the two GET routes next; they have no write-side migration or persisted state to preserve.
 - Remove the focused graph adapter/service and core contracts only after all consumers are gone.
-- Remove `@xyflow/react` and regenerate the committed lockfile through the package manager; do not hand-edit lock entries.
+- No graph dependency or lockfile rollback is required; remove the focused React/SVG map components after their consumers are removed.
 - Revert the Phase 9 ADR/status documentation with the code rollback while retaining historical evidence if Phase 9 had shipped.
 - No ontology, proposal, user, collaboration, or database migration rollback is required because Phase 9 stores no durable graph state and performs no semantic writes.
 - If only a frontend interaction regression occurs, disable/hide the map entry point in a small reversible patch while retaining server read contracts until the fix is verified.
 
 ## Risks And Assumptions
 
-- `@xyflow/react` is the preferred dependency, but Slice 0 must prove it can satisfy the approved interaction model. A focused React/SVG fallback is allowed only through an approved document amendment before Slice 1.
+- Slice 0 selected focused React/SVG with no graph dependency because native two-axis scroll reachability must remain coupled to actual scaled world dimensions rather than a library-owned viewport transform.
 - The existing descriptor assembler may not expose every object assertion in precisely the response shape needed; the semantic service may read existing local `GraphTriple` values, but must keep RDF interpretation in `semantic-engine` and use existing RDF types.
 - A project graph fingerprint currently spans the loaded graph. The implementation must confirm it excludes external catalog material and is stable for the selected local-source scope; otherwise add a local-project fingerprint helper rather than weakening stale checks.
 - Multiple local sources can declare the same IRI. Identity includes source ID. The approved same-source-first and ambiguous-omission rules must be implemented and tested before exposing contracts.
@@ -821,7 +820,7 @@ The performance harness command must be added to this section once Slice 8 choos
 
 - Current phase: Phase 9 has been explicitly requested for specification and planning, but remains unimplemented until approval and verification.
 - Non-goals: the plan excludes graph editing, AI grouping, inferred visualization, external catalogs, durable layouts, graph export, new storage, arbitrary query, CLI/VS Code work, and production identity infrastructure.
-- Speculative infrastructure: it adds no module, database, persistence, collaboration protocol, semantic job type, or new server framework. One focused frontend dependency is gated and documented.
+- Speculative infrastructure: it adds no module, database, persistence, collaboration protocol, semantic job type, new server framework, or frontend graph framework.
 - Module responsibility: `core-types` holds neutral contracts; `semantic-engine` owns RDF/ontology interpretation; `web-server` owns scoped read adaptation; `web-app` owns drawing and temporary interaction. `shared` remains unchanged.
 - Dependency direction: engine modules do not depend on Ktor or React, and clients receive structured output rather than semantic-library types.
 - Standards: existing RDF terms, semantic descriptors, Jena-backed loading, and reasoning boundaries are reused. No RDF, OWL, SHACL, parser, or reasoner is reinvented.
