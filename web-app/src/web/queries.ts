@@ -32,6 +32,10 @@ import {
   type WebFiboModule,
   type WebFiboProposalRequest,
   loadAiProviderSettings,
+  loadOntologyGraph,
+  loadOntologyGraphNeighborhood,
+  type OntologyGraphInitialOptions,
+  type OntologyGraphNeighborhoodOptions,
   discoverAiModels,
   selectAiModel,
   retestAiModel,
@@ -69,7 +73,29 @@ export const queryKeys = {
   fiboSearch: (projectId: string, text: string) => ["project", projectId, "fibo", "search", text] as const,
   fiboDetails: (projectId: string, iri: string) => ["project", projectId, "fibo", "details", iri] as const,
   aiProviderSettings: ["ai", "provider-settings"] as const,
+  ontologyGraph: (projectId: string, options: Omit<OntologyGraphInitialOptions, "signal">) =>
+    ["project", projectId, "ontology-graph", options] as const,
+  ontologyGraphNeighborhood: (projectId: string, options: Omit<OntologyGraphNeighborhoodOptions, "signal">) =>
+    ["project", projectId, "ontology-graph-neighborhood", options] as const,
 };
+
+export function useOntologyGraph(projectId: string, options: Omit<OntologyGraphInitialOptions, "signal">, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.ontologyGraph(projectId, options),
+    queryFn: ({ signal }) => loadOntologyGraph(projectId, { ...options, signal }),
+    enabled: enabled && projectId.length > 0 && options.sourceIds.length > 0,
+    retry: 1,
+  });
+}
+
+export function useOntologyGraphNeighborhood(projectId: string, options: Omit<OntologyGraphNeighborhoodOptions, "signal">, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.ontologyGraphNeighborhood(projectId, options),
+    queryFn: ({ signal }) => loadOntologyGraphNeighborhood(projectId, { ...options, signal }),
+    enabled: enabled && projectId.length > 0 && options.sourceIds.length > 0,
+    retry: 1,
+  });
+}
 
 export function useProjects() {
   return useQuery({ queryKey: queryKeys.projects, queryFn: () => loadProjects() });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadEntityDetails, loadHierarchy, loadProjectOutline, loadShaclShapes, searchProject, stageChange, previewStagedChanges, loadAiProviderSettings, discoverAiModels, selectAiModel, retestAiModel, clearAiModelSelection } from "./projectApi";
+import { loadEntityDetails, loadHierarchy, loadOntologyGraph, loadOntologyGraphNeighborhood, loadProjectOutline, loadShaclShapes, searchProject, stageChange, previewStagedChanges, loadAiProviderSettings, discoverAiModels, selectAiModel, retestAiModel, clearAiModelSelection } from "./projectApi";
 
 function response(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -48,6 +48,23 @@ describe("read-only project API", () => {
 
     expect(requestedPath).toContain("/outline?offset=0&limit=100&sourceId=simple");
     expect(result.sourceId).toBe("simple");
+  });
+
+  it("encodes abortable graph and neighborhood reads without exposing offsets", async () => {
+    const requests: Array<{ path: string; signal?: AbortSignal | null }> = [];
+    const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ path: String(input), signal: init?.signal });
+      return response({ apiVersion: "v1", nodes: [], edges: [] });
+    };
+    const controller = new AbortController();
+    await loadOntologyGraph("project / one", { sourceIds: ["source one"], seed: { sourceId: "source one", entityIri: "https://example.com/#Customer" }, signal: controller.signal }, fetcher);
+    await loadOntologyGraphNeighborhood("project / one", { sourceIds: ["source one"], entity: { sourceId: "source one", entityIri: "https://example.com/#Customer" }, categories: ["ClassHierarchy"], expectedFingerprint: "finger print", continuation: "next/token", signal: controller.signal }, fetcher);
+    expect(requests[0].path).toContain("/projects/project%20%2F%20one/graph?");
+    expect(requests[0].path).toContain("seedIri=https%3A%2F%2Fexample.com%2F%23Customer");
+    expect(requests[1].path).toContain("expectedFingerprint=finger+print");
+    expect(requests[1].path).toContain("continuation=next%2Ftoken");
+    expect(requests[1].path).not.toContain("offset");
+    expect(requests.every(({ signal }) => signal === controller.signal)).toBe(true);
   });
 
   it("loads the applied SHACL shape graph through a typed helper", async () => {
