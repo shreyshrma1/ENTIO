@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anchoredScroll, clampZoom, directionalNeighbor, draggedPoint, graphWorldBounds, layeredGraphLayout } from "./graphLayout";
+import { anchoredScroll, clampZoom, curvedEdgePath, directionalNeighbor, draggedPoint, graphWorldBounds, layeredGraphLayout } from "./graphLayout";
 
 const node = (id: string, label: string) => ({ identity: { id, sourceId: "s", entityIri: `urn:${id}` }, kind: "Class" as const, label, definitionExcerpt: null, summary: { directSuperclassLabels: [], domainLabels: [], rangeLabels: [], assertedTypeLabels: [], datatypeRangeLabels: [], loadedRelationshipCount: 0, availableRelationshipCount: 0 } });
 
@@ -25,5 +25,18 @@ describe("ontology graph geometry", () => {
     expect(draggedPoint({ x: 10, y: 10 }, 4, 0)).toEqual({ x: 14, y: 10 });
     const nextScroll = anchoredScroll(200, 75, 1, 1.5);
     expect(Math.abs((nextScroll + 75) / 1.5 - (200 + 75))).toBeLessThanOrEqual(1);
+  });
+
+  it("keeps cyclic ontologies in compact columns and routes curves to card boundaries", () => {
+    const cyclicNodes = [node("a", "Account"), node("b", "Borrower"), node("c", "Customer"), node("p", "has account")];
+    const cyclicEdges = [
+      { id: "ab", kind: "SubclassOf" as const, sourceNodeId: "a", targetNodeId: "b", label: "subclass of", predicateIri: null, provenance: "Asserted" as const },
+      { id: "ba", kind: "SubclassOf" as const, sourceNodeId: "b", targetNodeId: "a", label: "subclass of", predicateIri: null, provenance: "Asserted" as const },
+      { id: "pc", kind: "Range" as const, sourceNodeId: "p", targetNodeId: "c", label: "range", predicateIri: null, provenance: "Asserted" as const },
+    ];
+    const positions = layeredGraphLayout(cyclicNodes, cyclicEdges);
+    expect(Math.max(...Object.values(positions).map((point) => point.x))).toBeLessThan(1_000);
+    expect(positions.p.x).toBeLessThan(positions.c.x);
+    expect(curvedEdgePath({ x: 80, y: 80 }, { x: 380, y: 180 })).toMatch(/^M 264 /);
   });
 });

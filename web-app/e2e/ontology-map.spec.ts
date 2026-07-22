@@ -28,6 +28,7 @@ test("ontology map remains bounded, accessible, interactive, stale-safe, and rea
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toBeVisible();
   await expect(page.getByLabel("Loaded ontology graph").locator("text=SubclassOf").first()).toBeAttached();
   await expect(page.getByText("75 loaded entities")).toBeVisible();
+  await expect(page.locator(".ontology-graph-viewport")).toHaveScreenshot("ontology-map-prototype-layout.png");
 
   const node = page.getByRole("button", { name: "Class: Entity 0000" });
   await node.click();
