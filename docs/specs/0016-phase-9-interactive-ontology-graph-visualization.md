@@ -203,7 +203,7 @@ Search behavior is:
 - choosing a supported local result that is not loaded offers `Open centered map`, which performs the bounded replacement behavior described above;
 - external/imported and unsupported results may open their existing details but are not loaded into the map.
 
-One compact filter icon sits beside the Project Outline entity search. Its popover supports shared entity-kind and source visibility for the project outline, semantic search results, and ontology map, plus map-only edge-kind filters for the five supported edge kinds. `Reset filters` restores the bounded default view. The map does not render a duplicate filter panel.
+One compact filter icon sits beside the Project Outline entity search. Its popover supports shared entity-kind and source visibility for the project outline, semantic search results, and ontology map, plus map-only edge-kind filters for the five supported edge kinds. Clicking outside closes the popover. `Reset filters` checks every supported entity, relationship, and source filter, including individuals. The map does not render a duplicate filter panel.
 
 Filtering changes only visible client presentation. It does not modify the server graph, ontology, staging, proposals, or stored map positions. Shared entity filters update outline counts/lists and map visibility together. An edge is hidden when its kind is filtered or either endpoint is hidden.
 

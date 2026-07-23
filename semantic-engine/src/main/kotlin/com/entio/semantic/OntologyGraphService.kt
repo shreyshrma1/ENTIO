@@ -182,6 +182,11 @@ public class OntologyGraphService(
             .map { it.source }
             .sortedWith(nodeIdComparator(model.nodes))
             .forEach(ordered::add)
+        model.edges.asSequence()
+            .filter { it.kind == OntologyGraphEdgeKind.Type && it.target in ordered }
+            .map { it.source }
+            .sortedWith(nodeIdComparator(model.nodes))
+            .forEach(ordered::add)
         return ordered.toList()
     }
 

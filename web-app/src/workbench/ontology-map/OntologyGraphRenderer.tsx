@@ -66,13 +66,12 @@ export default function OntologyGraphRenderer({ nodes, edges, state, childCounts
   useEffect(() => {
     const element = viewport.current;
     if (!element) return;
-    const capturePinch = (event: globalThis.WheelEvent) => {
-      if (!event.ctrlKey) return;
+    const captureMapZoom = (event: globalThis.WheelEvent) => {
       event.preventDefault();
       setZoom(zoom * Math.exp(-event.deltaY * 0.002), event.clientX, event.clientY);
     };
-    element.addEventListener("wheel", capturePinch, { passive: false });
-    return () => element.removeEventListener("wheel", capturePinch);
+    element.addEventListener("wheel", captureMapZoom, { passive: false });
+    return () => element.removeEventListener("wheel", captureMapZoom);
   }, [zoom, state, persistedPositions]);
 
   function nodePointerDown(event: PointerEvent, id: string) {

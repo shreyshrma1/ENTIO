@@ -38,11 +38,15 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await page.keyboard.up("Control");
   await expect.poll(async () => Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""))).toBeGreaterThan(mapPinchZoomBefore);
   expect(await page.evaluate(() => ({ scale: window.visualViewport?.scale ?? 1, devicePixelRatio: window.devicePixelRatio }))).toEqual(browserZoomBefore);
+  const mapWheelZoomBefore = Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""));
+  await page.mouse.wheel(0, 120);
+  await expect.poll(async () => Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""))).toBeLessThan(mapWheelZoomBefore);
   await page.getByLabel("Filter project outline and map").click();
   await page.getByRole("checkbox", { name: "Individuals" }).check();
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toBeVisible();
   await expect(page.getByRole("tab", { name: /Objects 1/ })).toBeVisible();
-  await page.getByLabel("Filter project outline and map").click();
+  await page.locator(".ontology-map-actions").click();
+  await expect(page.locator(".outline-filter-menu")).not.toHaveAttribute("open", "");
   const node = page.getByRole("button", { name: "Class: Entity 0000" });
   await node.click();
   const popup = page.getByRole("dialog", { name: "Entity 0000 map summary" });
@@ -79,7 +83,8 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toHaveCount(0);
   await expect(page.getByRole("tab", { name: /Objects 0/ })).toBeVisible();
   await page.getByRole("button", { name: "Reset filters" }).click();
-  await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: "Individuals" })).toBeChecked();
+  await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toBeVisible();
 
   expect(graphMethods.every((method) => method === "GET")).toBe(true);
 });

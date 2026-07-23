@@ -36,7 +36,7 @@ class OntologyGraphServiceTest {
         val overview = service.initial(project, OntologyGraphInitialQuery(setOf("simple")))
 
         assertEquals(
-            setOf(OntologyGraphNodeKind.Class, OntologyGraphNodeKind.ObjectProperty, OntologyGraphNodeKind.DatatypeProperty),
+            setOf(OntologyGraphNodeKind.Class, OntologyGraphNodeKind.ObjectProperty, OntologyGraphNodeKind.DatatypeProperty, OntologyGraphNodeKind.Individual),
             overview.nodes.map { it.kind }.toSet(),
         )
         assertEquals(
