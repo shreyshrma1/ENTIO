@@ -976,7 +976,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-graph { display: grid; gap: 10px; min-height: 520px; }
 .ontology-graph-controls { display: flex; align-items: center; gap: 6px; }
 .ontology-graph-controls output { min-width: 4ch; text-align: center; font-variant-numeric: tabular-nums; }
-.ontology-graph-viewport { min-height: 460px; max-height: 65vh; overflow: auto; border: 1px solid var(--border-default); background-color: #f8f9fc; background-image: radial-gradient(circle at 1px 1px, #e8ebf5 1px, transparent 1px); background-size: 24px 24px; overscroll-behavior: contain; touch-action: pan-x pan-y; }
+.ontology-graph-viewport { min-height: 460px; max-height: 65vh; overflow: auto; border: 1px solid var(--border-default); background-color: #f8f9fc; background-image: radial-gradient(circle at 1px 1px, #e8ebf5 1px, transparent 1px); background-size: 24px 24px; cursor: grab; overscroll-behavior: contain; touch-action: pan-x pan-y; }
+.ontology-graph-viewport.panning { cursor: grabbing; user-select: none; }
 .ontology-graph-world { position: relative; }
 .ontology-edge path { fill: none; stroke: #8092b8; stroke-width: 1.7; }
 .ontology-edge.edge-Domain path, .ontology-edge.edge-Range path, .ontology-edge.edge-ObjectAssertion path { stroke: #8b5cc7; }

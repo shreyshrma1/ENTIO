@@ -43,4 +43,24 @@ describe("accessible ontology graph renderer", () => {
     expect(fireEvent.wheel(viewport, { ctrlKey: true, deltaY: -100, clientX: 20, clientY: 20 })).toBe(false);
     expect(onStateChange).toHaveBeenCalledWith(expect.objectContaining({ zoom: expect.any(Number) }));
   });
+
+  it("pans with left-drag on empty space and right-drag over a node", () => {
+    const renderer = render(<OntologyGraphRenderer nodes={nodes} edges={[]} state={{ selectedNodeId: null, zoom: 1 }} onStateChange={vi.fn()} onViewDetails={vi.fn()} />);
+    const viewport = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport")!;
+    const classNode = renderer.container.querySelector<HTMLButtonElement>('[aria-label="Class: Class label"]')!;
+    viewport.setPointerCapture = vi.fn();
+    const initialLeft = viewport.scrollLeft;
+    const initialTop = viewport.scrollTop;
+    fireEvent.pointerDown(viewport, { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(viewport, { pointerId: 1, clientX: 60, clientY: 70 });
+    fireEvent.pointerUp(viewport, { pointerId: 1 });
+    expect(viewport.scrollLeft).toBe(initialLeft + 40);
+    expect(viewport.scrollTop).toBe(initialTop + 30);
+    fireEvent.pointerDown(classNode, { pointerId: 2, button: 2, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(viewport, { pointerId: 2, clientX: 80, clientY: 60 });
+    fireEvent.pointerUp(viewport, { pointerId: 2 });
+    expect(viewport.scrollLeft).toBe(initialLeft + 60);
+    expect(viewport.scrollTop).toBe(initialTop + 70);
+    expect(fireEvent.contextMenu(viewport)).toBe(false);
+  });
 });

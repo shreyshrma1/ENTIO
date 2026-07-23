@@ -159,6 +159,8 @@ Supported zoom is 25% through 200%, with 100% as reset. Zoom clamps at these lim
 
 Pointer-anchored zoom preserves the graph coordinate beneath the pointer or pinch center. The implementation maintains scrollable world bounds from node geometry plus padding after layout, drag, expansion, filtering, and zoom so every visible loaded node remains reachable horizontally and vertically at every supported zoom.
 
+Dragging empty map space with either the left or right mouse button pans the viewport. Right-drag also pans when initiated over a node and suppresses the browser context menu; left-dragging a node continues to move that node rather than the viewport.
+
 `Fit loaded graph` fits visible nodes, not filtered-out nodes. `Reset view` reapplies the deterministic layout and returns to 100%, after a confirmation only when manual node positions would be discarded.
 
 ### 8. Selection And Information Pop-Up
