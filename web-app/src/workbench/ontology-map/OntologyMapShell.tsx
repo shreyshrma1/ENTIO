@@ -98,6 +98,23 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
       document.removeEventListener("pointercancel", cancelOutsidePointer);
     };
   }, [onStateChange, selected, state]);
+  useEffect(() => {
+    if (!selected || !state.popupPosition) return;
+    const frame = popupRef.current?.closest<HTMLElement>(".ontology-graph-viewport-overlay");
+    const positioner = popupRef.current?.closest<HTMLElement>(".ontology-graph-viewport-overlay-position");
+    const popup = popupRef.current;
+    if (!frame || !positioner || !popup) return;
+    const frameWidth = frame.clientWidth;
+    const frameHeight = frame.clientHeight;
+    if (!frameWidth || !frameHeight) return;
+    const x = Math.max(0, Math.min(frameWidth - popup.offsetWidth, state.popupPosition.x));
+    const y = Math.max(0, Math.min(frameHeight - popup.offsetHeight, state.popupPosition.y));
+    positioner.style.left = `${x}px`;
+    positioner.style.top = `${y}px`;
+    if (x !== state.popupPosition.x || y !== state.popupPosition.y) {
+      onStateChange({ ...state, popupPosition: { x, y } });
+    }
+  }, [onStateChange, selected, state]);
   const emphasizedIds = useMemo(() => selectionNeighborhood(state.selectedNodeId, nodes, edges), [edges, nodes, state.selectedNodeId]);
   const dimmedNodeIds = useMemo(() => state.selectedNodeId ? new Set(visibleNodes.map((node) => node.identity.id).filter((id) => !emphasizedIds.has(id))) : new Set<string>(), [emphasizedIds, state.selectedNodeId, visibleNodes]);
   const dimmedEdgeIds = useMemo(() => state.selectedNodeId ? new Set(visibleEdges.filter((edge) => !(emphasizedIds.has(edge.sourceNodeId) && emphasizedIds.has(edge.targetNodeId))).map((edge) => edge.id)) : new Set<string>(), [emphasizedIds, state.selectedNodeId, visibleEdges]);
@@ -115,29 +132,29 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   function startPopupDrag(event: PointerEvent<HTMLElement>) {
     if ((event.target as HTMLElement).closest("button")) return;
     const popup = popupRef.current;
-    const wrapper = popup?.parentElement;
-    const viewport = wrapper?.parentElement;
-    if (!popup || !wrapper || !viewport) return;
+    const positioner = popup?.closest<HTMLElement>(".ontology-graph-viewport-overlay-position");
+    const viewport = popup?.closest<HTMLElement>(".ontology-graph-viewport-overlay");
+    if (!popup || !positioner || !viewport) return;
     const popupBounds = popup.getBoundingClientRect();
     const viewportBounds = viewport.getBoundingClientRect();
     const x = popupBounds.left - viewportBounds.left;
     const y = popupBounds.top - viewportBounds.top;
     event.currentTarget.setPointerCapture(event.pointerId);
-    wrapper.style.left = `${x}px`;
-    wrapper.style.top = `${y}px`;
+    positioner.style.left = `${x}px`;
+    positioner.style.top = `${y}px`;
     popupDrag.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, x, y, latestX: x, latestY: y };
   }
   function movePopup(event: PointerEvent<HTMLElement>) {
     const drag = popupDrag.current;
     const popup = popupRef.current;
-    const viewport = popup?.parentElement?.parentElement;
+    const positioner = popup?.closest<HTMLElement>(".ontology-graph-viewport-overlay-position");
+    const viewport = popup?.closest<HTMLElement>(".ontology-graph-viewport-overlay");
     if (!drag || drag.pointerId !== event.pointerId || !popup || !viewport) return;
     const x = Math.max(0, Math.min(viewport.clientWidth - popup.offsetWidth, drag.x + event.clientX - drag.clientX));
     const y = Math.max(0, Math.min(viewport.clientHeight - popup.offsetHeight, drag.y + event.clientY - drag.clientY));
-    const wrapper = popup.parentElement;
-    if (!wrapper) return;
-    wrapper.style.left = `${x}px`;
-    wrapper.style.top = `${y}px`;
+    if (!positioner) return;
+    positioner.style.left = `${x}px`;
+    positioner.style.top = `${y}px`;
     drag.latestX = x;
     drag.latestY = y;
   }

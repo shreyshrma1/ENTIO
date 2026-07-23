@@ -183,7 +183,11 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
           </section>
         </div>
       </details>
-      {viewportOverlay ? <div className="ontology-graph-viewport-overlay" style={viewportOverlay.position ? { left: viewportOverlay.position.x, top: viewportOverlay.position.y } : undefined}>{viewportOverlay.content}</div> : null}
+      {viewportOverlay ? <div className="ontology-graph-viewport-overlay">
+        <div className="ontology-graph-viewport-overlay-position" style={viewportOverlay.position ? { left: viewportOverlay.position.x, top: viewportOverlay.position.y } : undefined}>
+          {viewportOverlay.content}
+        </div>
+      </div> : null}
     </div>
     <details className="ontology-loaded-list"><summary>Loaded entities ({nodes.length})</summary><ul>{nodes.map((node) => <li key={node.identity.id}><button type="button" onClick={() => { onStateChange({ ...state, positions: persistedPositions, zoom, selectedNodeId: node.identity.id }); document.getElementById(`ontology-node-${node.identity.id}`)?.focus(); }}>{node.label} <small>{node.kind}</small></button></li>)}</ul></details>
   </div>;

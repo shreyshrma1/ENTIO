@@ -96,9 +96,15 @@ describe("accessible ontology graph renderer", () => {
       onStateChange={vi.fn()}
     />);
     const overlay = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport-frame > .ontology-graph-viewport-overlay");
+    const positioner = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport-overlay-position");
+    const viewport = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport")!;
     expect(overlay).toContainElement(screen.getByText("Entity information"));
-    expect(renderer.container.querySelector(".ontology-graph-viewport")).not.toContainElement(screen.getByText("Entity information"));
-    expect(overlay).toHaveStyle({ left: "30px", top: "40px" });
+    expect(viewport).not.toContainElement(screen.getByText("Entity information"));
+    expect(positioner).toHaveStyle({ left: "30px", top: "40px" });
+    viewport.scrollLeft = 240;
+    viewport.scrollTop = 180;
+    fireEvent.scroll(viewport);
+    expect(positioner).toHaveStyle({ left: "30px", top: "40px" });
     renderer.rerender(<OntologyGraphRenderer
       nodes={nodes}
       edges={[]}
@@ -106,6 +112,6 @@ describe("accessible ontology graph renderer", () => {
       viewportOverlay={{ position: { x: 30, y: 40 }, content: <aside>Entity information</aside> }}
       onStateChange={vi.fn()}
     />);
-    expect(overlay).toHaveStyle({ left: "30px", top: "40px" });
+    expect(positioner).toHaveStyle({ left: "30px", top: "40px" });
   });
 });
