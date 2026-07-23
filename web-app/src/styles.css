@@ -531,6 +531,10 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .inference-fact-statement small, .inference-fact-row [role="cell"] > small { display: block; width: 100%; color: var(--text-secondary); }
 .inference-fact-row select { width: 100%; }
 .selection-count { color: var(--text-secondary); font-size: 11px; font-weight: 700; }
+.materialization-provenance { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 6px 14px; margin: 4px 0; padding: 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-2); }
+.materialization-provenance div { display: flex; gap: 5px; }
+.materialization-provenance dt { color: var(--text-secondary); font-weight: 700; }
+.materialization-provenance dd { margin: 0; }
 .constraints-toolbar, .constraints-library, .constraints-validation { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-1); }
 .constraints-toolbar { grid-template-columns: 1fr; align-items: stretch; }
 .constraints-toolbar > div:first-child { justify-self: start; max-width: 72ch; text-align: left; }

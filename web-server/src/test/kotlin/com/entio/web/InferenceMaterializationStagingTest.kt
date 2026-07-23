@@ -14,6 +14,7 @@ import com.entio.core.Iri
 import com.entio.core.PreparedInferenceMaterialization
 import com.entio.core.PreparedInferenceMaterializationBatch
 import com.entio.core.SemanticFactKey
+import com.entio.semantic.ProjectLoader
 import com.entio.web.contract.InMemoryProjectRegistry
 import com.entio.web.contract.WebStageChangeRequest
 import java.nio.file.Files
@@ -27,6 +28,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class InferenceMaterializationStagingTest {
     private val fixedInstant = Instant.parse("2026-07-23T15:00:00Z")
@@ -236,6 +238,86 @@ class InferenceMaterializationStagingTest {
         assertEquals(listOf(first.factId, second.factId), result.batch.mappings.map { it.factId })
     }
 
+    @Test
+    fun rejectionPreservesSourcesAndMultiSourceAcceptanceAppliesAndReloadsAssertions(): Unit {
+        val fixture = fixture(includeSecondarySource = true)
+        val beforePrimary = fixture.source.readBytes()
+        val beforeSecondary = fixture.secondarySource!!.readBytes()
+        val service = service(fixture)
+        val primary = prepared(1, InferenceMaterializationKind.SubclassRelationship)
+        val secondaryBase = prepared(2, InferenceMaterializationKind.IndividualType)
+        val secondary = secondaryBase.copy(
+            targetSourceId = "secondary",
+            provenance = secondaryBase.provenance.copy(targetSourceId = "secondary"),
+        )
+
+        service.stageMaterializations(
+            "simple",
+            "alice",
+            "reject-materializations",
+            PreparedInferenceMaterializationBatch(listOf(primary, secondary)),
+        )
+        val rejectedPreview = service.preview("simple", "alice")
+        assertEquals(2, rejectedPreview.proposal?.diff?.size)
+        service.reject("simple", "bob")
+        assertEquals(beforePrimary.toList(), fixture.source.readBytes().toList())
+        assertEquals(beforeSecondary.toList(), fixture.secondarySource.readBytes().toList())
+
+        service.stageMaterializations(
+            "simple",
+            "alice",
+            "apply-materializations",
+            PreparedInferenceMaterializationBatch(listOf(primary, secondary)),
+        )
+        val preview = service.preview("simple", "alice")
+        assertEquals(listOf("secondary", "simple"), preview.proposal?.targetSourceIds)
+        service.approve("simple", "bob")
+        assertEquals("APPLIED", service.apply("simple", "bob").status)
+        assertTrue(Files.readString(fixture.source).contains("subClassOf"))
+        assertTrue(Files.readString(fixture.secondarySource).contains("Loan123"))
+        assertTrue(ProjectLoader().loadProject(fixture.root) is com.entio.core.EntioResult.Success<*>)
+        assertEquals(
+            "inference-already-asserted",
+            assertFailsWith<WebWorkflowFailure> {
+                service(fixture).stageMaterializations(
+                    "simple",
+                    "alice",
+                    "later-reasoning",
+                    PreparedInferenceMaterializationBatch(listOf(primary)),
+                )
+            }.code,
+        )
+    }
+
+    @Test
+    fun postSaveFailureRollsBackEveryMaterializationTarget(): Unit {
+        val fixture = fixture(includeSecondarySource = true)
+        val beforePrimary = fixture.source.readBytes()
+        val beforeSecondary = fixture.secondarySource!!.readBytes()
+        val service = StagingWorkflowService(
+            projectRegistry = fixture.registry,
+            additionalPostApplyVerification = { _, _ -> com.entio.core.EntioResult.Failure("forced verification failure") },
+        )
+        val primary = prepared(1, InferenceMaterializationKind.SubclassRelationship)
+        val secondaryBase = prepared(2, InferenceMaterializationKind.IndividualType)
+        val secondary = secondaryBase.copy(
+            targetSourceId = "secondary",
+            provenance = secondaryBase.provenance.copy(targetSourceId = "secondary"),
+        )
+        service.stageMaterializations(
+            "simple",
+            "alice",
+            "rollback-materializations",
+            PreparedInferenceMaterializationBatch(listOf(primary, secondary)),
+        )
+        service.preview("simple", "alice")
+        service.approve("simple", "bob")
+
+        assertEquals("ROLLEDBACK", service.apply("simple", "bob").status)
+        assertEquals(beforePrimary.toList(), fixture.source.readBytes().toList())
+        assertEquals(beforeSecondary.toList(), fixture.secondarySource.readBytes().toList())
+    }
+
     private fun service(fixture: Fixture): StagingWorkflowService = StagingWorkflowService(
         projectRegistry = fixture.registry,
         clock = Clock.fixed(fixedInstant, ZoneOffset.UTC),
@@ -314,12 +396,19 @@ class InferenceMaterializationStagingTest {
         }
         val registry = InMemoryProjectRegistry(setOf(root.parent))
         registry.register("simple", "Simple", root)
-        return Fixture(registry, root.resolve("ontology/simple.ttl"))
+        return Fixture(
+            registry = registry,
+            root = root,
+            source = root.resolve("ontology/simple.ttl"),
+            secondarySource = root.resolve("ontology/secondary.ttl").takeIf { includeSecondarySource },
+        )
     }
 
     private data class Fixture(
         val registry: InMemoryProjectRegistry,
+        val root: Path,
         val source: Path,
+        val secondarySource: Path?,
     )
 
     private companion object {

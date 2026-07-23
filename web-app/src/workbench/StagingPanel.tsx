@@ -161,12 +161,26 @@ function ProposalDetailsDialog({ entries, diff, onRemove, onAccept, onReject, on
         <div className="staging-detail-heading"><span className={`diff-kind diff-${entryOperation(entry)}`}>{entryOperationLabel(entry)}</span><strong>{stagedChangeTitle(entry)}</strong><span className="staged-status">{displayStatus(entry.status)}</span></div>
         <code>{stagedTriple(entry)}</code>
         <small>{entry.sourceId} · Staged by {entry.authorId}{entry.comment ? ` · ${entry.comment}` : ""}</small>
+        {entry.materializationProvenance ? <MaterializationProvenance entry={entry} /> : null}
         <button className="button small" type="button" onClick={() => void onRemove(entry)} disabled={disabled}>Remove</button>
       </article>)}</div>
       {diff.length ? <section className="staging-details-diff" aria-labelledby="staging-net-changes-heading"><h4 id="staging-net-changes-heading">Net graph changes</h4><div className="staging-details-list" aria-label="Proposal semantic diff">{diff.map((entry, index) => <article className="staging-detail-item" key={`${entry.kind}-${entry.subject}-${index}`}><div className="staging-detail-heading"><span className={`diff-kind diff-${entry.kind.toLowerCase()}`}>{displayStatus(entry.kind)}</span><strong>{labelFirstDiff(entry, entries)}</strong></div></article>)}</div></section> : null}
     </div>
     <footer className="staging-details-footer"><div><button className="button danger" type="button" onClick={() => void onReject()} disabled={disabled}>Reject</button>{canAccept ? <button className="button primary" type="button" onClick={() => void onAccept()} disabled={disabled}>Accept</button> : null}</div><button className="button" type="button" onClick={onClose}>Close</button></footer>
   </section></div>;
+}
+
+function MaterializationProvenance({ entry }: { entry: WebStagedEntry }) {
+  const provenance = entry.materializationProvenance;
+  if (!provenance) return null;
+  return <dl className="materialization-provenance" aria-label="Reasoning materialization provenance">
+    <div><dt>Origin</dt><dd>Materialized from reasoning</dd></div>
+    <div><dt>Inference type</dt><dd>{displayStatus(provenance.inferenceKind)}</dd></div>
+    <div><dt>Reasoning run</dt><dd>{provenance.reasoningJobId}</dd></div>
+    <div><dt>Target source</dt><dd>{provenance.targetSourceId}</dd></div>
+    <div><dt>Entailed before assertion</dt><dd>{provenance.entailedBeforeAssertion ? "Yes" : "No"}</dd></div>
+    <div><dt>Import-derived</dt><dd>{provenance.importDependence === "Imported" ? "Yes" : provenance.importDependence === "LocalOnly" ? "No" : "Unknown"}</dd></div>
+  </dl>;
 }
 
 function entryOperation(entry: WebStagedEntry): "added" | "removed" | "changed" {
