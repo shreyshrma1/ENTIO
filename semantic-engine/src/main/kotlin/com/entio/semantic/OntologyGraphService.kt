@@ -1,6 +1,11 @@
 package com.entio.semantic
 
 import com.entio.core.EntioProject
+import com.entio.core.InferredFactsOverlay
+import com.entio.core.InferredGraphState
+import com.entio.core.InferredOverlaySummary
+import com.entio.core.InferredReadFact
+import com.entio.core.InferredReadKind
 import com.entio.core.Iri
 import com.entio.core.OntologyEntityDescriptor
 import com.entio.core.OntologyGraphEdge
@@ -15,6 +20,7 @@ import com.entio.core.OntologyGraphNodeKind
 import com.entio.core.OntologyGraphNodeSummary
 import com.entio.core.OntologyGraphPage
 import com.entio.core.OntologyGraphPageCursor
+import com.entio.core.OntologyGraphProvenance
 import com.entio.core.RdfResource
 import com.entio.core.SemanticDescriptorKind
 
@@ -22,8 +28,12 @@ import com.entio.core.SemanticDescriptorKind
 public class OntologyGraphService(
     private val descriptorAssembler: SemanticDescriptorAssembler = SemanticDescriptorAssembler(),
 ) {
-    public fun initial(project: EntioProject, query: OntologyGraphInitialQuery): OntologyGraphPage {
-        val model = buildModel(project, query.sourceIds)
+    public fun initial(
+        project: EntioProject,
+        query: OntologyGraphInitialQuery,
+        inferredOverlays: List<InferredFactsOverlay> = emptyList(),
+    ): OntologyGraphPage {
+        val model = buildModel(project, query.sourceIds, inferredOverlays)
         val seed = query.seed?.also { require(model.nodes.containsKey(it)) { "missing-graph-entity" } }
         val selectedIds = if (seed != null) {
             model.edges.asSequence()
@@ -48,8 +58,12 @@ public class OntologyGraphService(
         )
     }
 
-    public fun neighborhood(project: EntioProject, query: OntologyGraphNeighborhoodQuery): OntologyGraphPage {
-        val model = buildModel(project, query.sourceIds)
+    public fun neighborhood(
+        project: EntioProject,
+        query: OntologyGraphNeighborhoodQuery,
+        inferredOverlays: List<InferredFactsOverlay> = emptyList(),
+    ): OntologyGraphPage {
+        val model = buildModel(project, query.sourceIds, inferredOverlays)
         require(model.nodes.containsKey(query.entity)) { "missing-graph-entity" }
         val allowedKinds = query.categories.flatMapTo(mutableSetOf()) { category ->
             when (category) {
@@ -80,7 +94,11 @@ public class OntologyGraphService(
         )
     }
 
-    private fun buildModel(project: EntioProject, sourceIds: Set<String>): GraphModel {
+    private fun buildModel(
+        project: EntioProject,
+        sourceIds: Set<String>,
+        inferredOverlays: List<InferredFactsOverlay>,
+    ): GraphModel {
         val descriptors = descriptorAssembler.assemble(project)
             .filter { descriptor -> descriptor.common.sourceId in sourceIds }
             .filter { descriptor -> descriptor.common.entity is Iri }
@@ -140,11 +158,32 @@ public class OntologyGraphService(
                     is OntologyEntityDescriptor.AnnotationProperty -> Unit
                 }
             }
+            inferredOverlays.forEach { overlay ->
+                overlay.facts.forEach { fact ->
+                    addInferredEdge(fact, overlay.graphState, sourceIds, idsByIri, ::resolve)
+                }
+            }
         }.distinctBy { it.id }.sortedWith(edgeComparator)
 
         val availableCounts = edges.flatMap { listOf(it.source, it.target) }.groupingBy { it }.eachCount()
         val nodes = descriptorsById.mapValues { (id, descriptor) -> descriptor.toNode(id, availableCounts[id] ?: 0, descriptors) }
-        return GraphModel(nodes, edges, ambiguousCount.coerceAtMost(MAX_AMBIGUOUS_DIAGNOSTIC_COUNT))
+        val overlaySummaries = inferredOverlays.map { overlay ->
+            InferredOverlaySummary(
+                graphState = overlay.graphState,
+                state = overlay.state,
+                totalFactCount = overlay.totalFactCount,
+                truncated = overlay.truncated,
+                graphFingerprint = overlay.graphFingerprint,
+                proposalFingerprint = overlay.proposalFingerprint,
+                message = overlay.message,
+            )
+        }
+        return GraphModel(
+            nodes,
+            edges,
+            ambiguousCount.coerceAtMost(MAX_AMBIGUOUS_DIAGNOSTIC_COUNT),
+            overlaySummaries,
+        )
     }
 
     private fun MutableList<OntologyGraphEdge>.addEdge(
@@ -153,16 +192,68 @@ public class OntologyGraphService(
         target: OntologyGraphNodeId,
         label: String,
         predicateIri: Iri? = null,
+        provenance: OntologyGraphProvenance = OntologyGraphProvenance.Asserted,
+        inferredGraphState: InferredGraphState? = null,
     ) {
         if (source == target) return
-        val id = listOf(kind.name, source.stableKey, target.stableKey, predicateIri?.value.orEmpty()).joinToString("\u0000")
-        add(OntologyGraphEdge(id, kind, source, target, label, predicateIri))
+        val id = listOf(
+            provenance.name,
+            inferredGraphState?.name.orEmpty(),
+            kind.name,
+            source.stableKey,
+            target.stableKey,
+            predicateIri?.value.orEmpty(),
+        ).joinToString("\u0000")
+        add(OntologyGraphEdge(id, kind, source, target, label, predicateIri, provenance, inferredGraphState))
+    }
+
+    private fun MutableList<OntologyGraphEdge>.addInferredEdge(
+        fact: InferredReadFact,
+        graphState: InferredGraphState,
+        sourceIds: Set<String>,
+        idsByIri: Map<Iri, List<OntologyGraphNodeId>>,
+        resolve: (String, Iri) -> OntologyGraphNodeId?,
+    ) {
+        val preferredSource = fact.sourceId?.takeIf { it in sourceIds }
+        fun endpoint(iri: Iri): OntologyGraphNodeId? = preferredSource?.let { resolve(it, iri) }
+            ?: idsByIri[iri].orEmpty().singleOrNull()
+        val source = endpoint(fact.subject) ?: return
+        val target = endpoint(fact.objectValue) ?: return
+        val kind = when (fact.kind) {
+            InferredReadKind.SubclassRelationship -> OntologyGraphEdgeKind.SubclassOf
+            InferredReadKind.IndividualType -> OntologyGraphEdgeKind.Type
+            InferredReadKind.ObjectPropertyAssertion -> OntologyGraphEdgeKind.ObjectAssertion
+            InferredReadKind.EffectiveDomain -> OntologyGraphEdgeKind.Domain
+            InferredReadKind.EffectiveRange -> OntologyGraphEdgeKind.Range
+        }
+        val label = when (kind) {
+            OntologyGraphEdgeKind.SubclassOf -> "subclass of"
+            OntologyGraphEdgeKind.Type -> "type"
+            OntologyGraphEdgeKind.Domain -> "domain"
+            OntologyGraphEdgeKind.Range -> "range"
+            OntologyGraphEdgeKind.ObjectAssertion -> fact.predicate.value.graphFallbackLabel()
+        }
+        addEdge(
+            kind = kind,
+            source = source,
+            target = target,
+            label = label,
+            predicateIri = fact.predicate.takeIf { kind == OntologyGraphEdgeKind.ObjectAssertion },
+            provenance = OntologyGraphProvenance.Inferred,
+            inferredGraphState = graphState,
+        )
     }
 
     private fun rootOverview(model: GraphModel): List<OntologyGraphNodeId> {
         val roots = model.nodes.values
             .filter { it.kind == OntologyGraphNodeKind.Class }
-            .filter { node -> model.edges.none { it.kind == OntologyGraphEdgeKind.SubclassOf && it.source == node.id } }
+            .filter { node ->
+                model.edges.none {
+                    it.provenance == OntologyGraphProvenance.Asserted &&
+                        it.kind == OntologyGraphEdgeKind.SubclassOf &&
+                        it.source == node.id
+                }
+            }
             .map { it.id }
             .sortedWith(nodeIdComparator(model.nodes))
         val ordered = linkedSetOf<OntologyGraphNodeId>()
@@ -171,19 +262,28 @@ public class OntologyGraphService(
             val current = queue.removeFirst()
             if (!ordered.add(current)) continue
             model.edges.asSequence()
-                .filter { it.kind == OntologyGraphEdgeKind.SubclassOf && it.target == current }
+                .filter {
+                    it.provenance == OntologyGraphProvenance.Asserted &&
+                        it.kind == OntologyGraphEdgeKind.SubclassOf &&
+                        it.target == current
+                }
                 .map { it.source }
                 .sortedWith(nodeIdComparator(model.nodes))
                 .forEach(queue::addLast)
         }
         model.edges.asSequence()
+            .filter { it.provenance == OntologyGraphProvenance.Asserted }
             .filter { it.kind == OntologyGraphEdgeKind.Domain || it.kind == OntologyGraphEdgeKind.Range }
             .filter { it.target in ordered }
             .map { it.source }
             .sortedWith(nodeIdComparator(model.nodes))
             .forEach(ordered::add)
         model.edges.asSequence()
-            .filter { it.kind == OntologyGraphEdgeKind.Type && it.target in ordered }
+            .filter {
+                it.provenance == OntologyGraphProvenance.Asserted &&
+                    it.kind == OntologyGraphEdgeKind.Type &&
+                    it.target in ordered
+            }
             .map { it.source }
             .sortedWith(nodeIdComparator(model.nodes))
             .forEach(ordered::add)
@@ -225,6 +325,7 @@ public class OntologyGraphService(
             totalEdgeCount = selectedEdges.count { it.source in selectedIds && it.target in selectedIds },
             nextCursor = nextCursor,
             ambiguousCrossSourceRelationshipCount = model.ambiguousCount,
+            inferredOverlays = model.inferredOverlays,
         )
     }
 
@@ -294,6 +395,7 @@ public class OntologyGraphService(
         val nodes: Map<OntologyGraphNodeId, OntologyGraphNode>,
         val edges: List<OntologyGraphEdge>,
         val ambiguousCount: Int,
+        val inferredOverlays: List<InferredOverlaySummary>,
     )
 
     private companion object {
