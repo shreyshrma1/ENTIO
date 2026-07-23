@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft pending approval of the Phase 10 scope, spec, and this ExecPlan. No implementation slice may begin while the planning documents remain unapproved.
+Approved for implementation on 2026-07-23. Slice 0 records the contract audit and approval evidence.
 
 Implementation must proceed one slice at a time in the exact dependency order below. Slices must not be combined or implemented in parallel.
 
@@ -894,17 +894,25 @@ Phase 10 is complete only when:
 - full Gradle, web-app, Playwright, VS Code, diff, and clean-status verification passes;
 - Phase 10 documentation accurately records delivered behavior and limitations.
 
-## Implementation Details To Resolve During Approved Slices
+## Slice 0 Contract Resolutions
 
-No product-scope question blocks implementation planning.
-
-Slice 0 must record evidence-based answers for:
-
-- separate `factId` and `semanticFactKey` encoding/digest rules;
-- exact core contract names;
-- exact import-dependence metadata source;
-- whether bounded pagination is required;
-- the atomic staging method signature;
-- the submitting-user job ownership field and compatible read behavior.
+- `semanticFactKey` uses `entio-semantic-fact-v1:` plus lowercase hexadecimal SHA-256
+  over length-prefixed inference kind and canonical RDF terms.
+- `factId` uses `entio-reasoning-fact-v1:` plus lowercase hexadecimal SHA-256 over
+  length-prefixed project ID, submitting-user ID, job ID, graph fingerprint, and
+  `semanticFactKey`.
+- Neutral core contracts are `InferenceMaterializationKind`,
+  `InferenceStageability`, `InferenceImportDependence`,
+  `InferenceMaterializationCandidate`, `InferenceMaterializationProvenance`, and
+  focused prepared/result batch contracts.
+- Import dependence is derived conservatively from retained per-fact source identity,
+  loaded local/imported declarations, and the import-closure report. Unproven
+  dependence is `Unknown` and not stageable.
+- The existing bounded details maximum remains 100 and Phase 10 adds no pagination.
+- The atomic staging extension is
+  `stageMaterializations(projectId, userId, idempotencyKey, preparedItems)`.
+- Semantic-job records retain an internal immutable `submittedByUserId`; ordinary
+  project-scoped reads remain compatible, while materialization requires an exact
+  current-user match.
 
 Later slices may resolve exact filenames and private helper names through compilation evidence. These decisions may not introduce a new inference type, raw RDF fallback, partial batch, automatic materialization, imported-source mutation, browser semantic policy, persistence, or approval bypass. If one becomes necessary, stop and amend the approved spec and ExecPlan before continuing.
