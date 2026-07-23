@@ -113,6 +113,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const [mapSeed, setMapSeed] = useState<WebEntityReference | undefined>();
   const [mapViewState, setMapViewState] = useState<OntologyMapViewState>({ selectedNodeId: null, nodeKinds: DEFAULT_MAP_NODE_KINDS, edgeKinds: DEFAULT_MAP_EDGE_KINDS });
   const outlineFilterMenuRef = useRef<HTMLDetailsElement>(null);
+  const outlineClickTimer = useRef<number | null>(null);
   const [mapLoadedEntities, setMapLoadedEntities] = useState<Record<string, string>>({});
   const [activeModule, setActiveModule] = useState<ModuleId>(initialModule);
   const [railExpanded, setRailExpanded] = useState(false);
@@ -348,6 +349,30 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
     return () => document.removeEventListener("pointerdown", closeFiltersOutside);
   }, []);
 
+  useEffect(() => () => {
+    if (outlineClickTimer.current !== null) window.clearTimeout(outlineClickTimer.current);
+  }, []);
+
+  function openOutlineEntity(entity: WebEntityReference) {
+    if (!mapActive) {
+      openEntity(entity);
+      return;
+    }
+    if (outlineClickTimer.current !== null) window.clearTimeout(outlineClickTimer.current);
+    outlineClickTimer.current = window.setTimeout(() => {
+      outlineClickTimer.current = null;
+      openEntity(entity);
+    }, 220);
+  }
+
+  function openOutlineEntityDetails(entity: WebEntityReference) {
+    if (outlineClickTimer.current !== null) {
+      window.clearTimeout(outlineClickTimer.current);
+      outlineClickTimer.current = null;
+    }
+    openEntityDetails(entity);
+  }
+
   function openRootContextMenu(event: MouseEvent) {
     event.preventDefault();
     setContextMenu(outlineContextMenu(event.clientX, event.clientY, outlineTab, (editor) => launchEditor(editor)));
@@ -456,10 +481,10 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
                 {outlineTab === "classes" ? <>
                   {rootHierarchy.isPending ? <p role="status">Loading hierarchy...</p> : null}
                   {rootHierarchy.isError ? <p role="alert">Hierarchy unavailable.</p> : null}
-                  {rootClassItems.length ? <ul className="hierarchy-list">{rootClassItems.map((item) => <HierarchyNode key={`${item.sourceId}:${item.iri}`} projectId={projectId} item={item} depth={0} onOpen={openEntity} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} stagedChildrenByParent={stagedIsPendingReview ? stagedClassHierarchy.childrenByParent : undefined} expandedIris={expandedClassIris} onExpandedChange={setClassExpanded} />)}</ul> : null}
+                  {rootClassItems.length ? <ul className="hierarchy-list">{rootClassItems.map((item) => <HierarchyNode key={`${item.sourceId}:${item.iri}`} projectId={projectId} item={item} depth={0} onOpen={openOutlineEntity} onOpenDetails={openOutlineEntityDetails} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} stagedChildrenByParent={stagedIsPendingReview ? stagedClassHierarchy.childrenByParent : undefined} expandedIris={expandedClassIris} onExpandedChange={setClassExpanded} />)}</ul> : null}
                 </> : null}
-                {outlineTab === "objects" ? <GroupedObjectOutline items={objectItems} loading={outline.isPending} error={outline.isError} onOpen={openEntity} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} collapsedGroupIris={collapsedObjectGroupIris} onExpandedChange={setObjectGroupExpanded} /> : null}
-                {outlineTab === "properties" ? <OutlineEntityList title="Properties" marker="P" items={propertyItems} loading={outline.isPending} error={outline.isError} onOpen={openEntity} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} /> : null}
+                {outlineTab === "objects" ? <GroupedObjectOutline items={objectItems} loading={outline.isPending} error={outline.isError} onOpen={openOutlineEntity} onOpenDetails={openOutlineEntityDetails} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} collapsedGroupIris={collapsedObjectGroupIris} onExpandedChange={setObjectGroupExpanded} /> : null}
+                {outlineTab === "properties" ? <OutlineEntityList title="Properties" marker="P" items={propertyItems} loading={outline.isPending} error={outline.isError} onOpen={openOutlineEntity} onOpenDetails={openOutlineEntityDetails} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} /> : null}
                 {outlineTab !== "classes" && outline.data?.page.nextOffset != null ? <p className="outline-limit-note">Showing the first {outline.data.page.items.length} of {outline.data.page.total} symbols.</p> : null}
               </div>
             </section>
@@ -669,23 +694,24 @@ function OutlineTab({ id, label, count, active, onSelect }: { id: OutlineTabId; 
   return <button id={`outline-tab-${id}`} type="button" role="tab" aria-selected={active === id} aria-controls={`outline-panel-${id}`} tabIndex={active === id ? 0 : -1} onClick={() => onSelect(id)}><span>{label}</span><small>{count}</small></button>;
 }
 
-function OutlineEntityList({ title, marker, items, loading, error, onOpen, onContextMenu, stagedIris }: { title: string; marker: "O" | "P"; items: WebOutlineItem[]; loading: boolean; error: boolean; onOpen: (entity: WebEntityReference) => void; onContextMenu: (event: MouseEvent, entity: WebEntityReference) => void; stagedIris?: ReadonlySet<string> }) {
+function OutlineEntityList({ title, marker, items, loading, error, onOpen, onOpenDetails, onContextMenu, stagedIris }: { title: string; marker: "O" | "P"; items: WebOutlineItem[]; loading: boolean; error: boolean; onOpen: (entity: WebEntityReference) => void; onOpenDetails: (entity: WebEntityReference) => void; onContextMenu: (event: MouseEvent, entity: WebEntityReference) => void; stagedIris?: ReadonlySet<string> }) {
   return <section aria-label={title}>
     {error ? <p role="alert">{title} unavailable.</p> : null}
     {loading ? <p className="tree-status" role="status">Loading {title.toLowerCase()}...</p> : null}
     {!loading && !error && !items.length ? <p className="outline-empty">No {title.toLowerCase()}.</p> : null}
     {items.length ? <ul className="outline-entity-list">{items.map((item) => {
       const presentation = entityKindPresentation(item.kind);
-      return <li className={stagedIris?.has(item.iri) ? "entity-staged" : undefined} key={`${item.sourceId}:${item.iri}`} onContextMenu={(event) => onContextMenu(event, item)}><button className="entity-link" type="button" aria-label={`${item.label}, ${presentation.label}`} onClick={() => onOpen(item)}><span className={`entity-type-marker ${presentation.className}`} aria-hidden="true">{marker}</span><span className="entity-link-label">{item.label}</span><small>{presentation.label}</small></button></li>;
+      return <li className={stagedIris?.has(item.iri) ? "entity-staged" : undefined} key={`${item.sourceId}:${item.iri}`} onContextMenu={(event) => onContextMenu(event, item)}><button className="entity-link" type="button" aria-label={`${item.label}, ${presentation.label}`} onClick={() => onOpen(item)} onDoubleClick={() => onOpenDetails(item)}><span className={`entity-type-marker ${presentation.className}`} aria-hidden="true">{marker}</span><span className="entity-link-label">{item.label}</span><small>{presentation.label}</small></button></li>;
     })}</ul> : null}
   </section>;
 }
 
-function GroupedObjectOutline({ items, loading, error, onOpen, onContextMenu, stagedIris, collapsedGroupIris, onExpandedChange }: {
+function GroupedObjectOutline({ items, loading, error, onOpen, onOpenDetails, onContextMenu, stagedIris, collapsedGroupIris, onExpandedChange }: {
   items: WebOutlineItem[];
   loading: boolean;
   error: boolean;
   onOpen: (entity: WebEntityReference) => void;
+  onOpenDetails: (entity: WebEntityReference) => void;
   onContextMenu: (event: MouseEvent, entity: WebEntityReference) => void;
   stagedIris?: ReadonlySet<string>;
   collapsedGroupIris: ReadonlySet<string>;
@@ -716,7 +742,7 @@ function GroupedObjectOutline({ items, loading, error, onOpen, onContextMenu, st
             <button className="object-group-toggle" type="button" aria-label={`${expanded ? "Collapse" : "Expand"} ${heading} objects`} aria-expanded={expanded} onClick={() => onExpandedChange(groupIri, !expanded)}>
               <span className={`hierarchy-chevron ${expanded ? "hierarchy-chevron-expanded" : ""}`} aria-hidden="true" />
             </button>
-            {group.type ? <button className="object-group-label" type="button" onClick={() => onOpen(group.type!)}>{heading}</button> : <span className="object-group-label">{heading}</span>}
+            {group.type ? <button className="object-group-label" type="button" onClick={() => onOpen(group.type!)} onDoubleClick={() => onOpenDetails(group.type!)}>{heading}</button> : <span className="object-group-label">{heading}</span>}
           </div>
           <small>{group.items.length}</small>
         </div>
@@ -725,7 +751,7 @@ function GroupedObjectOutline({ items, loading, error, onOpen, onContextMenu, st
           key={`${item.sourceId}:${item.iri}`}
           onContextMenu={(event) => onContextMenu(event, item)}
         >
-          <button className="entity-link object-group-entity" type="button" aria-label={`${item.label}, Object`} onClick={() => onOpen(item)}>
+          <button className="entity-link object-group-entity" type="button" aria-label={`${item.label}, Object`} onClick={() => onOpen(item)} onDoubleClick={() => onOpenDetails(item)}>
             <span className="object-group-elbow" aria-hidden="true" />
             <span className="entity-type-marker entity-type-object" aria-hidden="true">O</span>
             <span className="entity-link-label">{item.label}</span>

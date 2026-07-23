@@ -41,6 +41,34 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toBeVisible();
   await expect(page.getByLabel("Loaded ontology graph").locator("text=SubclassOf").first()).toBeAttached();
   await expect(page.getByRole("button", { name: "Class: Entity 0000" })).toBeInViewport();
+  const projectNavigation = page.getByRole("complementary", { name: "Project navigation" });
+  const outlineClass = projectNavigation.getByRole("button", { name: "Entity 0000, Class" });
+  await outlineClass.click();
+  await expect(page.getByRole("dialog", { name: "Entity 0000 map summary" })).toBeVisible();
+  await page.getByRole("button", { name: "Close entity summary" }).click();
+  await outlineClass.dblclick();
+  await expect(page).toHaveURL(/iri=urn%3An0/);
+  await page.getByRole("tab", { name: "Ontology map" }).click();
+
+  await projectNavigation.getByRole("tab", { name: /Objects 1/ }).click();
+  const outlineObject = projectNavigation.getByRole("button", { name: "Entity 0003, Object" });
+  await outlineObject.click();
+  await expect(page.getByRole("dialog", { name: "Entity 0003 map summary" })).toBeVisible();
+  await page.getByRole("button", { name: "Close entity summary" }).click();
+  await outlineObject.dblclick();
+  await expect(page).toHaveURL(/iri=urn%3An3/);
+  await page.getByRole("tab", { name: "Ontology map" }).click();
+
+  await projectNavigation.getByRole("tab", { name: /Properties 2/ }).click();
+  const outlineProperty = projectNavigation.getByRole("button", { name: "Entity 0001, Object property" });
+  await outlineProperty.click();
+  await expect(page.getByRole("dialog", { name: "Entity 0001 map summary" })).toBeVisible();
+  await page.getByRole("button", { name: "Close entity summary" }).click();
+  await outlineProperty.dblclick();
+  await expect(page).toHaveURL(/iri=urn%3An1/);
+  await page.getByRole("tab", { name: "Ontology map" }).click();
+  await projectNavigation.getByRole("tab", { name: /Classes 1/ }).click();
+
   await expect(page.locator(".ontology-graph-viewport")).toHaveScreenshot("ontology-map-prototype-layout.png");
   const browserZoomBefore = await page.evaluate(() => ({ scale: window.visualViewport?.scale ?? 1, devicePixelRatio: window.devicePixelRatio }));
   const mapPinchZoomBefore = Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""));
