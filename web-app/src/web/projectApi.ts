@@ -244,6 +244,7 @@ export interface WebStagedEntry {
   normalizedValues: Record<string, string>;
   generatedIris: string[];
   validationMessages: string[];
+  materializationProvenance?: WebInferenceMaterializationProvenance | null;
 }
 
 export interface WebDeletionDependenciesRequest {
@@ -331,6 +332,20 @@ export interface WebStagingResponse {
   status: string;
   entries: WebStagedEntry[];
   proposal: WebProposalState | null;
+}
+
+export interface WebInferenceMaterializationProvenance {
+  origin: "MaterializedFromReasoning";
+  inferenceKind: "SubclassRelationship" | "IndividualType" | "ObjectPropertyAssertion";
+  reasoningJobId: string;
+  graphFingerprint: string;
+  factId: string;
+  stagedByUserId: string;
+  stagedAt: string;
+  targetSourceId: string;
+  entailedBeforeAssertion: boolean;
+  importDependence: "LocalOnly" | "Imported" | "Unknown";
+  importSourceIds: string[];
 }
 
 export interface WebActivityEvent {

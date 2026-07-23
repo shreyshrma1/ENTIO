@@ -189,6 +189,42 @@ describe("staging panel", () => {
     expect(screen.getAllByText("Customer — owns account — Account 101")).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(2);
   });
+
+  it("shows server-owned reasoning provenance for each supported materialization type", async () => {
+    const entries = [
+      materializedEntry("stage-subclass", "SubclassRelationship", "simple", "LocalOnly"),
+      materializedEntry("stage-type", "IndividualType", "simple", "Imported"),
+      materializedEntry("stage-assertion", "ObjectPropertyAssertion", "secondary", "Unknown"),
+    ];
+    const proposal = {
+      id: "proposal-1", status: "READYFORREVIEW", stagedChangeIds: entries.map((entry) => entry.id),
+      baselineProjectFingerprint: "baseline", validationMessages: [], validationIssues: [],
+      diff: [{ kind: "Added", subject: "https://example.com/Subject", predicate: "https://example.com/predicate", objectValue: "https://example.com/Object", description: "Added assertion." }],
+      targetSourceIds: ["simple", "secondary"], shaclImpact: null, message: null,
+    };
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (init?.method === "POST" && path.endsWith("/proposal/preview")) return json({ ...stagingResponse(entries), proposal });
+      if (path.endsWith("/staged")) return json({ ...stagingResponse(entries), proposal });
+      if (path.endsWith("/summary")) return json({});
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${path}`);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(<QueryClientProvider client={client}><StagingPanel projectId="simple" /></QueryClientProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "View Details" }));
+    expect(screen.getAllByText("Materialized from reasoning")).toHaveLength(3);
+    expect(screen.getByText("Subclass Relationship")).toBeInTheDocument();
+    expect(screen.getByText("Individual Type")).toBeInTheDocument();
+    expect(screen.getByText("Object Property Assertion")).toBeInTheDocument();
+    expect(screen.getAllByText("job-reasoning-1")).toHaveLength(3);
+    expect(screen.getAllByText("Yes")).toHaveLength(4);
+    expect(screen.getAllByText("No")).toHaveLength(1);
+    expect(screen.getByText("Unknown")).toBeInTheDocument();
+    expect(screen.queryByText("private-import-source")).not.toBeInTheDocument();
+    expect(screen.getByText("Added · Subject · predicate · Object")).toBeInTheDocument();
+  });
 });
 
 function stagingResponse(entries: WebStagedEntry[]) {
@@ -209,6 +245,41 @@ function stagedEntry(): WebStagedEntry {
     normalizedValues: { resourceIri: "https://example.com/Customer", label: "Client" },
     generatedIris: [],
     validationMessages: [],
+  };
+}
+
+function materializedEntry(
+  id: string,
+  inferenceKind: "SubclassRelationship" | "IndividualType" | "ObjectPropertyAssertion",
+  sourceId: string,
+  importDependence: "LocalOnly" | "Imported" | "Unknown",
+): WebStagedEntry {
+  return {
+    ...stagedEntry(),
+    id,
+    sourceId,
+    summary: `materialize · ${inferenceKind}`,
+    normalizedValues: {
+      subjectIri: "https://example.com/Subject",
+      subjectLabel: "Subject",
+      predicateIri: "https://example.com/predicate",
+      predicateLabel: "predicate",
+      objectIri: "https://example.com/Object",
+      objectLabel: "Object",
+    },
+    materializationProvenance: {
+      origin: "MaterializedFromReasoning",
+      inferenceKind,
+      reasoningJobId: "job-reasoning-1",
+      graphFingerprint: "fingerprint",
+      factId: `fact-${id}`,
+      stagedByUserId: "alice",
+      stagedAt: "2026-07-23T15:00:00Z",
+      targetSourceId: sourceId,
+      entailedBeforeAssertion: true,
+      importDependence,
+      importSourceIds: ["private-import-source"],
+    },
   };
 }
 
