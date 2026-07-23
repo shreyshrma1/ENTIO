@@ -23,6 +23,10 @@ import com.entio.core.GraphTriple
 import com.entio.core.GraphChange
 import com.entio.core.GraphState
 import com.entio.core.Iri
+import com.entio.core.InferenceMaterializationBatchResult
+import com.entio.core.InferenceMaterializationMapping
+import com.entio.core.PreparedInferenceMaterialization
+import com.entio.core.PreparedInferenceMaterializationBatch
 import com.entio.core.MultiSourceApplyStatus
 import com.entio.core.RdfLiteral
 import com.entio.core.RdfResource
@@ -62,8 +66,11 @@ import com.entio.web.contract.WebShaclFindingSummary
 import com.entio.web.contract.WebShaclImpact
 import com.entio.web.contract.WebStageChangeRequest
 import com.entio.web.contract.WebStagedEntry
+import com.entio.web.contract.WebInferenceMaterializationProvenance
 import com.entio.web.contract.WebStagingResponse
 import com.entio.web.contract.WebDiffEntry
+import java.time.Clock
+import java.time.Instant
 
 public class WebWorkflowFailure(
     public val code: String,
@@ -89,6 +96,7 @@ private data class ProjectSession(
     var proposal: ChangeProposal? = null,
     var preparedProposal: PreparedWebProposal? = null,
     val idempotency: InMemoryIdempotencyStore = InMemoryIdempotencyStore(),
+    val materializationReplays: MutableMap<String, InferenceMaterializationBatchResult> = linkedMapOf(),
     var nextOrder: Int = 1,
 )
 
@@ -106,6 +114,11 @@ private data class PreparedChange(
     val generatedIris: List<GeneratedIri>,
 )
 
+public data class InferenceMaterializationStagingResult(
+    val staging: WebStagingResponse,
+    val batch: InferenceMaterializationBatchResult,
+)
+
 /** Server-owned single-client staging state that delegates semantic work to Kotlin services. */
 public class StagingWorkflowService(
     private val projectRegistry: ProjectRegistry,
@@ -121,6 +134,7 @@ public class StagingWorkflowService(
     private val editTranslator: TypedOntologyEditTranslator = TypedOntologyEditTranslator(),
     private val shaclEditTranslator: TypedShaclEditTranslator = TypedShaclEditTranslator(),
     private val additionalPostApplyVerification: (String, EntioProject) -> EntioResult<Unit> = { _, _ -> EntioResult.Success(Unit) },
+    private val clock: Clock = Clock.systemUTC(),
 ) {
     private val sessions: MutableMap<String, ProjectSession> = linkedMapOf()
     private val proposalPlanner: WebProposalPlanner = WebProposalPlanner(
@@ -229,6 +243,96 @@ public class StagingWorkflowService(
         if (replacementIndex == null) session.entries += stored else session.entries[replacementIndex] = stored
         session.clearPreparedProposal()
         return response(projectId, session)
+    }
+
+    /**
+     * Atomically appends a fully prepared reasoning batch.
+     *
+     * The semantic adapter has already chosen typed edits and source candidates. This
+     * boundary independently checks current applied/staged state before one session
+     * mutation and replaces caller-supplied author/time values with server values.
+     */
+    @Synchronized
+    public fun stageMaterializations(
+        projectId: String,
+        userId: String,
+        idempotencyKey: String,
+        preparedItems: PreparedInferenceMaterializationBatch,
+    ): InferenceMaterializationStagingResult {
+        require(userId.isNotBlank()) { "materialization-user-required" }
+        require(idempotencyKey.isNotBlank()) { "idempotency-key-required" }
+        val session = session(projectId)
+        val project = load(projectId)
+        val items = preparedItems.items
+
+        items.forEach { item -> validatePreparedMaterialization(project, item) }
+
+        val existingByTriple = session.entries
+            .sortedBy { it.staged.order }
+            .flatMap { entry ->
+                materializedGraphChanges(entry.staged, project).map { change -> change.triple to entry.staged.id }
+            }
+            .toMap()
+        val existingMappings = items.mapNotNull { item ->
+            existingByTriple[item.triple]?.let { stagedId -> InferenceMaterializationMapping(item.factId, stagedId) }
+        }
+        val newItems = items.filter { it.triple !in existingByTriple }
+
+        if (newItems.isEmpty()) {
+            return InferenceMaterializationStagingResult(
+                staging = response(projectId, session),
+                batch = InferenceMaterializationBatchResult(existingMappings),
+            )
+        }
+
+        val payloadFingerprint = items.joinToString("\n") {
+            "${it.factId.value}|${it.semanticFactKey.value}|${it.targetSourceId}"
+        }
+        when (session.idempotency.begin(idempotencyKey, payloadFingerprint)) {
+            is IdempotencyDecision.Replay -> {
+                val replay = session.materializationReplays[idempotencyKey]
+                    ?: throw WebWorkflowFailure("idempotency-replay-unavailable", "The materialization replay result is unavailable.")
+                return InferenceMaterializationStagingResult(response(projectId, session), replay)
+            }
+            is IdempotencyDecision.Conflict ->
+                throw WebWorkflowFailure("idempotency-conflict", "The idempotency key was already used for another materialization request.")
+            is IdempotencyDecision.Accepted -> Unit
+        }
+
+        val stagedAt = Instant.now(clock)
+        val nextOrder = session.nextOrder
+        val newEntries = newItems.mapIndexed { index, item ->
+            val order = nextOrder + index
+            StoredEntry(
+                staged = StagedChange(
+                    id = "stage-$order",
+                    order = order,
+                    targetSourceId = item.targetSourceId,
+                    summary = materializationSummary(item),
+                    operation = StagedChangeOperation.TypedEdit(item.edit),
+                    materializationProvenance = item.provenance.copy(
+                        stagedByUserId = userId,
+                        stagedAt = stagedAt,
+                        targetSourceId = item.targetSourceId,
+                    ),
+                ),
+                editType = materializationEditType(item),
+                authorId = userId,
+                latestEditorId = userId,
+                comment = "Materialized from reasoning; review before approval.",
+            )
+        }
+        session.entries += newEntries
+        session.nextOrder += newEntries.size
+        session.clearPreparedProposal()
+
+        val newMappings = newEntries.mapIndexed { index, entry ->
+            InferenceMaterializationMapping(newItems[index].factId, entry.staged.id)
+        }
+        val mappingsByFact = (existingMappings + newMappings).associateBy { it.factId }
+        val batchResult = InferenceMaterializationBatchResult(items.map { mappingsByFact.getValue(it.factId) })
+        session.materializationReplays[idempotencyKey] = batchResult
+        return InferenceMaterializationStagingResult(response(projectId, session), batchResult)
     }
 
     @Synchronized
@@ -482,6 +586,21 @@ public class StagingWorkflowService(
                     normalizedValues = graphChangeNormalizedValues(entry.staged, project, graph) + entry.staged.normalizedValues,
                     generatedIris = entry.staged.generatedIris.map(GeneratedIri::iri).map(Iri::value),
                     validationMessages = entry.staged.validationReport?.issues?.map { it.message }.orEmpty(),
+                    materializationProvenance = entry.staged.materializationProvenance?.let { provenance ->
+                        WebInferenceMaterializationProvenance(
+                            origin = provenance.origin.name,
+                            inferenceKind = provenance.inferenceKind.name,
+                            reasoningJobId = provenance.reasoningJobId,
+                            graphFingerprint = provenance.graphFingerprint,
+                            factId = provenance.factId.value,
+                            stagedByUserId = provenance.stagedByUserId,
+                            stagedAt = provenance.stagedAt.toString(),
+                            targetSourceId = provenance.targetSourceId,
+                            entailedBeforeAssertion = provenance.entailedBeforeAssertion,
+                            importDependence = provenance.importDependence.state.name,
+                            importSourceIds = provenance.importDependence.sourceIds,
+                        )
+                    },
                 )
             },
             proposal = proposal?.let { current ->
@@ -560,6 +679,42 @@ public class StagingWorkflowService(
         is StagedChangeOperation.Delete -> (operation.plan.directStatements + operation.plan.dependentStatements)
             .distinctBy { it.identityKey }
             .map { GraphChange(GraphChangeKind.Removal, it.statement) }
+    }
+
+    private fun validatePreparedMaterialization(
+        project: EntioProject,
+        item: PreparedInferenceMaterialization,
+    ): Unit {
+        if (item.triple in project.graph.triples) {
+            throw WebWorkflowFailure("inference-already-asserted", "A selected inferred fact is already asserted.")
+        }
+        val source = project.resolvedSources.firstOrNull { it.id == item.targetSourceId }
+            ?: throw WebWorkflowFailure("unknown-source", "A selected target source was not found.")
+        if (com.entio.core.ShaclGraphRole.Ontology !in source.roles) {
+            throw WebWorkflowFailure("invalid-ontology-source-role", "Materialized assertions require a source with the ontology role.")
+        }
+        val translated = when (val result = editTranslator.translate(item.edit)) {
+            is EntioResult.Failure -> throw WebWorkflowFailure("inference-edit-invalid", "A selected inferred fact cannot use its typed edit.")
+            is EntioResult.Success -> result.value
+        }
+        if (translated.changes.size != 1 ||
+            translated.changes.single().kind != GraphChangeKind.Addition ||
+            translated.changes.single().triple != item.triple
+        ) {
+            throw WebWorkflowFailure("inference-edit-mismatch", "A selected inferred fact does not match its typed edit.")
+        }
+    }
+
+    private fun materializationSummary(item: PreparedInferenceMaterialization): String = when (item.fact.kind) {
+        com.entio.core.InferenceMaterializationKind.SubclassRelationship -> "Assert inferred superclass relationship"
+        com.entio.core.InferenceMaterializationKind.IndividualType -> "Assert inferred individual type"
+        com.entio.core.InferenceMaterializationKind.ObjectPropertyAssertion -> "Assert inferred object-property relationship"
+    }
+
+    private fun materializationEditType(item: PreparedInferenceMaterialization): String = when (item.fact.kind) {
+        com.entio.core.InferenceMaterializationKind.SubclassRelationship -> "add-superclass"
+        com.entio.core.InferenceMaterializationKind.IndividualType -> "assign-type"
+        com.entio.core.InferenceMaterializationKind.ObjectPropertyAssertion -> "add-object-property-assertion"
     }
 
     private fun formatDisplayTriple(triple: GraphTriple, graph: Set<GraphTriple>): String {
