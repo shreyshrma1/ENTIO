@@ -564,6 +564,17 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
             }
         }
 
+        post("/api/v1/projects/{projectId}/semantic-jobs/ensure-applied-reasoning") {
+            call.respondJob {
+                call.requireUser(dependencies)
+                jobs.ensureInferredRead(call.requiredProjectId(), WebJobScope.Applied)
+                    ?: throw WebWorkflowFailure(
+                        "reasoning-unavailable",
+                        "Applied-graph reasoning could not be started for this project.",
+                    )
+            }
+        }
+
         get("/api/v1/projects/{projectId}/semantic-jobs/{jobId}") {
             call.respondJob {
                 jobs.find(call.requiredProjectId(), call.requiredJobId())

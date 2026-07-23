@@ -808,6 +808,15 @@ class ApplicationTest {
 
         application { module(WebApplicationDependencies(projectRegistry = registry)) }
 
+        val ensured = client.post("/api/v1/projects/simple/semantic-jobs/ensure-applied-reasoning")
+        assertEquals(HttpStatusCode.OK, ensured.status, ensured.bodyAsText())
+        val ensuredJobId = Regex("\\\"id\\\":\\\"([^\\\"]+)\\\"").find(ensured.bodyAsText())?.groupValues?.get(1)
+            ?: error("A background reasoning job id was not returned.")
+        pollJob(client, ensuredJobId)
+        val reused = client.post("/api/v1/projects/simple/semantic-jobs/ensure-applied-reasoning")
+        assertEquals(HttpStatusCode.OK, reused.status, reused.bodyAsText())
+        assertContains(reused.bodyAsText(), "\"id\":\"$ensuredJobId\"")
+
         val reasoning = client.post("/api/v1/projects/simple/semantic-jobs") {
             contentType(ContentType.Application.Json)
             setBody("""{"kind":"reasoning","scope":"applied"}""")

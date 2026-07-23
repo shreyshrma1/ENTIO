@@ -298,24 +298,24 @@ public class SemanticJobManager(
      * Results are deliberately independent of the requesting user.
      */
     @Synchronized
-    public fun ensureInferredRead(projectId: String, scope: WebJobScope): Unit {
+    public fun ensureInferredRead(projectId: String, scope: WebJobScope): WebSemanticJobStatus? {
         val snapshot = try {
             if (scope == WebJobScope.Proposal) staging.inferredReadGraphSnapshot(projectId)
             else staging.graphSnapshot(projectId, scope)
         } catch (_: WebWorkflowFailure) {
             if (scope == WebJobScope.Proposal) latestProposalReasoning.remove(projectId)
-            return
+            return null
         }
         val cached = if (scope == WebJobScope.Applied) latestAppliedReasoning[projectId] else latestProposalReasoning[projectId]
         if (cached?.snapshot?.graphFingerprint == snapshot.graphFingerprint &&
             cached.snapshot.proposalFingerprint == snapshot.proposalFingerprint
-        ) return
-        val active = jobs.values.any {
+        ) return jobs[cached.jobId]?.status()
+        val active = jobs.values.firstOrNull {
             it.projectId == projectId && it.request.kind == WebJobKind.Reasoning &&
                 it.request.scope == scope && it.snapshot.graphFingerprint == snapshot.graphFingerprint &&
                 it.snapshot.proposalFingerprint == snapshot.proposalFingerprint && it.isActive()
         }
-        if (!active) submit(projectId, WebJobRequest(scope = scope.name.lowercase()), "system")
+        return active?.status() ?: submit(projectId, WebJobRequest(scope = scope.name.lowercase()), "system")
     }
 
     @Synchronized

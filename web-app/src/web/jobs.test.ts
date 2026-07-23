@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cancelSemanticJob, loadSemanticJob, submitSemanticJob } from "./projectApi";
+import { cancelSemanticJob, ensureAppliedReasoning, loadSemanticJob, submitSemanticJob } from "./projectApi";
 
 function response(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -22,5 +22,19 @@ describe("semantic job API", () => {
     expect(paths[0]).toContain("/api/v1/projects/simple/semantic-jobs");
     expect(paths[1]).toContain("/semantic-jobs/job-1");
     expect(methods).toEqual(["POST", "GET", "DELETE"]);
+  });
+
+  it("ensures background applied reasoning through its idempotent startup boundary", async () => {
+    let requestedPath = "";
+    let requestedMethod = "";
+    const status = await ensureAppliedReasoning("simple", async (input, init) => {
+      requestedPath = String(input);
+      requestedMethod = init?.method ?? "GET";
+      return response({ id: "job-background", kind: "Reasoning", scope: "Applied", status: "Queued" });
+    });
+
+    expect(requestedPath).toContain("/api/v1/projects/simple/semantic-jobs/ensure-applied-reasoning");
+    expect(requestedMethod).toBe("POST");
+    expect(status.id).toBe("job-background");
   });
 });

@@ -11,7 +11,8 @@ import AiProposalPanel from "./AiProposalPanel";
 import ProfileSettings from "./ProfileSettings";
 import Icon from "../components/ui/Icon";
 import StatusBadge from "../components/ui/StatusBadge";
-import { useHierarchy, useProjectActivity, useProjectOutline, useProjectSearch, useProjectSummary, useSemanticJobDetails, useShaclShapes, useStagedChanges } from "../web/queries";
+import { useEnsureAppliedReasoning, useHierarchy, useProjectActivity, useProjectOutline, useProjectSearch, useProjectSummary, useSemanticJob, useSemanticJobDetails, useShaclShapes, useStagedChanges } from "../web/queries";
+import { useQueryClient } from "@tanstack/react-query";
 import type { WebEntityDetailResponse, WebEntityReference, WebHierarchyItem, WebOutlineItem, WebShaclConstraintSummary, WebShaclShapeSummary, WebStagedEntry } from "../web/projectApi";
 import { entityKindPresentation } from "./entityKindPresentation";
 import {
@@ -136,6 +137,11 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const [draggedTabIri, setDraggedTabIri] = useState<string | null>(null);
   const [tabOrderMessage, setTabOrderMessage] = useState<string | null>(null);
   const summary = useProjectSummary(projectId);
+  const queryClient = useQueryClient();
+  const ensureAppliedReasoning = useEnsureAppliedReasoning(projectId);
+  const backgroundReasoning = useSemanticJob(projectId, semanticJobIds.reasoning);
+  const ensuredReasoningProject = useRef<string | null>(null);
+  const refreshedReasoningJob = useRef<string | null>(null);
   const sourceId = summary.data?.sources.find((source) => source.roles.includes("ontology"))?.id ?? summary.data?.sources[0]?.id;
   const shapesSourceId = summary.data?.sources.find((source) => source.roles.map((role) => role.toLowerCase()).includes("shapes"))?.id;
   const rootHierarchy = useHierarchy(projectId, sourceId, undefined, true, includeAppliedInferred, includeProposalInferred);
@@ -164,6 +170,28 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
     setIncludeAppliedInferred(false);
     setIncludeProposalInferred(false);
   }, [initialModule, projectId]);
+
+  useEffect(() => {
+    if (!summary.isSuccess || !projectId || ensuredReasoningProject.current === projectId) return;
+    ensuredReasoningProject.current = projectId;
+    ensureAppliedReasoning.mutate(undefined, {
+      onSuccess: (status) => {
+        setSemanticJobIds((current) => ({ ...current, reasoning: status.id }));
+      },
+    });
+  }, [projectId, summary.isSuccess]);
+
+  useEffect(() => {
+    const status = backgroundReasoning.data;
+    if (status?.status !== "Completed" || refreshedReasoningJob.current === status.id) return;
+    refreshedReasoningJob.current = status.id;
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["project", projectId, "hierarchy"] }),
+      queryClient.invalidateQueries({ queryKey: ["project", projectId, "outline"] }),
+      queryClient.invalidateQueries({ queryKey: ["project", projectId, "entity"] }),
+      queryClient.invalidateQueries({ queryKey: ["project", projectId, "ontology-graph"] }),
+    ]);
+  }, [backgroundReasoning.data, projectId, queryClient]);
 
   useEffect(() => {
     const normalizedSearch = searchInput.trim();

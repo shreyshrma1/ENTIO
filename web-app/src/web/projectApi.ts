@@ -702,6 +702,13 @@ export async function submitSemanticJob(
   return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/semantic-jobs`, "POST", request, fetcher);
 }
 
+export async function ensureAppliedReasoning(
+  projectId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebSemanticJobStatus> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/semantic-jobs/ensure-applied-reasoning`, "POST", undefined, fetcher);
+}
+
 export async function loadSemanticJob(
   projectId: string,
   jobId: string,
