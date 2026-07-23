@@ -183,6 +183,37 @@ class ReasoningServiceTest {
     }
 
     @Test
+    fun keepsGenericRdfPropertyAssertionsAssertedWhenOwlClassifiesTheProperty(): Unit {
+        val graph = parse(
+            """
+            @prefix ex: <https://example.com/> .
+            @prefix owl: <http://www.w3.org/2002/07/owl#> .
+            @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+            @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+            ex:Customer a owl:Class .
+            ex:Account a owl:Class .
+            ex:Shrey a owl:NamedIndividual, ex:Customer ;
+                ex:ownsAccount ex:Account101, ex:Account33271 .
+            ex:Account101 a owl:NamedIndividual, ex:Account .
+            ex:Account33271 a owl:NamedIndividual, ex:Account .
+            ex:ownsAccount a rdf:Property ;
+                rdfs:domain ex:Customer ;
+                rdfs:range ex:Account .
+            """.trimIndent(),
+        ).graph
+
+        val result = assertIs<EntioResult.Success<*>>(service.reason(graph))
+        val reasoning = assertIs<com.entio.core.ReasoningResult>(result.value)
+        val ownerships = reasoning.propertyRelationships.filter {
+            it.subject == Iri("https://example.com/Shrey") &&
+                it.predicate == Iri("https://example.com/ownsAccount")
+        }
+
+        assertEquals(2, ownerships.size)
+        assertTrue(ownerships.all { it.origin == FactOrigin.Asserted })
+    }
+
+    @Test
     fun marksIncompleteImportClosureWithoutClaimingCompleteConsistency(): Unit {
         val graph = parse(
             """

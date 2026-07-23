@@ -103,7 +103,10 @@ public class ReasoningService(
                 }
 
                 val declaredClassIris = declaredEntities(graph, CLASS_DECLARATION_TYPES)
-                val objectPropertyIris = declaredEntities(graph, setOf(OWL_OBJECT_PROPERTY))
+                val objectPropertyIris = document.ontology.objectPropertiesInSignature()
+                    .toList()
+                    .map { it.iri.toString() }
+                    .toSet()
                 val assertedClassRelationships = assertedClassRelationships(graph, sourceId)
                 val inferredClassRelationships = if (consistent) {
                     inferredClassRelationships(
