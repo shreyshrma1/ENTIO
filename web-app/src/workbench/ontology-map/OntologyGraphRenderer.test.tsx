@@ -44,18 +44,27 @@ describe("accessible ontology graph renderer", () => {
     expect(onStateChange).toHaveBeenCalledWith(expect.objectContaining({ zoom: expect.any(Number) }));
   });
 
-  it("labels inferred edges by graph state and provides a non-color legend", () => {
+  it("keeps inferred edge labels concise and provides a retractable non-color legend", () => {
     const view = render(<OntologyGraphRenderer nodes={nodes} edges={[
       { id: "applied", kind: "Type", sourceNodeId: "node-3", targetNodeId: "node-0", label: "type", predicateIri: null, provenance: "Inferred", inferredGraphState: "Applied" },
       { id: "proposal", kind: "Domain", sourceNodeId: "node-1", targetNodeId: "node-0", label: "domain", predicateIri: null, provenance: "Inferred", inferredGraphState: "Proposal" },
     ]} state={{ selectedNodeId: null }} onStateChange={vi.fn()} />);
     const rendered = within(view.container);
-    expect(rendered.getByText("type · Inferred · Applied")).toBeVisible();
-    expect(rendered.getByText("domain · Inferred · Proposal")).toBeVisible();
+    expect(rendered.getByText("type · Inferred")).toBeVisible();
+    expect(rendered.getByText("domain · Inferred")).toBeVisible();
+    expect(rendered.queryByText("type · Inferred · Applied")).not.toBeInTheDocument();
+    const legendControl = rendered.getByText("Legend").closest("details");
+    expect(legendControl).toHaveAttribute("open");
     const legend = rendered.getByLabelText("Relationship legend");
     expect(legend).toHaveTextContent("Asserted");
     expect(legend).toHaveTextContent("Inferred · Applied");
     expect(legend).toHaveTextContent("Inferred · Proposal");
+    expect(legendControl).toHaveTextContent("Class");
+    expect(legendControl).toHaveTextContent("Object property");
+    expect(legendControl).toHaveTextContent("Datatype property");
+    expect(legendControl).toHaveTextContent("Individual");
+    fireEvent.click(rendered.getByText("Legend"));
+    expect(legendControl).not.toHaveAttribute("open");
   });
 
   it("pans with left-drag on empty space and right-drag over a node", () => {
