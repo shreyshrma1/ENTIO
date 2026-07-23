@@ -193,7 +193,16 @@ public class OntologyGraphWebService(
 
     private fun prune() { val now = clock.instant(); continuations.entries.removeIf { !it.value.expiresAt.isAfter(now) } }
     private fun node(value: OntologyGraphNode): WebOntologyGraphNode = WebOntologyGraphNode(value.id.toWeb(), value.kind.name, value.label, value.definitionExcerpt, WebOntologyGraphNodeSummary(value.summary.directSuperclassLabels, value.summary.domainLabels, value.summary.rangeLabels, value.summary.assertedTypeLabels, value.summary.datatypeRangeLabels, value.summary.loadedRelationshipCount, value.summary.availableRelationshipCount))
-    private fun edge(value: OntologyGraphEdge): WebOntologyGraphEdge = WebOntologyGraphEdge(stableId(value.id), value.kind.name, stableId(value.source.stableKey), stableId(value.target.stableKey), value.label, value.predicateIri?.value, value.provenance.name)
+    private fun edge(value: OntologyGraphEdge): WebOntologyGraphEdge = WebOntologyGraphEdge(
+        id = stableId(value.id),
+        kind = value.kind.name,
+        sourceNodeId = stableId(value.source.stableKey),
+        targetNodeId = stableId(value.target.stableKey),
+        label = value.label,
+        predicateIri = value.predicateIri?.value,
+        provenance = value.provenance.name,
+        inferredGraphState = value.inferredGraphState?.name,
+    )
     private fun OntologyGraphNodeId.toWeb(): WebOntologyGraphNodeId = WebOntologyGraphNodeId(stableId(stableKey), sourceId, entityIri.value)
     private fun stableId(value: String): String = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(StandardCharsets.UTF_8)).joinToString("") { "%02x".format(it) }
 

@@ -32,6 +32,7 @@ public data class WebOntologyGraphEdge(
     val label: String,
     val predicateIri: String?,
     val provenance: String,
+    val inferredGraphState: String? = null,
 )
 
 public data class WebOntologyGraphLimits(
