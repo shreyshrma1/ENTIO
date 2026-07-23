@@ -63,4 +63,15 @@ describe("accessible ontology graph renderer", () => {
     expect(viewport.scrollTop).toBe(initialTop + 70);
     expect(fireEvent.contextMenu(viewport)).toBe(false);
   });
+
+  it("places selected entity information inside the pannable graph world", () => {
+    const renderer = render(<OntologyGraphRenderer
+      nodes={nodes}
+      edges={[]}
+      state={{ selectedNodeId: "node-0" }}
+      worldOverlay={{ nodeId: "node-0", content: <aside>Entity information</aside> }}
+      onStateChange={vi.fn()}
+    />);
+    expect(renderer.container.querySelector(".ontology-graph-world .ontology-graph-world-overlay")).toContainElement(screen.getByText("Entity information"));
+  });
 });

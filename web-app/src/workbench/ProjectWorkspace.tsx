@@ -142,6 +142,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const staged = useStagedChanges(projectId);
   const activeIri = searchParams.get("iri");
   const mapActive = searchParams.get("view") === "map";
+  const mapPageActive = activeModule === "explore" && mapOpen && mapActive;
   const activeTab = useMemo(() => tabs.find((tab) => tab.iri === activeIri), [tabs, activeIri]);
   const stagedEntries = staged.data?.entries ?? [];
   const proposalStatus = staged.data?.proposal?.status;
@@ -200,7 +201,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
 
   function openEntity(entity: WebEntityReference, section?: EntitySectionTarget) {
     const supportedMapKind = ["class", "objectproperty", "datatypeproperty", "individual"].includes(entity.kind?.toLowerCase() ?? "");
-    if (mapActive && entity.sourceId === sourceId && supportedMapKind) {
+    if (mapPageActive && entity.sourceId === sourceId && supportedMapKind) {
       const loadedId = mapLoadedEntities[`${entity.sourceId}\u0000${entity.iri}`];
       if (loadedId) {
         setMapViewState((current) => ({ ...current, selectedNodeId: loadedId }));
@@ -358,7 +359,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   }, []);
 
   function openOutlineEntity(entity: WebEntityReference) {
-    if (!mapActive) {
+    if (!mapPageActive) {
       openEntity(entity);
       return;
     }

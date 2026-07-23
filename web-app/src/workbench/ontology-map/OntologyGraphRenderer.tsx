@@ -7,11 +7,12 @@ const kindMark = { Class: "C", ObjectProperty: "OP", DatatypeProperty: "DP", Ind
 
 export interface RendererState { selectedNodeId: string | null; positions?: Record<string, GraphPoint>; zoom?: number }
 
-export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStart, childCounts = {}, dimmedNodeIds = new Set(), dimmedEdgeIds = new Set(), onStateChange }: {
+export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStart, worldOverlay, childCounts = {}, dimmedNodeIds = new Set(), dimmedEdgeIds = new Set(), onStateChange }: {
   nodes: WebOntologyGraphNode[];
   edges: WebOntologyGraphEdge[];
   state: RendererState;
   toolbarStart?: ReactNode;
+  worldOverlay?: { nodeId: string; position?: GraphPoint; content: ReactNode };
   childCounts?: Record<string, number>;
   dimmedNodeIds?: Set<string>;
   dimmedEdgeIds?: Set<string>;
@@ -33,6 +34,11 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
   const nodesById = useMemo(() => new Map(nodes.map((node) => [node.identity.id, node])), [nodes]);
+  const overlayNodePosition = worldOverlay ? positions[worldOverlay.nodeId] : undefined;
+  const overlayPosition = worldOverlay?.position ?? (overlayNodePosition ? {
+    x: (overlayNodePosition.x + graphNodeSize.width - bounds.minX) * zoom + 18,
+    y: (overlayNodePosition.y - bounds.minY) * zoom,
+  } : undefined);
 
   useEffect(() => {
     const element = viewport.current;
@@ -47,9 +53,10 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
     const first = [...nodes].sort((a, b) => positions[a.identity.id].x - positions[b.identity.id].x || positions[a.identity.id].y - positions[b.identity.id].y || a.identity.id.localeCompare(b.identity.id))[0];
     const target = positions[state.selectedNodeId ?? ""] ?? positions[first.identity.id];
     if (!target) return;
+    const canvas = element.querySelector<HTMLElement>(".ontology-graph-canvas");
     initiallyFocused.current = true;
-    element.scrollLeft = Math.max(0, (target.x + graphNodeSize.width / 2 - bounds.minX) * zoom - element.clientWidth / 2);
-    element.scrollTop = Math.max(0, (target.y + graphNodeSize.height / 2 - bounds.minY) * zoom - element.clientHeight / 2);
+    element.scrollLeft = Math.max(0, (canvas?.offsetLeft ?? 0) + (target.x + graphNodeSize.width / 2 - bounds.minX) * zoom - element.clientWidth / 2);
+    element.scrollTop = Math.max(0, (canvas?.offsetTop ?? 0) + (target.y + graphNodeSize.height / 2 - bounds.minY) * zoom - element.clientHeight / 2);
   }, [bounds.height, bounds.minX, bounds.minY, bounds.width, initialZoom, nodes, positions, state.selectedNodeId, state.zoom, zoom]);
 
   function setZoom(nextValue: number, clientX?: number, clientY?: number) {
@@ -118,7 +125,7 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
     const element = viewport.current;
     if (!element) return;
     setZoom(Math.min(element.clientWidth / bounds.width, element.clientHeight / bounds.height));
-    requestAnimationFrame(() => { element.scrollTo({ left: 0, top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); });
+    requestAnimationFrame(() => { element.scrollTo({ left: Math.max(0, (element.scrollWidth - element.clientWidth) / 2), top: Math.max(0, (element.scrollHeight - element.clientHeight) / 2), behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); });
   }
 
   return <div className="ontology-graph" onKeyDown={(event) => { if (event.key === "Escape" && state.selectedNodeId) onStateChange({ ...state, selectedNodeId: null }); }}>
@@ -133,9 +140,10 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
         </div>
       </div>
     </div>
-    <div className={`ontology-graph-viewport ${panning ? "panning" : ""}`} ref={viewport} tabIndex={0} onContextMenu={(event) => event.preventDefault()} onKeyDown={(event) => { if (event.code === "Space") setSpaceHeld(true); }} onKeyUp={(event) => { if (event.code === "Space") setSpaceHeld(false); }} onPointerDown={(event) => { const overNode = (event.target as Element).closest(".ontology-node"); if (spaceHeld || event.button === 1 || event.button === 2 || (event.button === 0 && !overNode)) { event.preventDefault(); pan.current = { x: event.clientX, y: event.clientY, left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop }; setPanning(true); event.currentTarget.setPointerCapture(event.pointerId); } }} onPointerMove={(event) => { if (pan.current) { event.currentTarget.scrollLeft = pan.current.left - (event.clientX - pan.current.x); event.currentTarget.scrollTop = pan.current.top - (event.clientY - pan.current.y); } }} onPointerUp={() => { pan.current = null; setPanning(false); }} onPointerCancel={() => { pan.current = null; setPanning(false); }}>
-      <div className="ontology-graph-world" style={{ width: bounds.width * zoom, height: bounds.height * zoom }}>
-        <svg width={bounds.width * zoom} height={bounds.height * zoom} role="img" aria-label="Loaded ontology graph">
+    <div className={`ontology-graph-viewport ${panning ? "panning" : ""}`} ref={viewport} tabIndex={0} onContextMenu={(event) => event.preventDefault()} onKeyDown={(event) => { if (event.code === "Space") setSpaceHeld(true); }} onKeyUp={(event) => { if (event.code === "Space") setSpaceHeld(false); }} onPointerDown={(event) => { const overInteractiveMapItem = (event.target as Element).closest(".ontology-node, .ontology-graph-world-overlay"); if (spaceHeld || event.button === 1 || event.button === 2 || (event.button === 0 && !overInteractiveMapItem)) { event.preventDefault(); pan.current = { x: event.clientX, y: event.clientY, left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop }; setPanning(true); event.currentTarget.setPointerCapture(event.pointerId); } }} onPointerMove={(event) => { if (pan.current) { event.currentTarget.scrollLeft = pan.current.left - (event.clientX - pan.current.x); event.currentTarget.scrollTop = pan.current.top - (event.clientY - pan.current.y); } }} onPointerUp={() => { pan.current = null; setPanning(false); }} onPointerCancel={() => { pan.current = null; setPanning(false); }}>
+      <div className="ontology-graph-world" style={{ width: `max(${bounds.width * zoom}px, calc(100% + 480px))`, height: `max(${bounds.height * zoom}px, calc(100% + 360px))` }}>
+        <div className="ontology-graph-canvas" style={{ width: bounds.width * zoom, height: bounds.height * zoom }}>
+          <svg width={bounds.width * zoom} height={bounds.height * zoom} role="img" aria-label="Loaded ontology graph">
           <defs>
             <marker id="ontology-arrow" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" /></marker>
           </defs>
@@ -143,7 +151,9 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
             {edges.map((edge) => { const from = positions[edge.sourceNodeId]; const to = positions[edge.targetNodeId]; if (!from || !to) return null; const label = edgeLabelPoint(from, to); const crossLink = edge.kind !== "SubclassOf" && edge.kind !== "Domain" && edge.kind !== "Range" && edge.kind !== "Type"; return <g key={edge.id} className={`ontology-edge edge-${edge.kind} ${crossLink ? "cross-link" : ""} ${dimmedEdgeIds.has(edge.id) ? "dimmed" : ""}`}><path d={curvedEdgePath(from, to)} markerEnd="url(#ontology-arrow)" /><text x={label.x} y={label.y}>{edge.label}</text></g>; })}
             {nodes.map((node) => { const point = positions[node.identity.id]; const childCount = childCounts[node.identity.id] ?? 0; return <foreignObject key={node.identity.id} x={point.x} y={point.y} width={graphNodeSize.width} height={graphNodeSize.height}><button id={`ontology-node-${node.identity.id}`} className={`ontology-node node-${node.kind} ${state.selectedNodeId === node.identity.id ? "selected" : ""} ${dimmedNodeIds.has(node.identity.id) ? "dimmed" : ""}`} type="button" aria-label={`${node.kind}: ${node.label}`} onClick={() => selectNode(node.identity.id)} onPointerDown={(event) => nodePointerDown(event, node.identity.id)} onPointerMove={nodePointerMove} onPointerUp={nodePointerUp} onPointerCancel={() => { pointer.current = null; suppressClick.current = false; }} onKeyDown={(event) => keyNavigate(event, node.identity.id)}><span aria-hidden="true">{kindMark[node.kind]}</span><strong>{node.label}{childCount ? <small>{childCount} children</small> : null}</strong></button></foreignObject>; })}
           </g>
-        </svg>
+          </svg>
+          {worldOverlay && overlayPosition ? <div className="ontology-graph-world-overlay" style={{ left: overlayPosition.x, top: overlayPosition.y }}>{worldOverlay.content}</div> : null}
+        </div>
       </div>
     </div>
     <details className="ontology-loaded-list"><summary>Loaded entities ({nodes.length})</summary><ul>{nodes.map((node) => <li key={node.identity.id}><button type="button" onClick={() => { onStateChange({ ...state, positions: persistedPositions, zoom, selectedNodeId: node.identity.id }); document.getElementById(`ontology-node-${node.identity.id}`)?.focus(); }}>{node.label} <small>{node.kind}</small></button></li>)}</ul></details>

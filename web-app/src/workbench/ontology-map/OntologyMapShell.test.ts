@@ -23,6 +23,9 @@ describe("ontology hierarchy projection", () => {
   it("focuses only the selected asserted neighborhood", () => {
     const nodes = [classNode("parent"), classNode("selected"), classNode("unrelated")];
     const edges = [edge("hierarchy", "SubclassOf", "selected", "parent")];
+    const positions = layeredGraphLayout(nodes, edges);
+    expect(projectedNodeIds(nodes, edges, "Focus", null, new Set(), new Set(), positions)).toEqual(new Set(["parent", "selected", "unrelated"]));
+    expect(projectedNodeIds(nodes, edges, "Focus", "selected", new Set(), new Set(), positions)).toEqual(new Set(["selected", "parent"]));
     expect(selectionNeighborhood("selected", nodes, edges)).toEqual(new Set(["selected", "parent"]));
   });
 });
