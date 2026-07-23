@@ -79,7 +79,7 @@ public class OpenAiProposalClient(
             else -> ANSWER_INSTRUCTIONS
         }
         val format = if (input.responseKind == AiResponseKind.Proposal) {
-            proposalFormat(allowClarification = input.repairMode == "proposal")
+            proposalFormat(allowClarification = input.repairMode in setOf("proposal", "reasoning"))
         } else {
             null
         }
@@ -193,6 +193,15 @@ public class OpenAiProposalClient(
 
     private fun repairContext(input: AiProposalGenerationInput): String? {
         if (input.validationFindings.isEmpty()) return null
+        if (input.repairMode == "reasoning") return """
+        POST-GENERATION TRUSTED ENTIO REASONING REVIEW (review ${input.repairAttempt}):
+        Entio reasoned over the applied graph and the effective private-draft graph. Review these computed consequences before the proposal becomes ready:
+        ${input.validationFindings.joinToString("\n") { "- $it" }}
+        Use your own semantic judgment. Return a corrected complete proposal when the inferred consequences are appropriate and faithful to the user's intent. If they reveal a likely misunderstanding, hidden modeling decision, or consequence that warrants permission, return clarification mode instead.
+        To ask for clarification, return the same JSON shape with `"mode":"clarification"`, put the ontology-grounded explanation and one focused question or permission request in `answer`, use an empty string for `summary`, and return empty `evidence` and `edits` arrays. Entio will preserve the existing private draft for the user's follow-up. Entio supplies reasoning evidence but does not decide which conversational response you should choose.
+
+        $PROPOSAL_PRESENTATION_CONTRACT
+        """
         return if (input.repairMode == "answer") """
         POST-GENERATION ANSWER EVIDENCE FINDINGS (repair attempt ${input.repairAttempt}):
         Entio checked the completed answer and found the following issue:

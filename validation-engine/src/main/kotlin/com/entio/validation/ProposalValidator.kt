@@ -562,14 +562,36 @@ public class ProposalValidator(
             it.subjectResource == resource && it.predicate.value == RDF_TYPE && it.objectTerm is Iri
         }
 
-        fun hasType(resource: RdfResource, type: String): Boolean = allTriples().any {
+        fun hasType(resource: RdfResource, type: String): Boolean {
+            val directTypes = allTriples().filter {
+                it.subjectResource == resource && it.predicate.value == RDF_TYPE
+            }.mapNotNull { (it.objectTerm as? RdfResource)?.value }
+            return directTypes.any { directType -> directType == type || isSubclassOf(directType, type) }
+        }
+
+        private fun isSubclassOf(candidate: String, expected: String): Boolean {
+            val visited = mutableSetOf<String>()
+            val pending = ArrayDeque<String>().apply { add(candidate) }
+            while (pending.isNotEmpty()) {
+                val current = pending.removeFirst()
+                if (!visited.add(current)) continue
+                val parents = allTriples().filter {
+                    it.subjectResource.value == current && it.predicate.value == RDFS_SUBCLASS_OF
+                }.mapNotNull { (it.objectTerm as? RdfResource)?.value }
+                if (expected in parents) return true
+                pending.addAll(parents)
+            }
+            return false
+        }
+
+        private fun hasDirectType(resource: RdfResource, type: String): Boolean = allTriples().any {
             it.subjectResource == resource && it.predicate.value == RDF_TYPE && (it.objectTerm as? RdfResource)?.value == type
         }
 
         fun propertyKind(resource: RdfResource): PropertyKind {
-            val objectProperty = hasType(resource, OWL_OBJECT_PROPERTY)
-            val datatypeProperty = hasType(resource, OWL_DATATYPE_PROPERTY)
-            val genericProperty = hasType(resource, RDF_PROPERTY)
+            val objectProperty = hasDirectType(resource, OWL_OBJECT_PROPERTY)
+            val datatypeProperty = hasDirectType(resource, OWL_DATATYPE_PROPERTY)
+            val genericProperty = hasDirectType(resource, RDF_PROPERTY)
             return when {
                 objectProperty && datatypeProperty -> PropertyKind.Ambiguous
                 datatypeProperty -> PropertyKind.Datatype

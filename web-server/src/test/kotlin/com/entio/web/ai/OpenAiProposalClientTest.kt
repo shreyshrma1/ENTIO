@@ -242,4 +242,42 @@ class OpenAiProposalClientTest {
         assertTrue(instructions.contains("request permission to proceed"))
         assertTrue(instructions.contains("Do not prepare edits"))
     }
+
+    @Test
+    fun letsTheModelReviewTrustedDraftReasoningAndChooseClarification(): Unit = runBlocking {
+        var requestBody = ""
+        val engine = MockEngine { request ->
+            requestBody = (request.body as TextContent).text
+            respond(
+                """{"output_text":"{\"mode\":\"clarification\",\"answer\":\"This draft also infers Account. May I continue?\",\"summary\":\"\",\"evidence\":[],\"edits\":[]}"}""",
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val configuration = OpenAiProposalConfiguration(maxRetries = 0)
+        val client = OpenAiProposalClient(configuration, createProposalHttpClient(configuration, engine))
+
+        val result = client.use {
+            it.generate(
+                "secret",
+                "gpt-test",
+                AiProposalGenerationInput(
+                    userRequest = "Create Checking Account 33271.",
+                    ontologyContext = "TRUSTED ENTIO REASONING CONTEXT",
+                    fiboContext = "",
+                    currentProposal = "{\"edits\":[]}",
+                    validationFindings = listOf("New inferred consequence: Checking Account 33271 rdf:type Account."),
+                    repairAttempt = 1,
+                    repairMode = "reasoning",
+                    responseKind = AiResponseKind.Proposal,
+                ),
+            )
+        }
+
+        assertIs<AiProposalGenerationResult.Completed>(result)
+        val root = ObjectMapper().readTree(requestBody)
+        val review = root.path("input").last().path("content").asText()
+        assertTrue(review.contains("POST-GENERATION TRUSTED ENTIO REASONING REVIEW"))
+        assertTrue(review.contains("Entio supplies reasoning evidence but does not decide"))
+        assertEquals("entio_ontology_proposal_repair", root.path("text").path("format").path("name").asText())
+    }
 }

@@ -32,6 +32,7 @@ class ProjectLoaderTest {
                 "https://example.com/entio/simple#20874",
                 "https://example.com/entio/simple#Account",
                 "https://example.com/entio/simple#Account101",
+                "https://example.com/entio/simple#Account33271",
                 "https://example.com/entio/simple#Checking",
                 "https://example.com/entio/simple#InterestRate",
                 "https://example.com/entio/simple#Invoice",

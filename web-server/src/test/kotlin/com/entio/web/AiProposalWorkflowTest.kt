@@ -196,6 +196,50 @@ class AiProposalWorkflowTest {
     }
 
     @Test
+    fun modelReviewsTrustedDraftInferencesBeforeProposalBecomesReady(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-ai-reasoning-review")
+        val projectRoot = fixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot)).also { it.register("simple", "Simple", projectRoot) }
+        val proposalProvider = FixtureProposalProvider()
+        application {
+            module(
+                WebApplicationDependencies(
+                    projectRegistry = registry,
+                    aiModelProvider = DevelopmentAiModelProviderClient(
+                        models = listOf(AiProviderModelDescriptor("openai", "gpt-test")),
+                        verificationByModelId = mapOf("gpt-test" to com.entio.web.ai.provider.AiModelVerificationResult.Verified),
+                    ),
+                    aiProposalProvider = proposalProvider,
+                ),
+            )
+        }
+        client.put("/api/v1/ai/credentials") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"providerId":"openai","apiKey":"test-secret"}""")
+        }
+        client.put("/api/v1/ai/model-selection") {
+            headers.append("Idempotency-Key", "ai-reasoning-review-select")
+            contentType(ContentType.Application.Json)
+            setBody("""{"modelId":"gpt-test"}""")
+        }
+
+        val started = client.post("/api/v1/projects/simple/ai/proposals") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"prompt":"reasoning-review"}""")
+        }
+        val runId = Regex("\\\"runId\\\":\\\"([^\\\"]+)").find(started.bodyAsText())!!.groupValues[1]
+        val ready = poll(client, runId)
+
+        assertContains(ready, "\"responseMode\":\"CLARIFICATION\"")
+        assertContains(ready, "Checking Account 33271 will also be inferred as an Account")
+        assertContains(ready, "Entio reasoning found new inferred consequences for AI review")
+        assertEquals("reasoning", proposalProvider.lastInput?.repairMode)
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "TRUSTED ENTIO REASONING CONTEXT")
+        assertContains(proposalProvider.lastInput?.ontologyContext.orEmpty(), "New inferred consequences introduced by the private draft")
+        assertEquals(2, proposalProvider.callCount)
+    }
+
+    @Test
     fun changingInvalidRepairsStopAfterBoundedAttempts(): Unit = testApplication {
         val allowedRoot = Files.createTempDirectory("entio-ai-bounded-repair")
         val projectRoot = fixture(allowedRoot)
@@ -509,11 +553,13 @@ class AiProposalWorkflowTest {
         assertContains(ready, "interest-rate")
         assertContains(ready, "Asking AI to diagnose and repair")
         assertTrue(proposalProvider.callCount >= 2)
-        assertTrue(proposalProvider.lastInput?.repairAttempt ?: 0 >= 1)
-        assertTrue(proposalProvider.lastInput?.validationFindings.orEmpty().isNotEmpty())
-        assertContains(proposalProvider.lastInput?.validationFindings.orEmpty().joinToString("\n").lowercase(), "property subject")
-        assertContains(proposalProvider.lastInput?.validationFindings.orEmpty().joinToString("\n"), "source 'simple'")
-        assertContains(proposalProvider.lastInput?.validationFindings.orEmpty().joinToString("\n"), "Violation: <https://example.com/simple#Loan>")
+        val validationRepair = proposalProvider.inputs.first { input ->
+            input.validationFindings.any { it.contains("property subject") }
+        }
+        assertTrue(validationRepair.repairAttempt >= 1)
+        assertContains(validationRepair.validationFindings.joinToString("\n").lowercase(), "property subject")
+        assertContains(validationRepair.validationFindings.joinToString("\n"), "source 'simple'")
+        assertContains(validationRepair.validationFindings.joinToString("\n"), "Violation: <https://example.com/simple#Loan>")
 
         val explanation = client.post("/api/v1/projects/simple/ai/proposals") {
             contentType(ContentType.Application.Json)
@@ -658,6 +704,8 @@ private class FixtureProposalProvider : AiProposalProvider {
     @Volatile
     var callCount: Int = 0
 
+    val inputs: MutableList<AiProposalGenerationInput> = mutableListOf()
+
     override suspend fun route(apiKey: String, selectedModelId: String, input: AiProposalGenerationInput): AiResponseKind = when (input.userRequest) {
         "explain", "no-evidence", "glossary" -> AiResponseKind.Answer
         "clarify" -> AiResponseKind.Clarification
@@ -666,6 +714,7 @@ private class FixtureProposalProvider : AiProposalProvider {
 
     override suspend fun generate(apiKey: String, selectedModelId: String, input: AiProposalGenerationInput): AiProposalGenerationResult {
         lastInput = input
+        synchronized(inputs) { inputs += input }
         callCount += 1
         if (input.userRequest == "slow") delay(2_000)
         if (input.userRequest == "clarify-after-validation" && input.validationFindings.isEmpty()) {
@@ -679,6 +728,22 @@ private class FixtureProposalProvider : AiProposalProvider {
             return AiProposalGenerationResult.Completed(
                 """{"mode":"clarification","answer":"The ontology range requires Account. May I continue with that consequence?","summary":"","evidence":[],"edits":[]}""",
             )
+        }
+        if (input.userRequest == "reasoning-review" && input.repairMode == "reasoning") {
+            return AiProposalGenerationResult.Completed(
+                """{"mode":"clarification","answer":"Checking Account 33271 will also be inferred as an Account. May I continue?","summary":"","evidence":[],"edits":[]}""",
+            )
+        }
+        if (input.userRequest == "reasoning-review") {
+            return AiProposalGenerationResult.Completed("""
+                {"mode":"proposal","answer":"Drafted.","summary":"Create checking account","evidence":[],"edits":[
+                  {"id":"checking-class","sourceId":"simple","operation":"add","subject":"https://example.com/simple#Checking","predicate":"http://www.w3.org/1999/02/22-rdf-syntax-ns#type","objectKind":"iri","objectValue":"http://www.w3.org/2002/07/owl#Class","summary":"Declare Checking Account","rationale":"Create the requested account subtype."},
+                  {"id":"checking-label","sourceId":"simple","operation":"add","subject":"https://example.com/simple#Checking","predicate":"http://www.w3.org/2000/01/rdf-schema#label","objectKind":"literal","objectValue":"Checking Account","summary":"Label Checking Account","rationale":"Provide a readable label."},
+                  {"id":"checking-definition","sourceId":"simple","operation":"add","subject":"https://example.com/simple#Checking","predicate":"http://www.w3.org/2004/02/skos/core#definition","objectKind":"literal","objectValue":"An account used for transactional deposits and withdrawals.","summary":"Define Checking Account","rationale":"Describe the subtype."},
+                  {"id":"checking-parent","sourceId":"simple","operation":"add","subject":"https://example.com/simple#Checking","predicate":"http://www.w3.org/2000/01/rdf-schema#subClassOf","objectKind":"iri","objectValue":"https://example.com/simple#Account","summary":"Make Checking Account an Account","rationale":"Model the requested subtype."},
+                  {"id":"checking-individual","sourceId":"simple","operation":"add","subject":"https://example.com/simple#CheckingAccount33271","predicate":"http://www.w3.org/1999/02/22-rdf-syntax-ns#type","objectKind":"iri","objectValue":"https://example.com/simple#Checking","summary":"Type Checking Account 33271","rationale":"Create the requested individual."}
+                ]}
+            """.trimIndent())
         }
         if (input.userRequest == "varying-unrepairable") {
             return AiProposalGenerationResult.Completed("""
