@@ -18,7 +18,7 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository contains the implemented Entio foundation through Phase 10. Phase 10, Materialize Inferred Relationships, is complete.
+This repository contains the implemented Entio foundation through Phase 10.5. Phase 10.5, Inferred Facts in Explore and Ontology Map, is complete.
 
 Native AI execution is not part of the current product surface; the remaining provider boundary is limited to credential entry, model discovery, and model selection.
 
@@ -26,7 +26,7 @@ Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because th
 
 The current implementation supports small local Entio projects, Turtle/RDF parsing through Apache Jena, RDF-term-aware graph triples, deterministic validation reports, semantic graph diffs, reusable project loading, and a thin CLI.
 
-Phases 2 through 8 are preserved as historical delivery records. The current workbench preserves the Kotlin semantic engine as the authority for RDF and ontology behavior and exposes only optional provider credential and model settings from the former AI surface. Phase 9 adds an additive, bounded, read-only ontology map inside Explore. Phase 10 lets web users deliberately stage supported inferred facts through the existing proposal workflow.
+Phases 2 through 8 are preserved as historical delivery records. The current workbench preserves the Kotlin semantic engine as the authority for RDF and ontology behavior and exposes only optional provider credential and model settings from the former AI surface. Phase 9 adds an additive, bounded, read-only ontology map inside Explore. Phase 10 lets web users deliberately stage supported inferred facts through the existing proposal workflow. Phase 10.5 optionally displays current applied-graph and proposal-graph inferred facts in their corresponding Explore fields and as clearly marked map edges without changing ontology data.
 
 ## Workspace Structure
 
@@ -85,6 +85,8 @@ The current implementation supports:
 - Reviewing asserted and inferred reasoning facts separately in the web Reasoning workspace.
 - Staging selected inferred subclass relationships, individual types, and object-property assertions as an all-or-nothing batch using server-issued fact IDs.
 - Rechecking reasoning freshness, duplicates, writable sources, and import safety before staging, then retaining reasoning provenance through normal proposal review, atomic apply, reload, and rollback.
+- Reusing project-owned reasoning results as bounded, read-only applied and proposal overlays in the Project Outline, entity details, and ontology map.
+- Keeping inferred overlays off by default, visually distinct, fingerprint-aware, and subordinate to asserted facts and asserted map layout.
 
 Implemented CLI commands:
 
