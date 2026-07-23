@@ -23,6 +23,7 @@ export interface OntologyMapViewState extends RendererState {
 }
 
 const LARGE_BRANCH_LIMIT = 6;
+const OUTSIDE_CLICK_THRESHOLD = 4;
 
 export default function OntologyMapShell({ projectId, sourceId, seed, state, onStateChange, onViewDetails, onLoadedEntities }: {
   projectId: string;
@@ -36,6 +37,7 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   const shellRef = useRef<HTMLElement>(null);
   const popupRef = useRef<HTMLElement>(null);
   const popupDrag = useRef<{ pointerId: number; clientX: number; clientY: number; x: number; y: number } | null>(null);
+  const outsidePointer = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
   const graph = useOntologyGraph(projectId, { sourceIds: [sourceId], seed: seed?.sourceId ? { sourceId: seed.sourceId, entityIri: seed.iri } : undefined });
 
   useEffect(() => {
@@ -64,12 +66,27 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   const selected = nodes.find((node) => node.identity.id === state.selectedNodeId);
   useEffect(() => {
     if (!selected) return;
-    const dismissOutside = (event: globalThis.PointerEvent) => {
-      if (popupRef.current?.contains(event.target as Node)) return;
-      onStateChange({ ...state, selectedNodeId: null });
+    const trackOutsidePointer = (event: globalThis.PointerEvent) => {
+      outsidePointer.current = popupRef.current?.contains(event.target as Node)
+        ? null
+        : { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY };
     };
-    document.addEventListener("pointerdown", dismissOutside);
-    return () => document.removeEventListener("pointerdown", dismissOutside);
+    const dismissOutsideClick = (event: globalThis.PointerEvent) => {
+      const start = outsidePointer.current;
+      outsidePointer.current = null;
+      if (!start || start.pointerId !== event.pointerId) return;
+      if (Math.hypot(event.clientX - start.clientX, event.clientY - start.clientY) > OUTSIDE_CLICK_THRESHOLD) return;
+      if (!popupRef.current?.contains(event.target as Node)) onStateChange({ ...state, selectedNodeId: null });
+    };
+    const cancelOutsidePointer = () => { outsidePointer.current = null; };
+    document.addEventListener("pointerdown", trackOutsidePointer);
+    document.addEventListener("pointerup", dismissOutsideClick);
+    document.addEventListener("pointercancel", cancelOutsidePointer);
+    return () => {
+      document.removeEventListener("pointerdown", trackOutsidePointer);
+      document.removeEventListener("pointerup", dismissOutsideClick);
+      document.removeEventListener("pointercancel", cancelOutsidePointer);
+    };
   }, [onStateChange, selected, state]);
   const emphasizedIds = useMemo(() => selectionNeighborhood(state.selectedNodeId, nodes, edges), [edges, nodes, state.selectedNodeId]);
   const dimmedNodeIds = useMemo(() => state.selectedNodeId ? new Set(visibleNodes.map((node) => node.identity.id).filter((id) => !emphasizedIds.has(id))) : new Set<string>(), [emphasizedIds, state.selectedNodeId, visibleNodes]);
