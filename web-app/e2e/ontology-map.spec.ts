@@ -52,10 +52,15 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await expect(page.getByRole("button", { name: "ObjectProperty: Entity 0005" })).toBeVisible();
   await expect(page.getByRole("button", { name: "DatatypeProperty: Entity 0002" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toBeVisible();
-  await expect(page.getByLabel("Loaded ontology graph").locator("text=SubclassOf").first()).toBeAttached();
-  await expect(page.getByRole("button", { name: "Class: Entity 0000" })).toBeInViewport();
   const projectNavigation = page.getByRole("complementary", { name: "Project navigation" });
   const outlineClass = projectNavigation.getByRole("button", { name: "Entity 0000, Class" });
+  await page.getByRole("tab", { name: "Reasoning" }).click();
+  await outlineClass.click();
+  await expect(page.getByRole("tab", { name: "Explore", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page).toHaveURL(/iri=urn%3An0/);
+  await page.getByRole("tab", { name: "Ontology map" }).click();
+  await expect(page.getByLabel("Loaded ontology graph").locator("text=SubclassOf").first()).toBeAttached();
+  await expect(page.getByRole("button", { name: "Class: Entity 0000" })).toBeInViewport();
   await outlineClass.click();
   await expect(page.getByRole("dialog", { name: "Entity 0000 map summary" })).toBeVisible();
   await page.getByRole("button", { name: "Close entity summary" }).click();
