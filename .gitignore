@@ -34,6 +34,7 @@ web-app/test-results/
 
 # Future Kotlin/Gradle artifacts
 .gradle/
+.kotlin/
 build/
 */build/
 out/
