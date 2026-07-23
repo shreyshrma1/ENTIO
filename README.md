@@ -18,7 +18,7 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository contains the implemented Entio foundation through Phase 9. Phase 9, Interactive Ontology Graph Visualization, is complete.
+This repository contains the implemented Entio foundation through Phase 10. Phase 10, Materialize Inferred Relationships, is complete.
 
 Native AI execution is not part of the current product surface; the remaining provider boundary is limited to credential entry, model discovery, and model selection.
 
@@ -26,7 +26,7 @@ Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because th
 
 The current implementation supports small local Entio projects, Turtle/RDF parsing through Apache Jena, RDF-term-aware graph triples, deterministic validation reports, semantic graph diffs, reusable project loading, and a thin CLI.
 
-Phases 2 through 8 are preserved as historical delivery records. The current workbench preserves the Kotlin semantic engine as the authority for RDF and ontology behavior and exposes only optional provider credential and model settings from the former AI surface. Phase 9 adds an additive, bounded, read-only ontology map inside Explore.
+Phases 2 through 8 are preserved as historical delivery records. The current workbench preserves the Kotlin semantic engine as the authority for RDF and ontology behavior and exposes only optional provider credential and model settings from the former AI surface. Phase 9 adds an additive, bounded, read-only ontology map inside Explore. Phase 10 lets web users deliberately stage supported inferred facts through the existing proposal workflow.
 
 ## Workspace Structure
 
@@ -82,6 +82,9 @@ The current implementation supports:
 - Opening a project-scoped ontology map from Explore to inspect bounded local classes, properties, individuals, and asserted relationships without modifying ontology data.
 - Expanding, searching, filtering, dragging, panning, scrolling, zooming, and navigating the map while retaining temporary state only for the open tab.
 - Rejecting stale or invalid graph continuations through fingerprint-aware, authorized Ktor read contracts.
+- Reviewing asserted and inferred reasoning facts separately in the web Reasoning workspace.
+- Staging selected inferred subclass relationships, individual types, and object-property assertions as an all-or-nothing batch using server-issued fact IDs.
+- Rechecking reasoning freshness, duplicates, writable sources, and import safety before staging, then retaining reasoning provenance through normal proposal review, atomic apply, reload, and rollback.
 
 Implemented CLI commands:
 
@@ -156,6 +159,7 @@ npm test
 - Proposal and staged-change state is process/session scoped rather than a durable review store.
 - Web project registration, development identity, collaboration, semantic jobs, staging, and AI credentials are in-memory development boundaries rather than production persistence or authentication.
 - Provider credentials, model settings, and discovery state remain in memory and are cleared on server restart. Native assistant conversations, runs, drafts, audits, and task workspaces are not exposed by the current product surface.
+- Reasoning results and materialization provenance are in-memory workflow state. Materialization is web-only, always user initiated, supports at most 100 selected facts per request, and does not add inferred relationships to the ontology map.
 
 ## Implemented Phase 2 Through Phase 6 Workflow
 
@@ -222,18 +226,18 @@ Phase 2 should not include:
 
 ## Current Phase
 
-Phase 9 is complete. It delivers a bounded, read-only interactive ontology map integrated into the existing Explore workspace.
+Phase 10 is complete. It adds controlled materialization of selected inferred relationships to the existing web review workflow.
 
-Phase 9:
+Phase 10:
 
-- reuses the existing Explore outline and entity-detail navigation;
-- sources supported local entities and asserted relationships from Kotlin-owned semantic services;
-- exposes bounded, fingerprint-aware read contracts through Ktor;
-- keeps layout, viewport, filters, and selection as temporary React state;
-- preserves all existing editing, proposal, validation, reasoning, SHACL, FIBO, collaboration, CLI, VS Code, and provider-setting behavior;
-- uses a focused React/SVG renderer with no added graph dependency.
+- supports inferred subclass relationships, individual types, and object-property assertions;
+- accepts opaque server-issued fact IDs rather than browser-authored triples;
+- reruns applied-graph reasoning and validates ownership, freshness, duplicates, source choice, and import safety;
+- stages up to 100 selected facts atomically through existing typed edits and the shared review queue;
+- records reasoning provenance as workflow metadata, not ontology annotations;
+- preserves human review, validation, semantic diff, SHACL/reasoning impact, atomic apply, reload, and rollback.
 
-The implementation summary records its exact bounds, verification evidence, limitations, and rollback path. Later graph editing, inference visualization, external catalog visualization, persistence, and shared layouts remain out of scope.
+The Phase 9 ontology map remains read-only and asserted-only. Automatic materialization, durable persistence, CLI/VS Code materialization commands, AI selection, and map inference display remain out of scope.
 
 Phases 7, 7.5, and 8 remain available as historical planning and implementation records. Their native AI execution surfaces have been removed from the current product; only provider credential and model selection settings remain active.
 

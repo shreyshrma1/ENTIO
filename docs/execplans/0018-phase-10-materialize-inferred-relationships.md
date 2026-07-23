@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved for implementation on 2026-07-23. Slice 0 records the contract audit and approval evidence.
+Complete as of 2026-07-23. All slices were implemented in dependency order, verified, pushed on independent branches, and merged locally into `main`.
 
 Implementation must proceed one slice at a time in the exact dependency order below. Slices must not be combined or implemented in parallel.
 
