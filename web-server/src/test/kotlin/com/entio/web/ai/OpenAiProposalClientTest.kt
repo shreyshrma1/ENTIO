@@ -199,6 +199,14 @@ class OpenAiProposalClientTest {
         assertTrue(instructions.contains("prior private proposal"))
         assertTrue(instructions.contains("do not treat every finding as permission"))
         assertTrue(instructions.contains("evidence, not as authority to override user intent"))
+        assertTrue(instructions.contains("you may leave proposal mode and return clarification mode"))
+        assertTrue(instructions.contains("Entio does not classify the finding for you"))
+        val format = root.path("text").path("format")
+        assertEquals("entio_ontology_proposal_repair", format.path("name").asText())
+        assertEquals(
+            listOf("proposal", "clarification"),
+            format.path("schema").path("properties").path("mode").path("enum").map { it.asText() },
+        )
     }
 
     @Test

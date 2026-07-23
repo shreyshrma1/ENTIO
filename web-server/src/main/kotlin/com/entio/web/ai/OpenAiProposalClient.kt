@@ -78,7 +78,11 @@ public class OpenAiProposalClient(
             AiResponseKind.Clarification -> CLARIFICATION_INSTRUCTIONS
             else -> ANSWER_INSTRUCTIONS
         }
-        val format = if (input.responseKind == AiResponseKind.Proposal) proposalFormat() else null
+        val format = if (input.responseKind == AiResponseKind.Proposal) {
+            proposalFormat(allowClarification = input.repairMode == "proposal")
+        } else {
+            null
+        }
         return request(apiKey, selectedModelId, instructions, providerInput(input, includeRepair = true), format)
     }
 
@@ -198,7 +202,8 @@ public class OpenAiProposalClient(
         POST-GENERATION VALIDATION FINDINGS (repair attempt ${input.repairAttempt}):
         Entio ran deterministic validation on the private proposal and found:
         ${input.validationFindings.joinToString("\n") { "- $it" }}
-        Reconsider the proposal using your own semantic judgment. Repair output mistakes that do not change the user's intended ontology outcome, but do not treat every finding as permission to make an unrequested semantic correction. If a finding reveals that the request may rely on inaccurate, conflicting, or materially incomplete information, do not conceal that issue by adding compensating assertions or axioms. Preserve the conflict for a user follow-up and make the need for clarification explicit in the proposal answer rather than claiming the user requested the compensation.
+        Reconsider the proposal using your own semantic judgment. Repair output mistakes that do not change the user's intended ontology outcome, but do not treat every finding as permission to make an unrequested semantic correction. If a finding reveals that the request may rely on inaccurate, conflicting, or materially incomplete information, do not conceal that issue by adding compensating assertions or axioms. Instead, you may leave proposal mode and return clarification mode so the user can decide.
+        To ask for clarification, return the same JSON shape with `"mode":"clarification"`, put the ontology-grounded explanation and one focused question or permission request in `answer`, use an empty string for `summary`, and return empty `evidence` and `edits` arrays. Entio will preserve the existing private draft for the user's follow-up. Choose this yourself when your semantic judgment says user input is warranted; Entio does not classify the finding for you.
         Findings include the exact source-scoped triple involved and, where possible, a possible repair action; treat those details as evidence, not as authority to override user intent. For a no-op `add`, remove that exact edit from the replacement proposal rather than emitting it again. For a no-op `remove`, remove it or correct its exact subject, predicate, or object so the replacement targets a triple that is actually present. Re-evaluate whether the asserted triple, the property's domain/range axiom, or both are inconsistent with the user's intended model and the ontology context. When changing an existing domain or range is clearly part of the user's intended outcome, remove the old conflicting triple and add the corrected triple; do not leave both axioms in the replacement proposal. If the conflicting axiom came from the prior private proposal and revising it is consistent with the user's intent, include its removal explicitly. Preserve every other valid edit.
         If the finding came from a malformed edit, the source-scoped proposal context contains the valid edits recovered from the original response. Preserve all of those edits and repair the malformed edit; do not return only the edit named in the finding. Return the complete proposal needed to satisfy the original request, including every requested class, property, node shape, property shape, and constraint.
 
@@ -206,15 +211,15 @@ public class OpenAiProposalClient(
         """
     }
 
-    private fun proposalFormat(): JsonNode = objectMapper.createObjectNode().apply {
+    private fun proposalFormat(allowClarification: Boolean = false): JsonNode = objectMapper.createObjectNode().apply {
         put("type", "json_schema")
-        put("name", "entio_ontology_proposal")
+        put("name", if (allowClarification) "entio_ontology_proposal_repair" else "entio_ontology_proposal")
         put("strict", true)
         set<JsonNode>("schema", objectMapper.createObjectNode().apply {
             put("type", "object")
             put("additionalProperties", false)
             set<JsonNode>("properties", objectMapper.createObjectNode().apply {
-                set<JsonNode>("mode", stringSchema(listOf("proposal")))
+                set<JsonNode>("mode", stringSchema(if (allowClarification) listOf("proposal", "clarification") else listOf("proposal")))
                 set<JsonNode>("answer", stringSchema())
                 set<JsonNode>("summary", stringSchema())
                 set<JsonNode>("evidence", objectMapper.createObjectNode().apply {

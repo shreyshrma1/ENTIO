@@ -154,6 +154,88 @@ class AiProposalWorkflowTest {
     }
 
     @Test
+    fun modelCanAskForClarificationAfterValidationFindings(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-ai-repair-clarification")
+        val projectRoot = fixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot)).also { it.register("simple", "Simple", projectRoot) }
+        val proposalProvider = FixtureProposalProvider()
+        application {
+            module(
+                WebApplicationDependencies(
+                    projectRegistry = registry,
+                    aiModelProvider = DevelopmentAiModelProviderClient(
+                        models = listOf(AiProviderModelDescriptor("openai", "gpt-test")),
+                        verificationByModelId = mapOf("gpt-test" to com.entio.web.ai.provider.AiModelVerificationResult.Verified),
+                    ),
+                    aiProposalProvider = proposalProvider,
+                ),
+            )
+        }
+        client.put("/api/v1/ai/credentials") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"providerId":"openai","apiKey":"test-secret"}""")
+        }
+        client.put("/api/v1/ai/model-selection") {
+            headers.append("Idempotency-Key", "ai-repair-clarification-select")
+            contentType(ContentType.Application.Json)
+            setBody("""{"modelId":"gpt-test"}""")
+        }
+
+        val started = client.post("/api/v1/projects/simple/ai/proposals") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"prompt":"clarify-after-validation"}""")
+        }
+        val runId = Regex("\\\"runId\\\":\\\"([^\\\"]+)").find(started.bodyAsText())!!.groupValues[1]
+        val ready = poll(client, runId)
+
+        assertContains(ready, "\"status\":\"READY\"")
+        assertContains(ready, "\"responseMode\":\"CLARIFICATION\"")
+        assertContains(ready, "The ontology range requires Account")
+        assertContains(ready, "Asking for clarification before preparing edits")
+        assertEquals(2, proposalProvider.callCount)
+    }
+
+    @Test
+    fun changingInvalidRepairsStopAfterBoundedAttempts(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-ai-bounded-repair")
+        val projectRoot = fixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot)).also { it.register("simple", "Simple", projectRoot) }
+        val proposalProvider = FixtureProposalProvider()
+        application {
+            module(
+                WebApplicationDependencies(
+                    projectRegistry = registry,
+                    aiModelProvider = DevelopmentAiModelProviderClient(
+                        models = listOf(AiProviderModelDescriptor("openai", "gpt-test")),
+                        verificationByModelId = mapOf("gpt-test" to com.entio.web.ai.provider.AiModelVerificationResult.Verified),
+                    ),
+                    aiProposalProvider = proposalProvider,
+                ),
+            )
+        }
+        client.put("/api/v1/ai/credentials") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"providerId":"openai","apiKey":"test-secret"}""")
+        }
+        client.put("/api/v1/ai/model-selection") {
+            headers.append("Idempotency-Key", "ai-bounded-repair-select")
+            contentType(ContentType.Application.Json)
+            setBody("""{"modelId":"gpt-test"}""")
+        }
+
+        val started = client.post("/api/v1/projects/simple/ai/proposals") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"prompt":"varying-unrepairable"}""")
+        }
+        val runId = Regex("\\\"runId\\\":\\\"([^\\\"]+)").find(started.bodyAsText())!!.groupValues[1]
+        val failed = poll(client, runId)
+
+        assertContains(failed, "\"status\":\"FAILED\"")
+        assertContains(failed, "Repair stopped with unresolved proposal findings")
+        assertEquals(4, proposalProvider.callCount)
+    }
+
+    @Test
     fun privateProposalUsesGenericGraphEditsAndDoesNotWriteBeforeStage(): Unit = testApplication {
         val allowedRoot = Files.createTempDirectory("entio-ai-proposal")
         val projectRoot = fixture(allowedRoot)
@@ -586,6 +668,25 @@ private class FixtureProposalProvider : AiProposalProvider {
         lastInput = input
         callCount += 1
         if (input.userRequest == "slow") delay(2_000)
+        if (input.userRequest == "clarify-after-validation" && input.validationFindings.isEmpty()) {
+            return AiProposalGenerationResult.Completed("""
+                {"mode":"proposal","answer":"Drafted.","summary":"Conflicting account proposal","evidence":[],"edits":[
+                  {"id":"invalid-range-object","sourceId":"simple","operation":"remove","subject":"https://example.com/simple#Missing","predicate":"http://www.w3.org/2000/01/rdf-schema#label","objectKind":"literal","objectValue":"Missing","summary":"Remove missing label","rationale":"Trigger repair for the clarification test."}
+                ]}
+            """.trimIndent())
+        }
+        if (input.userRequest == "clarify-after-validation") {
+            return AiProposalGenerationResult.Completed(
+                """{"mode":"clarification","answer":"The ontology range requires Account. May I continue with that consequence?","summary":"","evidence":[],"edits":[]}""",
+            )
+        }
+        if (input.userRequest == "varying-unrepairable") {
+            return AiProposalGenerationResult.Completed("""
+                {"mode":"proposal","answer":"Attempt $callCount.","summary":"Invalid attempt $callCount","evidence":[],"edits":[
+                  {"id":"invalid-$callCount","sourceId":"simple","operation":"remove","subject":"https://example.com/simple#Missing","predicate":"http://www.w3.org/2000/01/rdf-schema#label","objectKind":"literal","objectValue":"Missing $callCount","summary":"Remove missing label","rationale":"Exercise the bounded repair loop."}
+                ]}
+            """.trimIndent())
+        }
         if (input.userRequest == "repairable" && input.validationFindings.isEmpty()) {
             return AiProposalGenerationResult.Completed("""
                 {"mode":"proposal","summary":"Repairable Loan proposal","edits":[
