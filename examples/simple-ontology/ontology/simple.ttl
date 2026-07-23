@@ -70,6 +70,13 @@
         <http://www.w3.org/2004/02/skos/core#definition>
                 "An entity representing a loan that is borrowed and to be repaid with interest." .
 
+<https://example.com/entio/simple#Account33271>
+        a       <https://example.com/entio/simple#Checking>;
+        <http://www.w3.org/2000/01/rdf-schema#label>
+                "Checking Account 33271";
+        <http://www.w3.org/2004/02/skos/core#definition>
+                "An individual representing Checking Account 33271 with its associated properties." .
+
 <https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/Customer>
         a       <http://www.w3.org/2000/01/rdf-schema#Class>;
         <http://www.w3.org/2000/01/rdf-schema#label>
@@ -106,7 +113,7 @@
         <https://example.com/entio/simple#hasLoan>
                 <https://example.com/entio/simple#Loan123>;
         <https://example.com/entio/simple#ownsAccount>
-                <https://example.com/entio/simple#Account101> .
+                <https://example.com/entio/simple#Account33271> , <https://example.com/entio/simple#Account101> .
 
 <https://example.com/entio/simple#Account101>
         a       <https://example.com/entio/simple#Account> , <http://www.w3.org/2002/07/owl#NamedIndividual>;
