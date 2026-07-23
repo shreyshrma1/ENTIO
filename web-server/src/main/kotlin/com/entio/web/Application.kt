@@ -46,6 +46,7 @@ import com.entio.web.ai.models.InMemoryAiUserProviderSettingsStore
 import com.entio.web.ai.AiProposalService
 import com.entio.web.contract.WebAiModelSelectionRequest
 import com.entio.web.contract.WebAiProposalCreateRequest
+import com.entio.web.contract.WebInferenceMaterializationRequest
 import java.time.Clock
 
 /**
@@ -105,6 +106,11 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
         onUpdate = { status ->
             collaboration.job(status.projectId, "semantic-job.${status.status.name.lowercase()}", status.id)
         },
+    )
+    val inferenceMaterialization = InferenceMaterializationWebService(
+        jobs = jobs,
+        staging = staging,
+        projectRegistry = dependencies.projectRegistry,
     )
 
     routing {
@@ -527,8 +533,8 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
 
         post("/api/v1/projects/{projectId}/semantic-jobs") {
             call.respondJob {
-                call.requireUser(dependencies)
-                jobs.submit(call.requiredProjectId(), call.receive<WebJobRequest>())
+                val user = call.requireUser(dependencies)
+                jobs.submit(call.requiredProjectId(), call.receive<WebJobRequest>(), user.id)
             }
         }
 
@@ -541,9 +547,28 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
 
         get("/api/v1/projects/{projectId}/semantic-jobs/{jobId}/details") {
             call.respondJob {
-                call.requireUser(dependencies)
-                jobs.details(call.requiredProjectId(), call.requiredJobId())
+                val user = call.requireUser(dependencies)
+                jobs.details(call.requiredProjectId(), call.requiredJobId(), requestingUserId = user.id)
                     ?: throw WebWorkflowFailure("unknown-semantic-job", "The requested semantic job was not found.")
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/semantic-jobs/{jobId}/materializations") {
+            call.respondJob {
+                val user = call.requireUser(dependencies)
+                if (!dependencies.authorization.isAllowed(user.role, com.entio.web.contract.WebAction.STAGE_OWN_CHANGE)) {
+                    throw WebWorkflowFailure("forbidden", "The current user cannot stage changes.")
+                }
+                val projectId = call.requiredProjectId()
+                val result = inferenceMaterialization.materialize(
+                    projectId,
+                    call.requiredJobId(),
+                    user.id,
+                    call.receive<WebInferenceMaterializationRequest>(),
+                )
+                jobs.invalidateProposalJobs(projectId)
+                collaboration.stagedChange(projectId, userId = user.id)
+                result
             }
         }
 
@@ -781,6 +806,8 @@ private suspend inline fun <reified T : Any> ApplicationCall.respondJob(crossinl
     val status = when (failure.code) {
         "unknown-project", "unknown-semantic-job" -> HttpStatusCode.NotFound
         "forbidden" -> HttpStatusCode.Forbidden
+        "materialization-in-progress" -> HttpStatusCode.Conflict
+        "materialization-timeout" -> HttpStatusCode.RequestTimeout
         else -> HttpStatusCode.BadRequest
     }
     respond(

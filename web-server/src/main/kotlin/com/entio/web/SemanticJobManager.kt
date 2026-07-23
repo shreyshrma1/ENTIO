@@ -12,6 +12,8 @@ import com.entio.core.ShaclValidationMode
 import com.entio.core.ShaclValidationReport
 import com.entio.core.ShaclValidationStatus
 import com.entio.semantic.ProjectLoader
+import com.entio.semantic.InferenceMaterializationIdentityContext
+import com.entio.semantic.InferenceMaterializationService
 import com.entio.semantic.ReasoningService
 import com.entio.semantic.ShaclGraphLoader
 import com.entio.semantic.ShaclValidationService
@@ -38,6 +40,7 @@ private class MutableSemanticJob(
     val projectId: String,
     val request: ParsedWebJobRequest,
     val snapshot: WorkflowGraphSnapshot,
+    val submittedByUserId: String,
     val queuedAt: String = Instant.now().toString(),
 ) {
     var state: WebSemanticJobState = WebSemanticJobState.Queued
@@ -69,6 +72,14 @@ private class MutableSemanticJob(
     )
 }
 
+internal data class RetainedMaterializationJob(
+    val id: String,
+    val projectId: String,
+    val submittedByUserId: String,
+    val graphFingerprint: String,
+    val reasoningResult: ReasoningResult,
+)
+
 /** Schedules bounded semantic work without making HTTP requests wait for the reasoner. */
 public class SemanticJobManager(
     private val staging: StagingWorkflowService,
@@ -77,6 +88,7 @@ public class SemanticJobManager(
     private val reasoningService: ReasoningService = ReasoningService(),
     private val shaclGraphLoader: ShaclGraphLoader = ShaclGraphLoader(),
     private val shaclValidationService: ShaclValidationService = ShaclValidationService(),
+    private val materializationService: InferenceMaterializationService = InferenceMaterializationService(),
     private val onUpdate: suspend (WebSemanticJobStatus) -> Unit = {},
 ) {
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -86,7 +98,12 @@ public class SemanticJobManager(
     private val latestAppliedReasoning: MutableMap<String, CachedReasoning> = linkedMapOf()
 
     @Synchronized
-    public fun submit(projectId: String, request: WebJobRequest): WebSemanticJobStatus {
+    public fun submit(
+        projectId: String,
+        request: WebJobRequest,
+        submittedByUserId: String = "system",
+    ): WebSemanticJobStatus {
+        require(submittedByUserId.isNotBlank()) { "semantic-job-submitting-user-required" }
         projectRegistry.find(projectId)
             ?: throw WebWorkflowFailure("unknown-project", "The requested project is not registered.")
         val parsed = request.parse()
@@ -108,7 +125,7 @@ public class SemanticJobManager(
             }
         }
         val id = "job-${UUID.randomUUID()}"
-        val record = MutableSemanticJob(id, projectId, parsed, snapshot)
+        val record = MutableSemanticJob(id, projectId, parsed, snapshot, submittedByUserId)
         latestAppliedReasoning[projectId]?.takeIf { cached ->
             parsed.kind == WebJobKind.Reasoning && parsed.scope == WebJobScope.Applied && cached.graphFingerprint != snapshot.graphFingerprint
         }?.let { cached -> record.resultSummary = mapOf("previousValidResult" to cached.summary) }
@@ -126,12 +143,28 @@ public class SemanticJobManager(
         ?.status()
 
     @Synchronized
-    public fun details(projectId: String, jobId: String, limit: Int = 50): WebSemanticJobDetails? {
+    public fun details(
+        projectId: String,
+        jobId: String,
+        limit: Int = 50,
+        requestingUserId: String? = null,
+    ): WebSemanticJobDetails? {
         require(limit in 1..100) { "semantic-job-detail-limit-must-be-between-1-and-100" }
         val record = jobs[jobId]?.takeIf { it.projectId == projectId } ?: return null
         val reasoning = record.reasoningResult
         val shacl = record.shaclReport
         val allFacts = reasoning?.toWebFacts().orEmpty()
+        val materializationCandidates = if (
+            reasoning != null &&
+            requestingUserId == record.submittedByUserId &&
+            record.request.kind == WebJobKind.Reasoning &&
+            record.request.scope == WebJobScope.Applied &&
+            record.state == WebSemanticJobState.Completed
+        ) {
+            materializationCandidates(record, reasoning)
+        } else {
+            emptyList()
+        }
         val allUnsatisfiable = reasoning?.unsatisfiableClasses?.map { it.value }.orEmpty()
         val allFindings = shacl?.results?.map { result ->
             WebShaclFinding(
@@ -164,6 +197,7 @@ public class SemanticJobManager(
         return WebSemanticJobDetails(
             job = currentStatus,
             facts = allFacts.take(limit),
+            materializationCandidates = materializationCandidates.take(limit),
             unsatisfiableClasses = allUnsatisfiable.take(limit),
             shaclFindings = allFindings.take(limit),
             unsupportedFeatures = reasoning?.unsupportedFeatures?.take(limit)?.map { finding ->
@@ -173,6 +207,38 @@ public class SemanticJobManager(
             errors = reasoning?.errors.orEmpty() + shacl?.errors.orEmpty(),
             truncated = allFacts.size > limit || allUnsatisfiable.size > limit || allFindings.size > limit ||
                 (reasoning?.unsupportedFeatures?.size ?: 0) > limit,
+        )
+    }
+
+    @Synchronized
+    internal fun retainedMaterializationJob(
+        projectId: String,
+        jobId: String,
+        requestingUserId: String,
+    ): RetainedMaterializationJob {
+        val record = jobs[jobId]?.takeIf {
+            it.projectId == projectId && it.submittedByUserId == requestingUserId
+        } ?: throw WebWorkflowFailure("unknown-semantic-job", "The requested semantic job was not found.")
+        if (record.request.kind != WebJobKind.Reasoning ||
+            record.request.scope != WebJobScope.Applied ||
+            record.state != WebSemanticJobState.Completed ||
+            record.reasoningResult == null
+        ) {
+            throw WebWorkflowFailure("semantic-job-not-materializable", "Only a completed applied-graph reasoning job can be materialized.")
+        }
+        if (!acceptsCurrentGraph(record)) {
+            throw WebWorkflowFailure("stale-semantic-job", "The retained reasoning result no longer matches the applied graph.")
+        }
+        val result = requireNotNull(record.reasoningResult)
+        if (result.metadata.status != ReasoningRunStatus.Completed || !result.metadata.importClosureComplete) {
+            throw WebWorkflowFailure("semantic-job-incomplete", "The retained reasoning result is incomplete.")
+        }
+        return RetainedMaterializationJob(
+            id = record.id,
+            projectId = record.projectId,
+            submittedByUserId = record.submittedByUserId,
+            graphFingerprint = record.snapshot.graphFingerprint,
+            reasoningResult = result,
         )
     }
 
@@ -397,6 +463,53 @@ public class SemanticJobManager(
             add(WebReasoningFact("property-relationship", fact.subject.value, fact.predicate.value, fact.objectResource.value, fact.origin.name, fact.sourceId))
         }
     }.sortedWith(compareBy(WebReasoningFact::kind, WebReasoningFact::subject, WebReasoningFact::predicate, WebReasoningFact::objectValue))
+
+    private fun materializationCandidates(
+        record: MutableSemanticJob,
+        reasoning: ReasoningResult,
+    ): List<WebInferenceMaterializationCandidate> {
+        val project = when (val loaded = projectLoader.loadProject(projectRegistry.rootFor(record.projectId))) {
+            is EntioResult.Failure -> return emptyList()
+            is EntioResult.Success -> loaded.value
+        }
+        val labels = project.symbols
+            .sortedWith(compareBy({ it.iri.value }, { it.sourceId }))
+            .mapNotNull { symbol -> symbol.label?.let { symbol.iri.value to it } }
+            .toMap()
+        val staged = staging.materializationStagedIds(record.projectId)
+        return materializationService.analyze(
+            project,
+            reasoning,
+            InferenceMaterializationIdentityContext(
+                record.projectId,
+                record.submittedByUserId,
+                record.id,
+            ),
+        ).mapNotNull { analysis ->
+            val candidate = analysis.candidate ?: return@mapNotNull null
+            val existingId = staged[candidate.semanticFactKey]
+            val stageability = if (existingId != null) com.entio.core.InferenceStageability.AlreadyStaged else candidate.stageability
+            WebInferenceMaterializationCandidate(
+                factId = candidate.factId.value,
+                kind = candidate.fact.kind.name,
+                subject = candidate.fact.subject.value,
+                subjectLabel = labels[candidate.fact.subject.value] ?: candidate.fact.subject.value,
+                predicate = candidate.fact.predicate.value,
+                predicateLabel = labels[candidate.fact.predicate.value] ?: candidate.fact.predicate.value,
+                objectValue = candidate.fact.objectValue.value,
+                objectLabel = labels[candidate.fact.objectValue.value] ?: candidate.fact.objectValue.value,
+                stageability = stageability.name,
+                reason = if (existingId != null) "This fact is already present in shared staging." else analysis.reason,
+                sourceCandidates = candidate.sourceCandidates.map {
+                    WebInferenceSourceCandidate(it.sourceId, it.selected)
+                },
+                selectedSourceId = candidate.selectedSourceId,
+                existingStagedChangeId = existingId,
+                importDependence = candidate.importDependence.state.name,
+                importSourceIds = candidate.importDependence.sourceIds,
+            )
+        }
+    }
 
     private fun com.entio.core.RdfTerm.displayValue(): String = when (this) {
         is com.entio.core.RdfResource -> value
