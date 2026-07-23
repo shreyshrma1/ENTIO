@@ -553,7 +553,6 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .reasoning-fact-browser-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .reasoning-fact-browser-button { display: grid; gap: 5px; padding: 16px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-1); color: var(--text-primary); text-align: left; }
 .reasoning-fact-browser-button:hover:not(:disabled) { border-color: var(--primary-300); background: var(--primary-50); }
-.reasoning-fact-browser-button.inferred { border-color: #b9d9ff; background: #f2f8ff; }
 .reasoning-fact-browser-button strong { font-size: 14px; }
 .reasoning-fact-browser-button span { color: var(--text-muted); font-size: 11px; }
 .reasoning-fact-dialog-backdrop { position: fixed; z-index: 40; inset: 0; display: grid; place-items: center; padding: 24px; background: rgb(20 28 45 / 34%); }

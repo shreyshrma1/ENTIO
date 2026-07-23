@@ -23,7 +23,7 @@ export default function ReasoningFactsPanel({ projectId, jobId, jobStatus }: Rea
         <strong>Asserted facts</strong>
         <span>Browse relationships present in the applied graph</span>
       </button>
-      <button type="button" className="reasoning-fact-browser-button inferred" onClick={() => setOpenOrigin("Inferred")} disabled={jobStatus !== "Completed"}>
+      <button type="button" className="reasoning-fact-browser-button" onClick={() => setOpenOrigin("Inferred")} disabled={jobStatus !== "Completed"}>
         <strong>Inferred facts</strong>
         <span>Browse relationships produced by reasoning</span>
       </button>

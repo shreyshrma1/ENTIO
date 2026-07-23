@@ -69,6 +69,13 @@ export default function SemanticJobPanel({ projectId, initialJobId = null, onJob
       {actions.cancel.isError ? <p role="alert">Could not cancel semantic work. {actions.cancel.error.message}</p> : null}
       {jobId && job.isPending ? <p role="status">Loading semantic job...</p> : null}
       {job.isError ? <p role="alert">Could not load semantic job. {job.error.message}</p> : null}
+      {showReasoning && status?.kind === "Reasoning" && status.scope === "Applied" && status.status === "Completed" ? (
+        <InferenceMaterializationPanel
+          projectId={projectId}
+          jobId={status.id}
+          jobStatus={status.status}
+        />
+      ) : null}
       {status ? (
         <div className="semantic-job-status" aria-live="polite">
           <p><strong>{status.kind} · {status.scope}</strong> · {status.phase}</p>
@@ -81,13 +88,6 @@ export default function SemanticJobPanel({ projectId, initialJobId = null, onJob
           {!terminal && status.status !== "Queued" ? <button className="button small" type="button" onClick={() => actions.cancel.mutate(status.id)} disabled={actions.cancel.isPending}>Cancel semantic job</button> : null}
         </div>
       ) : showReasoning && !showShacl ? null : <p className="muted">Choose a graph, then run validation.</p>}
-      {showReasoning && status?.kind === "Reasoning" && status.scope === "Applied" && status.status === "Completed" ? (
-        <InferenceMaterializationPanel
-          projectId={projectId}
-          jobId={status.id}
-          jobStatus={status.status}
-        />
-      ) : null}
       {showReasoning && status?.status === "Completed" && details.isError ? <p role="alert">Could not load bounded reasoning facts. {details.error.message}</p> : null}
     </section>
   );
