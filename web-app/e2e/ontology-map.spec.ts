@@ -66,7 +66,11 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await page.getByRole("button", { name: "Close entity summary" }).click();
   await outlineProperty.dblclick();
   await expect(page).toHaveURL(/iri=urn%3An1/);
-  await page.getByRole("tab", { name: "Ontology map" }).click();
+  await page.getByRole("button", { name: "Close Entity 0000" }).click();
+  await page.getByRole("button", { name: "Close Entity 0003" }).click();
+  await page.getByRole("button", { name: "Close Entity 0001" }).click();
+  await expect(page.getByRole("tab", { name: "Ontology map" })).toHaveAttribute("aria-selected", "true");
+  await expect(page).toHaveURL(/view=map/);
   await projectNavigation.getByRole("tab", { name: /Classes 1/ }).click();
 
   await expect(page.locator(".ontology-graph-viewport")).toHaveScreenshot("ontology-map-prototype-layout.png");

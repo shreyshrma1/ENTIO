@@ -269,7 +269,11 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
     setTabs(remaining);
     if (iri === activeIri) {
       const next = remaining.at(-1);
-      navigate(next ? `/projects/${encodeURIComponent(projectId)}?iri=${encodeURIComponent(next.iri)}` : `/projects/${encodeURIComponent(projectId)}`);
+      navigate(next
+        ? `/projects/${encodeURIComponent(projectId)}?iri=${encodeURIComponent(next.iri)}`
+        : mapOpen
+          ? `/projects/${encodeURIComponent(projectId)}?view=map`
+          : `/projects/${encodeURIComponent(projectId)}`);
     }
   }
 
