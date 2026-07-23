@@ -133,12 +133,14 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await page.mouse.move(popupHandle!.x - 60, popupHandle!.y + 52, { steps: 4 });
   await page.mouse.up();
   await expect.poll(async () => (await popup.boundingBox())?.x).toBeLessThan(popupBeforeDrag!.x);
+  const popupBeforePan = await popup.boundingBox();
   const viewportBounds = await page.locator(".ontology-graph-viewport").boundingBox();
   await page.mouse.move(viewportBounds!.x + viewportBounds!.width - 40, viewportBounds!.y + viewportBounds!.height - 40);
   await page.mouse.down();
   await page.mouse.move(viewportBounds!.x + viewportBounds!.width - 100, viewportBounds!.y + viewportBounds!.height - 80, { steps: 4 });
   await page.mouse.up();
   await expect(popup).toBeVisible();
+  await expect.poll(async () => (await popup.boundingBox())?.x).toBeLessThan(popupBeforePan!.x);
   await page.locator(".ontology-graph-controls").click();
   await expect(popup).toHaveCount(0);
   await node.click();

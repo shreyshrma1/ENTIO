@@ -34,7 +34,6 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   onViewDetails: (entity: WebEntityReference) => void;
   onLoadedEntities?: (entities: Record<string, string>) => void;
 }) {
-  const shellRef = useRef<HTMLElement>(null);
   const popupRef = useRef<HTMLElement>(null);
   const popupDrag = useRef<{ pointerId: number; clientX: number; clientY: number; x: number; y: number } | null>(null);
   const outsidePointer = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
@@ -105,26 +104,22 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   function startPopupDrag(event: PointerEvent<HTMLElement>) {
     if ((event.target as HTMLElement).closest("button")) return;
     const popup = popupRef.current;
-    const shell = shellRef.current;
-    if (!popup || !shell) return;
-    const popupBounds = popup.getBoundingClientRect();
-    const shellBounds = shell.getBoundingClientRect();
+    const wrapper = popup?.parentElement;
+    if (!popup || !wrapper) return;
     event.currentTarget.setPointerCapture(event.pointerId);
-    popupDrag.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, x: popupBounds.left - shellBounds.left, y: popupBounds.top - shellBounds.top };
+    popupDrag.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, x: wrapper.offsetLeft, y: wrapper.offsetTop };
   }
   function movePopup(event: PointerEvent<HTMLElement>) {
     const drag = popupDrag.current;
     const popup = popupRef.current;
-    const shell = shellRef.current;
-    if (!drag || drag.pointerId !== event.pointerId || !popup || !shell) return;
-    const x = Math.max(0, Math.min(shell.clientWidth - popup.offsetWidth, drag.x + event.clientX - drag.clientX));
-    const y = Math.max(0, Math.min(shell.clientHeight - popup.offsetHeight, drag.y + event.clientY - drag.clientY));
+    const world = popup?.parentElement?.parentElement;
+    if (!drag || drag.pointerId !== event.pointerId || !popup || !world) return;
+    const x = Math.max(0, Math.min(world.scrollWidth - popup.offsetWidth, drag.x + event.clientX - drag.clientX));
+    const y = Math.max(0, Math.min(world.scrollHeight - popup.offsetHeight, drag.y + event.clientY - drag.clientY));
     onStateChange({ ...state, popupPosition: { x, y } });
   }
   function stopPopupDrag() { popupDrag.current = null; }
-  return <section ref={shellRef} className="ontology-map-shell" aria-label="Ontology map">
-    <OntologyGraphRenderer nodes={visibleNodes} edges={visibleEdges} state={state} toolbarStart={<fieldset disabled={state.stale} className="ontology-map-actions"><legend className="visually-hidden">Current ontology map actions</legend><div className="ontology-layout-modes" role="group" aria-label="Map layout mode">{(["Focus", "FullMap"] as const).map((mode) => <button aria-pressed={(state.layoutMode ?? "FullMap") === mode} className={(state.layoutMode ?? "FullMap") === mode ? "active" : ""} key={mode} type="button" onClick={() => onStateChange({ ...state, layoutMode: mode })}>{mode === "FullMap" ? "Full map" : mode}</button>)}</div></fieldset>} childCounts={childCounts} dimmedNodeIds={dimmedNodeIds} dimmedEdgeIds={dimmedEdgeIds} onStateChange={onStateChange} />
-    {selected ? <aside ref={popupRef} className="ontology-node-popup" role="dialog" aria-label={`${selected.label} map summary`} style={state.popupPosition ? { left: state.popupPosition.x, top: state.popupPosition.y, right: "auto" } : undefined}>
+  const selectedCard = selected ? <aside ref={popupRef} className="ontology-node-popup" role="dialog" aria-label={`${selected.label} map summary`}>
       <button className="ontology-node-popup-close" type="button" aria-label="Close entity summary" onClick={() => onStateChange({ ...state, selectedNodeId: null })}>×</button>
       <header className="ontology-node-popup-drag-handle" onPointerDown={startPopupDrag} onPointerMove={movePopup} onPointerUp={stopPopupDrag} onPointerCancel={stopPopupDrag}><h3>{selected.label}</h3><p>{selected.kind} · Asserted</p></header>
       {selected.definitionExcerpt ? <p className="ontology-node-popup-definition">{selected.definitionExcerpt}</p> : null}
@@ -135,7 +130,9 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
         <p><strong>Available relationships:</strong> {selected.summary.availableRelationshipCount}</p>
       </section>
       <button className="ontology-node-popup-view" type="button" onClick={() => onViewDetails({ iri: selected.identity.entityIri, label: selected.label, kind: selected.kind, sourceId: selected.identity.sourceId })}>View Details</button>
-    </aside> : null}
+    </aside> : null;
+  return <section className="ontology-map-shell" aria-label="Ontology map">
+    <OntologyGraphRenderer nodes={visibleNodes} edges={visibleEdges} state={state} toolbarStart={<fieldset disabled={state.stale} className="ontology-map-actions"><legend className="visually-hidden">Current ontology map actions</legend><div className="ontology-layout-modes" role="group" aria-label="Map layout mode">{(["Focus", "FullMap"] as const).map((mode) => <button aria-pressed={(state.layoutMode ?? "FullMap") === mode} className={(state.layoutMode ?? "FullMap") === mode ? "active" : ""} key={mode} type="button" onClick={() => onStateChange({ ...state, layoutMode: mode })}>{mode === "FullMap" ? "Full map" : mode}</button>)}</div></fieldset>} worldOverlay={selected && selectedCard ? { nodeId: selected.identity.id, position: state.popupPosition, content: selectedCard } : undefined} childCounts={childCounts} dimmedNodeIds={dimmedNodeIds} dimmedEdgeIds={dimmedEdgeIds} onStateChange={onStateChange} />
     {state.stale ? <div className="ontology-map-stale" role="alertdialog" aria-modal="true" aria-labelledby="ontology-map-stale-title"><h3 id="ontology-map-stale-title">Ontology map is out of date</h3><p>The displayed map is preserved for reference. Refresh before loading or opening current project data.</p><button type="button" autoFocus onClick={() => void refreshStaleGraph()}>Refresh map</button></div> : null}
     <p className="visually-hidden" role="status" aria-live="polite">{state.stale ? "Ontology map is stale" : ""}</p>
   </section>;
