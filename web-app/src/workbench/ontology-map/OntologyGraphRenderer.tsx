@@ -61,8 +61,17 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
     const rect = element.getBoundingClientRect();
     const anchorX = clientX === undefined ? element.clientWidth / 2 : clientX - rect.left;
     const anchorY = clientY === undefined ? element.clientHeight / 2 : clientY - rect.top;
+    const canvas = element.querySelector<HTMLElement>(".ontology-graph-canvas");
+    const previousCanvasLeft = canvas?.offsetLeft ?? 0;
+    const previousCanvasTop = canvas?.offsetTop ?? 0;
+    const previousScrollLeft = element.scrollLeft;
+    const previousScrollTop = element.scrollTop;
     onStateChange({ ...state, positions: persistedPositions, zoom: next });
-    requestAnimationFrame(() => { element.scrollLeft = anchoredScroll(element.scrollLeft, anchorX, zoom, next); element.scrollTop = anchoredScroll(element.scrollTop, anchorY, zoom, next); });
+    requestAnimationFrame(() => {
+      const resizedCanvas = element.querySelector<HTMLElement>(".ontology-graph-canvas");
+      element.scrollLeft = anchoredScroll(previousScrollLeft, anchorX, zoom, next, previousCanvasLeft, resizedCanvas?.offsetLeft ?? 0);
+      element.scrollTop = anchoredScroll(previousScrollTop, anchorY, zoom, next, previousCanvasTop, resizedCanvas?.offsetTop ?? 0);
+    });
   }
 
   useEffect(() => {
