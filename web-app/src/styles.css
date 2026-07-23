@@ -1023,6 +1023,16 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-edge.dimmed { opacity: .12; }
 .ontology-edge text { fill: #677289; font-size: 11px; font-weight: 650; text-anchor: middle; dominant-baseline: middle; paint-order: stroke; stroke: #f8f9fc; stroke-width: 5px; stroke-linejoin: round; }
 .ontology-edge marker path { fill: #8092b8; stroke: none; }
+.ontology-edge.inferred-applied path { stroke: #56a7df; stroke-dasharray: 7 5; stroke-width: 1.45; }
+.ontology-edge.inferred-proposal path { stroke: #8478dc; stroke-dasharray: 4 5; stroke-width: 1.45; }
+.ontology-edge.inferred-applied text { fill: #397eaf; }
+.ontology-edge.inferred-proposal text { fill: #6659b7; }
+#ontology-arrow-inferred-applied path { fill: #56a7df; }
+#ontology-arrow-inferred-proposal path { fill: #8478dc; }
+.ontology-graph-legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 8px 4px 0; color: var(--text-muted); font-size: 11px; font-weight: 700; }
+.ontology-graph-legend span::before { display: inline-block; width: 22px; margin-right: 6px; border-top: 2px solid #8092b8; content: ""; vertical-align: middle; }
+.ontology-graph-legend .inferred-applied::before { border-color: #56a7df; border-top-style: dashed; }
+.ontology-graph-legend .inferred-proposal::before { border-color: #8478dc; border-top-style: dashed; }
 .ontology-node { width: 100%; height: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 9px; border: 1.5px solid #8bb5ff; border-radius: 11px; background: #fff; color: #28354c; padding: 11px 12px; text-align: left; cursor: grab; box-shadow: 0 4px 8px rgb(48 59 90 / 8%); }
 .ontology-node:active { cursor: grabbing; }
 .ontology-node > span { display: grid; place-items: center; min-width: 22px; min-height: 22px; border-radius: 5px; background: #5f87ea; color: #fff; font-size: 9px; font-weight: 800; }

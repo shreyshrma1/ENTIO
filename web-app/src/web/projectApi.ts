@@ -867,6 +867,8 @@ export interface OntologyGraphInitialOptions {
   expectedFingerprint?: string;
   continuation?: string;
   signal?: AbortSignal;
+  includeAppliedInferred?: boolean;
+  includeProposalInferred?: boolean;
 }
 
 export interface OntologyGraphNeighborhoodOptions {
@@ -876,6 +878,8 @@ export interface OntologyGraphNeighborhoodOptions {
   expectedFingerprint: string;
   continuation?: string;
   signal?: AbortSignal;
+  includeAppliedInferred?: boolean;
+  includeProposalInferred?: boolean;
 }
 
 export async function loadOntologyGraph(
@@ -883,7 +887,7 @@ export async function loadOntologyGraph(
   options: OntologyGraphInitialOptions,
   fetcher: WebFetcher = defaultFetcher,
 ): Promise<WebOntologyGraphResponse> {
-  const params = graphParams(options.sourceIds, options.expectedFingerprint, options.continuation);
+  const params = graphParams(options.sourceIds, options.expectedFingerprint, options.continuation, options);
   if (options.seed) {
     params.set("seedSourceId", options.seed.sourceId);
     params.set("seedIri", options.seed.entityIri);
@@ -896,18 +900,20 @@ export async function loadOntologyGraphNeighborhood(
   options: OntologyGraphNeighborhoodOptions,
   fetcher: WebFetcher = defaultFetcher,
 ): Promise<WebOntologyGraphResponse> {
-  const params = graphParams(options.sourceIds, options.expectedFingerprint, options.continuation);
+  const params = graphParams(options.sourceIds, options.expectedFingerprint, options.continuation, options);
   params.set("entitySourceId", options.entity.sourceId);
   params.set("entityIri", options.entity.entityIri);
   options.categories.forEach((category) => params.append("category", category));
   return getGraphJson(`/api/v1/projects/${encodeURIComponent(projectId)}/graph/neighborhood?${params}`, options.signal, fetcher);
 }
 
-function graphParams(sourceIds: string[], fingerprint?: string, continuation?: string): URLSearchParams {
+function graphParams(sourceIds: string[], fingerprint?: string, continuation?: string, inferred: InferredReadOptions = {}): URLSearchParams {
   const params = new URLSearchParams();
   sourceIds.forEach((sourceId) => params.append("sourceId", sourceId));
   if (fingerprint) params.set("expectedFingerprint", fingerprint);
   if (continuation) params.set("continuation", continuation);
+  if (inferred.includeAppliedInferred) params.set("includeAppliedInferred", "true");
+  if (inferred.includeProposalInferred) params.set("includeProposalInferred", "true");
   return params;
 }
 
