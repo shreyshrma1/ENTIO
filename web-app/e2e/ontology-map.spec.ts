@@ -38,10 +38,11 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await page.keyboard.up("Control");
   await expect.poll(async () => Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""))).toBeGreaterThan(mapPinchZoomBefore);
   expect(await page.evaluate(() => ({ scale: window.visualViewport?.scale ?? 1, devicePixelRatio: window.devicePixelRatio }))).toEqual(browserZoomBefore);
-  await page.getByText("Filters", { exact: true }).click();
-  await page.getByRole("checkbox", { name: "Individual" }).check();
+  await page.getByLabel("Filter project outline and map").click();
+  await page.getByRole("checkbox", { name: "Individuals" }).check();
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toBeVisible();
-  await page.getByText("Filters", { exact: true }).click();
+  await expect(page.getByRole("tab", { name: /Objects 1/ })).toBeVisible();
+  await page.getByLabel("Filter project outline and map").click();
   const node = page.getByRole("button", { name: "Class: Entity 0000" });
   await node.click();
   const popup = page.getByRole("dialog", { name: "Entity 0000 map summary" });
@@ -73,10 +74,11 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await expect.poll(async () => Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""))).toBe(zoomBefore + 10);
   await page.getByRole("button", { name: "Fit" }).click();
   await expect(popup).toHaveCount(0);
-  await page.getByText("Filters", { exact: true }).click();
-  await page.getByRole("checkbox", { name: "Individual" }).uncheck();
+  await page.getByLabel("Filter project outline and map").click();
+  await page.getByRole("checkbox", { name: "Individuals" }).uncheck();
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Clear filters" }).click();
+  await expect(page.getByRole("tab", { name: /Objects 0/ })).toBeVisible();
+  await page.getByRole("button", { name: "Reset filters" }).click();
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toHaveCount(0);
 
   expect(graphMethods.every((method) => method === "GET")).toBe(true);
@@ -95,8 +97,9 @@ test("@performance production map render and popup meet five-run browser gates",
   });
   await page.goto("/projects/simple");
   await page.getByRole("button", { name: "View Map" }).first().click();
-  await page.getByText("Filters", { exact: true }).click();
-  await page.getByRole("checkbox", { name: "Individual" }).check();
+  await page.getByLabel("Filter project outline and map").click();
+  await page.getByRole("checkbox", { name: "Individuals" }).check();
+  await page.getByLabel("Filter project outline and map").click();
   await expect(page.locator(".ontology-node")).toHaveCount(75);
   await page.getByRole("button", { name: "Class: Entity 0000" }).click();
   await expect(page.getByRole("dialog", { name: "Entity 0000 map summary" })).toBeVisible();
@@ -105,10 +108,8 @@ test("@performance production map render and popup meet five-run browser gates",
   const renderRuns: number[] = [];
   const popupRuns: number[] = [];
   for (let run = 0; run < 5; run += 1) {
-    await page.getByRole("button", { name: "View Map" }).first().click();
-    await page.getByText("Filters", { exact: true }).click();
     const renderStart = Date.now();
-    await page.getByRole("checkbox", { name: "Individual" }).check();
+    await page.getByRole("button", { name: "View Map" }).first().click();
     await expect(page.locator(".ontology-node")).toHaveCount(75);
     renderRuns.push(Date.now() - renderStart);
     const popupStart = Date.now();

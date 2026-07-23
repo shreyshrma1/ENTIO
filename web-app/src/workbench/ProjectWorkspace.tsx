@@ -22,6 +22,7 @@ import {
 } from "./ContextualEditing";
 import type { WebStagingEditType } from "./stagingEditTypes";
 import OntologyMapShell, { type OntologyMapViewState } from "./ontology-map/OntologyMapShell";
+import type { OntologyGraphEdgeKind, OntologyGraphNodeKind } from "../web/contracts";
 
 type ModuleId = "explore" | "changes" | "reasoning" | "validation" | "fibo" | "activity" | "settings";
 type RailItemId = ModuleId;
@@ -59,6 +60,8 @@ const railItems: Array<{ id: RailItemId; label: string; icon: Parameters<typeof 
 
 const DISPLAY_NAME_STORAGE_KEY = "entio.displayName";
 const DEFAULT_DISPLAY_NAME = "Alice Contributor";
+const DEFAULT_MAP_NODE_KINDS: OntologyGraphNodeKind[] = ["Class", "ObjectProperty", "DatatypeProperty"];
+const DEFAULT_MAP_EDGE_KINDS: OntologyGraphEdgeKind[] = ["SubclassOf", "Domain", "Range", "Type", "ObjectAssertion"];
 let fallbackDisplayName: string | null = null;
 
 function loadDisplayName(): string {
@@ -91,7 +94,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const [tabs, setTabs] = useState<EntityTab[]>([]);
   const [mapOpen, setMapOpen] = useState(() => searchParams.get("view") === "map");
   const [mapSeed, setMapSeed] = useState<WebEntityReference | undefined>();
-  const [mapViewState, setMapViewState] = useState<OntologyMapViewState>({ selectedNodeId: null });
+  const [mapViewState, setMapViewState] = useState<OntologyMapViewState>({ selectedNodeId: null, nodeKinds: DEFAULT_MAP_NODE_KINDS, edgeKinds: DEFAULT_MAP_EDGE_KINDS });
   const [mapLoadedEntities, setMapLoadedEntities] = useState<Record<string, string>>({});
   const [activeModule, setActiveModule] = useState<ModuleId>(initialModule);
   const [railExpanded, setRailExpanded] = useState(false);
@@ -220,7 +223,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   function closeMap() {
     setMapOpen(false);
     setMapSeed(undefined);
-    setMapViewState({ selectedNodeId: null });
+    setMapViewState((current) => ({ selectedNodeId: null, nodeKinds: current.nodeKinds, edgeKinds: current.edgeKinds, sourceVisible: current.sourceVisible }));
     setMapLoadedEntities({});
     navigate(activeTab ? `/projects/${encodeURIComponent(projectId)}?iri=${encodeURIComponent(activeTab.iri)}` : `/projects/${encodeURIComponent(projectId)}`);
   }
@@ -296,6 +299,24 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
     setOpenEditor({ sourceId: targetSourceId, editor });
   }
 
+  function toggleSharedNodeKind(kind: OntologyGraphNodeKind) {
+    const current = mapViewState.nodeKinds ?? DEFAULT_MAP_NODE_KINDS;
+    const enabled = !current.includes(kind);
+    const nodeKinds = enabled ? [...current, kind] : current.filter((item) => item !== kind);
+    setMapViewState({
+      ...mapViewState,
+      nodeKinds,
+      revealedIndividualIds: kind === "Individual"
+        ? enabled ? (mapViewState.nodes ?? []).filter((node) => node.kind === "Individual").map((node) => node.identity.id) : []
+        : mapViewState.revealedIndividualIds,
+    });
+  }
+
+  function toggleSharedEdgeKind(kind: OntologyGraphEdgeKind) {
+    const current = mapViewState.edgeKinds ?? DEFAULT_MAP_EDGE_KINDS;
+    setMapViewState({ ...mapViewState, edgeKinds: current.includes(kind) ? current.filter((item) => item !== kind) : [...current, kind] });
+  }
+
   function openRootContextMenu(event: MouseEvent) {
     event.preventDefault();
     setContextMenu(outlineContextMenu(event.clientX, event.clientY, outlineTab, (editor) => launchEditor(editor)));
@@ -328,19 +349,21 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const project = summary.data.project;
   const module = modules.find((item) => item.id === activeModule) ?? modules[0];
   const stagedCount = staged.data?.entries?.length ?? 0;
+  const visibleNodeKinds = new Set(mapViewState.nodeKinds ?? DEFAULT_MAP_NODE_KINDS);
+  const sourceVisible = mapViewState.sourceVisible !== false;
   const outlineItems = outline.data?.page.items ?? [];
   const createdClasses = stagedCreated.filter((item) => item.kind === "Class");
   const createdObjects = stagedCreated.filter((item) => item.kind === "Individual");
   const createdProperties = stagedCreated.filter((item) => item.kind?.endsWith("Property"));
-  const classCount = outlineItems.filter((item) => item.kind === "Class").length + createdClasses.length;
+  const classCount = sourceVisible && visibleNodeKinds.has("Class") ? outlineItems.filter((item) => item.kind === "Class").length + createdClasses.length : 0;
   const objects = outlineItems.filter((item) => item.kind === "Individual");
   const properties = outlineItems.filter((item) => item.kind.endsWith("Property"));
-  const objectItems = mergeOutlineEntities(applyStagedLabels(objects, stagedLabels), createdObjects);
-  const propertyItems = mergeOutlineEntities(applyStagedLabels(properties, stagedLabels), createdProperties);
-  const rootClassItems = [
+  const objectItems = sourceVisible && visibleNodeKinds.has("Individual") ? mergeOutlineEntities(applyStagedLabels(objects, stagedLabels), createdObjects) : [];
+  const propertyItems = sourceVisible ? mergeOutlineEntities(applyStagedLabels(properties, stagedLabels), createdProperties).filter((item) => visibleNodeKinds.has(item.kind as OntologyGraphNodeKind)) : [];
+  const rootClassItems = (sourceVisible && visibleNodeKinds.has("Class") ? [
     ...applyStagedLabels(rootHierarchy.data?.page.items ?? [], stagedLabels).filter((item) => !stagedClassHierarchy.childIris.has(item.iri)),
     ...stagedClassHierarchy.rootItems.filter((stagedItem) => !(rootHierarchy.data?.page.items ?? []).some((item) => item.iri === stagedItem.iri)),
-  ].sort((left, right) => left.label.localeCompare(right.label) || left.iri.localeCompare(right.iri));
+  ] : []).sort((left, right) => left.label.localeCompare(right.label) || left.iri.localeCompare(right.iri));
 
   function adjustSidebar(event: React.KeyboardEvent<HTMLButtonElement>) {
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
@@ -384,12 +407,12 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
           <section className="sidebar-section sidebar-search" aria-labelledby="search-heading">
             <div role="search">
               <label className="visually-hidden" id="search-heading" htmlFor="entity-search">Search entities by label</label>
-              <div className="search-row"><Icon name="search" /><input id="entity-search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search entities" /></div>
+              <div className="outline-search-controls"><div className="search-row"><Icon name="search" /><input id="entity-search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search entities" /></div><details className="outline-filter-menu"><summary className="icon-button" aria-label="Filter project outline and map"><Icon name="filter" /></summary><div className="outline-filter-popover"><fieldset><legend>Entity kinds</legend>{(["Class", "ObjectProperty", "DatatypeProperty", "Individual"] as OntologyGraphNodeKind[]).map((kind) => <label key={kind}><input type="checkbox" checked={visibleNodeKinds.has(kind)} onChange={() => toggleSharedNodeKind(kind)} />{kind === "ObjectProperty" ? "Object properties" : kind === "DatatypeProperty" ? "Datatype properties" : kind === "Individual" ? "Individuals" : "Classes"}</label>)}</fieldset><fieldset><legend>Map relationships</legend>{DEFAULT_MAP_EDGE_KINDS.map((kind) => <label key={kind}><input type="checkbox" checked={(mapViewState.edgeKinds ?? DEFAULT_MAP_EDGE_KINDS).includes(kind)} onChange={() => toggleSharedEdgeKind(kind)} />{kind}</label>)}</fieldset><label><input type="checkbox" checked={sourceVisible} onChange={() => setMapViewState({ ...mapViewState, sourceVisible: !sourceVisible })} />Ontology source</label><button className="button small" type="button" onClick={() => setMapViewState({ ...mapViewState, nodeKinds: DEFAULT_MAP_NODE_KINDS, edgeKinds: DEFAULT_MAP_EDGE_KINDS, sourceVisible: true, revealedIndividualIds: [] })}>Reset filters</button></div></details></div>
             </div>
           </section>
           {searchInput.trim() ? <section className="sidebar-section sidebar-search-results" aria-labelledby="search-results-heading">
             <div className="section-heading compact"><h3 id="search-results-heading">Search results</h3><button className="icon-button" type="button" aria-label="Clear search" onClick={() => { setSearchInput(""); setSearchText(""); }}><Icon name="close" /></button></div>
-            <SearchResults query={search} onOpen={openEntity} />
+            <SearchResults query={search} onOpen={openEntity} allowedKinds={visibleNodeKinds} sourceVisible={sourceVisible} />
           </section> : <>
             <section className="sidebar-section hierarchy-section" aria-labelledby="hierarchy-heading">
               <div className="section-heading compact"><h3 id="hierarchy-heading">Project outline</h3><div className="outline-heading-actions">{outlineTab === "classes" && rootHierarchy.isFetching ? <span className="status-text">Refreshing</span> : null}<button className="icon-button" type="button" aria-label={`Add ${outlineTab === "classes" ? "class" : outlineTab === "objects" ? "individual" : "property"}`} onClick={(event) => setContextMenu(outlineContextMenu(event.currentTarget.getBoundingClientRect().right, event.currentTarget.getBoundingClientRect().bottom, outlineTab, (editor) => launchEditor(editor)))}>+</button></div></div>
@@ -596,11 +619,12 @@ function humanizeShaclName(value: string): string {
 
 function Unavailable() { return <div className="empty-state"><h2>Source unavailable</h2><p>This workspace needs an ontology source before it can open.</p></div>; }
 
-function SearchResults({ query, onOpen }: { query: ReturnType<typeof useProjectSearch>; onOpen: (entity: WebEntityReference) => void }) {
+function SearchResults({ query, onOpen, allowedKinds, sourceVisible }: { query: ReturnType<typeof useProjectSearch>; onOpen: (entity: WebEntityReference) => void; allowedKinds: ReadonlySet<OntologyGraphNodeKind>; sourceVisible: boolean }) {
   if (query.isPending) return <p role="status">Searching...</p>;
   if (query.isError) return <p role="alert">Search unavailable.</p>;
-  if (!query.data?.page.items.length) return <p className="muted">No matching entities.</p>;
-  return <ul className="search-results">{query.data.page.items.map((result) => {
+  const results = sourceVisible ? (query.data?.page.items ?? []).filter((result) => allowedKinds.has(result.kind as OntologyGraphNodeKind)) : [];
+  if (!results.length) return <p className="muted">No matching entities.</p>;
+  return <ul className="search-results">{results.map((result) => {
     const presentation = entityKindPresentation(result.kind);
     return <li key={`${result.sourceId}:${result.iri}`}><button type="button" onClick={() => onOpen({ iri: result.iri, label: result.label, kind: result.kind, sourceId: result.sourceId })}><span className={`entity-type-marker ${presentation.className}`} aria-hidden="true">{presentation.marker}</span><span><strong>{result.label}</strong><small>{presentation.label} · {searchReasonLabel(result.reason)}</small></span></button></li>;
   })}</ul>;

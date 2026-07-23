@@ -159,6 +159,16 @@ code { color: var(--primary-700); overflow-wrap: anywhere; }
 .search-row { position: relative; display: flex; align-items: center; }
 .search-row > .ui-icon { position: absolute; left: 10px; z-index: 1; color: var(--text-muted); font-size: 13px; pointer-events: none; }
 .search-row input { padding-left: 31px; }
+.outline-search-controls { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 30px; gap: 6px; align-items: center; }
+.outline-filter-menu { position: relative; }
+.outline-filter-menu > summary { display: grid; width: 30px; height: 30px; place-items: center; padding: 0; list-style: none; cursor: pointer; }
+.outline-filter-menu > summary::-webkit-details-marker { display: none; }
+.outline-filter-menu[open] > summary { border-color: var(--primary-500); background: var(--primary-50); color: var(--primary-700); }
+.outline-filter-popover { position: absolute; z-index: 30; top: 36px; right: 0; display: grid; gap: 10px; width: 272px; max-height: min(520px, calc(100vh - 180px)); overflow: auto; padding: 12px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-1); box-shadow: var(--shadow-overlay); }
+.outline-filter-popover fieldset { display: grid; gap: 6px; margin: 0; padding: 8px; border: 1px solid var(--border-subtle); border-radius: 7px; }
+.outline-filter-popover legend { padding: 0 4px; color: var(--text-secondary); font-size: 10px; font-weight: 750; }
+.outline-filter-popover label { display: flex; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+.outline-filter-popover input { width: auto; }
 input, select, textarea { width: 100%; min-width: 0; padding: 8px 9px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-1); color: var(--text-primary); }
 input::placeholder, textarea::placeholder { color: var(--text-disabled); }
 input:hover, select:hover, textarea:hover { border-color: var(--border-strong); }
@@ -976,9 +986,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-graph { display: grid; gap: 10px; min-height: 520px; }
 .ontology-graph-controls { display: flex; align-items: center; gap: 6px; }
 .ontology-graph-controls output { min-width: 4ch; text-align: center; font-variant-numeric: tabular-nums; }
-.ontology-graph-viewport { min-height: 460px; max-height: 65vh; overflow: auto; border: 1px solid var(--border-default); background-color: #f8f9fc; background-image: radial-gradient(circle at 1px 1px, #e8ebf5 1px, transparent 1px); background-size: 24px 24px; cursor: grab; overscroll-behavior: contain; touch-action: pan-x pan-y; }
+.ontology-graph-viewport { display: flex; min-height: 460px; max-height: 65vh; overflow: auto; border: 1px solid var(--border-default); background-color: #f8f9fc; background-image: radial-gradient(circle at 1px 1px, #e8ebf5 1px, transparent 1px); background-size: 24px 24px; cursor: grab; overscroll-behavior: contain; touch-action: pan-x pan-y; }
 .ontology-graph-viewport.panning { cursor: grabbing; user-select: none; }
-.ontology-graph-world { position: relative; }
+.ontology-graph-world { position: relative; flex: none; margin: auto; }
 .ontology-edge path { fill: none; stroke: #8092b8; stroke-width: 1.7; }
 .ontology-edge.edge-Domain path, .ontology-edge.edge-Range path, .ontology-edge.edge-ObjectAssertion path { stroke: #8b5cc7; }
 .ontology-edge.edge-Type path { stroke: #8092b8; }
@@ -1004,7 +1014,6 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-layout-modes button.active { border-color: var(--primary-500); background: var(--primary-50); color: var(--primary-700); }
 .ontology-loaded-list ul { max-height: 160px; overflow: auto; columns: 2; }
 .ontology-loaded-list button { border: 0; background: transparent; color: inherit; text-align: left; }
-.ontology-map-filters fieldset { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 8px 0; border: 1px solid var(--border-subtle); }
 .ontology-map-shell { position: relative; }
 .ontology-node-popup { position: absolute; z-index: 4; right: 20px; top: 130px; display: grid; gap: 10px; width: min(290px, calc(100% - 40px)); max-height: 55vh; overflow: auto; padding: 14px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--surface-1); box-shadow: 0 12px 28px rgb(23 32 51 / 16%); }
 .ontology-node-popup h3, .ontology-node-popup h4, .ontology-node-popup p { margin: 0; }
