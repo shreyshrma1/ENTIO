@@ -37,7 +37,7 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   includeProposalInferred?: boolean;
 }) {
   const popupRef = useRef<HTMLElement>(null);
-  const popupDrag = useRef<{ pointerId: number; clientX: number; clientY: number; x: number; y: number } | null>(null);
+  const popupDrag = useRef<{ pointerId: number; clientX: number; clientY: number; x: number; y: number; latestX: number; latestY: number } | null>(null);
   const outsidePointer = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
   const graph = useOntologyGraph(projectId, {
     sourceIds: [sourceId],
@@ -116,9 +116,16 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
     if ((event.target as HTMLElement).closest("button")) return;
     const popup = popupRef.current;
     const wrapper = popup?.parentElement;
-    if (!popup || !wrapper) return;
+    const viewport = wrapper?.parentElement;
+    if (!popup || !wrapper || !viewport) return;
+    const popupBounds = popup.getBoundingClientRect();
+    const viewportBounds = viewport.getBoundingClientRect();
+    const x = popupBounds.left - viewportBounds.left;
+    const y = popupBounds.top - viewportBounds.top;
     event.currentTarget.setPointerCapture(event.pointerId);
-    popupDrag.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, x: wrapper.offsetLeft, y: wrapper.offsetTop };
+    wrapper.style.left = `${x}px`;
+    wrapper.style.top = `${y}px`;
+    popupDrag.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, x, y, latestX: x, latestY: y };
   }
   function movePopup(event: PointerEvent<HTMLElement>) {
     const drag = popupDrag.current;
@@ -127,9 +134,18 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
     if (!drag || drag.pointerId !== event.pointerId || !popup || !viewport) return;
     const x = Math.max(0, Math.min(viewport.clientWidth - popup.offsetWidth, drag.x + event.clientX - drag.clientX));
     const y = Math.max(0, Math.min(viewport.clientHeight - popup.offsetHeight, drag.y + event.clientY - drag.clientY));
-    onStateChange({ ...state, popupPosition: { x, y } });
+    const wrapper = popup.parentElement;
+    if (!wrapper) return;
+    wrapper.style.left = `${x}px`;
+    wrapper.style.top = `${y}px`;
+    drag.latestX = x;
+    drag.latestY = y;
   }
-  function stopPopupDrag() { popupDrag.current = null; }
+  function stopPopupDrag() {
+    const drag = popupDrag.current;
+    popupDrag.current = null;
+    if (drag) onStateChange({ ...state, popupPosition: { x: drag.latestX, y: drag.latestY } });
+  }
   const selectedCard = selected ? <aside ref={popupRef} className="ontology-node-popup" role="dialog" aria-label={`${selected.label} map summary`}>
       <button className="ontology-node-popup-close" type="button" aria-label="Close entity summary" onClick={() => onStateChange({ ...state, selectedNodeId: null })}>×</button>
       <header className="ontology-node-popup-drag-handle" onPointerDown={startPopupDrag} onPointerMove={movePopup} onPointerUp={stopPopupDrag} onPointerCancel={stopPopupDrag}><h3>{selected.label}</h3><p>{selected.kind} · Asserted</p></header>
