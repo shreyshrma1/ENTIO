@@ -516,6 +516,21 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .reasoning-section { display: grid; gap: 8px; padding: 14px 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-1); }
 .reasoning-section > .section-heading { margin: 0; }
 .reasoning-page .semantic-job-panel { padding: 0; border: 0; box-shadow: none; }
+.inference-materialization { display: grid; gap: 16px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-subtle); }
+.inference-materialization h3, .inference-materialization h4 { margin: 0; }
+.fact-origin { display: inline-flex; margin-left: 6px; padding: 2px 7px; border-radius: 999px; background: var(--surface-3); color: var(--text-secondary); font-size: 10px; font-weight: 700; }
+.fact-origin.inferred { background: var(--accent-soft); color: var(--accent-strong); }
+.asserted-fact-list { display: grid; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.asserted-fact-list li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, .7fr) minmax(0, 1fr); gap: 10px; padding: 8px 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); }
+.inference-list-heading, .inference-selection-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.inference-fact-table { margin-top: 8px; overflow-x: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); }
+.inference-fact-row { display: grid; grid-template-columns: 54px minmax(260px, 2fr) minmax(110px, .8fr) minmax(150px, 1fr) minmax(180px, 1.2fr); align-items: center; gap: 10px; min-width: 820px; padding: 9px 10px; border-top: 1px solid var(--border-subtle); }
+.inference-fact-row.header { border-top: 0; background: var(--surface-2); color: var(--text-secondary); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.inference-fact-row.disabled { background: var(--surface-2); color: var(--text-secondary); }
+.inference-fact-statement { display: flex; flex-wrap: wrap; gap: 5px; align-items: baseline; }
+.inference-fact-statement small, .inference-fact-row [role="cell"] > small { display: block; width: 100%; color: var(--text-secondary); }
+.inference-fact-row select { width: 100%; }
+.selection-count { color: var(--text-secondary); font-size: 11px; font-weight: 700; }
 .constraints-toolbar, .constraints-library, .constraints-validation { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-1); }
 .constraints-toolbar { grid-template-columns: 1fr; align-items: stretch; }
 .constraints-toolbar > div:first-child { justify-self: start; max-width: 72ch; text-align: left; }
