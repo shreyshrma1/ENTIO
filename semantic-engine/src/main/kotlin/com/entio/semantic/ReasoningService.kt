@@ -141,11 +141,9 @@ public class ReasoningService(
                 }
                 val warnings = buildList {
                     if (!consistent) add("HermiT could not classify an inconsistent ontology.")
-                    featureReport.findings
-                        .filter { it.affectsCompleteness }
-                        .mapNotNull { it.message }
-                        .sorted()
-                        .forEach(::add)
+                    if (featureReport.findings.any { it.affectsCompleteness }) {
+                        add("Certain assertions are currently unavailable. Reasoning completeness is not guaranteed.")
+                    }
                     importClosure?.findings
                         ?.filter { it.kind.name != "Cycle" }
                         ?.map { it.message }

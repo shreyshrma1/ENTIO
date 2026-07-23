@@ -139,6 +139,10 @@ class ReasoningServiceTest {
                     it.origin == FactOrigin.Inferred
             },
         )
+        assertEquals(
+            listOf("Certain assertions are currently unavailable. Reasoning completeness is not guaranteed."),
+            reasoning.warnings,
+        )
     }
 
     @Test
