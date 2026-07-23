@@ -8,6 +8,7 @@ interface HierarchyNodeProps {
   item: WebHierarchyItem;
   depth: number;
   onOpen: (entity: WebEntityReference) => void;
+  onOpenDetails: (entity: WebEntityReference) => void;
   onContextMenu?: (event: MouseEvent, entity: WebEntityReference) => void;
   stagedIris?: ReadonlySet<string>;
   stagedChildrenByParent?: ReadonlyMap<string, WebHierarchyItem[]>;
@@ -15,7 +16,7 @@ interface HierarchyNodeProps {
   onExpandedChange?: (iri: string, expanded: boolean) => void;
 }
 
-export default function HierarchyNode({ projectId, item, depth, onOpen, onContextMenu, stagedIris, stagedChildrenByParent, expandedIris, onExpandedChange }: HierarchyNodeProps) {
+export default function HierarchyNode({ projectId, item, depth, onOpen, onOpenDetails, onContextMenu, stagedIris, stagedChildrenByParent, expandedIris, onExpandedChange }: HierarchyNodeProps) {
   const [locallyExpanded, setLocallyExpanded] = useState(false);
   const expanded = expandedIris ? expandedIris.has(item.iri) : locallyExpanded;
   const stagedChildren = stagedChildrenByParent?.get(item.iri) ?? [];
@@ -52,7 +53,7 @@ export default function HierarchyNode({ projectId, item, depth, onOpen, onContex
             <span className={`hierarchy-chevron ${expanded ? "hierarchy-chevron-expanded" : ""}`} aria-hidden="true" />
           </button>
         ) : <span className="hierarchy-spacer" aria-hidden="true" />}
-        <button className="entity-link" type="button" aria-label={`${item.label}, ${presentation.label}`} onClick={() => onOpen(reference)}>
+        <button className="entity-link" type="button" aria-label={`${item.label}, ${presentation.label}`} onClick={() => onOpen(reference)} onDoubleClick={() => onOpenDetails(reference)}>
           <span className={`entity-type-marker ${presentation.className}`} aria-hidden="true">{presentation.marker}</span>
           <span className="entity-link-label">{item.label}</span>
         </button>
@@ -64,7 +65,7 @@ export default function HierarchyNode({ projectId, item, depth, onOpen, onContex
       {expanded && visibleChildren.length ? (
         <ul className="hierarchy-list">
           {visibleChildren.map((child) => (
-            <HierarchyNode key={`${child.sourceId}:${child.iri}`} projectId={projectId} item={child} depth={depth + 1} onOpen={onOpen} onContextMenu={onContextMenu} stagedIris={stagedIris} stagedChildrenByParent={stagedChildrenByParent} expandedIris={expandedIris} onExpandedChange={onExpandedChange} />
+            <HierarchyNode key={`${child.sourceId}:${child.iri}`} projectId={projectId} item={child} depth={depth + 1} onOpen={onOpen} onOpenDetails={onOpenDetails} onContextMenu={onContextMenu} stagedIris={stagedIris} stagedChildrenByParent={stagedChildrenByParent} expandedIris={expandedIris} onExpandedChange={onExpandedChange} />
           ))}
         </ul>
       ) : null}

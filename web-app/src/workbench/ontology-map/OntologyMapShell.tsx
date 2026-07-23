@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, type PointerEvent } from "react";
 import type { OntologyGraphExpansionCategory, OntologyGraphEdgeKind, OntologyGraphNodeKind, WebOntologyGraphEdge, WebOntologyGraphNode } from "../../web/contracts";
-import { loadOntologyGraphNeighborhood, WebApiError, type WebEntityReference } from "../../web/projectApi";
+import type { WebEntityReference } from "../../web/projectApi";
 import { useOntologyGraph } from "../../web/queries";
 import OntologyGraphRenderer, { type RendererState } from "./OntologyGraphRenderer";
-import { mergeGraphPage } from "./graphMerge";
-import { layeredGraphLayout } from "./graphLayout";
+import { classChildCounts, layeredGraphLayout } from "./graphLayout";
 
 export interface OntologyMapViewState extends RendererState {
   nodes?: WebOntologyGraphNode[];
@@ -17,14 +16,14 @@ export interface OntologyMapViewState extends RendererState {
   continuation?: { token: string; category: OntologyGraphExpansionCategory; entityId: string };
   sourceVisible?: boolean;
   stale?: boolean;
+  layoutMode?: "Focus" | "FullMap";
+  expandedClassIds?: string[];
+  revealedIndividualIds?: string[];
+  popupPosition?: { x: number; y: number };
 }
 
-const expansionCategories: Array<{ value: OntologyGraphExpansionCategory; label: string }> = [
-  { value: "ClassHierarchy", label: "Class hierarchy" },
-  { value: "PropertySchema", label: "Property schema" },
-  { value: "AssertedTypes", label: "Asserted types" },
-  { value: "ObjectAssertions", label: "Object assertions" },
-];
+const LARGE_BRANCH_LIMIT = 6;
+const OUTSIDE_CLICK_THRESHOLD = 4;
 
 export default function OntologyMapShell({ projectId, sourceId, seed, state, onStateChange, onViewDetails, onLoadedEntities }: {
   projectId: string;
@@ -35,9 +34,11 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   onViewDetails: (entity: WebEntityReference) => void;
   onLoadedEntities?: (entities: Record<string, string>) => void;
 }) {
+  const shellRef = useRef<HTMLElement>(null);
+  const popupRef = useRef<HTMLElement>(null);
+  const popupDrag = useRef<{ pointerId: number; clientX: number; clientY: number; x: number; y: number } | null>(null);
+  const outsidePointer = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
   const graph = useOntologyGraph(projectId, { sourceIds: [sourceId], seed: seed?.sourceId ? { sourceId: seed.sourceId, entityIri: seed.iri } : undefined });
-  const [expanding, setExpanding] = useState(false);
-  const [partialMessage, setPartialMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const centerKey = seed?.sourceId ? `${seed.sourceId}\u0000${seed.iri}` : "root";
@@ -46,7 +47,7 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
       if (!state.stale) onStateChange({ ...state, stale: true });
       return;
     }
-    onStateChange({ selectedNodeId: graph.data.seed?.id ?? null, nodes: graph.data.nodes, edges: graph.data.edges, graphFingerprint: graph.data.graphFingerprint, centerKey });
+    onStateChange({ ...state, selectedNodeId: graph.data.seed?.id ?? null, nodes: graph.data.nodes, edges: graph.data.edges, graphFingerprint: graph.data.graphFingerprint, centerKey });
   }, [graph.data, onStateChange, seed, state.centerKey, state.graphFingerprint]);
 
   const nodes = state.nodes ?? graph.data?.nodes ?? [];
@@ -55,30 +56,41 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
     onLoadedEntities?.(Object.fromEntries(nodes.map((node) => [`${node.identity.sourceId}\u0000${node.identity.entityIri}`, node.identity.id])));
   }, [nodes, onLoadedEntities]);
 
-  const visibleNodes = useMemo(() => state.sourceVisible === false ? [] : nodes.filter((node) => state.nodeKinds === undefined || state.nodeKinds.includes(node.kind)), [nodes, state.nodeKinds, state.sourceVisible]);
+  const childCounts = useMemo(() => classChildCounts(nodes, edges), [nodes, edges]);
+  const basePositions = useMemo(() => layeredGraphLayout(nodes, edges), [nodes, edges]);
+  const revealedIndividualIds = useMemo(() => state.nodeKinds?.includes("Individual") ? new Set(nodes.filter((node) => node.kind === "Individual").map((node) => node.identity.id)) : new Set(state.revealedIndividualIds ?? []), [nodes, state.nodeKinds, state.revealedIndividualIds]);
+  const projectedIds = useMemo(() => projectedNodeIds(nodes, edges, state.layoutMode ?? "FullMap", state.selectedNodeId, new Set(state.expandedClassIds ?? []), revealedIndividualIds, basePositions), [basePositions, edges, nodes, revealedIndividualIds, state.expandedClassIds, state.layoutMode, state.selectedNodeId]);
+  const visibleNodes = useMemo(() => state.sourceVisible === false ? [] : nodes.filter((node) => projectedIds.has(node.identity.id) && (state.nodeKinds === undefined || state.nodeKinds.includes(node.kind))), [nodes, projectedIds, state.nodeKinds, state.sourceVisible]);
   const visibleIds = useMemo(() => new Set(visibleNodes.map((node) => node.identity.id)), [visibleNodes]);
   const visibleEdges = useMemo(() => edges.filter((edge) => visibleIds.has(edge.sourceNodeId) && visibleIds.has(edge.targetNodeId) && (state.edgeKinds === undefined || state.edgeKinds.includes(edge.kind))), [edges, state.edgeKinds, visibleIds]);
   const selected = nodes.find((node) => node.identity.id === state.selectedNodeId);
-
-  async function expand(category: OntologyGraphExpansionCategory, continuation?: string) {
-    if (!selected || !state.graphFingerprint || expanding) return;
-    setExpanding(true);
-    setPartialMessage(null);
-    try {
-      const page = await loadOntologyGraphNeighborhood(projectId, { sourceIds: [sourceId], entity: { sourceId: selected.identity.sourceId, entityIri: selected.identity.entityIri }, categories: [category], expectedFingerprint: state.graphFingerprint, continuation });
-      const merged = mergeGraphPage(nodes, edges, page.nodes, page.edges, 300, 600);
-      onStateChange({ ...state, nodes: merged.nodes, edges: merged.edges, positions: { ...layeredGraphLayout(merged.nodes, merged.edges), ...state.positions }, expanded: true, continuation: page.continuation ? { token: page.continuation, category, entityId: selected.identity.id } : undefined });
-      setPartialMessage(merged.limited ? "The map reached the 300-entity or 600-relationship tab limit." : page.continuation ? "More relationships are available from the server." : "Neighborhood loaded.");
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return;
-      if (error instanceof WebApiError && error.code === "stale-graph-fingerprint") {
-        onStateChange({ ...state, stale: true });
-        setPartialMessage(null);
-      } else {
-        setPartialMessage("Could not load this neighborhood. Existing map data was kept. Retry when the project is available.");
-      }
-    } finally { setExpanding(false); }
-  }
+  useEffect(() => {
+    if (!selected) return;
+    const trackOutsidePointer = (event: globalThis.PointerEvent) => {
+      outsidePointer.current = popupRef.current?.contains(event.target as Node)
+        ? null
+        : { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY };
+    };
+    const dismissOutsideClick = (event: globalThis.PointerEvent) => {
+      const start = outsidePointer.current;
+      outsidePointer.current = null;
+      if (!start || start.pointerId !== event.pointerId) return;
+      if (Math.hypot(event.clientX - start.clientX, event.clientY - start.clientY) > OUTSIDE_CLICK_THRESHOLD) return;
+      if (!popupRef.current?.contains(event.target as Node)) onStateChange({ ...state, selectedNodeId: null });
+    };
+    const cancelOutsidePointer = () => { outsidePointer.current = null; };
+    document.addEventListener("pointerdown", trackOutsidePointer);
+    document.addEventListener("pointerup", dismissOutsideClick);
+    document.addEventListener("pointercancel", cancelOutsidePointer);
+    return () => {
+      document.removeEventListener("pointerdown", trackOutsidePointer);
+      document.removeEventListener("pointerup", dismissOutsideClick);
+      document.removeEventListener("pointercancel", cancelOutsidePointer);
+    };
+  }, [onStateChange, selected, state]);
+  const emphasizedIds = useMemo(() => selectionNeighborhood(state.selectedNodeId, nodes, edges), [edges, nodes, state.selectedNodeId]);
+  const dimmedNodeIds = useMemo(() => state.selectedNodeId ? new Set(visibleNodes.map((node) => node.identity.id).filter((id) => !emphasizedIds.has(id))) : new Set<string>(), [emphasizedIds, state.selectedNodeId, visibleNodes]);
+  const dimmedEdgeIds = useMemo(() => state.selectedNodeId ? new Set(visibleEdges.filter((edge) => !(emphasizedIds.has(edge.sourceNodeId) && emphasizedIds.has(edge.targetNodeId))).map((edge) => edge.id)) : new Set<string>(), [emphasizedIds, state.selectedNodeId, visibleEdges]);
 
   if (graph.isPending) return <section aria-label="Ontology map"><p role="status">Loading ontology map...</p></section>;
   if (graph.isError && graph.error instanceof DOMException && graph.error.name === "AbortError") return <section aria-label="Ontology map"><p>Loading was cancelled.</p></section>;
@@ -87,17 +99,83 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   async function refreshStaleGraph() {
     const filters = { nodeKinds: state.nodeKinds, edgeKinds: state.edgeKinds, sourceVisible: state.sourceVisible };
     onStateChange({ selectedNodeId: null, ...filters });
-    setPartialMessage(null);
     await graph.refetch();
     requestAnimationFrame(() => document.querySelector<HTMLElement>(".ontology-graph-viewport")?.focus());
   }
-  return <section className="ontology-map-shell" aria-label="Ontology map">
-    <header><span>Read-only ontology map</span><strong>{nodes.length} loaded entities</strong></header>
-    <fieldset disabled={state.stale} className="ontology-map-actions"><legend className="visually-hidden">Current ontology map actions</legend><details className="ontology-map-filters"><summary>Filters</summary><fieldset><legend>Local sources</legend><label><input type="checkbox" checked={state.sourceVisible !== false} onChange={() => onStateChange({ ...state, sourceVisible: state.sourceVisible === false })} />{sourceId}</label></fieldset><fieldset><legend>Node kinds</legend>{(["Class", "ObjectProperty", "DatatypeProperty", "Individual"] as OntologyGraphNodeKind[]).map((kind) => <label key={kind}><input type="checkbox" checked={state.nodeKinds === undefined || state.nodeKinds.includes(kind)} onChange={() => { const current = state.nodeKinds ?? ["Class", "ObjectProperty", "DatatypeProperty", "Individual"]; const next = current.includes(kind) ? current.filter((item) => item !== kind) : [...current, kind]; onStateChange({ ...state, nodeKinds: next }); }} />{kind}</label>)}</fieldset><fieldset><legend>Relationships</legend>{(["SubclassOf", "Domain", "Range", "Type", "ObjectAssertion"] as OntologyGraphEdgeKind[]).map((kind) => <label key={kind}><input type="checkbox" checked={state.edgeKinds === undefined || state.edgeKinds.includes(kind)} onChange={() => { const current = state.edgeKinds ?? ["SubclassOf", "Domain", "Range", "Type", "ObjectAssertion"]; const next = current.includes(kind) ? current.filter((item) => item !== kind) : [...current, kind]; onStateChange({ ...state, edgeKinds: next }); }} />{kind}</label>)}</fieldset><button type="button" onClick={() => onStateChange({ ...state, sourceVisible: undefined, nodeKinds: undefined, edgeKinds: undefined })}>Clear filters</button></details></fieldset>
-    <OntologyGraphRenderer nodes={visibleNodes} edges={visibleEdges} state={state} onStateChange={onStateChange} onViewDetails={(node) => onViewDetails({ iri: node.identity.entityIri, label: node.label, kind: node.kind, sourceId: node.identity.sourceId })} />
-    {selected ? <aside className="ontology-node-popup" role="dialog" aria-label={`${selected.label} map summary`}><button type="button" aria-label="Close entity summary" onClick={() => onStateChange({ ...state, selectedNodeId: null })}>×</button><span>{selected.kind} · Asserted</span><h3>{selected.label}</h3>{selected.definitionExcerpt ? <p>{selected.definitionExcerpt}</p> : null}<dl><dt>Loaded relationships</dt><dd>{selected.summary.loadedRelationshipCount}</dd><dt>Available relationships</dt><dd>{selected.summary.availableRelationshipCount}</dd></dl><div>{expansionCategories.map((category) => <button key={category.value} type="button" disabled={expanding} onClick={() => void expand(category.value)}>{category.label}</button>)}</div>{state.continuation?.entityId === selected.identity.id ? <button type="button" disabled={expanding} onClick={() => void expand(state.continuation!.category, state.continuation!.token)}>Load more</button> : null}<button type="button" onClick={() => onViewDetails({ iri: selected.identity.entityIri, label: selected.label, kind: selected.kind, sourceId: selected.identity.sourceId })}>View Details</button></aside> : null}
-    {expanding ? <p role="status">Loading neighborhood...</p> : null}{partialMessage ? <p role="status">{partialMessage}</p> : null}
+  function startPopupDrag(event: PointerEvent<HTMLElement>) {
+    if ((event.target as HTMLElement).closest("button")) return;
+    const popup = popupRef.current;
+    const shell = shellRef.current;
+    if (!popup || !shell) return;
+    const popupBounds = popup.getBoundingClientRect();
+    const shellBounds = shell.getBoundingClientRect();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    popupDrag.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, x: popupBounds.left - shellBounds.left, y: popupBounds.top - shellBounds.top };
+  }
+  function movePopup(event: PointerEvent<HTMLElement>) {
+    const drag = popupDrag.current;
+    const popup = popupRef.current;
+    const shell = shellRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || !popup || !shell) return;
+    const x = Math.max(0, Math.min(shell.clientWidth - popup.offsetWidth, drag.x + event.clientX - drag.clientX));
+    const y = Math.max(0, Math.min(shell.clientHeight - popup.offsetHeight, drag.y + event.clientY - drag.clientY));
+    onStateChange({ ...state, popupPosition: { x, y } });
+  }
+  function stopPopupDrag() { popupDrag.current = null; }
+  return <section ref={shellRef} className="ontology-map-shell" aria-label="Ontology map">
+    <OntologyGraphRenderer nodes={visibleNodes} edges={visibleEdges} state={state} toolbarStart={<fieldset disabled={state.stale} className="ontology-map-actions"><legend className="visually-hidden">Current ontology map actions</legend><div className="ontology-layout-modes" role="group" aria-label="Map layout mode">{(["Focus", "FullMap"] as const).map((mode) => <button aria-pressed={(state.layoutMode ?? "FullMap") === mode} className={(state.layoutMode ?? "FullMap") === mode ? "active" : ""} disabled={mode === "Focus" && !selected} key={mode} type="button" onClick={() => onStateChange({ ...state, layoutMode: mode })}>{mode === "FullMap" ? "Full map" : mode}</button>)}</div></fieldset>} childCounts={childCounts} dimmedNodeIds={dimmedNodeIds} dimmedEdgeIds={dimmedEdgeIds} onStateChange={onStateChange} />
+    {selected ? <aside ref={popupRef} className="ontology-node-popup" role="dialog" aria-label={`${selected.label} map summary`} style={state.popupPosition ? { left: state.popupPosition.x, top: state.popupPosition.y, right: "auto" } : undefined}>
+      <button className="ontology-node-popup-close" type="button" aria-label="Close entity summary" onClick={() => onStateChange({ ...state, selectedNodeId: null })}>×</button>
+      <header className="ontology-node-popup-drag-handle" onPointerDown={startPopupDrag} onPointerMove={movePopup} onPointerUp={stopPopupDrag} onPointerCancel={stopPopupDrag}><h3>{selected.label}</h3><p>{selected.kind} · Asserted</p></header>
+      {selected.definitionExcerpt ? <p className="ontology-node-popup-definition">{selected.definitionExcerpt}</p> : null}
+      <section className="ontology-node-popup-details" aria-labelledby="ontology-node-popup-details-title">
+        <h4 id="ontology-node-popup-details-title">Details</h4>
+        <p><strong>Direct subclasses:</strong> {childCounts[selected.identity.id] ?? 0}</p>
+        <p><strong>Loaded relationships:</strong> {selected.summary.loadedRelationshipCount}</p>
+        <p><strong>Available relationships:</strong> {selected.summary.availableRelationshipCount}</p>
+      </section>
+      <button className="ontology-node-popup-view" type="button" onClick={() => onViewDetails({ iri: selected.identity.entityIri, label: selected.label, kind: selected.kind, sourceId: selected.identity.sourceId })}>View Details</button>
+    </aside> : null}
     {state.stale ? <div className="ontology-map-stale" role="alertdialog" aria-modal="true" aria-labelledby="ontology-map-stale-title"><h3 id="ontology-map-stale-title">Ontology map is out of date</h3><p>The displayed map is preserved for reference. Refresh before loading or opening current project data.</p><button type="button" autoFocus onClick={() => void refreshStaleGraph()}>Refresh map</button></div> : null}
-    <p className="visually-hidden" role="status" aria-live="polite">{expanding ? "Loading ontology neighborhood" : partialMessage ?? (state.stale ? "Ontology map is stale" : "")}</p>
+    <p className="visually-hidden" role="status" aria-live="polite">{state.stale ? "Ontology map is stale" : ""}</p>
   </section>;
+}
+
+export function projectedNodeIds(nodes: WebOntologyGraphNode[], edges: WebOntologyGraphEdge[], mode: "Hierarchy" | "Focus" | "FullMap", selectedId: string | null, expanded: Set<string>, revealedIndividuals: Set<string>, positions: Record<string, { x: number; y: number }>): Set<string> {
+  const byId = new Map(nodes.map((node) => [node.identity.id, node]));
+  if (mode === "Focus" && selectedId) return new Set([...selectionNeighborhood(selectedId, nodes, edges)].filter((id) => byId.get(id)?.kind !== "Individual" || revealedIndividuals.has(id)));
+  const classes = nodes.filter((node) => node.kind === "Class");
+  const classIds = new Set(classes.map((node) => node.identity.id));
+  const children = new Map(classes.map((node) => [node.identity.id, [] as string[]]));
+  const hasParent = new Set<string>();
+  edges.filter((edge) => edge.kind === "SubclassOf" && classIds.has(edge.sourceNodeId) && classIds.has(edge.targetNodeId)).forEach((edge) => { children.get(edge.targetNodeId)!.push(edge.sourceNodeId); hasParent.add(edge.sourceNodeId); });
+  children.forEach((items) => items.sort((a, b) => (positions[a]?.y ?? 0) - (positions[b]?.y ?? 0) || a.localeCompare(b)));
+  const visible = new Set<string>();
+  function visit(id: string) {
+    if (visible.has(id)) return;
+    visible.add(id);
+    const branch = children.get(id) ?? [];
+    (mode === "FullMap" || expanded.has(id) ? branch : branch.slice(0, LARGE_BRANCH_LIMIT)).forEach(visit);
+  }
+  const roots = classes.filter((node) => !hasParent.has(node.identity.id)).sort((a, b) => (positions[a.identity.id]?.y ?? 0) - (positions[b.identity.id]?.y ?? 0));
+  const structurallyReachable = new Set<string>();
+  function markReachable(id: string) { if (structurallyReachable.has(id)) return; structurallyReachable.add(id); (children.get(id) ?? []).forEach(markReachable); }
+  roots.forEach((node) => { markReachable(node.identity.id); visit(node.identity.id); });
+  classes.filter((node) => !structurallyReachable.has(node.identity.id)).forEach((node) => visit(node.identity.id));
+  nodes.filter((node) => node.kind !== "Class" && node.kind !== "Individual").forEach((node) => {
+    const domains = edges.filter((edge) => edge.sourceNodeId === node.identity.id && edge.kind === "Domain");
+    if (mode === "FullMap" || !domains.length || domains.some((edge) => visible.has(edge.targetNodeId))) visible.add(node.identity.id);
+  });
+  revealedIndividuals.forEach((id) => visible.add(id));
+  if (selectedId) selectionNeighborhood(selectedId, nodes, edges).forEach((id) => { if (byId.get(id)?.kind !== "Individual" || revealedIndividuals.has(id)) visible.add(id); });
+  return visible;
+}
+
+export function selectionNeighborhood(selectedId: string | null, nodes: WebOntologyGraphNode[], edges: WebOntologyGraphEdge[]): Set<string> {
+  if (!selectedId) return new Set(nodes.filter((node) => node.kind !== "Individual").map((node) => node.identity.id));
+  const related = new Set([selectedId]);
+  edges.filter((edge) => edge.sourceNodeId === selectedId || edge.targetNodeId === selectedId).forEach((edge) => { related.add(edge.sourceNodeId); related.add(edge.targetNodeId); });
+  const propertyIds = [...related].filter((id) => nodes.find((node) => node.identity.id === id)?.kind === "ObjectProperty");
+  edges.filter((edge) => propertyIds.includes(edge.sourceNodeId)).forEach((edge) => related.add(edge.targetNodeId));
+  return related;
 }

@@ -2,7 +2,13 @@
 
 ## Status
 
-Complete. All ordered slices, completion artifacts, acceptance gates, and full-phase verification passed.
+Complete through Phase 9, including the verified post-completion hierarchy-layout amendment.
+
+## Hierarchy-Layout Amendment
+
+The approved post-completion amendment replaces general dependency layering with a deterministic hierarchy-first class tree. The completed UI exposes that tree through `Focus` and `Full map`; hierarchy remains the layout strategy rather than a separate presentation mode. This remains limited to existing asserted graph DTOs and temporary React state. No semantic contract, server route, persistence, edit behavior, module, or dependency is added.
+
+Implementation proceeded as: deterministic tree geometry and ordering; mode/visibility state; bounded branch and individual reveal behavior; selection emphasis; component, visual, regression, and performance verification. Existing server neighborhood and continuation actions remain the only load/load-more boundary.
 
 Implementation must proceed one slice at a time in the exact dependency order below.
 

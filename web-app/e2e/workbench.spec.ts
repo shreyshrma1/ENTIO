@@ -130,6 +130,14 @@ test("completes the browser workbench and provider model journey through reviewa
   await page.goto("/");
   await page.getByRole("link", { name: /Simple ontology/ }).click();
   await expect(page.getByRole("heading", { name: "simple-ontology" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Entio AI assistant" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Open Entio AI" }).click();
+  await expect(page.getByRole("complementary", { name: "Entio AI assistant" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("complementary", { name: "Entio AI assistant" })).toBeVisible();
+  await page.getByRole("button", { name: "Close Entio AI" }).click();
+  await page.reload();
+  await expect(page.getByRole("complementary", { name: "Entio AI assistant" })).toHaveCount(0);
   await page.getByRole("button", { name: /Customer/ }).click();
   await expect(page.getByRole("heading", { name: "Customer" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Definition" })).toHaveValue("A customer.");

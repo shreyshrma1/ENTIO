@@ -1,17 +1,21 @@
 import { expect, test, type Route } from "@playwright/test";
 
-test("ontology map remains bounded, accessible, interactive, stale-safe, and read-only", async ({ page }) => {
+test("ontology map remains bounded, accessible, interactive, and read-only", async ({ page }) => {
   const graphMethods: string[] = [];
-  const fixture = graphFixture(75, 150);
+  const graphUrls: string[] = [];
+  const fixture = graphFixture(24, 40);
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const path = url.pathname;
-    if (path.includes("/graph")) graphMethods.push(request.method());
+    if (path.includes("/graph")) {
+      graphMethods.push(request.method());
+      graphUrls.push(request.url());
+    }
     if (path === "/api/v1/projects/simple/graph") return json(route, { ...fixture, graphFingerprint: "fingerprint-one", totalNodeCount: 1_000, totalEdgeCount: 999, continuation: "opaque-next" });
     if (path.endsWith("/graph/neighborhood")) return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ apiVersion: "v1", requestId: "safe", code: "stale-graph-fingerprint", message: "Refresh before continuing." }) });
     if (path.endsWith("/summary")) return json(route, { apiVersion: "v1", project: { id: "simple", displayName: "Simple", name: "scale-fixture" }, sources: [{ id: "simple", path: "hidden.ttl", format: "turtle", roles: ["ontology"], tripleCount: 1_000 }], symbolCount: 1_000, graphTripleCount: 1_999 });
-    if (path.endsWith("/hierarchy")) return json(route, { apiVersion: "v1", sourceId: "simple", parentIri: null, page: { items: [{ iri: "urn:n0", label: "Entity 0000", kind: "Class", sourceId: "simple", childCount: 1 }], offset: 0, limit: 50, total: 1, nextOffset: null } });
+    if (path.endsWith("/hierarchy")) return json(route, { apiVersion: "v1", sourceId: "simple", parentIri: null, page: { items: [{ iri: "urn:n0", label: "Entity 0000", kind: "class", sourceId: "simple", childCount: 1 }], offset: 0, limit: 50, total: 1, nextOffset: null } });
     if (path.endsWith("/outline")) return json(route, { apiVersion: "v1", sourceId: "simple", page: { items: fixture.nodes.slice(0, 4).map((node) => ({ iri: node.identity.entityIri, label: node.label, kind: node.kind, sourceId: "simple" })), offset: 0, limit: 100, total: 4, nextOffset: null } });
     if (path.endsWith("/entities")) return json(route, { apiVersion: "v1", iri: url.searchParams.get("iri"), label: "Entity 0000", kind: "Class", sourceId: "simple", sourceOntologyId: "simple", locality: "Local", preferredLabelSource: "RdfsLabel", alternateLabels: [], definitions: [], annotations: [], directSuperclasses: [], directSubclasses: [], directlyTypedIndividuals: [], assertedTypes: [], domains: [], ranges: [], outgoingRelationships: [], incomingRelationships: [] });
     if (path.endsWith("/staged")) return json(route, { apiVersion: "v1", projectId: "simple", status: "READY", entries: [], proposal: null });
@@ -20,39 +24,123 @@ test("ontology map remains bounded, accessible, interactive, stale-safe, and rea
   });
 
   await page.goto("/projects/simple");
-  await page.getByRole("button", { name: "View as map" }).first().click();
+  await page.getByRole("button", { name: "Entity 0000, Class" }).click();
+  await expect(page.getByRole("heading", { name: "Entity 0000" })).toBeVisible();
+  await page.getByRole("button", { name: "View Map" }).first().click();
+  await expect.poll(() => graphUrls.length).toBeGreaterThan(0);
+  expect(new URL(graphUrls[0]).searchParams.has("seedIri")).toBe(false);
+  expect(new URL(graphUrls[0]).searchParams.has("seedSourceId")).toBe(false);
   await expect(page.getByRole("tab", { name: "Ontology map" })).toHaveCount(1);
+  const ontologyMap = page.getByRole("region", { name: "Ontology map" });
+  await expect(ontologyMap.getByRole("button", { name: "Hierarchy" })).toHaveCount(0);
+  await expect(ontologyMap.getByRole("button", { name: "Full map" })).toHaveAttribute("aria-pressed", "true");
+  await expect(ontologyMap.getByRole("button", { name: "Focus" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Class: Entity 0000" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "ObjectProperty: Entity 0001" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "ObjectProperty: Entity 0005" })).toBeVisible();
   await expect(page.getByRole("button", { name: "DatatypeProperty: Entity 0002" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toBeVisible();
   await expect(page.getByLabel("Loaded ontology graph").locator("text=SubclassOf").first()).toBeAttached();
-  await expect(page.getByText("75 loaded entities")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Class: Entity 0000" })).toBeInViewport();
+  const projectNavigation = page.getByRole("complementary", { name: "Project navigation" });
+  const outlineClass = projectNavigation.getByRole("button", { name: "Entity 0000, Class" });
+  await outlineClass.click();
+  await expect(page.getByRole("dialog", { name: "Entity 0000 map summary" })).toBeVisible();
+  await page.getByRole("button", { name: "Close entity summary" }).click();
+  await outlineClass.dblclick();
+  await expect(page).toHaveURL(/iri=urn%3An0/);
+  await page.getByRole("tab", { name: "Ontology map" }).click();
 
+  await projectNavigation.getByRole("tab", { name: /Objects 1/ }).click();
+  const outlineObject = projectNavigation.getByRole("button", { name: "Entity 0003, Object" });
+  await outlineObject.click();
+  await expect(page.getByRole("dialog", { name: "Entity 0003 map summary" })).toBeVisible();
+  await page.getByRole("button", { name: "Close entity summary" }).click();
+  await outlineObject.dblclick();
+  await expect(page).toHaveURL(/iri=urn%3An3/);
+  await page.getByRole("tab", { name: "Ontology map" }).click();
+
+  await projectNavigation.getByRole("tab", { name: /Properties 2/ }).click();
+  const outlineProperty = projectNavigation.getByRole("button", { name: "Entity 0001, Object property" });
+  await outlineProperty.click();
+  await expect(page.getByRole("dialog", { name: "Entity 0001 map summary" })).toBeVisible();
+  await page.getByRole("button", { name: "Close entity summary" }).click();
+  await outlineProperty.dblclick();
+  await expect(page).toHaveURL(/iri=urn%3An1/);
+  await page.getByRole("tab", { name: "Ontology map" }).click();
+  await page.getByRole("tab", { name: "Entity 0000" }).click();
+  await expect(page).toHaveURL(/iri=urn%3An0/);
+  await expect(page.getByRole("dialog", { name: "Entity 0000 map summary" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Close Entity 0003" }).click();
+  await page.getByRole("button", { name: "Close Entity 0001" }).click();
+  await page.getByRole("button", { name: "Close Entity 0000" }).click();
+  await expect(page.getByRole("tab", { name: "Ontology map" })).toHaveAttribute("aria-selected", "true");
+  await expect(page).toHaveURL(/view=map/);
+  await projectNavigation.getByRole("tab", { name: /Classes 1/ }).click();
+
+  await expect(page.locator(".ontology-graph-viewport")).toHaveScreenshot("ontology-map-prototype-layout.png");
+  const browserZoomBefore = await page.evaluate(() => ({ scale: window.visualViewport?.scale ?? 1, devicePixelRatio: window.devicePixelRatio }));
+  const mapPinchZoomBefore = Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""));
+  await page.locator(".ontology-graph-viewport").hover();
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, -120);
+  await page.keyboard.up("Control");
+  await expect.poll(async () => Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""))).toBeGreaterThan(mapPinchZoomBefore);
+  expect(await page.evaluate(() => ({ scale: window.visualViewport?.scale ?? 1, devicePixelRatio: window.devicePixelRatio }))).toEqual(browserZoomBefore);
+  const mapWheelZoomBefore = Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""));
+  await page.mouse.wheel(0, 120);
+  await expect.poll(async () => Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""))).toBeLessThan(mapWheelZoomBefore);
+  await page.getByLabel("Filter project outline and map").click();
+  await expect(page.getByRole("checkbox", { name: "Individuals" })).toBeChecked();
+  await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /Objects 1/ })).toBeVisible();
+  await page.locator(".ontology-map-actions").click();
+  await expect(page.locator(".outline-filter-menu")).not.toHaveAttribute("open", "");
   const node = page.getByRole("button", { name: "Class: Entity 0000" });
   await node.click();
+  await expect(ontologyMap.getByRole("button", { name: "Focus" })).toBeEnabled();
   const popup = page.getByRole("dialog", { name: "Entity 0000 map summary" });
-  await expect(popup).toContainText("Asserted");
+  await expect(popup.getByRole("heading", { name: "Entity 0000" })).toBeVisible();
+  await expect(popup).toContainText("Class · Asserted");
+  await expect(popup.getByRole("heading", { name: "Details" })).toBeVisible();
+  await expect(popup).toContainText("Direct subclasses: 6");
+  await expect(popup).toContainText("Loaded relationships: 1");
+  await expect(popup).toContainText("Available relationships: 2");
   await expect(popup.getByRole("button", { name: /edit/i })).toHaveCount(0);
+  await expect(popup.getByRole("button")).toHaveCount(2);
+  await expect(popup).toHaveScreenshot("ontology-map-popup.png");
+  const popupBeforeDrag = await popup.boundingBox();
+  const popupHandle = await popup.locator("header").boundingBox();
+  await page.mouse.move(popupHandle!.x + 20, popupHandle!.y + 12);
+  await page.mouse.down();
+  await page.mouse.move(popupHandle!.x - 60, popupHandle!.y + 52, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => (await popup.boundingBox())?.x).toBeLessThan(popupBeforeDrag!.x);
+  const viewportBounds = await page.locator(".ontology-graph-viewport").boundingBox();
+  await page.mouse.move(viewportBounds!.x + viewportBounds!.width - 40, viewportBounds!.y + viewportBounds!.height - 40);
+  await page.mouse.down();
+  await page.mouse.move(viewportBounds!.x + viewportBounds!.width - 100, viewportBounds!.y + viewportBounds!.height - 80, { steps: 4 });
+  await page.mouse.up();
+  await expect(popup).toBeVisible();
+  await page.locator(".ontology-graph-controls").click();
+  await expect(popup).toHaveCount(0);
+  await node.click();
+  await expect(popup).toBeVisible();
   await node.focus();
   await page.keyboard.press("ArrowDown");
   await expect(page.locator(".ontology-node:focus")).not.toHaveAttribute("id", "ontology-node-n0");
+  const zoomBefore = Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""));
   await page.getByRole("button", { name: "Zoom in" }).click();
-  await expect(page.getByLabel("Zoom percentage")).toContainText("110%");
+  await expect.poll(async () => Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""))).toBe(zoomBefore + 10);
   await page.getByRole("button", { name: "Fit" }).click();
-  await page.getByRole("button", { name: "Close entity summary" }).click();
-  await page.getByText("Filters", { exact: true }).click();
-  await page.getByRole("checkbox", { name: "Individual" }).uncheck();
+  await expect(popup).toHaveCount(0);
+  await page.getByLabel("Filter project outline and map").click();
+  await page.getByRole("checkbox", { name: "Individuals" }).uncheck();
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Clear filters" }).click();
+  await expect(page.getByRole("tab", { name: /Objects 0/ })).toBeVisible();
+  await page.getByRole("button", { name: "Reset filters" }).click();
+  await expect(page.getByRole("checkbox", { name: "Individuals" })).toBeChecked();
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toBeVisible();
 
-  await node.click();
-  await popup.getByRole("button", { name: "Class hierarchy" }).click();
-  const stale = page.getByRole("alertdialog", { name: "Ontology map is out of date" });
-  await expect(stale).toBeVisible();
-  await expect(page.getByText("75 loaded entities")).toBeVisible();
-  await expect(stale.getByRole("button", { name: "Refresh map" })).toBeFocused();
   expect(graphMethods.every((method) => method === "GET")).toBe(true);
 });
 
@@ -68,7 +156,7 @@ test("@performance production map render and popup meet five-run browser gates",
     return json(route, { apiVersion: "v1", page: { items: [], offset: 0, limit: 50, total: 0, nextOffset: null } });
   });
   await page.goto("/projects/simple");
-  await page.getByRole("button", { name: "View as map" }).first().click();
+  await page.getByRole("button", { name: "View Map" }).first().click();
   await expect(page.locator(".ontology-node")).toHaveCount(75);
   await page.getByRole("button", { name: "Class: Entity 0000" }).click();
   await expect(page.getByRole("dialog", { name: "Entity 0000 map summary" })).toBeVisible();
@@ -78,7 +166,7 @@ test("@performance production map render and popup meet five-run browser gates",
   const popupRuns: number[] = [];
   for (let run = 0; run < 5; run += 1) {
     const renderStart = Date.now();
-    await page.getByRole("button", { name: "View as map" }).first().click();
+    await page.getByRole("button", { name: "View Map" }).first().click();
     await expect(page.locator(".ontology-node")).toHaveCount(75);
     renderRuns.push(Date.now() - renderStart);
     const popupStart = Date.now();
@@ -94,7 +182,7 @@ test("@performance production map render and popup meet five-run browser gates",
   expect(median(renderRuns)).toBeLessThanOrEqual(500);
   expect(Math.max(...renderRuns)).toBeLessThanOrEqual(1_000);
   expect(Math.max(...popupRuns)).toBeLessThanOrEqual(100);
-  await page.getByRole("button", { name: "View as map" }).first().click();
+  await page.getByRole("button", { name: "View Map" }).first().click();
   const interactionRuns: Array<{ fps: number; worstLongTask: number }> = [];
   for (let run = 0; run < 6; run += 1) {
     const sample = await page.evaluate(() => new Promise<{ fps: number; worstLongTask: number }>((resolve) => {
@@ -123,9 +211,21 @@ test("@performance production map render and popup meet five-run browser gates",
 
 function graphFixture(nodeCount: number, edgeCount: number) {
   const kinds = ["Class", "ObjectProperty", "DatatypeProperty", "Individual"] as const;
-  const edgeKinds = ["SubclassOf", "Domain", "Range", "Type", "ObjectAssertion"] as const;
   const nodes = Array.from({ length: nodeCount }, (_, index) => ({ identity: { id: `n${index}`, sourceId: "simple", entityIri: `urn:n${index}` }, kind: kinds[index % kinds.length], label: `Entity ${String(index).padStart(4, "0")}`, definitionExcerpt: index === 0 ? "Bounded server summary." : null, summary: { directSuperclassLabels: [], domainLabels: [], rangeLabels: [], assertedTypeLabels: [], datatypeRangeLabels: [], loadedRelationshipCount: 1, availableRelationshipCount: 2 } }));
-  const edges = Array.from({ length: edgeCount }, (_, index) => ({ id: `e${index}`, kind: edgeKinds[index % edgeKinds.length], sourceNodeId: nodes[index % nodes.length].identity.id, targetNodeId: nodes[(index + 1) % nodes.length].identity.id, label: edgeKinds[index % edgeKinds.length], predicateIri: edgeKinds[index % edgeKinds.length] === "ObjectAssertion" ? "urn:predicate" : null, provenance: "Asserted" }));
+  const classes = nodes.filter((node) => node.kind === "Class");
+  const individuals = nodes.filter((node) => node.kind === "Individual");
+  const coreEdges: Array<{ kind: "SubclassOf" | "Domain" | "Range" | "Type" | "ObjectAssertion"; sourceNodeId: string; targetNodeId: string; label: string; predicateIri: string | null; provenance: "Asserted" }> = [];
+  classes.slice(1).forEach((node, index) => coreEdges.push({ kind: "SubclassOf", sourceNodeId: node.identity.id, targetNodeId: classes[Math.floor(index / 3)].identity.id, label: "SubclassOf", predicateIri: null, provenance: "Asserted" }));
+  nodes.filter((node) => node.kind === "ObjectProperty").forEach((node, index) => {
+    coreEdges.push({ kind: "Domain", sourceNodeId: node.identity.id, targetNodeId: classes[index % classes.length].identity.id, label: "domain", predicateIri: null, provenance: "Asserted" });
+    coreEdges.push({ kind: "Range", sourceNodeId: node.identity.id, targetNodeId: classes[(index + 1) % classes.length].identity.id, label: "range", predicateIri: null, provenance: "Asserted" });
+  });
+  nodes.filter((node) => node.kind === "DatatypeProperty").forEach((node, index) => coreEdges.push({ kind: "Domain", sourceNodeId: node.identity.id, targetNodeId: classes[index % classes.length].identity.id, label: "domain", predicateIri: null, provenance: "Asserted" }));
+  individuals.forEach((node, index) => {
+    coreEdges.push({ kind: "Type", sourceNodeId: node.identity.id, targetNodeId: classes[index % classes.length].identity.id, label: "type", predicateIri: null, provenance: "Asserted" });
+    if (index) coreEdges.push({ kind: "ObjectAssertion", sourceNodeId: individuals[index - 1].identity.id, targetNodeId: node.identity.id, label: "related to", predicateIri: "urn:predicate", provenance: "Asserted" });
+  });
+  const edges = Array.from({ length: edgeCount }, (_, index) => ({ ...coreEdges[index % coreEdges.length], id: `e${index}` }));
   return { apiVersion: "v1", projectId: "simple", sources: [{ id: "simple", displayName: "simple" }], loadKind: "RootOverview", seed: null, nodes, edges, limits: { nodeLimit: 75, edgeLimit: 150 }, totalNodeCount: nodeCount, totalEdgeCount: edgeCount, continuation: null, ambiguousCrossSourceRelationshipCount: 0 };
 }
 

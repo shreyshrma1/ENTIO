@@ -4,6 +4,18 @@ import App from "./App";
 
 describe("web workbench shell", () => {
   beforeEach(() => {
+    const storedValues = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => storedValues.get(key) ?? null,
+        setItem: (key: string, value: string) => storedValues.set(key, value),
+        removeItem: (key: string) => storedValues.delete(key),
+        clear: () => storedValues.clear(),
+        key: (index: number) => [...storedValues.keys()][index] ?? null,
+        get length() { return storedValues.size; },
+      },
+    });
     window.history.pushState({}, "", "/");
   });
 
@@ -63,12 +75,14 @@ describe("web workbench shell", () => {
     expect(await screen.findByRole("heading", { name: "Approved projects" })).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("link", { name: /Simple ontology/ }));
     expect(await screen.findByRole("heading", { name: "simple-ontology" })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: "Entio AI assistant" })).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "AI Assistant" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Close Entio AI" }));
     expect(screen.queryByRole("complementary", { name: "Entio AI assistant" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "AI Assistant" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Open Entio AI" }));
     expect(screen.getByRole("complementary", { name: "Entio AI assistant" })).toBeInTheDocument();
+    expect(window.localStorage?.getItem("entio.assistantOpen")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Close Entio AI" }));
+    expect(screen.queryByRole("complementary", { name: "Entio AI assistant" })).not.toBeInTheDocument();
+    expect(window.localStorage?.getItem("entio.assistantOpen")).toBe("false");
     expect(screen.getByRole("tab", { name: /^Classes\s*1$/ })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getByRole("tab", { name: /^Objects\s*1$/ }));
     expect(screen.getByRole("button", { name: "Collapse Customer objects" })).toHaveAttribute("aria-expanded", "true");

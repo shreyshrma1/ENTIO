@@ -22,6 +22,7 @@ import {
 } from "./ContextualEditing";
 import type { WebStagingEditType } from "./stagingEditTypes";
 import OntologyMapShell, { type OntologyMapViewState } from "./ontology-map/OntologyMapShell";
+import type { OntologyGraphEdgeKind, OntologyGraphNodeKind } from "../web/contracts";
 
 type ModuleId = "explore" | "changes" | "reasoning" | "validation" | "fibo" | "activity" | "settings";
 type RailItemId = ModuleId;
@@ -58,7 +59,10 @@ const modules: Array<{ id: ModuleId; label: string; icon: Parameters<typeof Icon
 const railItems: Array<{ id: RailItemId; label: string; icon: Parameters<typeof Icon>[0]["name"] }> = modules;
 
 const DISPLAY_NAME_STORAGE_KEY = "entio.displayName";
+const ASSISTANT_OPEN_STORAGE_KEY = "entio.assistantOpen";
 const DEFAULT_DISPLAY_NAME = "Alice Contributor";
+const DEFAULT_MAP_NODE_KINDS: OntologyGraphNodeKind[] = ["Class", "ObjectProperty", "DatatypeProperty", "Individual"];
+const DEFAULT_MAP_EDGE_KINDS: OntologyGraphEdgeKind[] = ["SubclassOf", "Domain", "Range", "Type", "ObjectAssertion"];
 let fallbackDisplayName: string | null = null;
 
 function loadDisplayName(): string {
@@ -84,6 +88,22 @@ function persistDisplayName(displayName: string) {
   }
 }
 
+function loadAssistantOpen(): boolean {
+  try {
+    return window.localStorage?.getItem(ASSISTANT_OPEN_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function persistAssistantOpen(open: boolean) {
+  try {
+    window.localStorage?.setItem(ASSISTANT_OPEN_STORAGE_KEY, String(open));
+  } catch {
+    // The current in-memory state still works when persistent browser storage is unavailable.
+  }
+}
+
 export default function ProjectWorkspace({ initialModule = "explore" }: { initialModule?: ModuleId }) {
   const { projectId = "" } = useParams();
   const navigate = useNavigate();
@@ -91,12 +111,14 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const [tabs, setTabs] = useState<EntityTab[]>([]);
   const [mapOpen, setMapOpen] = useState(() => searchParams.get("view") === "map");
   const [mapSeed, setMapSeed] = useState<WebEntityReference | undefined>();
-  const [mapViewState, setMapViewState] = useState<OntologyMapViewState>({ selectedNodeId: null });
+  const [mapViewState, setMapViewState] = useState<OntologyMapViewState>({ selectedNodeId: null, nodeKinds: DEFAULT_MAP_NODE_KINDS, edgeKinds: DEFAULT_MAP_EDGE_KINDS });
+  const outlineFilterMenuRef = useRef<HTMLDetailsElement>(null);
+  const outlineClickTimer = useRef<number | null>(null);
   const [mapLoadedEntities, setMapLoadedEntities] = useState<Record<string, string>>({});
   const [activeModule, setActiveModule] = useState<ModuleId>(initialModule);
   const [railExpanded, setRailExpanded] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
-  const [assistantOpen, setAssistantOpen] = useState(true);
+  const [assistantOpen, setAssistantOpen] = useState(loadAssistantOpen);
   const [displayName, setDisplayName] = useState(loadDisplayName);
   const [semanticJobIds, setSemanticJobIds] = useState<Record<"reasoning" | "shacl", string | null>>({ reasoning: null, shacl: null });
   const [sidebarWidth, setSidebarWidth] = useState(296);
@@ -134,7 +156,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
     setActiveModule(initialModule);
     setMapOpen(searchParams.get("view") === "map");
     setMapSeed(undefined);
-    setMapViewState({ selectedNodeId: null });
+    setMapViewState({ selectedNodeId: null, nodeKinds: DEFAULT_MAP_NODE_KINDS, edgeKinds: DEFAULT_MAP_EDGE_KINDS, sourceVisible: true });
     setMapLoadedEntities({});
   }, [initialModule, projectId]);
 
@@ -177,7 +199,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   }, []);
 
   function openEntity(entity: WebEntityReference, section?: EntitySectionTarget) {
-    const supportedMapKind = ["Class", "ObjectProperty", "DatatypeProperty", "Individual"].includes(entity.kind ?? "");
+    const supportedMapKind = ["class", "objectproperty", "datatypeproperty", "individual"].includes(entity.kind?.toLowerCase() ?? "");
     if (mapActive && entity.sourceId === sourceId && supportedMapKind) {
       const loadedId = mapLoadedEntities[`${entity.sourceId}\u0000${entity.iri}`];
       if (loadedId) {
@@ -186,7 +208,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
       }
       if ((mapViewState.expanded || Boolean(mapViewState.positions)) && !window.confirm("Replace the temporary map with a view centered on this entity?")) return;
       setMapSeed(entity);
-      setMapViewState({ selectedNodeId: null });
+      setMapViewState((current) => ({ ...current, selectedNodeId: null }));
       return;
     }
     openEntityDetails(entity, section);
@@ -209,18 +231,17 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
 
   function openMap() {
     setMapOpen(true);
-    if (!mapOpen) setMapSeed(activeTab);
+    setMapSeed(undefined);
     setActiveModule("explore");
     const params = new URLSearchParams();
     params.set("view", "map");
-    if (activeTab) params.set("iri", activeTab.iri);
     navigate(`/projects/${encodeURIComponent(projectId)}?${params}`);
   }
 
   function closeMap() {
     setMapOpen(false);
     setMapSeed(undefined);
-    setMapViewState({ selectedNodeId: null });
+    setMapViewState((current) => ({ selectedNodeId: null, nodeKinds: current.nodeKinds, edgeKinds: current.edgeKinds, sourceVisible: current.sourceVisible }));
     setMapLoadedEntities({});
     navigate(activeTab ? `/projects/${encodeURIComponent(projectId)}?iri=${encodeURIComponent(activeTab.iri)}` : `/projects/${encodeURIComponent(projectId)}`);
   }
@@ -248,7 +269,11 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
     setTabs(remaining);
     if (iri === activeIri) {
       const next = remaining.at(-1);
-      navigate(next ? `/projects/${encodeURIComponent(projectId)}?iri=${encodeURIComponent(next.iri)}` : `/projects/${encodeURIComponent(projectId)}`);
+      navigate(next
+        ? `/projects/${encodeURIComponent(projectId)}?iri=${encodeURIComponent(next.iri)}`
+        : mapOpen
+          ? `/projects/${encodeURIComponent(projectId)}?view=map`
+          : `/projects/${encodeURIComponent(projectId)}`);
     }
   }
 
@@ -290,10 +315,66 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
     setDisplayName(nextDisplayName);
   }
 
+  function setAssistantVisibility(open: boolean) {
+    persistAssistantOpen(open);
+    setAssistantOpen(open);
+  }
+
   function launchEditor(editor: ContextualEditor, targetSourceId = sourceId) {
     if (!targetSourceId) return;
     setContextMenu(null);
     setOpenEditor({ sourceId: targetSourceId, editor });
+  }
+
+  function toggleSharedNodeKind(kind: OntologyGraphNodeKind) {
+    const current = mapViewState.nodeKinds ?? DEFAULT_MAP_NODE_KINDS;
+    const enabled = !current.includes(kind);
+    const nodeKinds = enabled ? [...current, kind] : current.filter((item) => item !== kind);
+    setMapViewState({
+      ...mapViewState,
+      nodeKinds,
+      revealedIndividualIds: kind === "Individual"
+        ? enabled ? (mapViewState.nodes ?? []).filter((node) => node.kind === "Individual").map((node) => node.identity.id) : []
+        : mapViewState.revealedIndividualIds,
+    });
+  }
+
+  function toggleSharedEdgeKind(kind: OntologyGraphEdgeKind) {
+    const current = mapViewState.edgeKinds ?? DEFAULT_MAP_EDGE_KINDS;
+    setMapViewState({ ...mapViewState, edgeKinds: current.includes(kind) ? current.filter((item) => item !== kind) : [...current, kind] });
+  }
+
+  useEffect(() => {
+    const closeFiltersOutside = (event: globalThis.PointerEvent) => {
+      const menu = outlineFilterMenuRef.current;
+      if (menu?.open && !menu.contains(event.target as Node)) menu.open = false;
+    };
+    document.addEventListener("pointerdown", closeFiltersOutside);
+    return () => document.removeEventListener("pointerdown", closeFiltersOutside);
+  }, []);
+
+  useEffect(() => () => {
+    if (outlineClickTimer.current !== null) window.clearTimeout(outlineClickTimer.current);
+  }, []);
+
+  function openOutlineEntity(entity: WebEntityReference) {
+    if (!mapActive) {
+      openEntity(entity);
+      return;
+    }
+    if (outlineClickTimer.current !== null) window.clearTimeout(outlineClickTimer.current);
+    outlineClickTimer.current = window.setTimeout(() => {
+      outlineClickTimer.current = null;
+      openEntity(entity);
+    }, 220);
+  }
+
+  function openOutlineEntityDetails(entity: WebEntityReference) {
+    if (outlineClickTimer.current !== null) {
+      window.clearTimeout(outlineClickTimer.current);
+      outlineClickTimer.current = null;
+    }
+    openEntityDetails(entity);
   }
 
   function openRootContextMenu(event: MouseEvent) {
@@ -328,19 +409,21 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const project = summary.data.project;
   const module = modules.find((item) => item.id === activeModule) ?? modules[0];
   const stagedCount = staged.data?.entries?.length ?? 0;
+  const visibleNodeKinds = new Set(mapViewState.nodeKinds ?? DEFAULT_MAP_NODE_KINDS);
+  const sourceVisible = mapViewState.sourceVisible !== false;
   const outlineItems = outline.data?.page.items ?? [];
   const createdClasses = stagedCreated.filter((item) => item.kind === "Class");
   const createdObjects = stagedCreated.filter((item) => item.kind === "Individual");
   const createdProperties = stagedCreated.filter((item) => item.kind?.endsWith("Property"));
-  const classCount = outlineItems.filter((item) => item.kind === "Class").length + createdClasses.length;
+  const classCount = sourceVisible && visibleNodeKinds.has("Class") ? outlineItems.filter((item) => item.kind === "Class").length + createdClasses.length : 0;
   const objects = outlineItems.filter((item) => item.kind === "Individual");
   const properties = outlineItems.filter((item) => item.kind.endsWith("Property"));
-  const objectItems = mergeOutlineEntities(applyStagedLabels(objects, stagedLabels), createdObjects);
-  const propertyItems = mergeOutlineEntities(applyStagedLabels(properties, stagedLabels), createdProperties);
-  const rootClassItems = [
+  const objectItems = sourceVisible && visibleNodeKinds.has("Individual") ? mergeOutlineEntities(applyStagedLabels(objects, stagedLabels), createdObjects) : [];
+  const propertyItems = sourceVisible ? mergeOutlineEntities(applyStagedLabels(properties, stagedLabels), createdProperties).filter((item) => visibleNodeKinds.has(item.kind as OntologyGraphNodeKind)) : [];
+  const rootClassItems = (sourceVisible && visibleNodeKinds.has("Class") ? [
     ...applyStagedLabels(rootHierarchy.data?.page.items ?? [], stagedLabels).filter((item) => !stagedClassHierarchy.childIris.has(item.iri)),
     ...stagedClassHierarchy.rootItems.filter((stagedItem) => !(rootHierarchy.data?.page.items ?? []).some((item) => item.iri === stagedItem.iri)),
-  ].sort((left, right) => left.label.localeCompare(right.label) || left.iri.localeCompare(right.iri));
+  ] : []).sort((left, right) => left.label.localeCompare(right.label) || left.iri.localeCompare(right.iri));
 
   function adjustSidebar(event: React.KeyboardEvent<HTMLButtonElement>) {
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
@@ -384,12 +467,12 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
           <section className="sidebar-section sidebar-search" aria-labelledby="search-heading">
             <div role="search">
               <label className="visually-hidden" id="search-heading" htmlFor="entity-search">Search entities by label</label>
-              <div className="search-row"><Icon name="search" /><input id="entity-search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search entities" /></div>
+              <div className="outline-search-controls"><div className="search-row"><Icon name="search" /><input id="entity-search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search entities" /></div><details ref={outlineFilterMenuRef} className="outline-filter-menu"><summary className="icon-button" aria-label="Filter project outline and map"><Icon name="filter" /></summary><div className="outline-filter-popover"><fieldset><legend>Entity kinds</legend>{DEFAULT_MAP_NODE_KINDS.map((kind) => <label key={kind}><input type="checkbox" checked={visibleNodeKinds.has(kind)} onChange={() => toggleSharedNodeKind(kind)} />{kind === "ObjectProperty" ? "Object properties" : kind === "DatatypeProperty" ? "Datatype properties" : kind === "Individual" ? "Individuals" : "Classes"}</label>)}</fieldset><fieldset><legend>Map relationships</legend>{DEFAULT_MAP_EDGE_KINDS.map((kind) => <label key={kind}><input type="checkbox" checked={(mapViewState.edgeKinds ?? DEFAULT_MAP_EDGE_KINDS).includes(kind)} onChange={() => toggleSharedEdgeKind(kind)} />{kind}</label>)}</fieldset><label><input type="checkbox" checked={sourceVisible} onChange={() => setMapViewState({ ...mapViewState, sourceVisible: !sourceVisible })} />Ontology source</label><button className="button small" type="button" onClick={() => setMapViewState({ ...mapViewState, nodeKinds: DEFAULT_MAP_NODE_KINDS, edgeKinds: DEFAULT_MAP_EDGE_KINDS, sourceVisible: true, revealedIndividualIds: (mapViewState.nodes ?? []).filter((node) => node.kind === "Individual").map((node) => node.identity.id) })}>Reset filters</button></div></details></div>
             </div>
           </section>
           {searchInput.trim() ? <section className="sidebar-section sidebar-search-results" aria-labelledby="search-results-heading">
             <div className="section-heading compact"><h3 id="search-results-heading">Search results</h3><button className="icon-button" type="button" aria-label="Clear search" onClick={() => { setSearchInput(""); setSearchText(""); }}><Icon name="close" /></button></div>
-            <SearchResults query={search} onOpen={openEntity} />
+            <SearchResults query={search} onOpen={openEntity} allowedKinds={visibleNodeKinds} sourceVisible={sourceVisible} />
           </section> : <>
             <section className="sidebar-section hierarchy-section" aria-labelledby="hierarchy-heading">
               <div className="section-heading compact"><h3 id="hierarchy-heading">Project outline</h3><div className="outline-heading-actions">{outlineTab === "classes" && rootHierarchy.isFetching ? <span className="status-text">Refreshing</span> : null}<button className="icon-button" type="button" aria-label={`Add ${outlineTab === "classes" ? "class" : outlineTab === "objects" ? "individual" : "property"}`} onClick={(event) => setContextMenu(outlineContextMenu(event.currentTarget.getBoundingClientRect().right, event.currentTarget.getBoundingClientRect().bottom, outlineTab, (editor) => launchEditor(editor)))}>+</button></div></div>
@@ -402,10 +485,10 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
                 {outlineTab === "classes" ? <>
                   {rootHierarchy.isPending ? <p role="status">Loading hierarchy...</p> : null}
                   {rootHierarchy.isError ? <p role="alert">Hierarchy unavailable.</p> : null}
-                  {rootClassItems.length ? <ul className="hierarchy-list">{rootClassItems.map((item) => <HierarchyNode key={`${item.sourceId}:${item.iri}`} projectId={projectId} item={item} depth={0} onOpen={openEntity} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} stagedChildrenByParent={stagedIsPendingReview ? stagedClassHierarchy.childrenByParent : undefined} expandedIris={expandedClassIris} onExpandedChange={setClassExpanded} />)}</ul> : null}
+                  {rootClassItems.length ? <ul className="hierarchy-list">{rootClassItems.map((item) => <HierarchyNode key={`${item.sourceId}:${item.iri}`} projectId={projectId} item={item} depth={0} onOpen={openOutlineEntity} onOpenDetails={openOutlineEntityDetails} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} stagedChildrenByParent={stagedIsPendingReview ? stagedClassHierarchy.childrenByParent : undefined} expandedIris={expandedClassIris} onExpandedChange={setClassExpanded} />)}</ul> : null}
                 </> : null}
-                {outlineTab === "objects" ? <GroupedObjectOutline items={objectItems} loading={outline.isPending} error={outline.isError} onOpen={openEntity} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} collapsedGroupIris={collapsedObjectGroupIris} onExpandedChange={setObjectGroupExpanded} /> : null}
-                {outlineTab === "properties" ? <OutlineEntityList title="Properties" marker="P" items={propertyItems} loading={outline.isPending} error={outline.isError} onOpen={openEntity} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} /> : null}
+                {outlineTab === "objects" ? <GroupedObjectOutline items={objectItems} loading={outline.isPending} error={outline.isError} onOpen={openOutlineEntity} onOpenDetails={openOutlineEntityDetails} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} collapsedGroupIris={collapsedObjectGroupIris} onExpandedChange={setObjectGroupExpanded} /> : null}
+                {outlineTab === "properties" ? <OutlineEntityList title="Properties" marker="P" items={propertyItems} loading={outline.isPending} error={outline.isError} onOpen={openOutlineEntity} onOpenDetails={openOutlineEntityDetails} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} /> : null}
                 {outlineTab !== "classes" && outline.data?.page.nextOffset != null ? <p className="outline-limit-note">Showing the first {outline.data.page.items.length} of {outline.data.page.total} symbols.</p> : null}
               </div>
             </section>
@@ -419,7 +502,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
         </aside>
         <section className={`workspace-pane ${assistantOpen ? "workspace-pane-with-ai" : ""}`} aria-label="Entity workspace">
           <div className="workspace-main">
-            <div className="workspace-toolbar"><div><span className="overline">{module.label}</span><span className="toolbar-title">{activeModule === "explore" ? mapActive ? "Ontology map" : activeTab?.label ?? "Semantic workspace" : module.label}</span></div><div className="toolbar-stats">{activeModule === "explore" ? <button type="button" onClick={openMap}>View as map</button> : null}<span>{summary.data.graphTripleCount} statements</span><StatusBadge tone={stagedCount && stagedIsPendingReview ? "staged" : "neutral"}>{stagedCount} staged</StatusBadge><button className={`assistant-toggle ${assistantOpen ? "assistant-toggle-active" : ""}`} type="button" aria-label={assistantOpen ? "Hide Entio AI sidebar" : "Open Entio AI"} aria-expanded={assistantOpen} onClick={() => setAssistantOpen((value) => !value)}><Icon name="assistant" /><span>AI</span></button></div></div>
+            <div className="workspace-toolbar"><div><span className="overline">{module.label}</span><span className="toolbar-title">{activeModule === "explore" ? mapActive ? "Ontology map" : activeTab?.label ?? "Semantic workspace" : module.label}</span></div><div className="toolbar-stats">{activeModule === "explore" ? <button className="button primary small" type="button" onClick={openMap}>View Map</button> : null}<span>{summary.data.graphTripleCount} statements</span><StatusBadge tone={stagedCount && stagedIsPendingReview ? "staged" : "neutral"}>{stagedCount} staged</StatusBadge><button className={`assistant-toggle ${assistantOpen ? "assistant-toggle-active" : ""}`} type="button" aria-label={assistantOpen ? "Hide Entio AI sidebar" : "Open Entio AI"} aria-expanded={assistantOpen} onClick={() => setAssistantVisibility(!assistantOpen)}><Icon name="assistant" /><span>AI</span></button></div></div>
             {activeModule === "explore" && (tabs.length || mapOpen) ? <>
               <nav className="entity-tabs" aria-label="Open entities" role="tablist">{mapOpen ? <div className="entity-tab" role="presentation"><button type="button" role="tab" aria-label="Ontology map" aria-selected={mapActive} tabIndex={mapActive ? 0 : -1} onClick={openMap}>Ontology map<small>Map</small></button><button type="button" className="tab-close" aria-label="Close Ontology map" onClick={closeMap}><Icon name="close" /></button></div> : null}{tabs.map((tab) => <div
                 className={`entity-tab ${stagedIsPendingReview && stagedIris.has(tab.iri) ? "entity-staged" : ""} ${draggedTabIri === tab.iri ? "entity-tab-dragging" : ""}`}
@@ -430,7 +513,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
                 onDragEnd={() => setDraggedTabIri(null)}
                 onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
                 onDrop={(event) => { event.preventDefault(); const sourceIri = draggedTabIri ?? event.dataTransfer.getData("text/plain"); moveTab(sourceIri, tab.iri); setDraggedTabIri(null); }}
-              ><button type="button" role="tab" aria-label={tab.label} aria-selected={tab.iri === activeIri} aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight" tabIndex={tab.iri === activeIri ? 0 : -1} onClick={() => openEntity(tab)} onKeyDown={(event) => moveTabByKeyboard(event, tab)}>{tab.label}<small>{tab.kind}</small></button><button type="button" className="tab-close" aria-label={`Close ${tab.label}`} onClick={() => closeTab(tab.iri)}><Icon name="close" /></button></div>)}</nav>
+              ><button type="button" role="tab" aria-label={tab.label} aria-selected={tab.iri === activeIri} aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight" tabIndex={tab.iri === activeIri ? 0 : -1} onClick={() => openEntityDetails(tab)} onKeyDown={(event) => moveTabByKeyboard(event, tab)}>{tab.label}<small>{tab.kind}</small></button><button type="button" className="tab-close" aria-label={`Close ${tab.label}`} onClick={() => closeTab(tab.iri)}><Icon name="close" /></button></div>)}</nav>
               <span className="visually-hidden" role="status" aria-live="polite">{tabOrderMessage}</span>
             </> : null}
             <div className={`workspace-content ${activeModule === "explore" && activeIri && stagedIsPendingReview && stagedIris.has(activeIri) ? "workspace-content-staged" : ""}`} id="entity-workspace-panel" role="tabpanel" aria-label={activeModule === "explore" ? activeTab ? `${activeTab.label} details` : "Entity details" : `${module.label} workspace`} aria-live="polite">
@@ -438,7 +521,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
             </div>
             {activeModule !== "changes" ? <div className={`staged-dock ${stagedCount && stagedIsPendingReview ? "staged-dock-pending" : ""}`} aria-label="Shared staged changes"><div><span className="overline">Shared review queue</span><strong>{stagedCount ? `${stagedCount} change${stagedCount === 1 ? "" : "s"} staged` : "No staged changes"}</strong></div><span className="dock-meta">Review the complete proposal, then accept or reject it.</span><button type="button" onClick={() => openModule("changes")}>{stagedCount ? "Review proposal" : "Open proposal"}</button></div> : null}
           </div>
-          <aside className={`ai-sidebar ${assistantOpen ? "" : "ai-sidebar-closed"}`} aria-label="Entio AI assistant" aria-hidden={!assistantOpen}><div className="ai-sidebar-heading"><div><span className="overline">Entio AI</span><strong>Assistant</strong></div><button className="icon-button" type="button" aria-label="Close Entio AI" onClick={() => setAssistantOpen(false)}><Icon name="close" /></button></div><AiProposalPanel projectId={projectId} onStaged={() => void staged.refetch()} stagedAiRunIds={stagedEntries.map((entry) => entry.normalizedValues.aiRunId).filter((runId): runId is string => Boolean(runId))} compact /></aside>
+          <aside className={`ai-sidebar ${assistantOpen ? "" : "ai-sidebar-closed"}`} aria-label="Entio AI assistant" aria-hidden={!assistantOpen}><div className="ai-sidebar-heading"><div><span className="overline">Entio AI</span><strong>Assistant</strong></div><button className="icon-button" type="button" aria-label="Close Entio AI" onClick={() => setAssistantVisibility(false)}><Icon name="close" /></button></div><AiProposalPanel projectId={projectId} onStaged={() => void staged.refetch()} stagedAiRunIds={stagedEntries.map((entry) => entry.normalizedValues.aiRunId).filter((runId): runId is string => Boolean(runId))} compact /></aside>
         </section>
       </div>
       {contextMenu ? <ContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} /> : null}
@@ -597,11 +680,12 @@ function humanizeShaclName(value: string): string {
 
 function Unavailable() { return <div className="empty-state"><h2>Source unavailable</h2><p>This workspace needs an ontology source before it can open.</p></div>; }
 
-function SearchResults({ query, onOpen }: { query: ReturnType<typeof useProjectSearch>; onOpen: (entity: WebEntityReference) => void }) {
+function SearchResults({ query, onOpen, allowedKinds, sourceVisible }: { query: ReturnType<typeof useProjectSearch>; onOpen: (entity: WebEntityReference) => void; allowedKinds: ReadonlySet<OntologyGraphNodeKind>; sourceVisible: boolean }) {
   if (query.isPending) return <p role="status">Searching...</p>;
   if (query.isError) return <p role="alert">Search unavailable.</p>;
-  if (!query.data?.page.items.length) return <p className="muted">No matching entities.</p>;
-  return <ul className="search-results">{query.data.page.items.map((result) => {
+  const results = sourceVisible ? (query.data?.page.items ?? []).filter((result) => allowedKinds.has(result.kind as OntologyGraphNodeKind)) : [];
+  if (!results.length) return <p className="muted">No matching entities.</p>;
+  return <ul className="search-results">{results.map((result) => {
     const presentation = entityKindPresentation(result.kind);
     return <li key={`${result.sourceId}:${result.iri}`}><button type="button" onClick={() => onOpen({ iri: result.iri, label: result.label, kind: result.kind, sourceId: result.sourceId })}><span className={`entity-type-marker ${presentation.className}`} aria-hidden="true">{presentation.marker}</span><span><strong>{result.label}</strong><small>{presentation.label} · {searchReasonLabel(result.reason)}</small></span></button></li>;
   })}</ul>;
@@ -615,23 +699,24 @@ function OutlineTab({ id, label, count, active, onSelect }: { id: OutlineTabId; 
   return <button id={`outline-tab-${id}`} type="button" role="tab" aria-selected={active === id} aria-controls={`outline-panel-${id}`} tabIndex={active === id ? 0 : -1} onClick={() => onSelect(id)}><span>{label}</span><small>{count}</small></button>;
 }
 
-function OutlineEntityList({ title, marker, items, loading, error, onOpen, onContextMenu, stagedIris }: { title: string; marker: "O" | "P"; items: WebOutlineItem[]; loading: boolean; error: boolean; onOpen: (entity: WebEntityReference) => void; onContextMenu: (event: MouseEvent, entity: WebEntityReference) => void; stagedIris?: ReadonlySet<string> }) {
+function OutlineEntityList({ title, marker, items, loading, error, onOpen, onOpenDetails, onContextMenu, stagedIris }: { title: string; marker: "O" | "P"; items: WebOutlineItem[]; loading: boolean; error: boolean; onOpen: (entity: WebEntityReference) => void; onOpenDetails: (entity: WebEntityReference) => void; onContextMenu: (event: MouseEvent, entity: WebEntityReference) => void; stagedIris?: ReadonlySet<string> }) {
   return <section aria-label={title}>
     {error ? <p role="alert">{title} unavailable.</p> : null}
     {loading ? <p className="tree-status" role="status">Loading {title.toLowerCase()}...</p> : null}
     {!loading && !error && !items.length ? <p className="outline-empty">No {title.toLowerCase()}.</p> : null}
     {items.length ? <ul className="outline-entity-list">{items.map((item) => {
       const presentation = entityKindPresentation(item.kind);
-      return <li className={stagedIris?.has(item.iri) ? "entity-staged" : undefined} key={`${item.sourceId}:${item.iri}`} onContextMenu={(event) => onContextMenu(event, item)}><button className="entity-link" type="button" aria-label={`${item.label}, ${presentation.label}`} onClick={() => onOpen(item)}><span className={`entity-type-marker ${presentation.className}`} aria-hidden="true">{marker}</span><span className="entity-link-label">{item.label}</span><small>{presentation.label}</small></button></li>;
+      return <li className={stagedIris?.has(item.iri) ? "entity-staged" : undefined} key={`${item.sourceId}:${item.iri}`} onContextMenu={(event) => onContextMenu(event, item)}><button className="entity-link" type="button" aria-label={`${item.label}, ${presentation.label}`} onClick={() => onOpen(item)} onDoubleClick={() => onOpenDetails(item)}><span className={`entity-type-marker ${presentation.className}`} aria-hidden="true">{marker}</span><span className="entity-link-label">{item.label}</span><small>{presentation.label}</small></button></li>;
     })}</ul> : null}
   </section>;
 }
 
-function GroupedObjectOutline({ items, loading, error, onOpen, onContextMenu, stagedIris, collapsedGroupIris, onExpandedChange }: {
+function GroupedObjectOutline({ items, loading, error, onOpen, onOpenDetails, onContextMenu, stagedIris, collapsedGroupIris, onExpandedChange }: {
   items: WebOutlineItem[];
   loading: boolean;
   error: boolean;
   onOpen: (entity: WebEntityReference) => void;
+  onOpenDetails: (entity: WebEntityReference) => void;
   onContextMenu: (event: MouseEvent, entity: WebEntityReference) => void;
   stagedIris?: ReadonlySet<string>;
   collapsedGroupIris: ReadonlySet<string>;
@@ -662,7 +747,7 @@ function GroupedObjectOutline({ items, loading, error, onOpen, onContextMenu, st
             <button className="object-group-toggle" type="button" aria-label={`${expanded ? "Collapse" : "Expand"} ${heading} objects`} aria-expanded={expanded} onClick={() => onExpandedChange(groupIri, !expanded)}>
               <span className={`hierarchy-chevron ${expanded ? "hierarchy-chevron-expanded" : ""}`} aria-hidden="true" />
             </button>
-            {group.type ? <button className="object-group-label" type="button" onClick={() => onOpen(group.type!)}>{heading}</button> : <span className="object-group-label">{heading}</span>}
+            {group.type ? <button className="object-group-label" type="button" onClick={() => onOpen(group.type!)} onDoubleClick={() => onOpenDetails(group.type!)}>{heading}</button> : <span className="object-group-label">{heading}</span>}
           </div>
           <small>{group.items.length}</small>
         </div>
@@ -671,7 +756,7 @@ function GroupedObjectOutline({ items, loading, error, onOpen, onContextMenu, st
           key={`${item.sourceId}:${item.iri}`}
           onContextMenu={(event) => onContextMenu(event, item)}
         >
-          <button className="entity-link object-group-entity" type="button" aria-label={`${item.label}, Object`} onClick={() => onOpen(item)}>
+          <button className="entity-link object-group-entity" type="button" aria-label={`${item.label}, Object`} onClick={() => onOpen(item)} onDoubleClick={() => onOpenDetails(item)}>
             <span className="object-group-elbow" aria-hidden="true" />
             <span className="entity-type-marker entity-type-object" aria-hidden="true">O</span>
             <span className="entity-link-label">{item.label}</span>
@@ -902,7 +987,7 @@ function entityContextMenu(
   return { x, y, label: `${entity.label} actions`, actions };
 }
 
-function EmptyWorkspace({ onOpenMap }: { onOpenMap: () => void }) { return <div className="empty-workspace"><span className="overline">Explore</span><h1>Select an entity</h1><p>Choose a class from the outline or search by label to open its details in a tab.</p><button type="button" onClick={onOpenMap}>View as map</button><div className="empty-hints"><span>Label-first navigation</span><span>Technical details on demand</span></div></div>; }
+function EmptyWorkspace({ onOpenMap }: { onOpenMap: () => void }) { return <div className="empty-workspace"><span className="overline">Explore</span><h1>Select an entity</h1><p>Choose a class from the outline or search by label to open its details in a tab.</p><button className="button primary" type="button" onClick={onOpenMap}>View Map</button></div>; }
 
 function reorderTabs(tabs: EntityTab[], sourceIri: string, targetIri: string): EntityTab[] {
   const sourceIndex = tabs.findIndex((tab) => tab.iri === sourceIri);

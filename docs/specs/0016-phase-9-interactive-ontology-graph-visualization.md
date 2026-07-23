@@ -128,9 +128,17 @@ One map tab may hold at most 300 nodes and 600 edges. Before an expansion would 
 
 ### 6. Layout And Rendering
 
-The first release provides one deterministic left-to-right layered layout named `Hierarchy`. It orders nodes by semantic kind, label, source ID, and IRI, and uses stable tie-breaking so identical graph responses produce identical initial positions.
+The map uses a deterministic left-to-right class tree: root classes, subclasses, then deeper subclasses. Asserted `SubclassOf` edges alone establish the main tree. Multiple asserted parents and other cross-branch relationships remain visible but do not control tree placement.
 
-Users may manually reposition nodes after layout. Attached edges update during dragging. A drag exceeding four CSS pixels is treated as a drag and must not also select/open the node.
+Sibling classes are ordered by descending direct subclass count, connected property count, directly typed individual count, and total incoming/outgoing relationship count, then by label and IRI. These facts affect presentation only. Identical graph fingerprints and view settings produce identical positions.
+
+Object properties stay close to their asserted domain and connect to their asserted range. Datatype properties render as compact items below their asserted domain. The shared Individuals filter is selected initially, so bounded typed individuals are visible at launch and may be hidden explicitly. Large loaded branches are initially collapsed behind child counts and bounded expand/load-more actions.
+
+The toolbar provides `Focus` and `Full map` modes, with `Full map` selected by default. `Focus` is available after selecting an entity and shows only that entity's asserted neighborhood. `Full map` shows the currently loaded bounded graph without allowing cross-links to control class-tree placement. The mode switcher sits at the left of the map toolbar, while zoom and view controls align to the right. Radial layout is not prioritized.
+
+Selection emphasizes only asserted context: a class's parents, children, properties, and directly related classes; a property's domains and ranges; or an individual's asserted types and direct assertions. Unrelated branches and cross-links are visually subdued.
+
+Users may manually reposition nodes after layout. Attached edges update during dragging. Expanded/collapsed state and manual positions survive while the map tab remains open. A bounded branch expansion inserts new nodes near their parent and preserves existing coordinates instead of rerunning the entire layout. A drag exceeding four CSS pixels is treated as a drag and must not also select/open the node.
 
 The mandatory Slice 0 feasibility gate selected a focused React/SVG renderer using the repository's existing React stack and no graph, layout, or gesture dependency. The preferred `@xyflow/react` candidate passed license, React 19, audit, and build checks, but its transform-owned viewport did not make an external native scroll world's bounds follow zoom without a second, fragile geometry system. React therefore owns accessible SVG node and edge presentation plus the bounded deterministic layered layout, while server responses remain the only source of semantic meaning.
 
@@ -144,14 +152,16 @@ The map work area supports:
 - panning with a dedicated pan gesture and Space plus pointer drag;
 - ordinary vertical and horizontal trackpad scrolling across the graph work area;
 - pointer-anchored wheel/pinch zoom;
-- `Zoom in`, `Zoom out`, `Fit loaded graph`, and `Reset view` controls;
+- `Zoom in`, `Zoom out`, and `Fit loaded graph` controls;
 - a visible zoom percentage.
 
 Supported zoom is 25% through 200%, with 100% as reset. Zoom clamps at these limits.
 
 Pointer-anchored zoom preserves the graph coordinate beneath the pointer or pinch center. The implementation maintains scrollable world bounds from node geometry plus padding after layout, drag, expansion, filtering, and zoom so every visible loaded node remains reachable horizontally and vertically at every supported zoom.
 
-`Fit loaded graph` fits visible nodes, not filtered-out nodes. `Reset view` reapplies the deterministic layout and returns to 100%, after a confirmation only when manual node positions would be discarded.
+Dragging empty map space with either the left or right mouse button pans the viewport. Right-drag also pans when initiated over a node and suppresses the browser context menu; left-dragging a node continues to move that node rather than the viewport.
+
+`Fit loaded graph` fits visible nodes, not filtered-out nodes. Temporary manual positions remain available until the map tab closes.
 
 ### 8. Selection And Information Pop-Up
 
@@ -162,17 +172,16 @@ The pop-up remains within the visible graph viewport where practical and reposit
 The pop-up uses data already present in the graph response and shows:
 
 - preferred label;
-- entity kind;
-- source display identity (never a filesystem path);
+- entity kind and `Asserted` provenance as subdued text below the label;
 - bounded definition excerpt;
-- direct superclass summary for a class;
-- domain and range summary for a property;
-- asserted type summary for an individual;
-- counts of loaded and available related entities;
-- `Asserted` provenance;
-- `View Details`.
+- a compact `Details` box containing inline direct-subclass, loaded-relationship, and available-relationship counts;
+- one `View Details` action.
+
+The close control is a small icon button in the top-right corner. Clicking or pointer-pressing anywhere outside the card dismisses it. The compact card can be dragged by its title area, remains constrained to the map, and preserves its temporary position while the map tab stays open. Neighborhood expansion, hierarchy, schema, type, and assertion actions do not appear in this summary; the existing entity details view remains the richer inspection surface.
 
 `View Details` opens or focuses the existing Explore entity-detail tab using the stable IRI and source ID, closes the pop-up, and leaves the map tab and its state open.
+
+Double-clicking a map node does not open entity details. Full details are available only through the summary card's explicit `View Details` action.
 
 ### 9. Outline Integration
 
@@ -196,9 +205,9 @@ Search behavior is:
 - choosing a supported local result that is not loaded offers `Open centered map`, which performs the bounded replacement behavior described above;
 - external/imported and unsupported results may open their existing details but are not loaded into the map.
 
-The filter panel is collapsed by default. It supports node-kind filters for classes, object properties, datatype properties, and individuals; source filters for local ontology source IDs in the response; and edge-kind filters for the five supported edge kinds. `Clear filters` restores all supported kinds and sources.
+One compact filter icon sits beside the Project Outline entity search. Its popover supports shared entity-kind and source visibility for the project outline, semantic search results, and ontology map, plus map-only edge-kind filters for the five supported edge kinds. Clicking outside closes the popover. `Reset filters` checks every supported entity, relationship, and source filter, including individuals. The map does not render a duplicate filter panel.
 
-Filtering changes only visible client presentation. It does not modify the server graph, outline, ontology, staging, proposals, or stored map positions. An edge is hidden when its kind is filtered or either endpoint is hidden.
+Filtering changes only visible client presentation. It does not modify the server graph, ontology, staging, proposals, or stored map positions. Shared entity filters update outline counts/lists and map visibility together. An edge is hidden when its kind is filtered or either endpoint is hidden.
 
 ### 11. Staleness And Refresh
 
