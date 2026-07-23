@@ -45,13 +45,16 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
         return;
       }
     }
-    const first = [...nodes].sort((a, b) => positions[a.identity.id].x - positions[b.identity.id].x || positions[a.identity.id].y - positions[b.identity.id].y || a.identity.id.localeCompare(b.identity.id))[0];
-    const target = positions[state.selectedNodeId ?? ""] ?? positions[first.identity.id];
-    if (!target) return;
     const canvas = element.querySelector<HTMLElement>(".ontology-graph-canvas");
     initiallyFocused.current = true;
-    element.scrollLeft = Math.max(0, (canvas?.offsetLeft ?? 0) + (target.x + graphNodeSize.width / 2 - bounds.minX) * zoom - element.clientWidth / 2);
-    element.scrollTop = Math.max(0, (canvas?.offsetTop ?? 0) + (target.y + graphNodeSize.height / 2 - bounds.minY) * zoom - element.clientHeight / 2);
+    const selected = positions[state.selectedNodeId ?? ""];
+    if (selected) {
+      element.scrollLeft = Math.max(0, (canvas?.offsetLeft ?? 0) + (selected.x + graphNodeSize.width / 2 - bounds.minX) * zoom - element.clientWidth / 2);
+      element.scrollTop = Math.max(0, (canvas?.offsetTop ?? 0) + (selected.y + graphNodeSize.height / 2 - bounds.minY) * zoom - element.clientHeight / 2);
+      return;
+    }
+    element.scrollLeft = Math.max(0, (element.scrollWidth - element.clientWidth) / 2);
+    element.scrollTop = Math.max(0, (element.scrollHeight - element.clientHeight) / 2);
   }, [bounds.height, bounds.minX, bounds.minY, bounds.width, initialZoom, nodes, positions, state.selectedNodeId, state.zoom, zoom]);
 
   function setZoom(nextValue: number, clientX?: number, clientY?: number) {
