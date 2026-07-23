@@ -2,6 +2,7 @@ package com.entio.web
 
 import com.entio.web.contract.InMemoryProjectRegistry
 import com.entio.web.contract.WebApplicationDependencies
+import com.entio.web.contract.WebOntologyGraphEdge
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -16,6 +17,25 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class OntologyGraphWebContractTest {
+    @Test
+    fun inferredEdgesSerializeTheirAuthoritativeGraphState(): Unit {
+        val edge = WebOntologyGraphEdge(
+            id = "edge",
+            kind = "Type",
+            sourceNodeId = "individual",
+            targetNodeId = "class",
+            label = "type",
+            predicateIri = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+            provenance = "Inferred",
+            inferredGraphState = "Proposal",
+        )
+
+        val json = ObjectMapper().valueToTree<com.fasterxml.jackson.databind.JsonNode>(edge)
+
+        assertEquals("Inferred", json.path("provenance").asText())
+        assertEquals("Proposal", json.path("inferredGraphState").asText())
+    }
+
     @Test
     fun graphRouteSerializesBoundedReadContractsWithoutPathOrSourceContent(): Unit = testApplication {
         val registry = registry()
