@@ -31,6 +31,10 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   expect(new URL(graphUrls[0]).searchParams.has("seedIri")).toBe(false);
   expect(new URL(graphUrls[0]).searchParams.has("seedSourceId")).toBe(false);
   await expect(page.getByRole("tab", { name: "Ontology map" })).toHaveCount(1);
+  const ontologyMap = page.getByRole("region", { name: "Ontology map" });
+  await expect(ontologyMap.getByRole("button", { name: "Hierarchy" })).toHaveCount(0);
+  await expect(ontologyMap.getByRole("button", { name: "Full map" })).toHaveAttribute("aria-pressed", "true");
+  await expect(ontologyMap.getByRole("button", { name: "Focus" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Class: Entity 0000" })).toBeVisible();
   await expect(page.getByRole("button", { name: "ObjectProperty: Entity 0005" })).toBeVisible();
   await expect(page.getByRole("button", { name: "DatatypeProperty: Entity 0002" })).toBeVisible();
@@ -58,6 +62,7 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await expect(page.locator(".outline-filter-menu")).not.toHaveAttribute("open", "");
   const node = page.getByRole("button", { name: "Class: Entity 0000" });
   await node.click();
+  await expect(ontologyMap.getByRole("button", { name: "Focus" })).toBeEnabled();
   const popup = page.getByRole("dialog", { name: "Entity 0000 map summary" });
   await expect(popup.getByRole("heading", { name: "Entity 0000" })).toBeVisible();
   await expect(popup).toContainText("Class · Asserted");

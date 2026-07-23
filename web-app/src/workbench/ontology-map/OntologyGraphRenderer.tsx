@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import type { WebOntologyGraphEdge, WebOntologyGraphNode } from "../../web/contracts";
 import { anchoredScroll, clampZoom, curvedEdgePath, directionalNeighbor, draggedPoint, edgeLabelPoint, graphNodeSize, graphWorldBounds, layeredGraphLayout, type GraphPoint } from "./graphLayout";
 
@@ -7,10 +7,11 @@ const kindMark = { Class: "C", ObjectProperty: "OP", DatatypeProperty: "DP", Ind
 
 export interface RendererState { selectedNodeId: string | null; positions?: Record<string, GraphPoint>; zoom?: number }
 
-export default function OntologyGraphRenderer({ nodes, edges, state, childCounts = {}, dimmedNodeIds = new Set(), dimmedEdgeIds = new Set(), onStateChange, onViewDetails }: {
+export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStart, childCounts = {}, dimmedNodeIds = new Set(), dimmedEdgeIds = new Set(), onStateChange, onViewDetails }: {
   nodes: WebOntologyGraphNode[];
   edges: WebOntologyGraphEdge[];
   state: RendererState;
+  toolbarStart?: ReactNode;
   childCounts?: Record<string, number>;
   dimmedNodeIds?: Set<string>;
   dimmedEdgeIds?: Set<string>;
@@ -129,14 +130,17 @@ export default function OntologyGraphRenderer({ nodes, edges, state, childCounts
 
   return <div className="ontology-graph" onKeyDown={(event) => { if (event.key === "Escape" && state.selectedNodeId) onStateChange({ ...state, selectedNodeId: null }); }}>
     <div className="ontology-graph-controls">
-      <div className="ontology-zoom-stepper" role="group" aria-label="Map zoom">
-        <button type="button" onClick={() => setZoom(zoom - 0.1)} aria-label="Zoom out">−</button>
-        <output aria-label="Zoom percentage">{Math.round(zoom * 100)}%</output>
-        <button type="button" onClick={() => setZoom(zoom + 0.1)} aria-label="Zoom in">+</button>
-      </div>
-      <div className="ontology-graph-command-buttons">
-        <button type="button" onClick={fit}>Fit</button>
-        <button type="button" onClick={reset}>Reset</button>
+      {toolbarStart}
+      <div className="ontology-graph-control-cluster">
+        <div className="ontology-zoom-stepper" role="group" aria-label="Map zoom">
+          <button type="button" onClick={() => setZoom(zoom - 0.1)} aria-label="Zoom out">−</button>
+          <output aria-label="Zoom percentage">{Math.round(zoom * 100)}%</output>
+          <button type="button" onClick={() => setZoom(zoom + 0.1)} aria-label="Zoom in">+</button>
+        </div>
+        <div className="ontology-graph-command-buttons">
+          <button type="button" onClick={fit}>Fit</button>
+          <button type="button" onClick={reset}>Reset</button>
+        </div>
       </div>
     </div>
     <div className={`ontology-graph-viewport ${panning ? "panning" : ""}`} ref={viewport} tabIndex={0} onContextMenu={(event) => event.preventDefault()} onKeyDown={(event) => { if (event.code === "Space") setSpaceHeld(true); }} onKeyUp={(event) => { if (event.code === "Space") setSpaceHeld(false); }} onPointerDown={(event) => { const overNode = (event.target as Element).closest(".ontology-node"); if (spaceHeld || event.button === 1 || event.button === 2 || (event.button === 0 && !overNode)) { event.preventDefault(); pan.current = { x: event.clientX, y: event.clientY, left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop }; setPanning(true); event.currentTarget.setPointerCapture(event.pointerId); } }} onPointerMove={(event) => { if (pan.current) { event.currentTarget.scrollLeft = pan.current.left - (event.clientX - pan.current.x); event.currentTarget.scrollTop = pan.current.top - (event.clientY - pan.current.y); } }} onPointerUp={() => { pan.current = null; setPanning(false); }} onPointerCancel={() => { pan.current = null; setPanning(false); }}>

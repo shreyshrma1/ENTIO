@@ -16,7 +16,7 @@ export interface OntologyMapViewState extends RendererState {
   continuation?: { token: string; category: OntologyGraphExpansionCategory; entityId: string };
   sourceVisible?: boolean;
   stale?: boolean;
-  layoutMode?: "Hierarchy" | "Focus" | "FullMap";
+  layoutMode?: "Focus" | "FullMap";
   expandedClassIds?: string[];
   revealedIndividualIds?: string[];
   popupPosition?: { x: number; y: number };
@@ -59,7 +59,7 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   const childCounts = useMemo(() => classChildCounts(nodes, edges), [nodes, edges]);
   const basePositions = useMemo(() => layeredGraphLayout(nodes, edges), [nodes, edges]);
   const revealedIndividualIds = useMemo(() => state.nodeKinds?.includes("Individual") ? new Set(nodes.filter((node) => node.kind === "Individual").map((node) => node.identity.id)) : new Set(state.revealedIndividualIds ?? []), [nodes, state.nodeKinds, state.revealedIndividualIds]);
-  const projectedIds = useMemo(() => projectedNodeIds(nodes, edges, state.layoutMode ?? "Hierarchy", state.selectedNodeId, new Set(state.expandedClassIds ?? []), revealedIndividualIds, basePositions), [basePositions, edges, nodes, revealedIndividualIds, state.expandedClassIds, state.layoutMode, state.selectedNodeId]);
+  const projectedIds = useMemo(() => projectedNodeIds(nodes, edges, state.layoutMode ?? "FullMap", state.selectedNodeId, new Set(state.expandedClassIds ?? []), revealedIndividualIds, basePositions), [basePositions, edges, nodes, revealedIndividualIds, state.expandedClassIds, state.layoutMode, state.selectedNodeId]);
   const visibleNodes = useMemo(() => state.sourceVisible === false ? [] : nodes.filter((node) => projectedIds.has(node.identity.id) && (state.nodeKinds === undefined || state.nodeKinds.includes(node.kind))), [nodes, projectedIds, state.nodeKinds, state.sourceVisible]);
   const visibleIds = useMemo(() => new Set(visibleNodes.map((node) => node.identity.id)), [visibleNodes]);
   const visibleEdges = useMemo(() => edges.filter((edge) => visibleIds.has(edge.sourceNodeId) && visibleIds.has(edge.targetNodeId) && (state.edgeKinds === undefined || state.edgeKinds.includes(edge.kind))), [edges, state.edgeKinds, visibleIds]);
@@ -124,8 +124,7 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   function stopPopupDrag() { popupDrag.current = null; }
   return <section ref={shellRef} className="ontology-map-shell" aria-label="Ontology map">
     <header><span>Read-only ontology map</span><strong>{nodes.length} loaded entities</strong></header>
-    <fieldset disabled={state.stale} className="ontology-map-actions"><legend className="visually-hidden">Current ontology map actions</legend><div className="ontology-layout-modes" role="group" aria-label="Map layout mode">{(["Hierarchy", "Focus", "FullMap"] as const).map((mode) => <button aria-pressed={(state.layoutMode ?? "Hierarchy") === mode} className={(state.layoutMode ?? "Hierarchy") === mode ? "active" : ""} key={mode} type="button" onClick={() => onStateChange({ ...state, layoutMode: mode })}>{mode === "FullMap" ? "Full map" : mode}</button>)}</div></fieldset>
-    <OntologyGraphRenderer nodes={visibleNodes} edges={visibleEdges} state={state} childCounts={childCounts} dimmedNodeIds={dimmedNodeIds} dimmedEdgeIds={dimmedEdgeIds} onStateChange={onStateChange} onViewDetails={(node) => onViewDetails({ iri: node.identity.entityIri, label: node.label, kind: node.kind, sourceId: node.identity.sourceId })} />
+    <OntologyGraphRenderer nodes={visibleNodes} edges={visibleEdges} state={state} toolbarStart={<fieldset disabled={state.stale} className="ontology-map-actions"><legend className="visually-hidden">Current ontology map actions</legend><div className="ontology-layout-modes" role="group" aria-label="Map layout mode">{(["Focus", "FullMap"] as const).map((mode) => <button aria-pressed={(state.layoutMode ?? "FullMap") === mode} className={(state.layoutMode ?? "FullMap") === mode ? "active" : ""} disabled={mode === "Focus" && !selected} key={mode} type="button" onClick={() => onStateChange({ ...state, layoutMode: mode })}>{mode === "FullMap" ? "Full map" : mode}</button>)}</div></fieldset>} childCounts={childCounts} dimmedNodeIds={dimmedNodeIds} dimmedEdgeIds={dimmedEdgeIds} onStateChange={onStateChange} onViewDetails={(node) => onViewDetails({ iri: node.identity.entityIri, label: node.label, kind: node.kind, sourceId: node.identity.sourceId })} />
     {selected ? <aside ref={popupRef} className="ontology-node-popup" role="dialog" aria-label={`${selected.label} map summary`} style={state.popupPosition ? { left: state.popupPosition.x, top: state.popupPosition.y, right: "auto" } : undefined}>
       <button className="ontology-node-popup-close" type="button" aria-label="Close entity summary" onClick={() => onStateChange({ ...state, selectedNodeId: null })}>×</button>
       <header className="ontology-node-popup-drag-handle" onPointerDown={startPopupDrag} onPointerMove={movePopup} onPointerUp={stopPopupDrag} onPointerCancel={stopPopupDrag}><h3>{selected.label}</h3><p>{selected.kind} · Asserted</p></header>

@@ -128,13 +128,13 @@ One map tab may hold at most 300 nodes and 600 edges. Before an expansion would 
 
 ### 6. Layout And Rendering
 
-The default `Hierarchy` mode is a deterministic left-to-right class tree: root classes, subclasses, then deeper subclasses. Asserted `SubclassOf` edges alone establish the main tree. Multiple asserted parents and other cross-branch relationships remain visible but do not control tree placement.
+The map uses a deterministic left-to-right class tree: root classes, subclasses, then deeper subclasses. Asserted `SubclassOf` edges alone establish the main tree. Multiple asserted parents and other cross-branch relationships remain visible but do not control tree placement.
 
 Sibling classes are ordered by descending direct subclass count, connected property count, directly typed individual count, and total incoming/outgoing relationship count, then by label and IRI. These facts affect presentation only. Identical graph fingerprints and view settings produce identical positions.
 
 Object properties stay close to their asserted domain and connect to their asserted range. Datatype properties render as compact items below their asserted domain. The shared Individuals filter is selected initially, so bounded typed individuals are visible at launch and may be hidden explicitly. Large loaded branches are initially collapsed behind child counts and bounded expand/load-more actions.
 
-The toolbar provides `Hierarchy`, `Focus`, and `Full map` modes. `Focus` shows the selected entity's asserted neighborhood. `Full map` shows the currently loaded bounded graph without allowing cross-links to control class-tree placement. Radial layout is not prioritized.
+The toolbar provides `Focus` and `Full map` modes, with `Full map` selected by default. `Focus` is available after selecting an entity and shows only that entity's asserted neighborhood. `Full map` shows the currently loaded bounded graph without allowing cross-links to control class-tree placement. The mode switcher sits at the left of the map toolbar, while zoom and view controls align to the right. Radial layout is not prioritized.
 
 Selection emphasizes only asserted context: a class's parents, children, properties, and directly related classes; a property's domains and ranges; or an individual's asserted types and direct assertions. Unrelated branches and cross-links are visually subdued.
 
