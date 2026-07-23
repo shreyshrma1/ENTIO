@@ -549,6 +549,29 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .materialization-provenance div { display: flex; gap: 5px; }
 .materialization-provenance dt { color: var(--text-secondary); font-weight: 700; }
 .materialization-provenance dd { margin: 0; }
+.reasoning-fact-browsers { display: grid; gap: 14px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-subtle); }
+.reasoning-fact-browser-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.reasoning-fact-browser-button { display: grid; gap: 5px; padding: 16px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-1); color: var(--text-primary); text-align: left; }
+.reasoning-fact-browser-button:hover:not(:disabled) { border-color: var(--primary-300); background: var(--primary-50); }
+.reasoning-fact-browser-button.inferred { border-color: #b9d9ff; background: #f2f8ff; }
+.reasoning-fact-browser-button strong { font-size: 14px; }
+.reasoning-fact-browser-button span { color: var(--text-muted); font-size: 11px; }
+.reasoning-fact-dialog-backdrop { position: fixed; z-index: 40; inset: 0; display: grid; place-items: center; padding: 24px; background: rgb(20 28 45 / 34%); }
+.reasoning-fact-dialog { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; width: min(760px, 92vw); max-height: min(760px, 86vh); overflow: hidden; border: 1px solid var(--border-default); border-radius: 16px; background: var(--surface-1); box-shadow: var(--shadow-lg); }
+.reasoning-fact-dialog > header, .reasoning-fact-dialog > footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; }
+.reasoning-fact-dialog > header { border-bottom: 1px solid var(--border-subtle); }
+.reasoning-fact-dialog > header h3, .reasoning-fact-dialog > header p { margin: 0; }
+.reasoning-fact-dialog > footer { justify-content: flex-end; border-top: 1px solid var(--border-subtle); }
+.reasoning-fact-search { display: grid; gap: 6px; padding: 14px 18px 8px; }
+.reasoning-fact-search label { color: var(--text-secondary); font-size: 10px; font-weight: 700; }
+.reasoning-fact-search > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.reasoning-fact-count { margin: 0; padding: 4px 18px 10px; color: var(--text-muted); font-size: 10px; }
+.reasoning-fact-scroll { min-height: 220px; overflow: auto; padding: 0 18px 16px; }
+.reasoning-fact-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.reasoning-fact-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 11px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-2); }
+.reasoning-fact-list li > strong:last-of-type { text-align: right; }
+.reasoning-fact-list li > span { color: var(--primary-700); font-size: 10px; font-weight: 700; }
+.reasoning-fact-list li > small { grid-column: 1 / -1; color: var(--text-muted); font-size: 9px; }
 .constraints-toolbar, .constraints-library, .constraints-validation { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-1); }
 .constraints-toolbar { grid-template-columns: 1fr; align-items: stretch; }
 .constraints-toolbar > div:first-child { justify-self: start; max-width: 72ch; text-align: left; }

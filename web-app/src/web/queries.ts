@@ -217,10 +217,10 @@ export function useSemanticJob(projectId: string, jobId: string | null) {
   });
 }
 
-export function useSemanticJobDetails(projectId: string, jobId: string | null) {
+export function useSemanticJobDetails(projectId: string, jobId: string | null, options: { factOrigin?: "Asserted" | "Inferred"; factOffset?: number; factQuery?: string; limit?: number } = {}) {
   return useQuery({
-    queryKey: [...queryKeys.semanticJob(projectId, jobId ?? ""), "details"],
-    queryFn: () => loadSemanticJobDetails(projectId, jobId!),
+    queryKey: [...queryKeys.semanticJob(projectId, jobId ?? ""), "details", options],
+    queryFn: () => loadSemanticJobDetails(projectId, jobId!, options),
     enabled: projectId.length > 0 && Boolean(jobId),
     refetchInterval: (query) => {
       const status = query.state.data?.job.status;

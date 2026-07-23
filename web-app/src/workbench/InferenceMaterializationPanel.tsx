@@ -1,192 +1,115 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { WebInferenceMaterializationCandidate, WebReasoningFact, WebSemanticJobState } from "../web/projectApi";
-import { useInferenceMaterialization } from "../web/queries";
+import { useEffect, useState, type FormEvent } from "react";
+import type { WebReasoningFact, WebSemanticJobState } from "../web/projectApi";
+import { useSemanticJobDetails } from "../web/queries";
 
-interface InferenceMaterializationPanelProps {
+interface ReasoningFactsPanelProps {
   projectId: string;
   jobId: string;
   jobStatus: WebSemanticJobState;
-  facts: WebReasoningFact[];
-  candidates: WebInferenceMaterializationCandidate[];
-  truncated: boolean;
-  onOpenChanges: () => void;
 }
 
-export default function InferenceMaterializationPanel({
-  projectId,
-  jobId,
-  jobStatus,
-  facts,
-  candidates,
-  truncated,
-  onOpenChanges,
-}: InferenceMaterializationPanelProps) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [sourceChoices, setSourceChoices] = useState<Record<string, string>>({});
-  const idempotencyKey = useRef<string | null>(null);
-  const materialize = useInferenceMaterialization(projectId, jobId);
-  const asserted = facts.filter((fact) => fact.origin === "Asserted");
-  const selectable = useMemo(
-    () => candidates.filter((candidate) => candidate.stageability === "Stageable" || candidate.stageability === "AmbiguousSource"),
-    [candidates],
-  );
-  const selectionSignature = [...selected].sort().map((factId) => `${factId}:${sourceChoices[factId] ?? ""}`).join("|");
+export default function ReasoningFactsPanel({ projectId, jobId, jobStatus }: ReasoningFactsPanelProps) {
+  const [openOrigin, setOpenOrigin] = useState<"Asserted" | "Inferred" | null>(null);
 
-  useEffect(() => {
-    setSelected(new Set());
-    setSourceChoices({});
-    idempotencyKey.current = null;
-  }, [projectId, jobId, jobStatus]);
-
-  useEffect(() => {
-    idempotencyKey.current = null;
-  }, [selectionSignature]);
-
-  const missingSourceChoice = selectable.some(
-    (candidate) => selected.has(candidate.factId) &&
-      candidate.stageability === "AmbiguousSource" &&
-      !sourceChoices[candidate.factId],
-  );
-  const canSubmit = selected.size > 0 && !missingSourceChoice && jobStatus === "Completed" && !materialize.isPending;
-
-  function toggle(factId: string) {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(factId)) next.delete(factId); else next.add(factId);
-      return next;
-    });
-  }
-
-  function selectAllVisible() {
-    setSelected(new Set(selectable.slice(0, 100).map((candidate) => candidate.factId)));
-  }
-
-  function clearSelection() {
-    setSelected(new Set());
-    setSourceChoices({});
-  }
-
-  function stageSelected() {
-    if (!canSubmit) return;
-    idempotencyKey.current ??= createIdempotencyKey();
-    const selections = candidates
-      .filter((candidate) => selected.has(candidate.factId))
-      .map((candidate) => ({
-        factId: candidate.factId,
-        ...(sourceChoices[candidate.factId] ? { targetSourceId: sourceChoices[candidate.factId] } : {}),
-      }));
-    materialize.mutate(
-      { selections, idempotencyKey: idempotencyKey.current },
-      {
-        onSuccess: () => {
-          clearSelection();
-          idempotencyKey.current = null;
-          onOpenChanges();
-        },
-      },
-    );
-  }
-
-  return <section className="inference-materialization" aria-labelledby="reasoning-facts-heading">
+  return <section className="reasoning-fact-browsers" aria-labelledby="reasoning-facts-heading">
     <div className="section-heading">
       <div>
         <h3 id="reasoning-facts-heading">Reasoning facts</h3>
-        <p className="muted">Review inferred facts before staging any as explicit assertions.</p>
+        <p className="muted">Browse the asserted input and the relationships inferred from it.</p>
       </div>
-      <span className="selection-count" aria-live="polite">{selected.size} selected</span>
     </div>
-
-    <section aria-labelledby="asserted-facts-heading">
-      <h4 id="asserted-facts-heading">Asserted facts <span className="fact-origin">Asserted</span></h4>
-      {asserted.length ? <ul className="asserted-fact-list">
-        {asserted.map((fact, index) => <li key={`${fact.kind}-${fact.subject}-${fact.objectValue}-${index}`}>
-          <span>{shorten(fact.subject)}</span>
-          <span>{shorten(fact.predicate ?? fact.kind)}</span>
-          <span>{shorten(fact.objectValue)}</span>
-        </li>)}
-      </ul> : <p className="muted">No asserted facts are included in this bounded result.</p>}
-    </section>
-
-    <section aria-labelledby="inferred-facts-heading">
-      <div className="inference-list-heading">
-        <h4 id="inferred-facts-heading">Inferred facts <span className="fact-origin inferred">Inferred</span></h4>
-        <div className="inference-selection-actions">
-          <button type="button" className="button small" onClick={selectAllVisible} disabled={!selectable.length}>Select all visible</button>
-          <button type="button" className="button small" onClick={clearSelection} disabled={!selected.size}>Clear selection</button>
-        </div>
-      </div>
-      {candidates.length ? <div className="inference-fact-table" role="table" aria-label="Inferred materialization candidates">
-        <div className="inference-fact-row header" role="row">
-          <span role="columnheader">Select</span><span role="columnheader">Fact</span><span role="columnheader">Type</span>
-          <span role="columnheader">Target source</span><span role="columnheader">Status</span>
-        </div>
-        {candidates.map((candidate) => {
-          const enabled = candidate.stageability === "Stageable" || candidate.stageability === "AmbiguousSource";
-          return <div className={`inference-fact-row ${enabled ? "" : "disabled"}`} role="row" key={candidate.factId}>
-            <span role="cell">
-              <input
-                type="checkbox"
-                aria-label={`Select ${candidate.subjectLabel} ${candidate.predicateLabel} ${candidate.objectLabel}`}
-                checked={selected.has(candidate.factId)}
-                disabled={!enabled}
-                onChange={() => toggle(candidate.factId)}
-              />
-            </span>
-            <span role="cell" className="inference-fact-statement">
-              <strong>{candidate.subjectLabel}</strong>
-              <span>{candidate.predicateLabel}</span>
-              <strong>{candidate.objectLabel}</strong>
-              {candidate.importDependence === "Imported" ? <small>Depends on imported knowledge</small> : null}
-            </span>
-            <span role="cell">{formatKind(candidate.kind)}</span>
-            <span role="cell">
-              {candidate.sourceCandidates.length > 1 ? <label>
-                <span className="sr-only">Target source for {candidate.subjectLabel}</span>
-                <select
-                  aria-label={`Target source for ${candidate.subjectLabel}`}
-                  value={sourceChoices[candidate.factId] ?? ""}
-                  onChange={(event) => setSourceChoices((current) => ({ ...current, [candidate.factId]: event.target.value }))}
-                >
-                  <option value="">Choose source</option>
-                  {candidate.sourceCandidates.map((source) => <option key={source.sourceId} value={source.sourceId}>{source.sourceId}</option>)}
-                </select>
-              </label> : <span>{candidate.selectedSourceId ?? "Not available"}</span>}
-            </span>
-            <span role="cell">
-              <strong>{formatStageability(candidate.stageability)}</strong>
-              <small>{candidate.reason}</small>
-              {candidate.existingStagedChangeId ? <small>Existing item: {candidate.existingStagedChangeId}</small> : null}
-            </span>
-          </div>;
-        })}
-      </div> : <p className="muted">No supported inferred facts are available in this result.</p>}
-    </section>
-
-    {truncated ? <p role="status">Only the first 100 loaded facts are shown and selectable.</p> : null}
-    {missingSourceChoice ? <p role="status">Choose a target source for every ambiguous selected fact.</p> : null}
-    {materialize.isPending ? <p role="status" aria-live="polite">Reloading the applied graph and rechecking reasoning before staging…</p> : null}
-    {materialize.isError ? <p role="alert">Could not stage the selected inferred facts. {materialize.error.message}</p> : null}
-    <button type="button" className="button primary" disabled={!canSubmit} onClick={stageSelected}>
-      Stage as asserted
-    </button>
+    <div className="reasoning-fact-browser-buttons">
+      <button type="button" className="reasoning-fact-browser-button" onClick={() => setOpenOrigin("Asserted")} disabled={jobStatus !== "Completed"}>
+        <strong>Asserted facts</strong>
+        <span>Browse relationships present in the applied graph</span>
+      </button>
+      <button type="button" className="reasoning-fact-browser-button inferred" onClick={() => setOpenOrigin("Inferred")} disabled={jobStatus !== "Completed"}>
+        <strong>Inferred facts</strong>
+        <span>Browse relationships produced by reasoning</span>
+      </button>
+    </div>
+    {openOrigin ? <ReasoningFactDialog projectId={projectId} jobId={jobId} origin={openOrigin} onClose={() => setOpenOrigin(null)} /> : null}
   </section>;
 }
 
-function formatKind(kind: WebInferenceMaterializationCandidate["kind"]): string {
-  if (kind === "SubclassRelationship") return "Subclass";
-  if (kind === "IndividualType") return "Individual type";
-  return "Object property";
+function ReasoningFactDialog({ projectId, jobId, origin, onClose }: {
+  projectId: string;
+  jobId: string;
+  origin: "Asserted" | "Inferred";
+  onClose: () => void;
+}) {
+  const [input, setInput] = useState("");
+  const [query, setQuery] = useState("");
+  const [offset, setOffset] = useState(0);
+  const [facts, setFacts] = useState<WebReasoningFact[]>([]);
+  const page = useSemanticJobDetails(projectId, jobId, { factOrigin: origin, factOffset: offset, factQuery: query, limit: 50 });
+
+  useEffect(() => {
+    if (!page.data) return;
+    setFacts((current) => {
+      const combined = offset === 0 ? page.data.facts : [...current, ...page.data.facts];
+      return [...new Map(combined.map((fact) => [factKey(fact), fact])).values()];
+    });
+  }, [offset, page.data]);
+
+  function search(event: FormEvent) {
+    event.preventDefault();
+    setFacts([]);
+    setOffset(0);
+    setQuery(input.trim());
+  }
+
+  return <div className="reasoning-fact-dialog-backdrop">
+    <section className="reasoning-fact-dialog" role="dialog" aria-modal="true" aria-labelledby="reasoning-fact-dialog-title">
+      <header>
+        <div>
+          <p className="eyebrow">{origin}</p>
+          <h3 id="reasoning-fact-dialog-title">{origin} facts</h3>
+        </div>
+        <button type="button" className="icon-button" aria-label={`Close ${origin.toLowerCase()} facts`} onClick={onClose}>×</button>
+      </header>
+      <form className="reasoning-fact-search" role="search" onSubmit={search}>
+        <label htmlFor={`reasoning-${origin.toLowerCase()}-search`}>Search relationships</label>
+        <div>
+          <input id={`reasoning-${origin.toLowerCase()}-search`} value={input} onChange={(event) => setInput(event.target.value)} placeholder="Search subject, relationship, or object" />
+          <button type="submit" className="button">Search</button>
+        </div>
+      </form>
+      <p className="reasoning-fact-count">{page.data ? `${facts.length} of ${page.data.totalFactCount}` : "Loading facts…"}</p>
+      <div className="reasoning-fact-scroll">
+        {page.isError ? <p role="alert">Could not load reasoning facts. {page.error.message}</p> : null}
+        {!facts.length && page.isPending ? <p role="status">Loading reasoning facts…</p> : null}
+        {!facts.length && page.data && !page.data.totalFactCount ? <p className="muted">No facts match this search.</p> : null}
+        {facts.length ? <ul className="reasoning-fact-list">{facts.map((fact) => <li key={factKey(fact)}>
+          <strong>{shorten(fact.subject)}</strong>
+          <span>{shorten(fact.predicate ?? fact.kind)}</span>
+          <strong>{shorten(fact.objectValue)}</strong>
+          <small>{formatKind(fact.kind)}</small>
+        </li>)}</ul> : null}
+      </div>
+      <footer>
+        {page.data?.nextFactOffset != null ? <button type="button" className="button" disabled={page.isFetching} onClick={() => setOffset(page.data!.nextFactOffset!)}>{page.isFetching ? "Loading…" : "Load more"}</button> : null}
+        <button type="button" className="button primary" onClick={onClose}>Done</button>
+      </footer>
+    </section>
+  </div>;
 }
 
-function formatStageability(value: string): string {
-  return value.replace(/([a-z])([A-Z])/g, "$1 $2");
+function factKey(fact: WebReasoningFact): string {
+  return [fact.origin, fact.kind, fact.subject, fact.predicate, fact.objectValue].join("|");
+}
+
+function formatKind(kind: string): string {
+  if (kind === "class-relationship") return "Class relationship";
+  if (kind === "individual-type") return "Individual type";
+  if (kind === "property-relationship") return "Object-property relationship";
+  return kind;
 }
 
 function shorten(value: string): string {
-  return value.slice(Math.max(value.lastIndexOf("#"), value.lastIndexOf("/")) + 1);
-}
-
-function createIdempotencyKey(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return `materialize-${crypto.randomUUID()}`;
-  return `materialize-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  try {
+    return decodeURIComponent(value.slice(Math.max(value.lastIndexOf("#"), value.lastIndexOf("/")) + 1));
+  } catch {
+    return value;
+  }
 }

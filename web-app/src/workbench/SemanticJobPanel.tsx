@@ -81,15 +81,11 @@ export default function SemanticJobPanel({ projectId, initialJobId = null, onJob
           {!terminal && status.status !== "Queued" ? <button className="button small" type="button" onClick={() => actions.cancel.mutate(status.id)} disabled={actions.cancel.isPending}>Cancel semantic job</button> : null}
         </div>
       ) : showReasoning && !showShacl ? null : <p className="muted">Choose a graph, then run validation.</p>}
-      {showReasoning && status?.kind === "Reasoning" && status.scope === "Applied" && status.status === "Completed" && details.data ? (
+      {showReasoning && status?.kind === "Reasoning" && status.scope === "Applied" && status.status === "Completed" ? (
         <InferenceMaterializationPanel
           projectId={projectId}
           jobId={status.id}
-          jobStatus={details.data.job.status}
-          facts={details.data.facts}
-          candidates={details.data.materializationCandidates}
-          truncated={details.data.truncated}
-          onOpenChanges={onOpenChanges}
+          jobStatus={status.status}
         />
       ) : null}
       {showReasoning && status?.status === "Completed" && details.isError ? <p role="alert">Could not load bounded reasoning facts. {details.error.message}</p> : null}

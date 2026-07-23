@@ -574,7 +574,15 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
         get("/api/v1/projects/{projectId}/semantic-jobs/{jobId}/details") {
             call.respondJob {
                 val user = call.requireUser(dependencies)
-                jobs.details(call.requiredProjectId(), call.requiredJobId(), requestingUserId = user.id)
+                jobs.details(
+                    call.requiredProjectId(),
+                    call.requiredJobId(),
+                    limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 50,
+                    factOffset = call.request.queryParameters["factOffset"]?.toIntOrNull() ?: 0,
+                    factOrigin = call.request.queryParameters["factOrigin"],
+                    factQuery = call.request.queryParameters["factQuery"],
+                    requestingUserId = user.id,
+                )
                     ?: throw WebWorkflowFailure("unknown-semantic-job", "The requested semantic job was not found.")
             }
         }
