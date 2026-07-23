@@ -181,6 +181,8 @@ The close control is a small icon button in the top-right corner. Clicking or po
 
 `View Details` opens or focuses the existing Explore entity-detail tab using the stable IRI and source ID, closes the pop-up, and leaves the map tab and its state open.
 
+Double-clicking a map node does not open entity details. Full details are available only through the summary card's explicit `View Details` action.
+
 ### 9. Outline Integration
 
 The current Explore outline remains unchanged and authoritative.

@@ -10,21 +10,21 @@ const nodes: WebOntologyGraphNode[] = kinds.map((kind, index) => ({
 }));
 
 describe("accessible ontology graph renderer", () => {
-  it("names every supported node kind, labels directed edges, and hands off details without mutation", () => {
+  it("names every supported node kind, labels directed edges, and does not navigate on double click", () => {
     const onStateChange = vi.fn();
     const onViewDetails = vi.fn();
-    render(<OntologyGraphRenderer nodes={nodes} edges={[{ id: "edge", kind: "Domain", sourceNodeId: "node-1", targetNodeId: "node-0", label: "domain", predicateIri: null, provenance: "Asserted" }]} state={{ selectedNodeId: null }} onStateChange={onStateChange} onViewDetails={onViewDetails} />);
+    render(<OntologyGraphRenderer nodes={nodes} edges={[{ id: "edge", kind: "Domain", sourceNodeId: "node-1", targetNodeId: "node-0", label: "domain", predicateIri: null, provenance: "Asserted" }]} state={{ selectedNodeId: null }} onStateChange={onStateChange} />);
     kinds.forEach((kind) => expect(screen.getByRole("button", { name: `${kind}: ${kind} label` })).toBeVisible());
     expect(screen.getByText("domain")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Class: Class label" }));
     expect(onStateChange).toHaveBeenCalledWith(expect.objectContaining({ selectedNodeId: "node-0" }));
     fireEvent.doubleClick(screen.getByRole("button", { name: "Individual: Individual label" }));
-    expect(onViewDetails).toHaveBeenCalledWith(nodes[3]);
+    expect(onViewDetails).not.toHaveBeenCalled();
   });
 
   it("moves a node without selecting it when the pointer action is a drag", () => {
     const onStateChange = vi.fn();
-    const renderer = render(<OntologyGraphRenderer nodes={nodes} edges={[]} state={{ selectedNodeId: null }} onStateChange={onStateChange} onViewDetails={vi.fn()} />);
+    const renderer = render(<OntologyGraphRenderer nodes={nodes} edges={[]} state={{ selectedNodeId: null }} onStateChange={onStateChange} />);
     const classNode = renderer.container.querySelector<HTMLButtonElement>('[aria-label="Class: Class label"]')!;
     classNode.setPointerCapture = vi.fn();
     fireEvent.pointerDown(classNode, { pointerId: 1, clientX: 100, clientY: 100 });
@@ -37,7 +37,7 @@ describe("accessible ontology graph renderer", () => {
 
   it("captures wheel and trackpad pinch gestures as map-local zoom", () => {
     const onStateChange = vi.fn();
-    const renderer = render(<OntologyGraphRenderer nodes={nodes} edges={[]} state={{ selectedNodeId: null, zoom: 1 }} onStateChange={onStateChange} onViewDetails={vi.fn()} />);
+    const renderer = render(<OntologyGraphRenderer nodes={nodes} edges={[]} state={{ selectedNodeId: null, zoom: 1 }} onStateChange={onStateChange} />);
     const viewport = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport")!;
     expect(fireEvent.wheel(viewport, { ctrlKey: false, deltaY: 100, clientX: 20, clientY: 20 })).toBe(false);
     expect(fireEvent.wheel(viewport, { ctrlKey: true, deltaY: -100, clientX: 20, clientY: 20 })).toBe(false);
@@ -45,7 +45,7 @@ describe("accessible ontology graph renderer", () => {
   });
 
   it("pans with left-drag on empty space and right-drag over a node", () => {
-    const renderer = render(<OntologyGraphRenderer nodes={nodes} edges={[]} state={{ selectedNodeId: null, zoom: 1 }} onStateChange={vi.fn()} onViewDetails={vi.fn()} />);
+    const renderer = render(<OntologyGraphRenderer nodes={nodes} edges={[]} state={{ selectedNodeId: null, zoom: 1 }} onStateChange={vi.fn()} />);
     const viewport = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport")!;
     const classNode = renderer.container.querySelector<HTMLButtonElement>('[aria-label="Class: Class label"]')!;
     viewport.setPointerCapture = vi.fn();
