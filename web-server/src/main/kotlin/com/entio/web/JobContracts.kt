@@ -56,6 +56,30 @@ public data class WebReasoningFact(
     val sourceId: String? = null,
 )
 
+public data class WebInferenceSourceCandidate(
+    val sourceId: String,
+    val selected: Boolean,
+)
+
+public data class WebInferenceMaterializationCandidate(
+    val factId: String,
+    val kind: String,
+    val subject: String,
+    val subjectLabel: String,
+    val predicate: String,
+    val predicateLabel: String,
+    val objectValue: String,
+    val objectLabel: String,
+    val origin: String = "Inferred",
+    val stageability: String,
+    val reason: String,
+    val sourceCandidates: List<WebInferenceSourceCandidate>,
+    val selectedSourceId: String? = null,
+    val existingStagedChangeId: String? = null,
+    val importDependence: String,
+    val importSourceIds: List<String>,
+)
+
 public data class WebShaclFinding(
     val resultId: String,
     val severity: String,
@@ -74,6 +98,7 @@ public data class WebSemanticJobDetails(
     val apiVersion: String = "v1",
     val job: WebSemanticJobStatus,
     val facts: List<WebReasoningFact> = emptyList(),
+    val materializationCandidates: List<WebInferenceMaterializationCandidate> = emptyList(),
     val unsatisfiableClasses: List<String> = emptyList(),
     val shaclFindings: List<WebShaclFinding> = emptyList(),
     val unsupportedFeatures: List<String> = emptyList(),

@@ -152,6 +152,12 @@ public class StagingWorkflowService(
     public fun snapshot(projectId: String): WebStagingResponse = response(projectId, session(projectId))
 
     @Synchronized
+    internal fun materializationStagedIds(projectId: String): Map<com.entio.core.SemanticFactKey, String> =
+        session(projectId).entries.mapNotNull { entry ->
+            entry.staged.materializationProvenance?.semanticFactKey?.let { it to entry.staged.id }
+        }.toMap()
+
+    @Synchronized
     public fun deletionDependencies(
         projectId: String,
         request: WebDeletionDependenciesRequest,
