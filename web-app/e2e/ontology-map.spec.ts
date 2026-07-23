@@ -2,12 +2,16 @@ import { expect, test, type Route } from "@playwright/test";
 
 test("ontology map remains bounded, accessible, interactive, and read-only", async ({ page }) => {
   const graphMethods: string[] = [];
+  const graphUrls: string[] = [];
   const fixture = graphFixture(24, 40);
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const path = url.pathname;
-    if (path.includes("/graph")) graphMethods.push(request.method());
+    if (path.includes("/graph")) {
+      graphMethods.push(request.method());
+      graphUrls.push(request.url());
+    }
     if (path === "/api/v1/projects/simple/graph") return json(route, { ...fixture, graphFingerprint: "fingerprint-one", totalNodeCount: 1_000, totalEdgeCount: 999, continuation: "opaque-next" });
     if (path.endsWith("/graph/neighborhood")) return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ apiVersion: "v1", requestId: "safe", code: "stale-graph-fingerprint", message: "Refresh before continuing." }) });
     if (path.endsWith("/summary")) return json(route, { apiVersion: "v1", project: { id: "simple", displayName: "Simple", name: "scale-fixture" }, sources: [{ id: "simple", path: "hidden.ttl", format: "turtle", roles: ["ontology"], tripleCount: 1_000 }], symbolCount: 1_000, graphTripleCount: 1_999 });
@@ -20,7 +24,12 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   });
 
   await page.goto("/projects/simple");
+  await page.getByRole("button", { name: "Entity 0000, Class" }).click();
+  await expect(page.getByRole("heading", { name: "Entity 0000" })).toBeVisible();
   await page.getByRole("button", { name: "View Map" }).first().click();
+  await expect.poll(() => graphUrls.length).toBeGreaterThan(0);
+  expect(new URL(graphUrls[0]).searchParams.has("seedIri")).toBe(false);
+  expect(new URL(graphUrls[0]).searchParams.has("seedSourceId")).toBe(false);
   await expect(page.getByRole("tab", { name: "Ontology map" })).toHaveCount(1);
   await expect(page.getByRole("button", { name: "Class: Entity 0000" })).toBeVisible();
   await expect(page.getByRole("button", { name: "ObjectProperty: Entity 0005" })).toBeVisible();

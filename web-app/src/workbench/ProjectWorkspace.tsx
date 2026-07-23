@@ -213,11 +213,10 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
 
   function openMap() {
     setMapOpen(true);
-    if (!mapOpen) setMapSeed(activeTab);
+    setMapSeed(undefined);
     setActiveModule("explore");
     const params = new URLSearchParams();
     params.set("view", "map");
-    if (activeTab) params.set("iri", activeTab.iri);
     navigate(`/projects/${encodeURIComponent(projectId)}?${params}`);
   }
 
