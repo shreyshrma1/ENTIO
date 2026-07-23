@@ -4,6 +4,12 @@ import com.entio.core.EntioProject
 import com.entio.core.EntioProjectConfig
 import com.entio.core.EntioResult
 import com.entio.core.GraphState
+import com.entio.core.InferredFactPlacement
+import com.entio.core.InferredFactsOverlay
+import com.entio.core.InferredGraphState
+import com.entio.core.InferredReadFact
+import com.entio.core.InferredReadKind
+import com.entio.core.InferredReadState
 import com.entio.core.Iri
 import com.entio.core.LoadedOntology
 import com.entio.core.OntologyFormat
@@ -13,7 +19,9 @@ import com.entio.core.OntologyGraphInitialQuery
 import com.entio.core.OntologyGraphNeighborhoodQuery
 import com.entio.core.OntologyGraphNodeId
 import com.entio.core.OntologyGraphNodeKind
+import com.entio.core.OntologyGraphProvenance
 import com.entio.core.OntologySourceReference
+import com.entio.core.SemanticFactKey
 import kotlin.system.measureTimeMillis
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -67,6 +75,49 @@ class OntologyGraphServiceTest {
         assertEquals(first, second)
         assertEquals(before, project.graph)
         assertTrue(first.edges.isNotEmpty())
+    }
+
+    @Test
+    fun layersInferredEdgesWithoutChangingAssertedOverviewPlacement(): Unit {
+        val project = project("simple", ontology())
+        val asserted = service.initial(project, OntologyGraphInitialQuery(setOf("simple")))
+        val overlay = InferredFactsOverlay(
+            graphState = InferredGraphState.Applied,
+            state = InferredReadState.Current,
+            facts = listOf(
+                InferredReadFact(
+                    semanticFactKey = SemanticFactKey("entio-semantic-fact-v1:${"a".repeat(64)}"),
+                    subject = Iri("https://example.com/Customer"),
+                    predicate = Iri("http://www.w3.org/2000/01/rdf-schema#subClassOf"),
+                    objectValue = Iri("https://example.com/Invoice"),
+                    kind = InferredReadKind.SubclassRelationship,
+                    placements = setOf(InferredFactPlacement.ClassSuperclasses),
+                    graphState = InferredGraphState.Applied,
+                    reasoningResultId = "job",
+                    graphFingerprint = "fingerprint",
+                    sourceId = "simple",
+                ),
+            ),
+            graphFingerprint = "fingerprint",
+        )
+        val withInference = service.initial(project, OntologyGraphInitialQuery(setOf("simple")), listOf(overlay))
+        val customer = OntologyGraphNodeId("simple", Iri("https://example.com/Customer"))
+        val neighborhood = service.neighborhood(
+            project,
+            OntologyGraphNeighborhoodQuery(
+                setOf("simple"),
+                customer,
+                setOf(OntologyGraphExpansionCategory.ClassHierarchy),
+            ),
+            listOf(overlay),
+        )
+
+        assertEquals(asserted.nodes.map { it.id }, withInference.nodes.map { it.id })
+        assertTrue(neighborhood.edges.any {
+            it.provenance == OntologyGraphProvenance.Inferred &&
+                it.inferredGraphState == InferredGraphState.Applied
+        })
+        assertEquals(InferredReadState.Current, neighborhood.inferredOverlays.single().state)
     }
 
     @Test
