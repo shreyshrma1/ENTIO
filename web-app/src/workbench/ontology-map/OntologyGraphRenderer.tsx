@@ -121,12 +121,6 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
     requestAnimationFrame(() => { element.scrollTo({ left: 0, top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); });
   }
 
-  function reset() {
-    if (!window.confirm("Reset the temporary map layout and zoom?")) return;
-    onStateChange({ ...state, positions: { ...state.positions, ...layeredGraphLayout(nodes, edges) }, zoom: 1 });
-    viewport.current?.scrollTo({ left: 0, top: 0 });
-  }
-
   return <div className="ontology-graph" onKeyDown={(event) => { if (event.key === "Escape" && state.selectedNodeId) onStateChange({ ...state, selectedNodeId: null }); }}>
     <div className="ontology-graph-controls">
       {toolbarStart}
@@ -135,10 +129,7 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
           <button type="button" onClick={() => setZoom(zoom - 0.1)} aria-label="Zoom out">−</button>
           <output aria-label="Zoom percentage">{Math.round(zoom * 100)}%</output>
           <button type="button" onClick={() => setZoom(zoom + 0.1)} aria-label="Zoom in">+</button>
-        </div>
-        <div className="ontology-graph-command-buttons">
-          <button type="button" onClick={fit}>Fit</button>
-          <button type="button" onClick={reset}>Reset</button>
+          <button className="ontology-fit-button" type="button" onClick={fit}>Fit</button>
         </div>
       </div>
     </div>

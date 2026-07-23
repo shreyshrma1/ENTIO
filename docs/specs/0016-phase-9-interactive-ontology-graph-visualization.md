@@ -152,7 +152,7 @@ The map work area supports:
 - panning with a dedicated pan gesture and Space plus pointer drag;
 - ordinary vertical and horizontal trackpad scrolling across the graph work area;
 - pointer-anchored wheel/pinch zoom;
-- `Zoom in`, `Zoom out`, `Fit loaded graph`, and `Reset view` controls;
+- `Zoom in`, `Zoom out`, and `Fit loaded graph` controls;
 - a visible zoom percentage.
 
 Supported zoom is 25% through 200%, with 100% as reset. Zoom clamps at these limits.
@@ -161,7 +161,7 @@ Pointer-anchored zoom preserves the graph coordinate beneath the pointer or pinc
 
 Dragging empty map space with either the left or right mouse button pans the viewport. Right-drag also pans when initiated over a node and suppresses the browser context menu; left-dragging a node continues to move that node rather than the viewport.
 
-`Fit loaded graph` fits visible nodes, not filtered-out nodes. `Reset view` reapplies the deterministic layout and returns to 100%, after a confirmation only when manual node positions would be discarded.
+`Fit loaded graph` fits visible nodes, not filtered-out nodes. Temporary manual positions remain available until the map tab closes.
 
 ### 8. Selection And Information Pop-Up
 

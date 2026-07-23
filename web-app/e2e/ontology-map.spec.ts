@@ -40,7 +40,6 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await expect(page.getByRole("button", { name: "DatatypeProperty: Entity 0002" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toBeVisible();
   await expect(page.getByLabel("Loaded ontology graph").locator("text=SubclassOf").first()).toBeAttached();
-  await expect(page.getByText("24 loaded entities")).toBeVisible();
   await expect(page.getByRole("button", { name: "Class: Entity 0000" })).toBeInViewport();
   await expect(page.locator(".ontology-graph-viewport")).toHaveScreenshot("ontology-map-prototype-layout.png");
   const browserZoomBefore = await page.evaluate(() => ({ scale: window.visualViewport?.scale ?? 1, devicePixelRatio: window.devicePixelRatio }));

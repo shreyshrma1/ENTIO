@@ -986,11 +986,11 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-graph { display: grid; gap: 10px; min-height: 520px; }
 .ontology-graph-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .ontology-graph-control-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
-.ontology-zoom-stepper, .ontology-graph-command-buttons { display: inline-flex; align-items: center; padding: 3px; border: 1px solid var(--border-subtle); border-radius: 9px; background: var(--surface-2); box-shadow: 0 1px 2px rgb(23 32 51 / 4%); }
-.ontology-zoom-stepper button, .ontology-graph-command-buttons button { display: grid; min-width: 32px; height: 30px; place-items: center; padding: 0 10px; border-radius: 6px; background: transparent; color: var(--text-secondary); font-size: 12px; font-weight: 700; line-height: 1; transition: background-color .15s ease, color .15s ease, box-shadow .15s ease; }
+.ontology-zoom-stepper { display: inline-flex; align-items: center; padding: 3px; border: 1px solid var(--border-subtle); border-radius: 9px; background: var(--surface-2); box-shadow: 0 1px 2px rgb(23 32 51 / 4%); }
+.ontology-zoom-stepper button { display: grid; min-width: 32px; height: 30px; place-items: center; padding: 0 10px; border-radius: 6px; background: transparent; color: var(--text-secondary); font-size: 12px; font-weight: 700; line-height: 1; transition: background-color .15s ease, color .15s ease, box-shadow .15s ease; }
 .ontology-zoom-stepper button { padding: 0; font-size: 17px; }
-.ontology-zoom-stepper button:hover:not(:disabled), .ontology-graph-command-buttons button:hover:not(:disabled) { background: var(--surface-1); color: var(--text-primary); box-shadow: 0 1px 3px rgb(23 32 51 / 9%); }
-.ontology-graph-command-buttons button + button { margin-left: 2px; }
+.ontology-zoom-stepper button:hover:not(:disabled) { background: var(--surface-1); color: var(--text-primary); box-shadow: 0 1px 3px rgb(23 32 51 / 9%); }
+.ontology-zoom-stepper .ontology-fit-button { min-width: 48px; margin-left: 3px; border-left: 1px solid var(--border-subtle); border-radius: 0 6px 6px 0; font-size: 12px; }
 .ontology-graph-controls output { min-width: 52px; color: var(--text-secondary); text-align: center; font-size: 12px; font-weight: 750; font-variant-numeric: tabular-nums; }
 .ontology-graph-viewport { display: flex; min-height: 460px; max-height: 65vh; overflow: auto; border: 1px solid var(--border-default); background-color: #f8f9fc; background-image: radial-gradient(circle at 1px 1px, #e8ebf5 1px, transparent 1px); background-size: 24px 24px; cursor: grab; overscroll-behavior: contain; touch-action: pan-x pan-y; }
 .ontology-graph-viewport.panning { cursor: grabbing; user-select: none; }
