@@ -1,10 +1,10 @@
 # Agent Guidance For Entio
 
-This repository contains the implemented Entio foundation through Phase 9, with Phases 1 through 8 retained as historical delivery records. Earlier planning documents remain for history; the repository is no longer documentation-only.
+This repository contains the implemented Entio foundation through Phase 10, with Phases 1 through 8 retained as historical delivery records. Earlier planning documents remain for history; the repository is no longer documentation-only.
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
-Phases 1 through 8 are preserved as historical delivery records. Phase 9 is complete and adds bounded, read-only interactive ontology graph visualization. Native AI execution has been removed from the current product surface; only provider credential entry, model discovery, model selection, and their surrounding settings UI remain. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
+Phases 1 through 8 are preserved as historical delivery records. Phase 9 is complete and adds bounded, read-only interactive ontology graph visualization. Phase 10 is complete and adds user-controlled staging of supported inferred relationships through the existing web proposal workflow. Native AI execution has been removed from the current product surface; only provider credential entry, model discovery, model selection, and their surrounding settings UI remain. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
 
 ## Product Context
 
@@ -140,6 +140,14 @@ Phase 9 is complete and summarized in `docs/phase-summaries/phase-9-summary.md`.
 - `docs/execplans/0016-phase-9-interactive-ontology-graph-visualization.md`
 
 Phase 9 adds a bounded, read-only interactive ontology map to the existing Explore experience. It preserves Kotlin ownership of ontology semantics, Ktor ownership of scoped read contracts, and React ownership of temporary visualization state. Later work must not turn this map into an editing surface or expand its semantic scope without a new approved spec and ExecPlan.
+
+Phase 10 is complete and summarized in `docs/phase-summaries/phase-10-summary.md`. Its approved planning documents are:
+
+- `docs/architecture/phase-10-scope.md`
+- `docs/specs/0018-phase-10-materialize-inferred-relationships.md`
+- `docs/execplans/0018-phase-10-materialize-inferred-relationships.md`
+
+Phase 10 lets web users select supported inferred subclass relationships, individual types, and object-property assertions from a completed applied-graph reasoning job and stage them through the existing review workflow. Kotlin owns fact identity, freshness, duplicate/source/import checks, typed-edit conversion, provenance, and atomic batches. The web client submits only server-issued fact IDs and explicit source choices. Materialization remains user initiated, bounded to 100 facts, in-memory, and unavailable from CLI, VS Code, AI, or the asserted-only ontology map.
 
 ## Software Architecture Rules
 
