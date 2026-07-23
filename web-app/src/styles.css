@@ -984,8 +984,13 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ai-proposal-validation { display: grid; gap: 4px; padding: 10px; border-radius: 8px; background: var(--surface-2); color: var(--text-secondary); }
 .ai-proposal-validation.valid { background: #ecfdf5; color: #166534; }
 .ontology-graph { display: grid; gap: 10px; min-height: 520px; }
-.ontology-graph-controls { display: flex; align-items: center; gap: 6px; }
-.ontology-graph-controls output { min-width: 4ch; text-align: center; font-variant-numeric: tabular-nums; }
+.ontology-graph-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ontology-zoom-stepper, .ontology-graph-command-buttons { display: inline-flex; align-items: center; padding: 3px; border: 1px solid var(--border-subtle); border-radius: 9px; background: var(--surface-2); box-shadow: 0 1px 2px rgb(23 32 51 / 4%); }
+.ontology-zoom-stepper button, .ontology-graph-command-buttons button { display: grid; min-width: 32px; height: 30px; place-items: center; padding: 0 10px; border-radius: 6px; background: transparent; color: var(--text-secondary); font-size: 12px; font-weight: 700; line-height: 1; transition: background-color .15s ease, color .15s ease, box-shadow .15s ease; }
+.ontology-zoom-stepper button { padding: 0; font-size: 17px; }
+.ontology-zoom-stepper button:hover:not(:disabled), .ontology-graph-command-buttons button:hover:not(:disabled) { background: var(--surface-1); color: var(--text-primary); box-shadow: 0 1px 3px rgb(23 32 51 / 9%); }
+.ontology-graph-command-buttons button + button { margin-left: 2px; }
+.ontology-graph-controls output { min-width: 52px; color: var(--text-secondary); text-align: center; font-size: 12px; font-weight: 750; font-variant-numeric: tabular-nums; }
 .ontology-graph-viewport { display: flex; min-height: 460px; max-height: 65vh; overflow: auto; border: 1px solid var(--border-default); background-color: #f8f9fc; background-image: radial-gradient(circle at 1px 1px, #e8ebf5 1px, transparent 1px); background-size: 24px 24px; cursor: grab; overscroll-behavior: contain; touch-action: pan-x pan-y; }
 .ontology-graph-viewport.panning { cursor: grabbing; user-select: none; }
 .ontology-graph-world { position: relative; flex: none; margin: auto; }
@@ -1010,8 +1015,10 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-node.selected { border-color: #316de8; border-width: 2.5px; box-shadow: none; }
 .ontology-node:focus-visible { outline: 3px solid rgb(49 109 232 / 35%); outline-offset: 2px; }
 .ontology-node.dimmed { opacity: .24; }
-.ontology-layout-modes { display: flex; gap: 5px; margin: 6px 0 8px; }
-.ontology-layout-modes button.active { border-color: var(--primary-500); background: var(--primary-50); color: var(--primary-700); }
+.ontology-layout-modes { display: inline-flex; gap: 2px; margin: 8px 0 10px; padding: 3px; border: 1px solid var(--border-subtle); border-radius: 9px; background: var(--surface-2); box-shadow: 0 1px 2px rgb(23 32 51 / 4%); }
+.ontology-layout-modes button { min-height: 30px; padding: 0 12px; border-radius: 6px; background: transparent; color: var(--text-secondary); font-size: 12px; font-weight: 700; transition: background-color .15s ease, color .15s ease, box-shadow .15s ease; }
+.ontology-layout-modes button:hover:not(:disabled) { color: var(--text-primary); }
+.ontology-layout-modes button.active { background: var(--surface-1); color: var(--primary-700); box-shadow: 0 1px 4px rgb(23 32 51 / 12%); }
 .ontology-loaded-list ul { max-height: 160px; overflow: auto; columns: 2; }
 .ontology-loaded-list button { border: 0; background: transparent; color: inherit; text-align: left; }
 .ontology-map-shell { position: relative; }
