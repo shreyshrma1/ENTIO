@@ -66,9 +66,13 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await page.getByRole("button", { name: "Close entity summary" }).click();
   await outlineProperty.dblclick();
   await expect(page).toHaveURL(/iri=urn%3An1/);
-  await page.getByRole("button", { name: "Close Entity 0000" }).click();
+  await page.getByRole("tab", { name: "Ontology map" }).click();
+  await page.getByRole("tab", { name: "Entity 0000" }).click();
+  await expect(page).toHaveURL(/iri=urn%3An0/);
+  await expect(page.getByRole("dialog", { name: "Entity 0000 map summary" })).toHaveCount(0);
   await page.getByRole("button", { name: "Close Entity 0003" }).click();
   await page.getByRole("button", { name: "Close Entity 0001" }).click();
+  await page.getByRole("button", { name: "Close Entity 0000" }).click();
   await expect(page.getByRole("tab", { name: "Ontology map" })).toHaveAttribute("aria-selected", "true");
   await expect(page).toHaveURL(/view=map/);
   await projectNavigation.getByRole("tab", { name: /Classes 1/ }).click();
