@@ -7,6 +7,9 @@ import com.entio.core.GraphTriple
 import com.entio.core.Iri
 import com.entio.core.ReasoningResult
 import com.entio.core.ReasoningRunStatus
+import com.entio.core.InferredGraphState
+import com.entio.core.InferredFactsOverlay
+import com.entio.core.InferredReadState
 import com.entio.core.ShaclGraphIdentity
 import com.entio.core.ShaclValidationMode
 import com.entio.core.ShaclValidationReport
@@ -15,6 +18,7 @@ import com.entio.semantic.ProjectLoader
 import com.entio.semantic.InferenceMaterializationIdentityContext
 import com.entio.semantic.InferenceMaterializationService
 import com.entio.semantic.ReasoningService
+import com.entio.semantic.InferredFactsReadService
 import com.entio.semantic.ShaclGraphLoader
 import com.entio.semantic.ShaclValidationService
 import com.entio.web.contract.ProjectRegistry
@@ -30,6 +34,8 @@ import java.util.UUID
 import kotlin.coroutines.coroutineContext
 
 private data class CachedReasoning(
+    val jobId: String,
+    val snapshot: WorkflowGraphSnapshot,
     val graphFingerprint: String,
     val summary: Map<String, Any?>,
     val result: ReasoningResult,
@@ -96,6 +102,8 @@ public class SemanticJobManager(
     private val activeAppliedReasoning: MutableMap<String, String> = linkedMapOf()
     private val activeProposalReasoning: MutableMap<String, String> = linkedMapOf()
     private val latestAppliedReasoning: MutableMap<String, CachedReasoning> = linkedMapOf()
+    private val latestProposalReasoning: MutableMap<String, CachedReasoning> = linkedMapOf()
+    private val inferredFactsReadService: InferredFactsReadService = InferredFactsReadService()
 
     @Synchronized
     public fun submit(
@@ -107,7 +115,11 @@ public class SemanticJobManager(
         projectRegistry.find(projectId)
             ?: throw WebWorkflowFailure("unknown-project", "The requested project is not registered.")
         val parsed = request.parse()
-        val snapshot = staging.graphSnapshot(projectId, parsed.scope)
+        val snapshot = if (parsed.scope == WebJobScope.Proposal) {
+            staging.inferredReadGraphSnapshot(projectId)
+        } else {
+            staging.graphSnapshot(projectId, parsed.scope)
+        }
         val duplicateKey = snapshot.proposalFingerprint?.let { fingerprint ->
             if (parsed.kind == WebJobKind.Reasoning) "$projectId|$fingerprint" else null
         }
@@ -132,7 +144,7 @@ public class SemanticJobManager(
         jobs[id] = record
         if (parsed.kind == WebJobKind.Reasoning && parsed.scope == WebJobScope.Applied) activeAppliedReasoning[projectId] = id
         if (duplicateKey != null) activeProposalReasoning[duplicateKey] = id
-        notify(record.status())
+        notify(record)
         record.coroutine = scope.launch { run(record) }
         return record.status()
     }
@@ -260,8 +272,74 @@ public class SemanticJobManager(
             .forEach { record ->
                 record.coroutine?.cancel(CancellationException("The staged proposal changed."))
                 markStaleLocked(record, "The staged proposal changed; this result is stale.")
-                notify(record.status())
+                notify(record)
             }
+        latestProposalReasoning.remove(projectId)
+    }
+
+    /**
+     * Ensures one project-owned reasoning run exists for the current graph state.
+     * Results are deliberately independent of the requesting user.
+     */
+    @Synchronized
+    public fun ensureInferredRead(projectId: String, scope: WebJobScope): Unit {
+        val snapshot = try {
+            if (scope == WebJobScope.Proposal) staging.inferredReadGraphSnapshot(projectId)
+            else staging.graphSnapshot(projectId, scope)
+        } catch (_: WebWorkflowFailure) {
+            if (scope == WebJobScope.Proposal) latestProposalReasoning.remove(projectId)
+            return
+        }
+        val cached = if (scope == WebJobScope.Applied) latestAppliedReasoning[projectId] else latestProposalReasoning[projectId]
+        if (cached?.snapshot?.graphFingerprint == snapshot.graphFingerprint &&
+            cached.snapshot.proposalFingerprint == snapshot.proposalFingerprint
+        ) return
+        val active = jobs.values.any {
+            it.projectId == projectId && it.request.kind == WebJobKind.Reasoning &&
+                it.request.scope == scope && it.snapshot.graphFingerprint == snapshot.graphFingerprint &&
+                it.snapshot.proposalFingerprint == snapshot.proposalFingerprint && it.isActive()
+        }
+        if (!active) submit(projectId, WebJobRequest(scope = scope.name.lowercase()), "system")
+    }
+
+    @Synchronized
+    public fun inferredReadOverlay(projectId: String, scope: WebJobScope, enabled: Boolean): InferredFactsOverlay {
+        val graphState = if (scope == WebJobScope.Applied) InferredGraphState.Applied else InferredGraphState.Proposal
+        if (!enabled) return InferredFactsOverlay(graphState, InferredReadState.Off)
+        ensureInferredRead(projectId, scope)
+        val snapshot = try {
+            if (scope == WebJobScope.Proposal) staging.inferredReadGraphSnapshot(projectId)
+            else staging.graphSnapshot(projectId, scope)
+        } catch (failure: WebWorkflowFailure) {
+            return InferredFactsOverlay(graphState, InferredReadState.Unavailable, message = failure.message)
+        }
+        val cached = if (scope == WebJobScope.Applied) latestAppliedReasoning[projectId] else latestProposalReasoning[projectId]
+        if (cached != null && cached.snapshot.graphFingerprint == snapshot.graphFingerprint &&
+            cached.snapshot.proposalFingerprint == snapshot.proposalFingerprint
+        ) {
+            val project = when (val loaded = projectLoader.loadProject(projectRegistry.rootFor(projectId))) {
+                is EntioResult.Failure -> return InferredFactsOverlay(graphState, InferredReadState.Failed, message = loaded.message)
+                is EntioResult.Success -> loaded.value
+            }
+            return inferredFactsReadService.project(
+                project,
+                snapshot.graph,
+                cached.jobId,
+                cached.result,
+                graphState,
+                snapshot.proposalFingerprint,
+            )
+        }
+        val failed = jobs.values.lastOrNull {
+            it.projectId == projectId && it.request.scope == scope &&
+                it.snapshot.graphFingerprint == snapshot.graphFingerprint &&
+                it.state in setOf(WebSemanticJobState.Failed, WebSemanticJobState.Cancelled, WebSemanticJobState.Incomplete)
+        }
+        return if (failed != null) {
+            InferredFactsOverlay(graphState, InferredReadState.Failed, message = failed.error ?: failed.message)
+        } else {
+            InferredFactsOverlay(graphState, InferredReadState.Updating, message = "Reasoning is updating for the current graph.")
+        }
     }
 
     private suspend fun run(record: MutableSemanticJob): Unit {
@@ -306,7 +384,22 @@ public class SemanticJobManager(
             record.resultSummary = summary
             record.reasoningResult = result
             if (complete && record.request.scope == WebJobScope.Applied) {
-                latestAppliedReasoning[record.projectId] = CachedReasoning(record.snapshot.graphFingerprint, summary, result)
+                latestAppliedReasoning[record.projectId] = CachedReasoning(
+                    record.id,
+                    record.snapshot,
+                    record.snapshot.graphFingerprint,
+                    summary,
+                    result,
+                )
+            }
+            if (complete && record.request.scope == WebJobScope.Proposal) {
+                latestProposalReasoning[record.projectId] = CachedReasoning(
+                    record.id,
+                    record.snapshot,
+                    record.snapshot.graphFingerprint,
+                    summary,
+                    result,
+                )
             }
         }
         update(
@@ -375,7 +468,11 @@ public class SemanticJobManager(
     }
 
     private fun acceptsCurrentGraph(record: MutableSemanticJob): Boolean = try {
-        val current = staging.graphSnapshot(record.projectId, record.request.scope)
+        val current = if (record.request.scope == WebJobScope.Proposal) {
+            staging.inferredReadGraphSnapshot(record.projectId)
+        } else {
+            staging.graphSnapshot(record.projectId, record.request.scope)
+        }
         current.graphFingerprint == record.snapshot.graphFingerprint && current.proposalFingerprint == record.snapshot.proposalFingerprint
     } catch (_: WebWorkflowFailure) {
         false
@@ -392,7 +489,7 @@ public class SemanticJobManager(
             markLocked(record, state, phase, message, error)
             record.status()
         }
-        notify(status)
+        if (record.submittedByUserId != "system") notify(status)
     }
 
     private fun markLocked(
@@ -414,6 +511,10 @@ public class SemanticJobManager(
 
     private fun notify(status: WebSemanticJobStatus): Unit {
         scope.launch { onUpdate(status) }
+    }
+
+    private fun notify(record: MutableSemanticJob): Unit {
+        if (record.submittedByUserId != "system") notify(record.status())
     }
 
     private fun MutableSemanticJob.isActive(): Boolean = state == WebSemanticJobState.Queued || state == WebSemanticJobState.Running

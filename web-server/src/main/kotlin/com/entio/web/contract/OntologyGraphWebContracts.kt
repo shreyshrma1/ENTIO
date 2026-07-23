@@ -58,4 +58,5 @@ public data class WebOntologyGraphResponse(
     val totalEdgeCount: Int,
     val continuation: String?,
     val ambiguousCrossSourceRelationshipCount: Int,
+    val inferredOverlays: List<WebInferredFactsOverlay> = emptyList(),
 )

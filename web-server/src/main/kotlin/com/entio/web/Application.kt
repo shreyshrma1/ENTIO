@@ -59,7 +59,6 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
     install(WebSockets)
 
     val readOnly = ReadOnlyProjectAdapter(dependencies.projectRegistry)
-    val ontologyGraph = OntologyGraphWebService(dependencies.projectRegistry)
     val staging = StagingWorkflowService(dependencies.projectRegistry)
     val collaboration = CollaborationHub(dependencies.projectRegistry, staging::snapshot)
     val fibo = FiboWebService(dependencies.projectRegistry, staging)
@@ -107,6 +106,8 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
             collaboration.job(status.projectId, "semantic-job.${status.status.name.lowercase()}", status.id)
         },
     )
+    val inferredFacts = InferredFactsWebService(jobs)
+    val ontologyGraph = OntologyGraphWebService(dependencies.projectRegistry, inferredFacts = inferredFacts)
     val inferenceMaterialization = InferenceMaterializationWebService(
         jobs = jobs,
         staging = staging,
@@ -312,6 +313,8 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
                     seedIri = call.request.queryParameters["seedIri"],
                     expectedFingerprint = call.request.queryParameters["expectedFingerprint"],
                     continuation = call.request.queryParameters["continuation"],
+                    includeAppliedInferred = call.inferredFlag("includeAppliedInferred"),
+                    includeProposalInferred = call.inferredFlag("includeProposalInferred"),
                 )
             }
         }
@@ -328,40 +331,60 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
                     requestedCategories = call.request.queryParameters.getAll("category").orEmpty().toSet(),
                     expectedFingerprint = call.request.queryParameters["expectedFingerprint"],
                     continuation = call.request.queryParameters["continuation"],
+                    includeAppliedInferred = call.inferredFlag("includeAppliedInferred"),
+                    includeProposalInferred = call.inferredFlag("includeProposalInferred"),
                 )
             }
         }
 
         get("/api/v1/projects/{projectId}/hierarchy") {
             call.respondReadOnly {
+                val projectId = call.requiredProjectId()
                 readOnly.hierarchy(
-                    projectId = call.requiredProjectId(),
+                    projectId = projectId,
                     sourceId = call.request.queryParameters["sourceId"],
                     parentIri = call.request.queryParameters["parentIri"]?.takeIf(String::isNotBlank)?.let(::Iri),
                     request = call.pageRequest(),
+                    inferredOverlays = inferredFacts.read(
+                        projectId,
+                        call.inferredFlag("includeAppliedInferred"),
+                        call.inferredFlag("includeProposalInferred"),
+                    ),
                 )
             }
         }
 
         get("/api/v1/projects/{projectId}/outline") {
             call.respondReadOnly {
+                val projectId = call.requiredProjectId()
                 readOnly.outline(
-                    projectId = call.requiredProjectId(),
+                    projectId = projectId,
                     sourceId = call.request.queryParameters["sourceId"],
                     request = call.pageRequest(),
+                    inferredOverlays = inferredFacts.read(
+                        projectId,
+                        call.inferredFlag("includeAppliedInferred"),
+                        call.inferredFlag("includeProposalInferred"),
+                    ),
                 )
             }
         }
 
         get("/api/v1/projects/{projectId}/entities") {
             call.respondReadOnly {
+                val projectId = call.requiredProjectId()
                 val iri = call.request.queryParameters["iri"]
                     ?.takeIf(String::isNotBlank)
                     ?: throw ProjectReadFailure("missing-entity-iri", "An entity IRI is required.")
                 readOnly.entity(
-                    projectId = call.requiredProjectId(),
+                    projectId = projectId,
                     entityIri = Iri(iri),
                     sourceId = call.request.queryParameters["sourceId"],
+                    inferredOverlays = inferredFacts.read(
+                        projectId,
+                        call.inferredFlag("includeAppliedInferred"),
+                        call.inferredFlag("includeProposalInferred"),
+                    ),
                 )
             }
         }
@@ -472,7 +495,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
                 }
                 val projectId = call.requiredProjectId()
                 val result = staging.stage(projectId, call.receive<WebStageChangeRequest>(), user.id)
-                jobs.invalidateProposalJobs(projectId)
+                inferredFacts.refreshProposal(projectId)
                 collaboration.stagedChange(projectId, result.entries.lastOrNull()?.id, user.id)
                 result
             }
@@ -483,7 +506,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
                 val projectId = call.requiredProjectId()
                 val user = call.requireUser(dependencies)
                 val result = staging.discard(projectId, call.requiredStagedId())
-                jobs.invalidateProposalJobs(projectId)
+                inferredFacts.refreshProposal(projectId)
                 collaboration.stagedChange(projectId, userId = user.id)
                 result
             }
@@ -493,6 +516,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
             call.respondWorkflow {
                 val projectId = call.requiredProjectId()
                 val result = staging.preview(projectId, call.requireUser(dependencies).id)
+                inferredFacts.refreshProposal(projectId)
                 collaboration.proposal(projectId, "proposal.previewed", result.proposal?.id, call.requireUser(dependencies).id)
                 result
             }
@@ -511,7 +535,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
             call.respondWorkflow {
                 val projectId = call.requiredProjectId()
                 val result = staging.reject(projectId, call.requireReviewer(dependencies).id)
-                jobs.invalidateProposalJobs(projectId)
+                inferredFacts.refreshProposal(projectId)
                 collaboration.proposal(projectId, "proposal.rejected", userId = call.requireReviewer(dependencies).id)
                 result
             }
@@ -521,6 +545,8 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
             call.respondWorkflow {
                 val projectId = call.requiredProjectId()
                 val result = staging.apply(projectId, call.requireReviewer(dependencies).id)
+                inferredFacts.refreshApplied(projectId)
+                jobs.invalidateProposalJobs(projectId)
                 collaboration.proposal(
                     projectId,
                     if (result.proposal?.status == "APPLYFAILED") "proposal.conflicted" else "proposal.applied",
@@ -566,7 +592,7 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
                     user.id,
                     call.receive<WebInferenceMaterializationRequest>(),
                 )
-                jobs.invalidateProposalJobs(projectId)
+                inferredFacts.refreshProposal(projectId)
                 collaboration.stagedChange(projectId, userId = user.id)
                 result
             }
@@ -608,6 +634,9 @@ private fun ApplicationCall.pageRequest(): WebPageRequest = try {
 } catch (exception: IllegalArgumentException) {
     throw ProjectReadFailure("invalid-pagination", exception.message ?: "Invalid pagination.")
 }
+
+private fun ApplicationCall.inferredFlag(name: String): Boolean =
+    request.queryParameters[name]?.equals("true", ignoreCase = true) == true
 
 private fun ApplicationCall.requiredStagedId(): String = parameters["stagedId"]
     ?.takeIf(String::isNotBlank)
