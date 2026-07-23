@@ -24,6 +24,7 @@ import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 import kotlin.io.path.readBytes
+import kotlin.system.measureTimeMillis
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -318,6 +319,32 @@ class InferenceMaterializationStagingTest {
         assertEquals(beforeSecondary.toList(), fixture.secondarySource.readBytes().toList())
     }
 
+    @Test
+    fun recordsBoundedBatchTimingForOneTwentyFiveAndOneHundredFacts(): Unit {
+        listOf(1, 25, 100).forEach { count ->
+            val fixture = fixture(performanceClasses = count)
+            val service = service(fixture)
+            val items = (1..count).map { index ->
+                prepared(
+                    index = index,
+                    kind = InferenceMaterializationKind.SubclassRelationship,
+                    subject = Iri("$NS#PerformanceClass$index"),
+                )
+            }
+            val elapsedMillis = measureTimeMillis {
+                val result = service.stageMaterializations(
+                    "simple",
+                    "performance-user",
+                    "performance-$count",
+                    PreparedInferenceMaterializationBatch(items),
+                )
+                assertEquals(count, result.staging.entries.size)
+            }
+            println("PHASE10_MATERIALIZATION_TIMING count=$count elapsedMs=$elapsedMillis")
+            assertTrue(elapsedMillis < 10_000, "$count-fact staging took ${elapsedMillis}ms")
+        }
+    }
+
     private fun service(fixture: Fixture): StagingWorkflowService = StagingWorkflowService(
         projectRegistry = fixture.registry,
         clock = Clock.fixed(fixedInstant, ZoneOffset.UTC),
@@ -374,7 +401,10 @@ class InferenceMaterializationStagingTest {
         )
     }
 
-    private fun fixture(includeSecondarySource: Boolean = false): Fixture {
+    private fun fixture(
+        includeSecondarySource: Boolean = false,
+        performanceClasses: Int = 0,
+    ): Fixture {
         val root = Files.createTempDirectory("entio-phase10-staging")
         val sourceRoot = Path.of("../examples/simple-ontology").toAbsolutePath().normalize()
         Files.walk(sourceRoot).use { paths ->
@@ -392,6 +422,17 @@ class InferenceMaterializationStagingTest {
             Files.writeString(
                 root.resolve("ontology/secondary.ttl"),
                 "<https://example.com/entio/secondary#> a <http://www.w3.org/2002/07/owl#Ontology> .\n",
+            )
+        }
+        if (performanceClasses > 0) {
+            Files.writeString(
+                root.resolve("ontology/simple.ttl"),
+                (1..performanceClasses).joinToString(
+                    prefix = "\n",
+                    separator = "\n",
+                    postfix = "\n",
+                ) { index -> "<$NS#PerformanceClass$index> a <http://www.w3.org/2002/07/owl#Class> ." },
+                StandardOpenOption.APPEND,
             )
         }
         val registry = InMemoryProjectRegistry(setOf(root.parent))
