@@ -61,6 +61,7 @@ More exactly:
 | --- | --- |
 | Project configuration, source resolution, Turtle parsing | `semantic-engine/ProjectConfigLoader`, `OntologySourceResolver`, `OntologyParser`, `ProjectLoader` |
 | RDF and product contracts | `core-types/` |
+| Inferred read contracts and bounded projection | `core-types/InferredFactsReadContracts`; `semantic-engine/InferredFactsReadService` |
 | Symbol extraction and semantic descriptions | `semantic-engine/SymbolExtractor`, `SemanticDescriptorAssembler`, `SemanticDescriptionService` |
 | Labels and deterministic IRI generation | `semantic-engine/LabelResolver`, `SemanticLabelPolicy`, `DeterministicIriGenerator` |
 | Typed ontology edits and deletion analysis | `semantic-engine/TypedOntologyEditTranslator`, `DeletionDependencyAnalyzer`, `DeletionChangeGenerator` |
@@ -116,10 +117,22 @@ OntologyMapShell
 → React Query / projectApi
 → OntologyGraphWebService
 → OntologyGraphService
-→ asserted ontology facts
+→ asserted ontology facts plus optional verified inferred overlays
 ```
 
-Kotlin supplies hierarchy, domain, range, types, assertions, and stable identity. React only filters, lays out, zooms, pans, and remembers temporary positions.
+Kotlin supplies hierarchy, domain, range, types, assertions, inference provenance, and stable identity. React only filters, lays out, zooms, pans, and remembers temporary positions. Inferred edges never influence the asserted hierarchy layout.
+
+### Show inferred facts in Explore
+
+```text
+applied graph or proposal graph
+→ SemanticJobManager stores the current project-owned reasoning result
+→ InferredFactsReadService projects supported, bounded facts
+→ Ktor verifies scope, freshness, completeness, and fingerprints
+→ Explore fields and the map render the optional overlay
+```
+
+Asserted facts win when an inferred fact is equivalent. Applied and proposal overlays remain separate, are off by default, and are read-only.
 
 ### Use the VS Code extension
 
@@ -151,7 +164,7 @@ The module boundaries are clear and generally enforced:
 - ontology semantics are centralized in `semantic-engine`;
 - validation and diffing have dedicated modules;
 - interfaces delegate instead of reimplementing semantic behavior;
-- the Phase 9 map has a clean engine → server → React path.
+- the ontology map and inferred overlays have clean engine → server → React paths.
 
 The main concentration points are inside presentation/adaptation layers:
 
