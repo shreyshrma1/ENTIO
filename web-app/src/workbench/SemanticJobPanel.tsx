@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { useSemanticJob, useSemanticJobActions, useStagedChanges } from "../web/queries";
+import { useSemanticJob, useSemanticJobActions, useSemanticJobDetails, useStagedChanges } from "../web/queries";
 import type { WebSemanticJobStatus } from "../web/projectApi";
+import InferenceMaterializationPanel from "./InferenceMaterializationPanel";
 
 interface SemanticJobPanelProps {
   projectId: string;
@@ -11,12 +12,14 @@ interface SemanticJobPanelProps {
   showHeading?: boolean;
   autoStartReasoning?: boolean;
   headingId?: string;
+  onOpenChanges?: () => void;
 }
 
-export default function SemanticJobPanel({ projectId, initialJobId = null, onJobSubmitted, showReasoning = true, showShacl = true, showHeading = true, autoStartReasoning = true, headingId = "semantic-jobs-heading" }: SemanticJobPanelProps) {
+export default function SemanticJobPanel({ projectId, initialJobId = null, onJobSubmitted, showReasoning = true, showShacl = true, showHeading = true, autoStartReasoning = true, headingId = "semantic-jobs-heading", onOpenChanges = () => {} }: SemanticJobPanelProps) {
   const [scope, setScope] = useState<"applied" | "proposal">("applied");
   const [jobId, setJobId] = useState<string | null>(initialJobId);
   const job = useSemanticJob(projectId, jobId);
+  const details = useSemanticJobDetails(projectId, jobId);
   const actions = useSemanticJobActions(projectId);
   const staged = useStagedChanges(projectId);
   const hasProposal = Boolean(staged.data?.proposal);
@@ -78,6 +81,18 @@ export default function SemanticJobPanel({ projectId, initialJobId = null, onJob
           {!terminal && status.status !== "Queued" ? <button className="button small" type="button" onClick={() => actions.cancel.mutate(status.id)} disabled={actions.cancel.isPending}>Cancel semantic job</button> : null}
         </div>
       ) : showReasoning && !showShacl ? null : <p className="muted">Choose a graph, then run validation.</p>}
+      {showReasoning && status?.kind === "Reasoning" && status.scope === "Applied" && status.status === "Completed" && details.data ? (
+        <InferenceMaterializationPanel
+          projectId={projectId}
+          jobId={status.id}
+          jobStatus={details.data.job.status}
+          facts={details.data.facts}
+          candidates={details.data.materializationCandidates}
+          truncated={details.data.truncated}
+          onOpenChanges={onOpenChanges}
+        />
+      ) : null}
+      {showReasoning && status?.status === "Completed" && details.isError ? <p role="alert">Could not load bounded reasoning facts. {details.error.message}</p> : null}
     </section>
   );
 }

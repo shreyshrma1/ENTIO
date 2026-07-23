@@ -464,13 +464,70 @@ export interface WebSemanticJobFinding {
   sourceId: string | null;
 }
 
+export interface WebReasoningFact {
+  kind: string;
+  subject: string;
+  predicate: string | null;
+  objectValue: string;
+  origin: "Asserted" | "Inferred";
+  sourceId: string | null;
+}
+
+export type WebInferenceStageability =
+  | "Stageable"
+  | "AlreadyAsserted"
+  | "AlreadyStaged"
+  | "Stale"
+  | "UnsupportedType"
+  | "UnsupportedTerm"
+  | "MissingEntity"
+  | "InvalidPredicate"
+  | "NoWritableSource"
+  | "AmbiguousSource"
+  | "ImportDependencyUnsafe";
+
+export interface WebInferenceMaterializationCandidate {
+  factId: string;
+  kind: "SubclassRelationship" | "IndividualType" | "ObjectPropertyAssertion";
+  subject: string;
+  subjectLabel: string;
+  predicate: string;
+  predicateLabel: string;
+  objectValue: string;
+  objectLabel: string;
+  origin: "Inferred";
+  stageability: WebInferenceStageability;
+  reason: string;
+  sourceCandidates: Array<{ sourceId: string; selected: boolean }>;
+  selectedSourceId: string | null;
+  existingStagedChangeId: string | null;
+  importDependence: "LocalOnly" | "Imported" | "Unknown";
+  importSourceIds: string[];
+}
+
 export interface WebSemanticJobDetails {
   apiVersion: "v1";
   job: WebSemanticJobStatus;
+  facts: WebReasoningFact[];
+  materializationCandidates: WebInferenceMaterializationCandidate[];
   shaclFindings: WebSemanticJobFinding[];
   warnings: string[];
   errors: string[];
   truncated: boolean;
+}
+
+export interface WebInferenceMaterializationRequest {
+  selections: Array<{ factId: string; targetSourceId?: string }>;
+  idempotencyKey: string;
+}
+
+export interface WebInferenceMaterializationResponse {
+  apiVersion: "v1";
+  projectId: string;
+  reasoningJobId: string;
+  graphFingerprint: string;
+  mappings: Array<{ factId: string; stagedChangeId: string }>;
+  staging: WebStagingResponse;
 }
 
 export interface WebFiboModule {
@@ -617,6 +674,20 @@ export async function cancelSemanticJob(
   fetcher: WebFetcher = defaultFetcher,
 ): Promise<WebSemanticJobStatus> {
   return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/semantic-jobs/${encodeURIComponent(jobId)}`, "DELETE", undefined, fetcher);
+}
+
+export async function materializeInferenceFacts(
+  projectId: string,
+  jobId: string,
+  request: WebInferenceMaterializationRequest,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebInferenceMaterializationResponse> {
+  return sendJson(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/semantic-jobs/${encodeURIComponent(jobId)}/materializations`,
+    "POST",
+    request,
+    fetcher,
+  );
 }
 
 export async function loadFiboModules(

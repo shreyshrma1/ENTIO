@@ -434,7 +434,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
               <span className="visually-hidden" role="status" aria-live="polite">{tabOrderMessage}</span>
             </> : null}
             <div className={`workspace-content ${activeModule === "explore" && activeIri && stagedIsPendingReview && stagedIris.has(activeIri) ? "workspace-content-staged" : ""}`} id="entity-workspace-panel" role="tabpanel" aria-label={activeModule === "explore" ? activeTab ? `${activeTab.label} details` : "Entity details" : `${module.label} workspace`} aria-live="polite">
-              {renderModule(activeModule, projectId, sourceId, shapesSourceId, activeTab, semanticJobIds, (kind, status) => setSemanticJobIds((current) => ({ ...current, [kind]: status.id })), mapActive && mapOpen && sourceId ? <OntologyMapShell projectId={projectId} sourceId={sourceId} seed={mapSeed} state={mapViewState} onStateChange={setMapViewState} onViewDetails={openEntityDetails} onLoadedEntities={setMapLoadedEntities} /> : activeTab ? <EntityDetails projectId={projectId} iri={activeTab.iri} stagedEntity={stagedDetails.get(activeTab.iri)} stagedEntries={stagedIsPendingReview ? stagedEntries : []} directType={activeTab.directType} initialSection={activeTab.requestedSection} sectionRequestId={activeTab.sectionRequestId} onOpenEntity={openEntity} /> : <EmptyWorkspace onOpenMap={openMap} />, displayName, saveDisplayName, launchEditor)}
+              {renderModule(activeModule, projectId, sourceId, shapesSourceId, activeTab, semanticJobIds, (kind, status) => setSemanticJobIds((current) => ({ ...current, [kind]: status.id })), () => openModule("changes"), mapActive && mapOpen && sourceId ? <OntologyMapShell projectId={projectId} sourceId={sourceId} seed={mapSeed} state={mapViewState} onStateChange={setMapViewState} onViewDetails={openEntityDetails} onLoadedEntities={setMapLoadedEntities} /> : activeTab ? <EntityDetails projectId={projectId} iri={activeTab.iri} stagedEntity={stagedDetails.get(activeTab.iri)} stagedEntries={stagedIsPendingReview ? stagedEntries : []} directType={activeTab.directType} initialSection={activeTab.requestedSection} sectionRequestId={activeTab.sectionRequestId} onOpenEntity={openEntity} /> : <EmptyWorkspace onOpenMap={openMap} />, displayName, saveDisplayName, launchEditor)}
             </div>
             {activeModule !== "changes" ? <div className={`staged-dock ${stagedCount && stagedIsPendingReview ? "staged-dock-pending" : ""}`} aria-label="Shared staged changes"><div><span className="overline">Shared review queue</span><strong>{stagedCount ? `${stagedCount} change${stagedCount === 1 ? "" : "s"} staged` : "No staged changes"}</strong></div><span className="dock-meta">Review the complete proposal, then accept or reject it.</span><button type="button" onClick={() => openModule("changes")}>{stagedCount ? "Review proposal" : "Open proposal"}</button></div> : null}
           </div>
@@ -448,10 +448,10 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   );
 }
 
-function renderModule(module: ModuleId, projectId: string, sourceId: string | undefined, shapesSourceId: string | undefined, activeTab: EntityTab | undefined, semanticJobIds: Record<"reasoning" | "shacl", string | null>, onSemanticJobSubmitted: (kind: "reasoning" | "shacl", status: { id: string }) => void, exploreContent: React.ReactNode, displayName: string, onDisplayNameSave: (displayName: string) => void, onOpenEditor: (editor: ContextualEditor, sourceId?: string) => void) {
+function renderModule(module: ModuleId, projectId: string, sourceId: string | undefined, shapesSourceId: string | undefined, activeTab: EntityTab | undefined, semanticJobIds: Record<"reasoning" | "shacl", string | null>, onSemanticJobSubmitted: (kind: "reasoning" | "shacl", status: { id: string }) => void, onOpenChanges: () => void, exploreContent: React.ReactNode, displayName: string, onDisplayNameSave: (displayName: string) => void, onOpenEditor: (editor: ContextualEditor, sourceId?: string) => void) {
   if (module === "explore") return <div className="explore-layout"><div className="entity-surface">{exploreContent}</div></div>;
   if (module === "changes") return sourceId ? <div className="module-page proposal-page"><PageIntro eyebrow="Review" title="Proposal" description="Review all staged edits together, then accept and apply them or reject the proposal." /><StagingPanel projectId={projectId} /></div> : <Unavailable />;
-  if (module === "reasoning") return <ReasoningWorkspace projectId={projectId} initialJobId={semanticJobIds.reasoning} onJobSubmitted={onSemanticJobSubmitted} />;
+  if (module === "reasoning") return <ReasoningWorkspace projectId={projectId} initialJobId={semanticJobIds.reasoning} onJobSubmitted={onSemanticJobSubmitted} onOpenChanges={onOpenChanges} />;
   if (module === "validation") return <ValidationWorkspace projectId={projectId} shapesSourceId={shapesSourceId} shaclJobId={semanticJobIds.shacl} onJobSubmitted={onSemanticJobSubmitted} onOpen={(editType) => onOpenEditor({ kind: "typed", editType }, shapesSourceId)} />;
   if (module === "fibo") return sourceId ? <div className="module-page"><PageIntro eyebrow="External ontology" title="FIBO" description="Browse the pinned, read-only catalog and stage reuse proposals through the shared review queue." /><ExternalOntologyPanel projectId={projectId} sourceId={sourceId} /></div> : <Unavailable />;
   if (module === "activity") return <div className="module-page"><PageIntro eyebrow="Collaboration" title="Activity" description="Quiet presence and activity signals keep shared work understandable." /><CollaborationActivity projectId={projectId} activeEntityIri={activeTab?.iri ?? null} /></div>;
@@ -487,13 +487,14 @@ interface ReasoningWorkspaceProps {
   projectId: string;
   initialJobId: string | null;
   onJobSubmitted: (kind: "reasoning" | "shacl", status: { id: string }) => void;
+  onOpenChanges: () => void;
 }
 
-function ReasoningWorkspace({ projectId, initialJobId, onJobSubmitted }: ReasoningWorkspaceProps) {
+function ReasoningWorkspace({ projectId, initialJobId, onJobSubmitted, onOpenChanges }: ReasoningWorkspaceProps) {
   return <div className="module-page reasoning-page">
     <PageIntro eyebrow="Semantic status" title="Reasoning" description="Deterministic reasoning against the applied graph or the current proposal." />
     <section className="reasoning-section" aria-label="Reasoning">
-      <SemanticJobPanel projectId={projectId} initialJobId={initialJobId} headingId="reasoning-job-heading" showShacl={false} onJobSubmitted={onJobSubmitted} />
+      <SemanticJobPanel projectId={projectId} initialJobId={initialJobId} headingId="reasoning-job-heading" showShacl={false} onJobSubmitted={onJobSubmitted} onOpenChanges={onOpenChanges} />
     </section>
   </div>;
 }

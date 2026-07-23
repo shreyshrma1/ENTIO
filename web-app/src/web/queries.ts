@@ -20,6 +20,8 @@ import {
   loadSemanticJob,
   loadSemanticJobDetails,
   submitSemanticJob,
+  materializeInferenceFacts,
+  type WebInferenceMaterializationRequest,
   type WebSemanticJobRequest,
   type WebSemanticJobStatus,
   loadFiboDetails,
@@ -235,6 +237,19 @@ export function useSemanticJobActions(projectId: string) {
     submit: useMutation({ mutationFn: (request: WebSemanticJobRequest) => submitSemanticJob(projectId, request), onSuccess: refresh }),
     cancel: useMutation({ mutationFn: (jobId: string) => cancelSemanticJob(projectId, jobId), onSuccess: refresh }),
   };
+}
+
+export function useInferenceMaterialization(projectId: string, jobId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: WebInferenceMaterializationRequest) =>
+      materializeInferenceFacts(projectId, jobId, request),
+    onSuccess: async (result) => {
+      queryClient.setQueryData(queryKeys.staged(projectId), result.staging);
+      await queryClient.invalidateQueries({ queryKey: [...queryKeys.semanticJob(projectId, jobId), "details"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.summary(projectId) });
+    },
+  });
 }
 
 export function useFiboModules(projectId: string) {
