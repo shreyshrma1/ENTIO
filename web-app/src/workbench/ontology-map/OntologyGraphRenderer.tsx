@@ -19,9 +19,10 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
   onStateChange: (state: RendererState) => void;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
-  const geometryKey = `${nodes.map((node) => node.identity.id).join("\u0001")}\u0002${edges.map((edge) => edge.id).join("\u0001")}`;
+  const layoutEdges = edges.filter((edge) => edge.provenance === "Asserted");
+  const geometryKey = `${nodes.map((node) => node.identity.id).join("\u0001")}\u0002${layoutEdges.map((edge) => edge.id).join("\u0001")}`;
   // Presentation-only selection and emphasis create new arrays without changing graph geometry.
-  const defaultPositions = useMemo(() => layeredGraphLayout(nodes, edges), [geometryKey]);
+  const defaultPositions = useMemo(() => layeredGraphLayout(nodes, layoutEdges), [geometryKey]);
   const positions = Object.fromEntries(nodes.map((node) => [node.identity.id, state.positions?.[node.identity.id] ?? defaultPositions[node.identity.id]]));
   const persistedPositions = { ...state.positions, ...positions };
   const [initialZoom, setInitialZoom] = useState<number | null>(null);
@@ -146,9 +147,11 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
           <svg width={bounds.width * zoom} height={bounds.height * zoom} role="img" aria-label="Loaded ontology graph">
           <defs>
             <marker id="ontology-arrow" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" /></marker>
+            <marker id="ontology-arrow-inferred-applied" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" /></marker>
+            <marker id="ontology-arrow-inferred-proposal" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 z" /></marker>
           </defs>
           <g transform={`scale(${zoom}) translate(${-bounds.minX} ${-bounds.minY})`}>
-            {edges.map((edge) => { const from = positions[edge.sourceNodeId]; const to = positions[edge.targetNodeId]; if (!from || !to) return null; const label = edgeLabelPoint(from, to); const crossLink = edge.kind !== "SubclassOf" && edge.kind !== "Domain" && edge.kind !== "Range" && edge.kind !== "Type"; return <g key={edge.id} className={`ontology-edge edge-${edge.kind} ${crossLink ? "cross-link" : ""} ${dimmedEdgeIds.has(edge.id) ? "dimmed" : ""}`}><path d={curvedEdgePath(from, to)} markerEnd="url(#ontology-arrow)" /><text x={label.x} y={label.y}>{edge.label}</text></g>; })}
+            {edges.map((edge) => { const from = positions[edge.sourceNodeId]; const to = positions[edge.targetNodeId]; if (!from || !to) return null; const label = edgeLabelPoint(from, to); const crossLink = edge.kind !== "SubclassOf" && edge.kind !== "Domain" && edge.kind !== "Range" && edge.kind !== "Type"; const inferred = edge.provenance === "Inferred"; const stateClass = inferred ? `inferred-${edge.inferredGraphState?.toLowerCase()}` : "asserted"; const marker = inferred ? `url(#ontology-arrow-inferred-${edge.inferredGraphState?.toLowerCase()})` : "url(#ontology-arrow)"; return <g key={edge.id} className={`ontology-edge edge-${edge.kind} ${stateClass} ${crossLink ? "cross-link" : ""} ${dimmedEdgeIds.has(edge.id) ? "dimmed" : ""}`} aria-label={inferred ? `${edge.label}, Inferred, ${edge.inferredGraphState}` : `${edge.label}, Asserted`}><path d={curvedEdgePath(from, to)} markerEnd={marker} /><text x={label.x} y={label.y}>{inferred ? `${edge.label} · Inferred · ${edge.inferredGraphState}` : edge.label}</text></g>; })}
             {nodes.map((node) => { const point = positions[node.identity.id]; const childCount = childCounts[node.identity.id] ?? 0; return <foreignObject key={node.identity.id} x={point.x} y={point.y} width={graphNodeSize.width} height={graphNodeSize.height}><button id={`ontology-node-${node.identity.id}`} className={`ontology-node node-${node.kind} ${state.selectedNodeId === node.identity.id ? "selected" : ""} ${dimmedNodeIds.has(node.identity.id) ? "dimmed" : ""}`} type="button" aria-label={`${node.kind}: ${node.label}`} onClick={() => selectNode(node.identity.id)} onPointerDown={(event) => nodePointerDown(event, node.identity.id)} onPointerMove={nodePointerMove} onPointerUp={nodePointerUp} onPointerCancel={() => { pointer.current = null; suppressClick.current = false; }} onKeyDown={(event) => keyNavigate(event, node.identity.id)}><span aria-hidden="true">{kindMark[node.kind]}</span><strong>{node.label}{childCount ? <small>{childCount} children</small> : null}</strong></button></foreignObject>; })}
           </g>
           </svg>
@@ -156,6 +159,7 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
         </div>
       </div>
     </div>
+    <div className="ontology-graph-legend" aria-label="Relationship legend"><span>Asserted</span><span className="inferred-applied">Inferred · Applied</span><span className="inferred-proposal">Inferred · Proposal</span></div>
     <details className="ontology-loaded-list"><summary>Loaded entities ({nodes.length})</summary><ul>{nodes.map((node) => <li key={node.identity.id}><button type="button" onClick={() => { onStateChange({ ...state, positions: persistedPositions, zoom, selectedNodeId: node.identity.id }); document.getElementById(`ontology-node-${node.identity.id}`)?.focus(); }}>{node.label} <small>{node.kind}</small></button></li>)}</ul></details>
   </div>;
 }

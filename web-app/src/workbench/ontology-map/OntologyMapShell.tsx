@@ -25,7 +25,7 @@ export interface OntologyMapViewState extends RendererState {
 const LARGE_BRANCH_LIMIT = 6;
 const OUTSIDE_CLICK_THRESHOLD = 4;
 
-export default function OntologyMapShell({ projectId, sourceId, seed, state, onStateChange, onViewDetails, onLoadedEntities }: {
+export default function OntologyMapShell({ projectId, sourceId, seed, state, onStateChange, onViewDetails, onLoadedEntities, includeAppliedInferred = false, includeProposalInferred = false }: {
   projectId: string;
   sourceId: string;
   seed?: WebEntityReference;
@@ -33,21 +33,28 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   onStateChange: (state: OntologyMapViewState) => void;
   onViewDetails: (entity: WebEntityReference) => void;
   onLoadedEntities?: (entities: Record<string, string>) => void;
+  includeAppliedInferred?: boolean;
+  includeProposalInferred?: boolean;
 }) {
   const popupRef = useRef<HTMLElement>(null);
   const popupDrag = useRef<{ pointerId: number; clientX: number; clientY: number; x: number; y: number } | null>(null);
   const outsidePointer = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
-  const graph = useOntologyGraph(projectId, { sourceIds: [sourceId], seed: seed?.sourceId ? { sourceId: seed.sourceId, entityIri: seed.iri } : undefined });
+  const graph = useOntologyGraph(projectId, {
+    sourceIds: [sourceId],
+    seed: seed?.sourceId ? { sourceId: seed.sourceId, entityIri: seed.iri } : undefined,
+    includeAppliedInferred,
+    includeProposalInferred,
+  });
 
   useEffect(() => {
-    const centerKey = seed?.sourceId ? `${seed.sourceId}\u0000${seed.iri}` : "root";
+    const centerKey = `${seed?.sourceId ? `${seed.sourceId}\u0000${seed.iri}` : "root"}|${includeAppliedInferred}|${includeProposalInferred}`;
     if (!graph.data || (state.graphFingerprint === graph.data.graphFingerprint && state.centerKey === centerKey)) return;
     if (state.graphFingerprint && state.graphFingerprint !== graph.data.graphFingerprint) {
       if (!state.stale) onStateChange({ ...state, stale: true });
       return;
     }
     onStateChange({ ...state, selectedNodeId: graph.data.seed?.id ?? null, nodes: graph.data.nodes, edges: graph.data.edges, graphFingerprint: graph.data.graphFingerprint, centerKey });
-  }, [graph.data, onStateChange, seed, state.centerKey, state.graphFingerprint]);
+  }, [graph.data, includeAppliedInferred, includeProposalInferred, onStateChange, seed, state.centerKey, state.graphFingerprint]);
 
   const nodes = state.nodes ?? graph.data?.nodes ?? [];
   const edges = state.edges ?? graph.data?.edges ?? [];
@@ -55,8 +62,9 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
     onLoadedEntities?.(Object.fromEntries(nodes.map((node) => [`${node.identity.sourceId}\u0000${node.identity.entityIri}`, node.identity.id])));
   }, [nodes, onLoadedEntities]);
 
-  const childCounts = useMemo(() => classChildCounts(nodes, edges), [nodes, edges]);
-  const basePositions = useMemo(() => layeredGraphLayout(nodes, edges), [nodes, edges]);
+  const assertedEdges = useMemo(() => edges.filter((edge) => edge.provenance === "Asserted"), [edges]);
+  const childCounts = useMemo(() => classChildCounts(nodes, assertedEdges), [nodes, assertedEdges]);
+  const basePositions = useMemo(() => layeredGraphLayout(nodes, assertedEdges), [nodes, assertedEdges]);
   const revealedIndividualIds = useMemo(() => state.nodeKinds?.includes("Individual") ? new Set(nodes.filter((node) => node.kind === "Individual").map((node) => node.identity.id)) : new Set(state.revealedIndividualIds ?? []), [nodes, state.nodeKinds, state.revealedIndividualIds]);
   const projectedIds = useMemo(() => projectedNodeIds(nodes, edges, state.layoutMode ?? "FullMap", state.selectedNodeId, new Set(state.expandedClassIds ?? []), revealedIndividualIds, basePositions), [basePositions, edges, nodes, revealedIndividualIds, state.expandedClassIds, state.layoutMode, state.selectedNodeId]);
   const visibleNodes = useMemo(() => state.sourceVisible === false ? [] : nodes.filter((node) => projectedIds.has(node.identity.id) && (state.nodeKinds === undefined || state.nodeKinds.includes(node.kind))), [nodes, projectedIds, state.nodeKinds, state.sourceVisible]);
@@ -146,7 +154,7 @@ export function projectedNodeIds(nodes: WebOntologyGraphNode[], edges: WebOntolo
   const classIds = new Set(classes.map((node) => node.identity.id));
   const children = new Map(classes.map((node) => [node.identity.id, [] as string[]]));
   const hasParent = new Set<string>();
-  edges.filter((edge) => edge.kind === "SubclassOf" && classIds.has(edge.sourceNodeId) && classIds.has(edge.targetNodeId)).forEach((edge) => { children.get(edge.targetNodeId)!.push(edge.sourceNodeId); hasParent.add(edge.sourceNodeId); });
+  edges.filter((edge) => edge.provenance === "Asserted" && edge.kind === "SubclassOf" && classIds.has(edge.sourceNodeId) && classIds.has(edge.targetNodeId)).forEach((edge) => { children.get(edge.targetNodeId)!.push(edge.sourceNodeId); hasParent.add(edge.sourceNodeId); });
   children.forEach((items) => items.sort((a, b) => (positions[a]?.y ?? 0) - (positions[b]?.y ?? 0) || a.localeCompare(b)));
   const visible = new Set<string>();
   function visit(id: string) {

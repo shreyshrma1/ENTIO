@@ -116,7 +116,8 @@ export interface WebOntologyGraphNode {
 }
 export interface WebOntologyGraphEdge {
   id: string; kind: OntologyGraphEdgeKind; sourceNodeId: string; targetNodeId: string;
-  label: string; predicateIri: string | null; provenance: "Asserted";
+  label: string; predicateIri: string | null; provenance: "Asserted" | "Inferred";
+  inferredGraphState?: "Applied" | "Proposal" | null;
 }
 export interface WebOntologyGraphResponse {
   apiVersion: typeof WEB_API_VERSION; projectId: string; graphFingerprint: string;
@@ -125,6 +126,7 @@ export interface WebOntologyGraphResponse {
   seed: WebOntologyGraphNodeId | null; nodes: WebOntologyGraphNode[]; edges: WebOntologyGraphEdge[];
   limits: { nodeLimit: number; edgeLimit: number }; totalNodeCount: number; totalEdgeCount: number;
   continuation: string | null; ambiguousCrossSourceRelationshipCount: number;
+  inferredOverlays?: Array<{ graphState: "Applied" | "Proposal"; state: string; totalFactCount: number; truncated: boolean; message: string | null }>;
 }
 
 export function normalizeOntologyGraphResponse(value: unknown): WebOntologyGraphResponse {
@@ -139,6 +141,9 @@ export function normalizeOntologyGraphResponse(value: unknown): WebOntologyGraph
   const ids = new Set(response.nodes.map((node) => node.identity.id));
   if (response.edges.some((edge) => !ids.has(edge.sourceNodeId) || !ids.has(edge.targetNodeId))) {
     throw new Error("malformed-graph-reference");
+  }
+  if (response.edges.some((edge) => edge.provenance === "Inferred" && !edge.inferredGraphState)) {
+    throw new Error("malformed-graph-provenance");
   }
   return response as WebOntologyGraphResponse;
 }

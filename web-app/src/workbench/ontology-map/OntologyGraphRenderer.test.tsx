@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { OntologyGraphNodeKind, WebOntologyGraphNode } from "../../web/contracts";
 import OntologyGraphRenderer from "./OntologyGraphRenderer";
@@ -42,6 +42,20 @@ describe("accessible ontology graph renderer", () => {
     expect(fireEvent.wheel(viewport, { ctrlKey: false, deltaY: 100, clientX: 20, clientY: 20 })).toBe(false);
     expect(fireEvent.wheel(viewport, { ctrlKey: true, deltaY: -100, clientX: 20, clientY: 20 })).toBe(false);
     expect(onStateChange).toHaveBeenCalledWith(expect.objectContaining({ zoom: expect.any(Number) }));
+  });
+
+  it("labels inferred edges by graph state and provides a non-color legend", () => {
+    const view = render(<OntologyGraphRenderer nodes={nodes} edges={[
+      { id: "applied", kind: "Type", sourceNodeId: "node-3", targetNodeId: "node-0", label: "type", predicateIri: null, provenance: "Inferred", inferredGraphState: "Applied" },
+      { id: "proposal", kind: "Domain", sourceNodeId: "node-1", targetNodeId: "node-0", label: "domain", predicateIri: null, provenance: "Inferred", inferredGraphState: "Proposal" },
+    ]} state={{ selectedNodeId: null }} onStateChange={vi.fn()} />);
+    const rendered = within(view.container);
+    expect(rendered.getByText("type · Inferred · Applied")).toBeVisible();
+    expect(rendered.getByText("domain · Inferred · Proposal")).toBeVisible();
+    const legend = rendered.getByLabelText("Relationship legend");
+    expect(legend).toHaveTextContent("Asserted");
+    expect(legend).toHaveTextContent("Inferred · Applied");
+    expect(legend).toHaveTextContent("Inferred · Proposal");
   });
 
   it("pans with left-drag on empty space and right-drag over a node", () => {
