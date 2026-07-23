@@ -59,6 +59,21 @@ public data class WebStagedEntry(
     val normalizedValues: Map<String, String>,
     val generatedIris: List<String>,
     val validationMessages: List<String>,
+    val materializationProvenance: WebInferenceMaterializationProvenance? = null,
+)
+
+public data class WebInferenceMaterializationProvenance(
+    val origin: String,
+    val inferenceKind: String,
+    val reasoningJobId: String,
+    val graphFingerprint: String,
+    val factId: String,
+    val stagedByUserId: String,
+    val stagedAt: String,
+    val targetSourceId: String,
+    val entailedBeforeAssertion: Boolean,
+    val importDependence: String,
+    val importSourceIds: List<String>,
 )
 
 public data class WebDeletionDependenciesRequest(
