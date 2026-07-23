@@ -19,6 +19,7 @@ public enum class OntologyGraphEdgeKind {
 
 public enum class OntologyGraphProvenance {
     Asserted,
+    Inferred,
 }
 
 public enum class OntologyGraphLoadKind {
@@ -89,6 +90,7 @@ public data class OntologyGraphEdge(
     public val label: String,
     public val predicateIri: Iri? = null,
     public val provenance: OntologyGraphProvenance = OntologyGraphProvenance.Asserted,
+    public val inferredGraphState: InferredGraphState? = null,
 ) {
     init {
         require(id.isNotBlank()) { "graph-edge-id-must-not-be-blank" }
@@ -99,6 +101,12 @@ public data class OntologyGraphEdge(
         }
         require(kind != OntologyGraphEdgeKind.ObjectAssertion || predicateIri != null) {
             "object-assertion-requires-predicate-iri"
+        }
+        require(provenance == OntologyGraphProvenance.Inferred || inferredGraphState == null) {
+            "asserted-edge-must-not-carry-inferred-graph-state"
+        }
+        require(provenance != OntologyGraphProvenance.Inferred || inferredGraphState != null) {
+            "inferred-edge-requires-graph-state"
         }
     }
 }
@@ -176,12 +184,19 @@ public data class OntologyGraphPage(
     public val totalEdgeCount: Int,
     public val nextCursor: OntologyGraphPageCursor? = null,
     public val ambiguousCrossSourceRelationshipCount: Int = 0,
+    public val inferredOverlays: List<InferredOverlaySummary> = emptyList(),
 ) {
     init {
         require(totalNodeCount >= nodes.size) { "total-node-count-must-cover-page" }
         require(totalEdgeCount >= edges.size) { "total-edge-count-must-cover-page" }
         require(ambiguousCrossSourceRelationshipCount >= 0) {
             "ambiguous-cross-source-count-must-not-be-negative"
+        }
+        require(inferredOverlays.size <= InferredGraphState.entries.size) {
+            "graph-page-has-too-many-inferred-overlays"
+        }
+        require(inferredOverlays.map(InferredOverlaySummary::graphState).distinct().size == inferredOverlays.size) {
+            "graph-page-inferred-overlays-must-have-unique-graph-states"
         }
         val nodeIds = nodes.mapTo(mutableSetOf()) { it.id }
         require(edges.all { it.source in nodeIds && it.target in nodeIds }) {
