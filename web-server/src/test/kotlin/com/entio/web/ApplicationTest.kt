@@ -140,6 +140,32 @@ class ApplicationTest {
     }
 
     @Test
+    fun inferredReadFlagsAreAdditiveBoundedAndProjectOwned(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-inferred-read")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+
+        val assertedOnly = client.get("/api/v1/projects/simple/outline?sourceId=simple&limit=20")
+        assertEquals(HttpStatusCode.OK, assertedOnly.status)
+        assertContains(assertedOnly.bodyAsText(), "\"graphState\":\"Applied\",\"state\":\"Off\"")
+        assertContains(assertedOnly.bodyAsText(), "\"graphState\":\"Proposal\",\"state\":\"Off\"")
+
+        var inferredBody = ""
+        repeat(50) {
+            inferredBody = client.get(
+                "/api/v1/projects/simple/outline?sourceId=simple&limit=20&includeAppliedInferred=true",
+            ).bodyAsText()
+            if ("\"graphState\":\"Applied\",\"state\":\"Current\"" in inferredBody) return@repeat
+            Thread.sleep(20)
+        }
+        assertContains(inferredBody, "\"graphState\":\"Applied\",\"state\":\"Current\"")
+        assertContains(inferredBody, "\"graphState\":\"Proposal\",\"state\":\"Off\"")
+        assertFalse(inferredBody.contains("\"facts\":[{") && inferredBody.contains("\"totalFactCount\":101"))
+    }
+
+    @Test
     fun resolvedFiboImportsEnrichReadOnlySuperclassDetailsWithoutCopyingTriples(): Unit = testApplication {
         val allowedRoot = Files.createTempDirectory("entio-web-fibo-import")
         val projectRoot = createReadOnlyFixture(allowedRoot)

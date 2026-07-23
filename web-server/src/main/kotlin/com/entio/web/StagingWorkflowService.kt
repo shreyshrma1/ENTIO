@@ -207,6 +207,27 @@ public class StagingWorkflowService(
         }
     }
 
+    /**
+     * Builds the current effective proposal graph for read-only consumers without
+     * creating or changing proposal review state.
+     */
+    @Synchronized
+    public fun inferredReadGraphSnapshot(projectId: String): WorkflowGraphSnapshot {
+        val project = load(projectId)
+        val staged = session(projectId).entries.map(StoredEntry::staged)
+        if (staged.isEmpty()) {
+            throw WebWorkflowFailure("missing-proposal", "There are no staged changes for proposal-scoped inferred reads.")
+        }
+        val prepared = proposalPlanner.prepare(project, staged)
+        val previewGraph = prepared.proposal.preview?.graph
+            ?: throw WebWorkflowFailure("missing-proposal-preview", "The staged changes did not produce a proposal graph.")
+        return WorkflowGraphSnapshot(
+            graph = previewGraph,
+            graphFingerprint = webGraphFingerprint(previewGraph),
+            proposalFingerprint = webProposalFingerprint(prepared.proposal.id, previewGraph),
+        )
+    }
+
     @Synchronized
     public fun stage(projectId: String, request: WebStageChangeRequest, userId: String): WebStagingResponse {
         val session = session(projectId)

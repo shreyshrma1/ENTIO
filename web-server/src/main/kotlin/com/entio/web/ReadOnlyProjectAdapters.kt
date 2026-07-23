@@ -25,6 +25,7 @@ import com.entio.semantic.ShaclShapeAuthoringService
 import com.entio.semantic.FiboCatalogLoader
 import com.entio.web.contract.ProjectRegistry
 import com.entio.web.contract.WebPage
+import com.entio.web.contract.WebInferredFactsOverlay
 import com.entio.web.contract.WebPageRequest
 import com.entio.web.contract.toWebPage
 import java.nio.file.Files
@@ -68,6 +69,7 @@ public data class WebHierarchyResponse(
     val sourceId: String?,
     val parentIri: String?,
     val page: WebPage<WebHierarchyItem>,
+    val inferredOverlays: List<WebInferredFactsOverlay> = emptyList(),
 )
 
 public data class WebOutlineItem(
@@ -82,6 +84,7 @@ public data class WebOutlineResponse(
     val apiVersion: String = WEB_API_VERSION,
     val sourceId: String?,
     val page: WebPage<WebOutlineItem>,
+    val inferredOverlays: List<WebInferredFactsOverlay> = emptyList(),
 )
 
 public data class WebEntityReference(
@@ -139,6 +142,7 @@ public data class WebEntityDetailResponse(
     val ranges: List<WebEntityReference> = emptyList(),
     val outgoingRelationships: List<WebRelationship> = emptyList(),
     val incomingRelationships: List<WebRelationship> = emptyList(),
+    val inferredOverlays: List<WebInferredFactsOverlay> = emptyList(),
 )
 
 public data class WebSemanticSearchHit(
@@ -239,6 +243,7 @@ public class ReadOnlyProjectAdapter(
         sourceId: String?,
         parentIri: Iri?,
         request: WebPageRequest,
+        inferredOverlays: List<WebInferredFactsOverlay> = emptyList(),
     ): WebHierarchyResponse {
         val project = load(projectId)
         val descriptors = descriptors(project)
@@ -267,6 +272,7 @@ public class ReadOnlyProjectAdapter(
             sourceId = sourceId,
             parentIri = parentIri?.value,
             page = classes.toWebPage(request),
+            inferredOverlays = inferredOverlays,
         )
     }
 
@@ -274,6 +280,7 @@ public class ReadOnlyProjectAdapter(
         projectId: String,
         sourceId: String?,
         request: WebPageRequest,
+        inferredOverlays: List<WebInferredFactsOverlay> = emptyList(),
     ): WebOutlineResponse {
         val descriptors = descriptors(load(projectId))
         val classDescriptors = descriptors
@@ -303,6 +310,7 @@ public class ReadOnlyProjectAdapter(
         return WebOutlineResponse(
             sourceId = sourceId,
             page = items.toWebPage(request),
+            inferredOverlays = inferredOverlays,
         )
     }
 
@@ -332,6 +340,7 @@ public class ReadOnlyProjectAdapter(
         projectId: String,
         entityIri: Iri,
         sourceId: String?,
+        inferredOverlays: List<WebInferredFactsOverlay> = emptyList(),
     ): WebEntityDetailResponse {
         val project = load(projectId)
         val descriptors = descriptors(project)
@@ -344,7 +353,7 @@ public class ReadOnlyProjectAdapter(
             .filter { sourceId == null || it.source.id == descriptor.common.sourceId }
             .flatMap { ontology -> ontology.graph.triples.map { ontology.source.id to it } }
 
-        return descriptor.toResponse(labels, kinds, sourceTriples)
+        return descriptor.toResponse(labels, kinds, sourceTriples).copy(inferredOverlays = inferredOverlays)
     }
 
     public fun search(

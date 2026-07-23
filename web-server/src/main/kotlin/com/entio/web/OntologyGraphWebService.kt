@@ -24,6 +24,7 @@ import com.entio.web.contract.WebOntologyGraphNodeId
 import com.entio.web.contract.WebOntologyGraphNodeSummary
 import com.entio.web.contract.WebOntologyGraphResponse
 import com.entio.web.contract.WebOntologyGraphSource
+import com.entio.web.contract.toWeb
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Clock
@@ -41,6 +42,7 @@ public class OntologyGraphWebService(
     private val clock: Clock = Clock.systemUTC(),
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
     private val continuationLifetime: Duration = Duration.ofMinutes(10),
+    private val inferredFacts: InferredFactsWebService? = null,
 ) {
     private val continuations: MutableMap<String, ContinuationState> = linkedMapOf()
 
@@ -52,17 +54,21 @@ public class OntologyGraphWebService(
         seedIri: String?,
         expectedFingerprint: String?,
         continuation: String?,
+        includeAppliedInferred: Boolean = false,
+        includeProposalInferred: Boolean = false,
     ): WebOntologyGraphResponse {
         val project = load(projectId)
         val sourceIds = selectedSources(project, requestedSourceIds)
         val seed = parseOptionalNode(seedSourceId, seedIri, sourceIds)
         val fingerprint = fingerprint(project, sourceIds)
         requireExpectedFingerprint(expectedFingerprint, fingerprint)
-        val signature = QuerySignature(userId, projectId, sourceIds, fingerprint, "initial", seed?.stableKey.orEmpty(), emptySet())
+        val overlays = inferredFacts?.readCore(projectId, includeAppliedInferred, includeProposalInferred).orEmpty()
+        val inferredFingerprint = overlays.joinToString("|") { "${it.graphState}:${it.state}:${it.graphFingerprint}:${it.proposalFingerprint}" }
+        val signature = QuerySignature(userId, projectId, sourceIds, fingerprint, inferredFingerprint, "initial", seed?.stableKey.orEmpty(), emptySet())
         val cursor = consume(continuation, signature)
         val limits = OntologyGraphLimits.Initial
         val page = try {
-            graphService.initial(project, OntologyGraphInitialQuery(sourceIds, seed, cursor, limits))
+            graphService.initial(project, OntologyGraphInitialQuery(sourceIds, seed, cursor, limits), overlays)
         } catch (failure: IllegalArgumentException) {
             if (failure.message == "missing-graph-entity") throw OntologyGraphWebFailure("unknown-graph-entity", "The requested local graph entity was not found.")
             throw failure
@@ -79,6 +85,8 @@ public class OntologyGraphWebService(
         requestedCategories: Set<String>,
         expectedFingerprint: String?,
         continuation: String?,
+        includeAppliedInferred: Boolean = false,
+        includeProposalInferred: Boolean = false,
     ): WebOntologyGraphResponse {
         val project = load(projectId)
         val sourceIds = selectedSources(project, requestedSourceIds)
@@ -86,11 +94,13 @@ public class OntologyGraphWebService(
         val categories = parseCategories(requestedCategories)
         val fingerprint = fingerprint(project, sourceIds)
         requireExpectedFingerprint(expectedFingerprint, fingerprint)
-        val signature = QuerySignature(userId, projectId, sourceIds, fingerprint, "neighborhood", entity.stableKey, categories.mapTo(sortedSetOf()) { it.name })
+        val overlays = inferredFacts?.readCore(projectId, includeAppliedInferred, includeProposalInferred).orEmpty()
+        val inferredFingerprint = overlays.joinToString("|") { "${it.graphState}:${it.state}:${it.graphFingerprint}:${it.proposalFingerprint}" }
+        val signature = QuerySignature(userId, projectId, sourceIds, fingerprint, inferredFingerprint, "neighborhood", entity.stableKey, categories.mapTo(sortedSetOf()) { it.name })
         val cursor = consume(continuation, signature)
         val limits = OntologyGraphLimits.Expansion
         val page = try {
-            graphService.neighborhood(project, OntologyGraphNeighborhoodQuery(sourceIds, entity, categories, cursor, limits))
+            graphService.neighborhood(project, OntologyGraphNeighborhoodQuery(sourceIds, entity, categories, cursor, limits), overlays)
         } catch (failure: IllegalArgumentException) {
             if (failure.message == "missing-graph-entity") throw OntologyGraphWebFailure("unknown-graph-entity", "The requested local graph entity was not found.")
             throw failure
@@ -167,6 +177,17 @@ public class OntologyGraphWebService(
             totalEdgeCount = page.totalEdgeCount,
             continuation = continuation,
             ambiguousCrossSourceRelationshipCount = page.ambiguousCrossSourceRelationshipCount,
+            inferredOverlays = page.inferredOverlays.map { overlay ->
+                com.entio.core.InferredFactsOverlay(
+                    graphState = overlay.graphState,
+                    state = overlay.state,
+                    totalFactCount = overlay.totalFactCount,
+                    truncated = overlay.truncated,
+                    graphFingerprint = overlay.graphFingerprint,
+                    proposalFingerprint = overlay.proposalFingerprint,
+                    message = overlay.message,
+                ).toWeb()
+            },
         )
     }
 
@@ -176,6 +197,6 @@ public class OntologyGraphWebService(
     private fun OntologyGraphNodeId.toWeb(): WebOntologyGraphNodeId = WebOntologyGraphNodeId(stableId(stableKey), sourceId, entityIri.value)
     private fun stableId(value: String): String = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(StandardCharsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
-    private data class QuerySignature(val userId: String, val projectId: String, val sourceIds: Set<String>, val fingerprint: String, val queryType: String, val entityKey: String, val categories: Set<String>)
+    private data class QuerySignature(val userId: String, val projectId: String, val sourceIds: Set<String>, val fingerprint: String, val inferredFingerprint: String, val queryType: String, val entityKey: String, val categories: Set<String>)
     private data class ContinuationState(val signature: QuerySignature, val cursor: OntologyGraphPageCursor, val expiresAt: Instant)
 }
