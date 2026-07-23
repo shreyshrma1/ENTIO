@@ -156,6 +156,7 @@ public data class StagedChange(
     public val generatedIris: List<GeneratedIri> = emptyList(),
     public val validationReport: ValidationReport? = null,
     public val status: StagedChangeStatus = StagedChangeStatus.Previewed,
+    public val materializationProvenance: InferenceMaterializationProvenance? = null,
 )
 
 public enum class StagedChangeSetStatus {
