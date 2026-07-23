@@ -112,6 +112,9 @@ class OpenAiProposalClientTest {
         assertTrue(root.path("instructions").asText().contains("Use `clarification`, never `clarify`."))
         assertTrue(root.path("instructions").asText().contains("questions about the current ontology or private proposal"))
         assertTrue(root.path("instructions").asText().contains("does not by itself make a message a proposal request"))
+        assertTrue(root.path("instructions").asText().contains("authoritative source of truth"))
+        assertTrue(root.path("instructions").asText().contains("inaccurate, conflicting, or materially incomplete"))
+        assertTrue(root.path("instructions").asText().contains("These are reasoning instructions, not fixed classifications imposed by Entio"))
         assertEquals("json_schema", root.path("text").path("format").path("type").asText())
         assertEquals("entio_response_route", root.path("text").path("format").path("name").asText())
         assertEquals("Model a Loan class.", root.path("input").last().path("content").asText())
@@ -194,5 +197,87 @@ class OpenAiProposalClientTest {
         assertTrue(instructions.contains("remove the old conflicting triple"))
         assertTrue(instructions.contains("asserted triple"))
         assertTrue(instructions.contains("prior private proposal"))
+        assertTrue(instructions.contains("do not treat every finding as permission"))
+        assertTrue(instructions.contains("evidence, not as authority to override user intent"))
+        assertTrue(instructions.contains("you may leave proposal mode and return clarification mode"))
+        assertTrue(instructions.contains("Entio does not classify the finding for you"))
+        val format = root.path("text").path("format")
+        assertEquals("entio_ontology_proposal_repair", format.path("name").asText())
+        assertEquals(
+            listOf("proposal", "clarification"),
+            format.path("schema").path("properties").path("mode").path("enum").map { it.asText() },
+        )
+    }
+
+    @Test
+    fun givesTheModelOntologyGroundedClarificationInstructions(): Unit = runBlocking {
+        var requestBody = ""
+        val engine = MockEngine { request ->
+            requestBody = (request.body as TextContent).text
+            respond(
+                """{"output_text":"Checking Account is a subclass of Account. May I continue?"}""",
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val configuration = OpenAiProposalConfiguration(maxRetries = 0)
+        val client = OpenAiProposalClient(configuration, createProposalHttpClient(configuration, engine))
+
+        val result = client.use {
+            it.generate(
+                "secret",
+                "gpt-test",
+                AiProposalGenerationInput(
+                    userRequest = "It should be a Checking Account, not an Account.",
+                    ontologyContext = "Checking Account is a subclass of Account. owns account has range Account.",
+                    fiboContext = "",
+                    responseKind = AiResponseKind.Clarification,
+                ),
+            )
+        }
+
+        assertIs<AiProposalGenerationResult.Completed>(result)
+        val instructions = ObjectMapper().readTree(requestBody).path("instructions").asText()
+        assertTrue(instructions.contains("authoritative source of truth"))
+        assertTrue(instructions.contains("asserted-versus-inferred"))
+        assertTrue(instructions.contains("request permission to proceed"))
+        assertTrue(instructions.contains("Do not prepare edits"))
+    }
+
+    @Test
+    fun letsTheModelReviewTrustedDraftReasoningAndChooseClarification(): Unit = runBlocking {
+        var requestBody = ""
+        val engine = MockEngine { request ->
+            requestBody = (request.body as TextContent).text
+            respond(
+                """{"output_text":"{\"mode\":\"clarification\",\"answer\":\"This draft also infers Account. May I continue?\",\"summary\":\"\",\"evidence\":[],\"edits\":[]}"}""",
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val configuration = OpenAiProposalConfiguration(maxRetries = 0)
+        val client = OpenAiProposalClient(configuration, createProposalHttpClient(configuration, engine))
+
+        val result = client.use {
+            it.generate(
+                "secret",
+                "gpt-test",
+                AiProposalGenerationInput(
+                    userRequest = "Create Checking Account 33271.",
+                    ontologyContext = "TRUSTED ENTIO REASONING CONTEXT",
+                    fiboContext = "",
+                    currentProposal = "{\"edits\":[]}",
+                    validationFindings = listOf("New inferred consequence: Checking Account 33271 rdf:type Account."),
+                    repairAttempt = 1,
+                    repairMode = "reasoning",
+                    responseKind = AiResponseKind.Proposal,
+                ),
+            )
+        }
+
+        assertIs<AiProposalGenerationResult.Completed>(result)
+        val root = ObjectMapper().readTree(requestBody)
+        val review = root.path("input").last().path("content").asText()
+        assertTrue(review.contains("POST-GENERATION TRUSTED ENTIO REASONING REVIEW"))
+        assertTrue(review.contains("Entio supplies reasoning evidence but does not decide"))
+        assertEquals("entio_ontology_proposal_repair", root.path("text").path("format").path("name").asText())
     }
 }

@@ -78,7 +78,11 @@ public class OpenAiProposalClient(
             AiResponseKind.Clarification -> CLARIFICATION_INSTRUCTIONS
             else -> ANSWER_INSTRUCTIONS
         }
-        val format = if (input.responseKind == AiResponseKind.Proposal) proposalFormat() else null
+        val format = if (input.responseKind == AiResponseKind.Proposal) {
+            proposalFormat(allowClarification = input.repairMode in setOf("proposal", "reasoning"))
+        } else {
+            null
+        }
         return request(apiKey, selectedModelId, instructions, providerInput(input, includeRepair = true), format)
     }
 
@@ -189,6 +193,15 @@ public class OpenAiProposalClient(
 
     private fun repairContext(input: AiProposalGenerationInput): String? {
         if (input.validationFindings.isEmpty()) return null
+        if (input.repairMode == "reasoning") return """
+        POST-GENERATION TRUSTED ENTIO REASONING REVIEW (review ${input.repairAttempt}):
+        Entio reasoned over the applied graph and the effective private-draft graph. Review these computed consequences before the proposal becomes ready:
+        ${input.validationFindings.joinToString("\n") { "- $it" }}
+        Use your own semantic judgment. Return a corrected complete proposal when the inferred consequences are appropriate and faithful to the user's intent. If they reveal a likely misunderstanding, hidden modeling decision, or consequence that warrants permission, return clarification mode instead.
+        To ask for clarification, return the same JSON shape with `"mode":"clarification"`, put the ontology-grounded explanation and one focused question or permission request in `answer`, use an empty string for `summary`, and return empty `evidence` and `edits` arrays. Entio will preserve the existing private draft for the user's follow-up. Entio supplies reasoning evidence but does not decide which conversational response you should choose.
+
+        $PROPOSAL_PRESENTATION_CONTRACT
+        """
         return if (input.repairMode == "answer") """
         POST-GENERATION ANSWER EVIDENCE FINDINGS (repair attempt ${input.repairAttempt}):
         Entio checked the completed answer and found the following issue:
@@ -198,23 +211,24 @@ public class OpenAiProposalClient(
         POST-GENERATION VALIDATION FINDINGS (repair attempt ${input.repairAttempt}):
         Entio ran deterministic validation on the private proposal and found:
         ${input.validationFindings.joinToString("\n") { "- $it" }}
-        Return a complete corrected replacement proposal, preserving valid work and repairing the findings.
-        Treat each finding as a required semantic correction, not merely a message to acknowledge. Findings include the exact source-scoped triple involved and, where possible, the required repair action; use those details directly when revising the edits. For a no-op `add`, remove that exact edit from the replacement proposal rather than emitting it again. For a no-op `remove`, remove it or correct its exact subject, predicate, or object so the replacement targets a triple that is actually present. Re-evaluate whether the asserted triple, the property's domain/range axiom, or both are inconsistent with the user's intended model and the ontology context. When changing an existing domain or range, remove the old conflicting triple and add the corrected triple; do not leave both axioms in the replacement proposal. If the conflicting axiom came from the prior private proposal, include its removal explicitly. Preserve every other valid edit in the corrected replacement.
+        Reconsider the proposal using your own semantic judgment. Repair output mistakes that do not change the user's intended ontology outcome, but do not treat every finding as permission to make an unrequested semantic correction. If a finding reveals that the request may rely on inaccurate, conflicting, or materially incomplete information, do not conceal that issue by adding compensating assertions or axioms. Instead, you may leave proposal mode and return clarification mode so the user can decide.
+        To ask for clarification, return the same JSON shape with `"mode":"clarification"`, put the ontology-grounded explanation and one focused question or permission request in `answer`, use an empty string for `summary`, and return empty `evidence` and `edits` arrays. Entio will preserve the existing private draft for the user's follow-up. Choose this yourself when your semantic judgment says user input is warranted; Entio does not classify the finding for you.
+        Findings include the exact source-scoped triple involved and, where possible, a possible repair action; treat those details as evidence, not as authority to override user intent. For a no-op `add`, remove that exact edit from the replacement proposal rather than emitting it again. For a no-op `remove`, remove it or correct its exact subject, predicate, or object so the replacement targets a triple that is actually present. Re-evaluate whether the asserted triple, the property's domain/range axiom, or both are inconsistent with the user's intended model and the ontology context. When changing an existing domain or range is clearly part of the user's intended outcome, remove the old conflicting triple and add the corrected triple; do not leave both axioms in the replacement proposal. If the conflicting axiom came from the prior private proposal and revising it is consistent with the user's intent, include its removal explicitly. Preserve every other valid edit.
         If the finding came from a malformed edit, the source-scoped proposal context contains the valid edits recovered from the original response. Preserve all of those edits and repair the malformed edit; do not return only the edit named in the finding. Return the complete proposal needed to satisfy the original request, including every requested class, property, node shape, property shape, and constraint.
 
         $PROPOSAL_PRESENTATION_CONTRACT
         """
     }
 
-    private fun proposalFormat(): JsonNode = objectMapper.createObjectNode().apply {
+    private fun proposalFormat(allowClarification: Boolean = false): JsonNode = objectMapper.createObjectNode().apply {
         put("type", "json_schema")
-        put("name", "entio_ontology_proposal")
+        put("name", if (allowClarification) "entio_ontology_proposal_repair" else "entio_ontology_proposal")
         put("strict", true)
         set<JsonNode>("schema", objectMapper.createObjectNode().apply {
             put("type", "object")
             put("additionalProperties", false)
             set<JsonNode>("properties", objectMapper.createObjectNode().apply {
-                set<JsonNode>("mode", stringSchema(listOf("proposal")))
+                set<JsonNode>("mode", stringSchema(if (allowClarification) listOf("proposal", "clarification") else listOf("proposal")))
                 set<JsonNode>("answer", stringSchema())
                 set<JsonNode>("summary", stringSchema())
                 set<JsonNode>("evidence", objectMapper.createObjectNode().apply {
@@ -328,8 +342,15 @@ public class OpenAiProposalClient(
     override fun close() { httpClient.close() }
 
     private companion object {
+        private val ONTOLOGY_GROUNDED_JUDGMENT = """
+            Treat the supplied Entio ontology context as the authoritative source of truth for this project. Use your own semantic judgment to compare the user's request and apparent assumptions with the existing hierarchy, domains, ranges, constraints, assertions, and relevant inferred consequences.
+            If the request appears to rely on inaccurate, conflicting, or materially incomplete information, do not quietly compensate by adding, removing, or changing ontology statements merely to make a proposal work. Decide whether the issue is important enough to pause. When it is, explain the relevant ontology facts in label-first language, distinguish asserted facts from inferred consequences, and ask one focused clarification question or request permission to proceed.
+            Do not ask unnecessary questions when the intended outcome is clear and compatible with the ontology. These are reasoning instructions, not fixed classifications imposed by Entio: decide semantically whether clarification is needed.
+        """.trimIndent()
         private val ROUTING_INSTRUCTIONS = """
             Decide semantically how Entio AI should respond to the latest user message in its conversation and project context.
+
+            $ONTOLOGY_GROUNDED_JUDGMENT
 
             Return exactly one of these JSON objects, with no Markdown fences, prose, explanation, or additional fields:
             {"responseKind":"answer"}
@@ -337,7 +358,7 @@ public class OpenAiProposalClient(
             {"responseKind":"proposal"}
 
             The only valid key is `responseKind`. The only valid values are exactly `answer`, `clarification`, and `proposal`, all lowercase. Use `clarification`, never `clarify`.
-            Choose `proposal` when the user explicitly asks to create, change, remove, model, or otherwise produce an ontology outcome. Choose `answer` for ordinary discussion, explanation, analysis, status questions, and questions about the current ontology or private proposal, including challenges such as asking why an edit is present. The existence of a current private proposal does not by itself make a message a proposal request. A question about a proposal becomes a proposal only when the user also asks you to modify it. Choose `clarification` only when a requested ontology outcome is too ambiguous to propose safely. Do not use keyword matching; interpret the user's intended outcome in context.
+            Choose `proposal` when the user explicitly asks to create, change, remove, model, or otherwise produce an ontology outcome and, in your semantic judgment, the requested outcome can be proposed without concealing a material conflict or misunderstanding. Choose `answer` for ordinary discussion, explanation, analysis, status questions, and questions about the current ontology or private proposal, including challenges such as asking why an edit is present. The existence of a current private proposal does not by itself make a message a proposal request. A question about a proposal becomes a proposal only when the user also asks you to modify it. Choose `clarification` when a requested ontology outcome is too ambiguous to propose safely or when the user's instructions appear to depend on an inaccurate, conflicting, or materially incomplete understanding of the authoritative ontology and permission or clarification is warranted. Do not use keyword matching; interpret the user's intended outcome in context.
         """.trimIndent()
         private val ANSWER_INSTRUCTIONS = """
             You are Entio AI, a capable general-purpose assistant with trusted context about the current Entio ontology project. Reason normally, follow the conversation, and answer the user directly in ordinary prose. Reconsider earlier answers when challenged or corrected. Use project context when relevant, distinguish asserted facts from inferences, and accurately describe Entio's server-retrieved curated FIBO catalog access; do not claim that Entio has no FIBO access when catalog context is supplied. Do not create a proposal.
@@ -353,7 +374,11 @@ public class OpenAiProposalClient(
             If requesting FIBO, make `query` a concise list of the most relevant concepts, classes, or properties—not the full user request or full ontology context. Entio will perform the catalog lookup and provide the results to the next response step.
         """.trimIndent()
         private val CLARIFICATION_INSTRUCTIONS = """
-            You are Entio AI. Ask one concise, useful clarification question needed before you can safely prepare the requested ontology change. Use the conversation and project context. Return ordinary prose only.
+            You are Entio AI, a capable ontology engineer with trusted context about the current project.
+
+            $ONTOLOGY_GROUNDED_JUDGMENT
+
+            Explain the specific ontology fact that makes clarification useful, including any material asserted-versus-inferred distinction, consequence, or conflict. Then ask one concise, focused question or request permission to proceed. Do not prepare edits, silently repair the request, or imply that an unrequested modeling decision came from the user. Return ordinary prose only.
         """.trimIndent()
         private val PROPOSAL_PRESENTATION_CONTRACT = """
             ENTIO PROPOSAL PRESENTATION CONTRACT
@@ -373,7 +398,10 @@ public class OpenAiProposalClient(
         private val PROPOSAL_INSTRUCTIONS = """
             You are Entio AI, a capable ontology engineer with trusted context about the current project. Determine the complete ontology outcome requested by the user. You cannot edit ontology files or Entio configuration; prepare a review-only proposal for Entio validation.
 
+            $ONTOLOGY_GROUNDED_JUDGMENT
+
             Think through the ontology freely and include every declaration, definition, axiom, individual, and assertion required for a complete result. Treat deletion as dependency-aware cleanup: remove every affected triple where the deleted IRI appears as subject, predicate, or object, including property assertions, object/type references, and SHACL targets, paths, and constraints, unless the user explicitly asks to preserve or repoint a reference. Treat replacement as an IRI migration rather than a label edit: after incorporating the replacement concept's authoritative semantics, migrate all references from the old IRI to the new IRI across domains, ranges, hierarchy, type assertions, property assertions, and SHACL structures, leaving no dependent old-IRI triples. When the user asks for FIBO reuse, use exact FIBO IRIs from the supplied catalog results and do not represent invented local IRIs as FIBO concepts. When the user asks to propose a specific number of classes or properties, include concrete edits for each recommendation; never return an empty `edits` array for a proposal request. If the context contains a current private proposal, treat its entities and triples as already present in the effective draft. For a follow-up, return only the new or revised edits needed for the user's request; do not recreate unaffected edits, and reuse an existing edit id when revising one. Entio preserves and reconciles the existing private edits. A follow-up may retract a pending draft addition with a `remove` edit for its exact triple, or restore a pending draft removal with an `add` edit for its exact triple; these are draft operations and are not no-ops. Before emitting each edit, compare its exact subject/predicate/object against the source-scoped graph context and the current private draft: add only triples absent from the effective draft, and remove only triples present in the effective draft. Do not emit a second competing assertion when revising an earlier edit; revise the earlier edit by ID or retract it explicitly. If the requested state is already true, omit that edit and explain it in `answer`. The answer should briefly say that the proposal was generated and summarize its modeling choices; keep the edit details in the edits array for Entio's proposal popup. Never invent source IDs or evidence.
+            Do not silently add a redundant explicit assertion when the requested fact is already entailed by the authoritative ontology. Never conceal an additional modeling decision inside the proposal merely because it makes the proposal valid. The response router is responsible for requesting clarification when your semantic judgment requires it; when proposal mode is appropriate, keep every edit faithful to the clarified or otherwise sufficiently clear user intent and disclose material ontology consequences in `answer`.
             For SHACL, distinguish the node shape from its property shapes: `sh:targetClass` and `sh:property` are triples on the node shape (`rdf:type sh:NodeShape`), while `sh:path`, `sh:minCount`, `sh:maxCount`, `sh:datatype`, `sh:class`, `sh:nodeKind`, and `sh:message` are normally on the linked property-shape resource. When removing a node shape or its constraints, use the actual asserted node-shape subject, remove the requested node-shape triples, and clean up linked property-shape triples that would otherwise be orphaned. Do not substitute a similarly labeled property-shape IRI for the node-shape IRI.
             Every edit subject and predicate must be an absolute IRI. In particular, do not use a blank-node subject (`_:`) for a SHACL node shape or property shape; create or reuse a named absolute IRI for each shape resource so Entio can validate and review it.
 

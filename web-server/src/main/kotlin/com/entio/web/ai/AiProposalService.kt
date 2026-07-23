@@ -92,6 +92,7 @@ public class AiProposalService internal constructor(
     private val projectLoader: ProjectLoader = ProjectLoader(),
     private val objectMapper: ObjectMapper = ObjectMapper(),
     private val ontologyContextBuilder: AiOntologyContextBuilder = AiOntologyContextBuilder(),
+    private val reasoningContextBuilder: AiReasoningContextBuilder = AiReasoningContextBuilder(),
     private val semanticProposalValidator: AiSemanticProposalValidator = AiSemanticProposalValidator(),
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
@@ -270,12 +271,18 @@ public class AiProposalService internal constructor(
             }
             val privateDraftEdits = synchronized(state) { state.edits.toList() }
             val effectiveDraftGraph = effectiveDraftGraph(project.graph, privateDraftEdits)
-            val typedOntologyContext = ontologyContextBuilder.build(
+            val baseOntologyContext = ontologyContextBuilder.build(
                 project.copy(graph = effectiveDraftGraph),
                 requestText,
                 ontologyContext,
                 includesPrivateDraft = privateDraftEdits.isNotEmpty(),
             ).text
+            var activeReasoningContext = reasoningContextBuilder.build(
+                project.graph,
+                effectiveDraftGraph.takeIf { privateDraftEdits.isNotEmpty() },
+                requestText,
+            )
+            var activeOntologyContext = "$baseOntologyContext\n\n${activeReasoningContext.text}"
             val conversation = synchronized(state) {
                 state.messages.dropLast(1).map { message ->
                     AiConversationTurn(message.role, message.content)
@@ -297,6 +304,7 @@ public class AiProposalService internal constructor(
             var validationFindings = emptyList<String>()
             var repairAttempt = 0
             var repairMode: String? = null
+            var reasoningReviewCompleted = false
             val seenFailures = mutableSetOf<String>()
             var parsePreservedEdits = emptyList<WebAiProposalEdit>()
             synchronized(state) { addUpdate(state, "Determining whether to answer, clarify, or prepare a proposal") }
@@ -305,7 +313,7 @@ public class AiProposalService internal constructor(
                 modelId,
                 AiProposalGenerationInput(
                     userRequest = requestText,
-                    ontologyContext = typedOntologyContext,
+                    ontologyContext = activeOntologyContext,
                     fiboContext = "",
                     conversation = conversation,
                     currentProposal = currentProposal,
@@ -318,7 +326,7 @@ public class AiProposalService internal constructor(
                 modelId,
                 AiProposalGenerationInput(
                     userRequest = requestText,
-                    ontologyContext = typedOntologyContext,
+                    ontologyContext = activeOntologyContext,
                     fiboContext = "",
                     conversation = conversation,
                     currentProposal = currentProposal,
@@ -338,12 +346,19 @@ public class AiProposalService internal constructor(
                 synchronized(state) {
                     if (state.status == WebAiProposalStatus.CANCELLED) return
                     if (repairAttempt > 0) {
-                        addUpdate(state, "Asking AI to diagnose and repair the private proposal")
+                        addUpdate(
+                            state,
+                            if (repairMode == "reasoning") {
+                                "Asking AI to review trusted inferred consequences of the private proposal"
+                            } else {
+                                "Asking AI to diagnose and repair the private proposal"
+                            },
+                        )
                     }
                 }
                 val input = AiProposalGenerationInput(
                     userRequest = requestText,
-                    ontologyContext = typedOntologyContext,
+                    ontologyContext = activeOntologyContext,
                     fiboContext = fiboContext,
                     conversation = conversation,
                     currentProposal = currentProposal,
@@ -359,11 +374,12 @@ public class AiProposalService internal constructor(
                 }
 
                 val parsed = try {
-                    parseResponse(text, defaultSourceId, responseKind).also { response ->
-                        if (repairAttempt > 0 && repairMode == "proposal" && response.mode != WebAiResponseMode.PROPOSAL) {
-                            throw IllegalArgumentException("A proposal repair response must remain in proposal mode.")
-                        }
-                    }
+                    parseResponse(
+                        text,
+                        defaultSourceId,
+                        responseKind,
+                        allowProposalClarification = repairAttempt > 0 && repairMode in setOf("proposal", "reasoning"),
+                    )
                 } catch (failure: CancellationException) {
                     throw failure
                 } catch (failure: Exception) {
@@ -436,8 +452,22 @@ public class AiProposalService internal constructor(
                     validate(state)
                     state.validation ?: WebAiProposalValidation(false, listOf("The proposal could not be validated."))
                 }
+                val effectiveProposalGraph = synchronized(state) { effectiveDraftGraph(project.graph, state.edits) }
+                activeReasoningContext = reasoningContextBuilder.build(project.graph, effectiveProposalGraph, requestText)
+                activeOntologyContext = "$baseOntologyContext\n\n${activeReasoningContext.text}"
 
                 if (validation.valid) {
+                    if (activeReasoningContext.hasDraftDelta && !reasoningReviewCompleted) {
+                        reasoningReviewCompleted = true
+                        currentProposal = proposalContext(state.edits)
+                        validationFindings = listOf(activeReasoningContext.text)
+                        repairMode = "reasoning"
+                        repairAttempt += 1
+                        synchronized(state) {
+                            addUpdate(state, "Entio reasoning found new inferred consequences for AI review")
+                        }
+                        continue
+                    }
                     synchronized(state) {
                         parsed.answer?.takeIf { it.isNotBlank() }?.let { answer ->
                             val evidence = ontologyContextBuilder.verifyEvidence(state.currentGraph ?: GraphState(), parsed.evidence, state.edits)
@@ -469,6 +499,10 @@ public class AiProposalService internal constructor(
                 }
                 synchronized(state) {
                     addUpdate(state, "Deterministic validation found ${findings.size} issue(s)", findings)
+                }
+                if (repairAttempt >= MAX_REPAIR_ATTEMPTS) {
+                    finishUnrepaired(state)
+                    return
                 }
                 validationFindings = findings
                 repairMode = "proposal"
@@ -562,7 +596,7 @@ public class AiProposalService internal constructor(
             // presented as an approvable proposal until the repair succeeds.
             state.status = WebAiProposalStatus.FAILED
             state.message = "The proposal could not be made ready because deterministic validation findings remain. Send a follow-up to repair it."
-            addUpdate(state, "Repair stopped after the AI repeated the same proposal failure", state.validation?.messages.orEmpty())
+            addUpdate(state, "Repair stopped with unresolved proposal findings", state.validation?.messages.orEmpty())
             addUpdate(state, "Proposal is not ready for review until the findings are repaired")
         }
     }
@@ -819,13 +853,19 @@ public class AiProposalService internal constructor(
         ?: iri.substringAfterLast('#').substringAfterLast('/').replace(Regex("([a-z0-9])([A-Z])"), "$1 $2").replace('_', ' ').replace('-', ' ')
 
     private companion object {
+        private const val MAX_REPAIR_ATTEMPTS = 3
         private val PREFERRED_LABEL_PREDICATES = setOf(
             "http://www.w3.org/2000/01/rdf-schema#label",
             "http://www.w3.org/2004/02/skos/core#prefLabel",
         )
     }
 
-    private fun parseResponse(text: String, defaultSourceId: String?, responseKind: AiResponseKind): ParsedAiResponse {
+    private fun parseResponse(
+        text: String,
+        defaultSourceId: String?,
+        responseKind: AiResponseKind,
+        allowProposalClarification: Boolean = false,
+    ): ParsedAiResponse {
         val cleaned = text.trim().removePrefix("```").removePrefix("json").removeSuffix("```").trim()
         require(cleaned.isNotBlank()) { "The AI response was empty." }
         val root = runCatching { objectMapper.readTree(cleaned) }.getOrElse { failure ->
@@ -848,7 +888,10 @@ public class AiProposalService internal constructor(
             "proposal" -> WebAiResponseMode.PROPOSAL
             else -> if (root.path("edits").isArray) WebAiResponseMode.PROPOSAL else WebAiResponseMode.ANSWER
         }
-        if (responseKind == AiResponseKind.Proposal) require(mode == WebAiResponseMode.PROPOSAL) {
+        if (responseKind == AiResponseKind.Proposal) require(
+            mode == WebAiResponseMode.PROPOSAL ||
+                (allowProposalClarification && mode == WebAiResponseMode.CLARIFICATION),
+        ) {
             "The proposal response did not contain a structured proposal."
         }
         // Answer and clarification modes are intentionally unable to mutate the

@@ -28,6 +28,7 @@ class CliExampleProjectTest {
                 Individual https://example.com/entio/simple#20874 "Invoice 20874" [simple]
                 Class https://example.com/entio/simple#Account "Account" [simple]
                 Individual https://example.com/entio/simple#Account101 "Account 101" [simple]
+                Individual https://example.com/entio/simple#Account33271 "Checking Account 33271" [simple]
                 Class https://example.com/entio/simple#Checking "Checking Account" [simple]
                 Property https://example.com/entio/simple#InterestRate [simple]
                 Class https://example.com/entio/simple#Invoice "Invoice" [simple]

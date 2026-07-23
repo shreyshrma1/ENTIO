@@ -339,6 +339,46 @@ class ProposalValidatorTest {
     }
 
     @Test
+    fun subclassInstanceSatisfiesSuperclassPropertyRange(): Unit {
+        val source = tempSource()
+        val ownsAccount = iri("ownsAccount")
+        val customer = iri("Customer")
+        val account = iri("Account")
+        val checking = iri("Checking")
+        val checkingAccount = iri("CheckingAccount33271")
+        val graph = GraphState(
+            setOf(
+                typeTriple("Customer"),
+                typeTriple("Account"),
+                typeTriple("Checking"),
+                GraphTriple(checking, RDFS_SUBCLASS_OF, account),
+                propertyTypeTriple(ownsAccount, OWL_OBJECT_PROPERTY),
+                GraphTriple(ownsAccount, RDFS_DOMAIN, customer),
+                GraphTriple(ownsAccount, RDFS_RANGE, account),
+                GraphTriple(iri("Shrey"), Iri(RDF_TYPE), customer),
+                GraphTriple(checkingAccount, Iri(RDF_TYPE), checking),
+            ),
+        )
+        val project = project(source = source, graph = graph)
+        val proposal = proposal(
+            project = project,
+            changeSet = ChangeSet(
+                listOf(
+                    GraphChange(
+                        GraphChangeKind.Addition,
+                        GraphTriple(iri("Shrey"), ownsAccount, checkingAccount),
+                    ),
+                ),
+            ),
+        )
+
+        val report = validator.validateProposal(proposal, project)
+
+        assertEquals(ValidationStatus.Valid, report.status)
+        assertTrue(report.issues.none { it.code == "incompatible-property-range" })
+    }
+
+    @Test
     fun genericRdfPropertyCanReceiveClassDomainAndRange(): Unit {
         val source = tempSource()
         val property = iri("ownsAccount")
