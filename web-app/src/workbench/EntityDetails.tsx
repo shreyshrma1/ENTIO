@@ -1032,6 +1032,7 @@ interface RelationshipRow {
   value: string;
   staged: boolean;
   stagedId?: string;
+  inferredState?: "Applied" | "Proposal";
 }
 
 interface ClassPropertyRow extends WebEntityReference {
@@ -1043,10 +1044,10 @@ function RelationshipRows({ title, empty, rows, onDiscard }: { title: string; em
   return <section className="relationship-row-section">
     <header><h3>{title}</h3><span>{rows.length}</span></header>
     {rows.length ? <ul className="relationship-row-list">
-      {rows.map((row) => <li key={row.id} className={row.staged ? "relationship-row-staged" : undefined}>
+      {rows.map((row) => <li key={row.id} className={row.staged ? "relationship-row-staged" : row.inferredState ? `relationship-row-inferred relationship-row-inferred-${row.inferredState.toLowerCase()}` : undefined}>
         <div><strong>{row.predicate}</strong><span>{row.value}</span></div>
         <div className="relationship-row-status">
-          <small>{row.staged ? "Staged" : "Applied"}</small>
+          <small>{row.staged ? "Staged" : row.inferredState ? `Inferred · ${row.inferredState}` : "Applied"}</small>
           {row.stagedId ? <button type="button" className="icon-button" aria-label={`Remove staged ${row.predicate} relationship`} onClick={() => void onDiscard(row.stagedId!)}>×</button> : null}
         </div>
       </li>)}
@@ -1595,7 +1596,22 @@ function relationshipRows(entity: WebEntityDetailResponse, entries: WebStagedEnt
     }
     return [];
   });
-  return [...staged, ...applied];
+  const inferred = (entity.inferredOverlays ?? []).flatMap((overlay): RelationshipRow[] =>
+    overlay.facts.flatMap((fact): RelationshipRow[] => {
+      const outgoingType = kind === "outgoing" && fact.kind === "IndividualType" && fact.subject === entity.iri;
+      const outgoingAssertion = kind === "outgoing" && fact.kind === "ObjectPropertyAssertion" && fact.subject === entity.iri;
+      const incomingAssertion = kind === "incoming" && fact.kind === "ObjectPropertyAssertion" && fact.objectValue === entity.iri;
+      if (!outgoingType && !outgoingAssertion && !incomingAssertion) return [];
+      return [{
+        id: `inferred:${overlay.graphState}:${fact.semanticFactKey}`,
+        predicate: fact.kind === "IndividualType" ? "type" : technicalLabel(fact.predicate),
+        value: technicalLabel(outgoingType || outgoingAssertion ? fact.objectValue : fact.subject),
+        staged: false,
+        inferredState: overlay.graphState,
+      }];
+    }),
+  );
+  return [...staged, ...applied, ...inferred];
 }
 
 function stagedRelationshipRow(entry: WebStagedEntry, predicate?: string, value?: string): RelationshipRow {

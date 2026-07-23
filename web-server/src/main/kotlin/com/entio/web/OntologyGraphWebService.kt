@@ -18,6 +18,7 @@ import com.entio.semantic.OntologyGraphService
 import com.entio.semantic.ProjectLoader
 import com.entio.web.contract.ProjectRegistry
 import com.entio.web.contract.WebOntologyGraphEdge
+import com.entio.web.contract.WebInferredFactsOverlay
 import com.entio.web.contract.WebOntologyGraphLimits
 import com.entio.web.contract.WebOntologyGraphNode
 import com.entio.web.contract.WebOntologyGraphNodeId
@@ -178,15 +179,15 @@ public class OntologyGraphWebService(
             continuation = continuation,
             ambiguousCrossSourceRelationshipCount = page.ambiguousCrossSourceRelationshipCount,
             inferredOverlays = page.inferredOverlays.map { overlay ->
-                com.entio.core.InferredFactsOverlay(
-                    graphState = overlay.graphState,
-                    state = overlay.state,
+                WebInferredFactsOverlay(
+                    graphState = overlay.graphState.name,
+                    state = overlay.state.name,
                     totalFactCount = overlay.totalFactCount,
                     truncated = overlay.truncated,
                     graphFingerprint = overlay.graphFingerprint,
                     proposalFingerprint = overlay.proposalFingerprint,
                     message = overlay.message,
-                ).toWeb()
+                )
             },
         )
     }

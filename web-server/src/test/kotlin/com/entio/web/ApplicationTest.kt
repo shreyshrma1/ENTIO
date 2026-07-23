@@ -166,6 +166,35 @@ class ApplicationTest {
     }
 
     @Test
+    fun ontologyMapLoadsCurrentAppliedInferredOverlay(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-inferred-map")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+
+        var response = client.get(
+            "/api/v1/projects/simple/graph?sourceId=simple&includeAppliedInferred=true",
+        )
+        for (attempt in 0 until 50) {
+            if (response.status == HttpStatusCode.OK &&
+                "\"graphState\":\"Applied\",\"state\":\"Current\"" in response.bodyAsText()
+            ) {
+                break
+            }
+            Thread.sleep(20)
+            response = client.get(
+                "/api/v1/projects/simple/graph?sourceId=simple&includeAppliedInferred=true",
+            )
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertContains(response.bodyAsText(), "\"graphState\":\"Applied\",\"state\":\"Current\"")
+        assertContains(response.bodyAsText(), "\"provenance\":\"Inferred\"")
+        assertContains(response.bodyAsText(), "\"inferredGraphState\":\"Applied\"")
+    }
+
+    @Test
     fun resolvedFiboImportsEnrichReadOnlySuperclassDetailsWithoutCopyingTriples(): Unit = testApplication {
         val allowedRoot = Files.createTempDirectory("entio-web-fibo-import")
         val projectRoot = createReadOnlyFixture(allowedRoot)

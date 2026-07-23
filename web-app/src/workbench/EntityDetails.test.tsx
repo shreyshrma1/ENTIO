@@ -477,6 +477,48 @@ describe("entity details editing", () => {
     expect(openEntity).toHaveBeenCalledWith(expect.objectContaining({ iri: "https://example.com/Party" }));
   });
 
+  it("renders an inferred individual type in the normal outgoing relationship field", () => {
+    renderEntity({
+      ...classEntity(),
+      iri: "https://example.com/CheckingAccount33271",
+      label: "Checking Account 33271",
+      kind: "Individual",
+      assertedTypes: [{ iri: "https://example.com/CheckingAccount", label: "Checking Account", kind: "Class", sourceId: "simple" }],
+      outgoingRelationships: [{
+        direction: "outgoing",
+        predicate: { iri: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type", label: "type", kind: null, sourceId: "simple" },
+        value: { kind: "Iri", value: "https://example.com/CheckingAccount", label: "Checking Account", datatype: null, language: null },
+        sourceId: "simple",
+      }],
+      inferredOverlays: [{
+        graphState: "Applied",
+        state: "Current",
+        facts: [{
+          semanticFactKey: "entio-inferred-v1:account-type",
+          subject: "https://example.com/CheckingAccount33271",
+          predicate: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+          objectValue: "https://example.com/Account",
+          kind: "IndividualType",
+          placements: ["IndividualTypes", "IndividualOutgoingRelationships"],
+          graphState: "Applied",
+          sourceId: "simple",
+        }],
+        totalFactCount: 1,
+        truncated: false,
+        graphFingerprint: "graph",
+        proposalFingerprint: null,
+        message: null,
+      }],
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Relationships" }));
+    const rows = screen.getByRole("heading", { name: "Outgoing relationships" }).closest("section");
+    expect(rows).toHaveTextContent("Checking Account");
+    expect(rows).toHaveTextContent("Account");
+    expect(rows).toHaveTextContent("Inferred · Applied");
+    expect(rows?.querySelector(".relationship-row-inferred-applied")).not.toBeNull();
+  });
+
   it("shows class constraints in a list and stages add, update, and remove edits from dialogs", async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);

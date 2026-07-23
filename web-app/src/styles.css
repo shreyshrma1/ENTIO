@@ -497,6 +497,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .relationship-row-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .relationship-row-list li { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 52px; padding: 9px 11px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-2); }
 .relationship-row-list li.relationship-row-staged { border-color: #f5c451; background: var(--staged-subtle); }
+.relationship-row-list li.relationship-row-inferred { border-color: #b9d9ff; background: #f2f8ff; }
+.relationship-row-inferred .relationship-row-status small { color: #397eaf; }
+.relationship-row-list li.relationship-row-inferred-proposal { border-inline-start: 3px solid #8b7cf6; }
 .relationship-row-list li > div:first-child { display: grid; gap: 2px; min-width: 0; }
 .relationship-row-list strong { overflow: hidden; color: var(--text-primary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .relationship-row-list li > div:first-child span { overflow: hidden; color: var(--text-secondary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
@@ -1074,7 +1077,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-map-stale { position: absolute; z-index: 8; inset: 52px 16px 16px; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 24px; border: 2px solid var(--warning); border-radius: 12px; background: color-mix(in srgb, var(--surface-1) 94%, transparent); color: var(--text-primary); text-align: center; }
 .ontology-map-stale h3, .ontology-map-stale p { max-width: 480px; margin: 0; }
 @media (prefers-reduced-motion: reduce) { .ontology-graph *, .ontology-graph *::before, .ontology-graph *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
-.inferred-facts-panel { margin: 0 40px 20px; padding: 14px 16px; border: 1px solid #b9d9ff; border-radius: 12px; background: #f2f8ff; }
+.inferred-facts-panel { margin: 0 0 20px; padding: 14px 16px; border: 1px solid #b9d9ff; border-radius: 12px; background: #f2f8ff; }
 .inferred-facts-panel h3 { margin: 0 0 8px; font-size: 14px; }
 .inferred-facts-panel ul { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .inferred-fact { display: flex; align-items: center; gap: 5px; color: #29425f; }
