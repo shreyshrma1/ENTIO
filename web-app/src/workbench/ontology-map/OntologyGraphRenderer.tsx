@@ -7,12 +7,12 @@ const kindMark = { Class: "C", ObjectProperty: "OP", DatatypeProperty: "DP", Ind
 
 export interface RendererState { selectedNodeId: string | null; positions?: Record<string, GraphPoint>; zoom?: number }
 
-export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStart, worldOverlay, childCounts = {}, dimmedNodeIds = new Set(), dimmedEdgeIds = new Set(), onStateChange }: {
+export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStart, viewportOverlay, childCounts = {}, dimmedNodeIds = new Set(), dimmedEdgeIds = new Set(), onStateChange }: {
   nodes: WebOntologyGraphNode[];
   edges: WebOntologyGraphEdge[];
   state: RendererState;
   toolbarStart?: ReactNode;
-  worldOverlay?: { nodeId: string; position?: GraphPoint; content: ReactNode };
+  viewportOverlay?: { position?: GraphPoint; content: ReactNode };
   childCounts?: Record<string, number>;
   dimmedNodeIds?: Set<string>;
   dimmedEdgeIds?: Set<string>;
@@ -35,12 +35,6 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
   const nodesById = useMemo(() => new Map(nodes.map((node) => [node.identity.id, node])), [nodes]);
-  const overlayNodePosition = worldOverlay ? positions[worldOverlay.nodeId] : undefined;
-  const overlayPosition = worldOverlay?.position ?? (overlayNodePosition ? {
-    x: (overlayNodePosition.x + graphNodeSize.width - bounds.minX) * zoom + 18,
-    y: (overlayNodePosition.y - bounds.minY) * zoom,
-  } : undefined);
-
   useEffect(() => {
     const element = viewport.current;
     if (!element || initiallyFocused.current || !nodes.length) return;
@@ -141,7 +135,7 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
         </div>
       </div>
     </div>
-    <div className={`ontology-graph-viewport ${panning ? "panning" : ""}`} ref={viewport} tabIndex={0} onContextMenu={(event) => event.preventDefault()} onKeyDown={(event) => { if (event.code === "Space") setSpaceHeld(true); }} onKeyUp={(event) => { if (event.code === "Space") setSpaceHeld(false); }} onPointerDown={(event) => { const overInteractiveMapItem = (event.target as Element).closest(".ontology-node, .ontology-graph-world-overlay, .ontology-map-legend"); if (spaceHeld || event.button === 1 || event.button === 2 || (event.button === 0 && !overInteractiveMapItem)) { event.preventDefault(); pan.current = { x: event.clientX, y: event.clientY, left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop }; setPanning(true); event.currentTarget.setPointerCapture(event.pointerId); } }} onPointerMove={(event) => { if (pan.current) { event.currentTarget.scrollLeft = pan.current.left - (event.clientX - pan.current.x); event.currentTarget.scrollTop = pan.current.top - (event.clientY - pan.current.y); } }} onPointerUp={() => { pan.current = null; setPanning(false); }} onPointerCancel={() => { pan.current = null; setPanning(false); }}>
+    <div className={`ontology-graph-viewport ${panning ? "panning" : ""}`} ref={viewport} tabIndex={0} onContextMenu={(event) => event.preventDefault()} onKeyDown={(event) => { if (event.code === "Space") setSpaceHeld(true); }} onKeyUp={(event) => { if (event.code === "Space") setSpaceHeld(false); }} onPointerDown={(event) => { const overInteractiveMapItem = (event.target as Element).closest(".ontology-node, .ontology-graph-viewport-overlay, .ontology-map-legend"); if (spaceHeld || event.button === 1 || event.button === 2 || (event.button === 0 && !overInteractiveMapItem)) { event.preventDefault(); pan.current = { x: event.clientX, y: event.clientY, left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop }; setPanning(true); event.currentTarget.setPointerCapture(event.pointerId); } }} onPointerMove={(event) => { if (pan.current) { event.currentTarget.scrollLeft = pan.current.left - (event.clientX - pan.current.x); event.currentTarget.scrollTop = pan.current.top - (event.clientY - pan.current.y); } }} onPointerUp={() => { pan.current = null; setPanning(false); }} onPointerCancel={() => { pan.current = null; setPanning(false); }}>
       <details className="ontology-map-legend" open>
         <summary>Legend</summary>
         <div className="ontology-map-legend-content">
@@ -160,6 +154,7 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
           </section>
         </div>
       </details>
+      {viewportOverlay ? <div className="ontology-graph-viewport-overlay" style={viewportOverlay.position ? { left: viewportOverlay.position.x, top: viewportOverlay.position.y } : undefined}>{viewportOverlay.content}</div> : null}
       <div className="ontology-graph-world" style={{ width: `max(${bounds.width * zoom}px, calc(100% + 480px))`, height: `max(${bounds.height * zoom}px, calc(100% + 360px))` }}>
         <div className="ontology-graph-canvas" style={{ width: bounds.width * zoom, height: bounds.height * zoom }}>
           <svg width={bounds.width * zoom} height={bounds.height * zoom} role="img" aria-label="Loaded ontology graph">
@@ -173,7 +168,6 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
             {nodes.map((node) => { const point = positions[node.identity.id]; const childCount = childCounts[node.identity.id] ?? 0; return <foreignObject key={node.identity.id} x={point.x} y={point.y} width={graphNodeSize.width} height={graphNodeSize.height}><button id={`ontology-node-${node.identity.id}`} className={`ontology-node node-${node.kind} ${state.selectedNodeId === node.identity.id ? "selected" : ""} ${dimmedNodeIds.has(node.identity.id) ? "dimmed" : ""}`} type="button" aria-label={`${node.kind}: ${node.label}`} onClick={() => selectNode(node.identity.id)} onPointerDown={(event) => nodePointerDown(event, node.identity.id)} onPointerMove={nodePointerMove} onPointerUp={nodePointerUp} onPointerCancel={() => { pointer.current = null; suppressClick.current = false; }} onKeyDown={(event) => keyNavigate(event, node.identity.id)}><span aria-hidden="true">{kindMark[node.kind]}</span><strong>{node.label}{childCount ? <small>{childCount} children</small> : null}</strong></button></foreignObject>; })}
           </g>
           </svg>
-          {worldOverlay && overlayPosition ? <div className="ontology-graph-world-overlay" style={{ left: overlayPosition.x, top: overlayPosition.y }}>{worldOverlay.content}</div> : null}
         </div>
       </div>
     </div>

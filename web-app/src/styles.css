@@ -1018,7 +1018,10 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-graph-viewport.panning { cursor: grabbing; user-select: none; }
 .ontology-graph-world { position: relative; display: grid; flex: none; place-items: center; margin: auto; }
 .ontology-graph-canvas { position: relative; }
-.ontology-graph-world-overlay { position: absolute; z-index: 4; }
+.ontology-graph-viewport-overlay { position: sticky; z-index: 7; top: 18px; right: 18px; align-self: flex-start; flex: none; width: 0; height: 0; margin-left: auto; pointer-events: none; }
+.ontology-graph-viewport-overlay > * { position: absolute; right: 0; pointer-events: auto; }
+.ontology-graph-viewport-overlay[style] { position: sticky; right: auto; margin-left: 0; }
+.ontology-graph-viewport-overlay[style] > * { right: auto; }
 .ontology-edge path { fill: none; stroke: #8092b8; stroke-width: 1.7; }
 .ontology-edge.edge-Domain path, .ontology-edge.edge-Range path, .ontology-edge.edge-ObjectAssertion path { stroke: #8b5cc7; }
 .ontology-edge.edge-Type path { stroke: #8092b8; }

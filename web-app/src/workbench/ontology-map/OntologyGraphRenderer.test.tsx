@@ -87,14 +87,24 @@ describe("accessible ontology graph renderer", () => {
     expect(fireEvent.contextMenu(viewport)).toBe(false);
   });
 
-  it("places selected entity information inside the pannable graph world", () => {
+  it("keeps selected entity information fixed in the viewport across map zoom changes", () => {
     const renderer = render(<OntologyGraphRenderer
       nodes={nodes}
       edges={[]}
       state={{ selectedNodeId: "node-0" }}
-      worldOverlay={{ nodeId: "node-0", content: <aside>Entity information</aside> }}
+      viewportOverlay={{ position: { x: 30, y: 40 }, content: <aside>Entity information</aside> }}
       onStateChange={vi.fn()}
     />);
-    expect(renderer.container.querySelector(".ontology-graph-world .ontology-graph-world-overlay")).toContainElement(screen.getByText("Entity information"));
+    const overlay = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport > .ontology-graph-viewport-overlay");
+    expect(overlay).toContainElement(screen.getByText("Entity information"));
+    expect(overlay).toHaveStyle({ left: "30px", top: "40px" });
+    renderer.rerender(<OntologyGraphRenderer
+      nodes={nodes}
+      edges={[]}
+      state={{ selectedNodeId: "node-0", zoom: 1.8 }}
+      viewportOverlay={{ position: { x: 30, y: 40 }, content: <aside>Entity information</aside> }}
+      onStateChange={vi.fn()}
+    />);
+    expect(overlay).toHaveStyle({ left: "30px", top: "40px" });
   });
 });
