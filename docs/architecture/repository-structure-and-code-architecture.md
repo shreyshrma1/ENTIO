@@ -144,7 +144,7 @@ VS Code webview
 
 React uses React Query for server state and React state for temporary UI state. It does not use an additional global state framework.
 
-## Is the code separated or jumbled?
+## Separation
 
 The module boundaries are clear and generally enforced:
 
