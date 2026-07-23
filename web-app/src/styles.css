@@ -1014,13 +1014,14 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-zoom-stepper button:hover:not(:disabled) { background: var(--surface-1); color: var(--text-primary); box-shadow: 0 1px 3px rgb(23 32 51 / 9%); }
 .ontology-zoom-stepper .ontology-fit-button { min-width: 48px; margin-left: 3px; border-left: 1px solid var(--border-subtle); border-radius: 0 6px 6px 0; font-size: 12px; }
 .ontology-graph-controls output { min-width: 52px; color: var(--text-secondary); text-align: center; font-size: 12px; font-weight: 750; font-variant-numeric: tabular-nums; }
-.ontology-graph-viewport { position: relative; display: flex; min-height: 460px; max-height: 65vh; overflow: auto; border: 1px solid var(--border-default); background-color: #f8f9fc; background-image: radial-gradient(circle at 1px 1px, #e8ebf5 1px, transparent 1px); background-size: 24px 24px; cursor: grab; overscroll-behavior: contain; touch-action: pan-x pan-y; }
+.ontology-graph-viewport-frame { position: relative; min-height: 460px; }
+.ontology-graph-viewport { display: flex; min-height: 460px; max-height: 65vh; overflow: auto; border: 1px solid var(--border-default); background-color: #f8f9fc; background-image: radial-gradient(circle at 1px 1px, #e8ebf5 1px, transparent 1px); background-size: 24px 24px; cursor: grab; overscroll-behavior: contain; touch-action: pan-x pan-y; }
 .ontology-graph-viewport.panning { cursor: grabbing; user-select: none; }
 .ontology-graph-world { position: relative; display: grid; flex: none; place-items: center; margin: auto; }
 .ontology-graph-canvas { position: relative; }
-.ontology-graph-viewport-overlay { position: sticky; z-index: 7; top: 18px; right: 18px; align-self: flex-start; flex: none; width: 0; height: 0; margin-left: auto; pointer-events: none; }
+.ontology-graph-viewport-overlay { position: absolute; z-index: 7; top: 18px; right: 18px; width: 0; height: 0; pointer-events: none; }
 .ontology-graph-viewport-overlay > * { position: absolute; right: 0; pointer-events: auto; }
-.ontology-graph-viewport-overlay[style] { position: sticky; right: auto; margin-left: 0; }
+.ontology-graph-viewport-overlay[style] { right: auto; }
 .ontology-graph-viewport-overlay[style] > * { right: auto; }
 .ontology-edge path { fill: none; stroke: #8092b8; stroke-width: 1.7; }
 .ontology-edge.edge-Domain path, .ontology-edge.edge-Range path, .ontology-edge.edge-ObjectAssertion path { stroke: #8b5cc7; }
@@ -1035,7 +1036,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-edge.inferred-proposal text { fill: #6659b7; }
 #ontology-arrow-inferred-applied path { fill: #56a7df; }
 #ontology-arrow-inferred-proposal path { fill: #8478dc; }
-.ontology-map-legend { position: sticky; z-index: 6; top: 12px; left: 12px; align-self: flex-start; flex: none; width: 188px; margin: 12px -200px 0 12px; border: 1px solid var(--border-default); border-radius: 10px; background: color-mix(in srgb, var(--surface-1) 96%, transparent); box-shadow: var(--shadow-sm); color: var(--text-secondary); cursor: default; }
+.ontology-map-legend { position: absolute; z-index: 6; top: 12px; left: 12px; width: 188px; border: 1px solid var(--border-default); border-radius: 10px; background: color-mix(in srgb, var(--surface-1) 96%, transparent); box-shadow: var(--shadow-sm); color: var(--text-secondary); cursor: default; }
 .ontology-map-legend summary { padding: 8px 10px; color: var(--text-primary); font-size: 11px; font-weight: 750; cursor: pointer; user-select: none; }
 .ontology-map-legend[open] summary { border-bottom: 1px solid var(--border-subtle); }
 .ontology-map-legend-content { display: grid; gap: 10px; padding: 9px 10px 11px; }

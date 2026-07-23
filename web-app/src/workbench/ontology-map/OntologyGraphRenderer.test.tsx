@@ -95,8 +95,9 @@ describe("accessible ontology graph renderer", () => {
       viewportOverlay={{ position: { x: 30, y: 40 }, content: <aside>Entity information</aside> }}
       onStateChange={vi.fn()}
     />);
-    const overlay = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport > .ontology-graph-viewport-overlay");
+    const overlay = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport-frame > .ontology-graph-viewport-overlay");
     expect(overlay).toContainElement(screen.getByText("Entity information"));
+    expect(renderer.container.querySelector(".ontology-graph-viewport")).not.toContainElement(screen.getByText("Entity information"));
     expect(overlay).toHaveStyle({ left: "30px", top: "40px" });
     renderer.rerender(<OntologyGraphRenderer
       nodes={nodes}
