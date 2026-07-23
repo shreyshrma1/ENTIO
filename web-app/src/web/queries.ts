@@ -60,11 +60,12 @@ export const queryKeys = {
   projects: ["projects"] as const,
   summary: (projectId: string) => ["project", projectId, "summary"] as const,
   sources: (projectId: string) => ["project", projectId, "sources"] as const,
-  hierarchy: (projectId: string, sourceId?: string, parentIri?: string) =>
-    ["project", projectId, "hierarchy", sourceId ?? null, parentIri ?? null] as const,
-  outline: (projectId: string, sourceId?: string) =>
-    ["project", projectId, "outline", sourceId ?? null] as const,
-  entity: (projectId: string, iri: string) => ["project", projectId, "entity", iri] as const,
+  hierarchy: (projectId: string, sourceId?: string, parentIri?: string, applied = false, proposal = false) =>
+    ["project", projectId, "hierarchy", sourceId ?? null, parentIri ?? null, applied, proposal] as const,
+  outline: (projectId: string, sourceId?: string, applied = false, proposal = false) =>
+    ["project", projectId, "outline", sourceId ?? null, applied, proposal] as const,
+  entity: (projectId: string, iri: string, applied = false, proposal = false) =>
+    ["project", projectId, "entity", iri, applied, proposal] as const,
   shaclShapes: (projectId: string) => ["project", projectId, "shacl", "shapes"] as const,
   search: (projectId: string, text: string) => ["project", projectId, "search", text] as const,
   staged: (projectId: string) => ["project", projectId, "staged"] as const,
@@ -119,26 +120,26 @@ export function useProjectSources(projectId: string) {
   });
 }
 
-export function useHierarchy(projectId: string, sourceId?: string, parentIri?: string, enabled = true) {
+export function useHierarchy(projectId: string, sourceId?: string, parentIri?: string, enabled = true, applied = false, proposal = false) {
   return useQuery<WebHierarchyResponse>({
-    queryKey: queryKeys.hierarchy(projectId, sourceId, parentIri),
-    queryFn: () => loadHierarchy(projectId, { sourceId, parentIri }),
+    queryKey: queryKeys.hierarchy(projectId, sourceId, parentIri, applied, proposal),
+    queryFn: () => loadHierarchy(projectId, { sourceId, parentIri, includeAppliedInferred: applied, includeProposalInferred: proposal }),
     enabled: enabled && projectId.length > 0,
   });
 }
 
-export function useProjectOutline(projectId: string, sourceId?: string) {
+export function useProjectOutline(projectId: string, sourceId?: string, applied = false, proposal = false) {
   return useQuery<WebOutlineResponse>({
-    queryKey: queryKeys.outline(projectId, sourceId),
-    queryFn: () => loadProjectOutline(projectId, { sourceId, limit: 100 }),
+    queryKey: queryKeys.outline(projectId, sourceId, applied, proposal),
+    queryFn: () => loadProjectOutline(projectId, { sourceId, limit: 100, includeAppliedInferred: applied, includeProposalInferred: proposal }),
     enabled: projectId.length > 0,
   });
 }
 
-export function useEntityDetails(projectId: string, iri: string, enabled = true) {
+export function useEntityDetails(projectId: string, iri: string, enabled = true, applied = false, proposal = false) {
   return useQuery<WebEntityDetailResponse>({
-    queryKey: queryKeys.entity(projectId, iri),
-    queryFn: () => loadEntityDetails(projectId, iri),
+    queryKey: queryKeys.entity(projectId, iri, applied, proposal),
+    queryFn: () => loadEntityDetails(projectId, iri, undefined, undefined, { includeAppliedInferred: applied, includeProposalInferred: proposal }),
     enabled: enabled && projectId.length > 0 && iri.length > 0,
   });
 }

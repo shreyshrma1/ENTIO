@@ -438,6 +438,45 @@ describe("entity details editing", () => {
     expect(screen.getByRole("combobox", { name: "Set domain" })).toBeInTheDocument();
   });
 
+  it("renders inferred facts with visible applied and proposal provenance", () => {
+    const openEntity = vi.fn();
+    renderEntity({
+      ...classEntity(),
+      inferredOverlays: [{
+        graphState: "Applied",
+        state: "Current",
+        facts: [{
+          semanticFactKey: "entio-inferred-v1:test",
+          subject: "https://example.com/Customer",
+          predicate: "http://www.w3.org/2000/01/rdf-schema#subClassOf",
+          objectValue: "https://example.com/Party",
+          kind: "SubclassRelationship",
+          placements: ["ClassSuperclasses"],
+          graphState: "Applied",
+          sourceId: "simple",
+        }],
+        totalFactCount: 1,
+        truncated: false,
+        graphFingerprint: "graph",
+        proposalFingerprint: null,
+        message: null,
+      }, {
+        graphState: "Proposal",
+        state: "Updating",
+        facts: [],
+        totalFactCount: 0,
+        truncated: false,
+        graphFingerprint: null,
+        proposalFingerprint: null,
+        message: "Proposal reasoning is updating.",
+      }],
+    }, { onOpenEntity: openEntity });
+    expect(screen.getByRole("region", { name: "Inferred facts" })).toHaveTextContent("Inferred · Applied");
+    expect(screen.getByRole("status")).toHaveTextContent("Proposal");
+    fireEvent.click(screen.getByRole("button", { name: "Party" }));
+    expect(openEntity).toHaveBeenCalledWith(expect.objectContaining({ iri: "https://example.com/Party" }));
+  });
+
   it("shows class constraints in a list and stages add, update, and remove edits from dialogs", async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);

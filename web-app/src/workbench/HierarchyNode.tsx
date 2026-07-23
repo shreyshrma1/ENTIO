@@ -14,15 +14,17 @@ interface HierarchyNodeProps {
   stagedChildrenByParent?: ReadonlyMap<string, WebHierarchyItem[]>;
   expandedIris?: ReadonlySet<string>;
   onExpandedChange?: (iri: string, expanded: boolean) => void;
+  includeAppliedInferred?: boolean;
+  includeProposalInferred?: boolean;
 }
 
-export default function HierarchyNode({ projectId, item, depth, onOpen, onOpenDetails, onContextMenu, stagedIris, stagedChildrenByParent, expandedIris, onExpandedChange }: HierarchyNodeProps) {
+export default function HierarchyNode({ projectId, item, depth, onOpen, onOpenDetails, onContextMenu, stagedIris, stagedChildrenByParent, expandedIris, onExpandedChange, includeAppliedInferred = false, includeProposalInferred = false }: HierarchyNodeProps) {
   const [locallyExpanded, setLocallyExpanded] = useState(false);
   const expanded = expandedIris ? expandedIris.has(item.iri) : locallyExpanded;
   const stagedChildren = stagedChildrenByParent?.get(item.iri) ?? [];
   const hasAppliedChildren = item.childCount > 0;
   const hasChildren = hasAppliedChildren || stagedChildren.length > 0;
-  const children = useHierarchy(projectId, item.sourceId, item.iri, expanded && hasAppliedChildren);
+  const children = useHierarchy(projectId, item.sourceId, item.iri, expanded && hasAppliedChildren, includeAppliedInferred, includeProposalInferred);
   const visibleChildren = [
     ...(children.data?.page.items ?? []).filter((child) => !stagedChildren.some((stagedChild) => stagedChild.iri === child.iri)),
     ...stagedChildren,
@@ -65,7 +67,7 @@ export default function HierarchyNode({ projectId, item, depth, onOpen, onOpenDe
       {expanded && visibleChildren.length ? (
         <ul className="hierarchy-list">
           {visibleChildren.map((child) => (
-            <HierarchyNode key={`${child.sourceId}:${child.iri}`} projectId={projectId} item={child} depth={depth + 1} onOpen={onOpen} onOpenDetails={onOpenDetails} onContextMenu={onContextMenu} stagedIris={stagedIris} stagedChildrenByParent={stagedChildrenByParent} expandedIris={expandedIris} onExpandedChange={onExpandedChange} />
+            <HierarchyNode key={`${child.sourceId}:${child.iri}`} projectId={projectId} item={child} depth={depth + 1} onOpen={onOpen} onOpenDetails={onOpenDetails} onContextMenu={onContextMenu} stagedIris={stagedIris} stagedChildrenByParent={stagedChildrenByParent} expandedIris={expandedIris} onExpandedChange={onExpandedChange} includeAppliedInferred={includeAppliedInferred} includeProposalInferred={includeProposalInferred} />
           ))}
         </ul>
       ) : null}

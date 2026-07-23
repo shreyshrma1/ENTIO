@@ -50,6 +50,24 @@ describe("read-only project API", () => {
     expect(result.sourceId).toBe("simple");
   });
 
+  it("sends applied and proposal inferred flags only when enabled", async () => {
+    const paths: string[] = [];
+    const fetcher = async (input: RequestInfo | URL) => {
+      paths.push(String(input));
+      return response({ apiVersion: "v1", page: { items: [], offset: 0, limit: 100, total: 0, nextOffset: null } });
+    };
+    await loadProjectOutline("simple", {
+      sourceId: "simple",
+      includeAppliedInferred: true,
+      includeProposalInferred: true,
+    }, fetcher);
+    await loadHierarchy("simple", {}, fetcher);
+    expect(paths[0]).toContain("includeAppliedInferred=true");
+    expect(paths[0]).toContain("includeProposalInferred=true");
+    expect(paths[1]).not.toContain("includeAppliedInferred");
+    expect(paths[1]).not.toContain("includeProposalInferred");
+  });
+
   it("encodes abortable graph and neighborhood reads without exposing offsets", async () => {
     const requests: Array<{ path: string; signal?: AbortSignal | null }> = [];
     const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {
