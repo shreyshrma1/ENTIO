@@ -136,10 +136,6 @@ test("completes the browser workbench and provider model journey through reviewa
   await expect(page).toHaveScreenshot("workbench-light.png", { fullPage: true, mask: [page.locator(".collaboration-presence")], maskColor: "#ffffff" });
 
   const projectNavigation = page.getByRole("complementary", { name: "Project navigation" });
-  const sharedFilters = projectNavigation.getByLabel("Filter project outline and map");
-  await sharedFilters.click();
-  await projectNavigation.getByRole("checkbox", { name: "Individuals" }).check();
-  await sharedFilters.click();
   await projectNavigation.getByRole("textbox", { name: "Search entities by label" }).fill("Customer");
   await expect(projectNavigation.getByRole("button", { name: /Shrey/ })).toBeVisible();
   await expect(projectNavigation.getByText("Object · Asserted Type")).toBeVisible();

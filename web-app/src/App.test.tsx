@@ -69,8 +69,6 @@ describe("web workbench shell", () => {
     expect(screen.queryByRole("complementary", { name: "Entio AI assistant" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Open Entio AI" }));
     expect(screen.getByRole("complementary", { name: "Entio AI assistant" })).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText("Filter project outline and map"));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Individuals" }));
     expect(screen.getByRole("tab", { name: /^Classes\s*1$/ })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getByRole("tab", { name: /^Objects\s*1$/ }));
     expect(screen.getByRole("button", { name: "Collapse Customer objects" })).toHaveAttribute("aria-expanded", "true");
@@ -269,8 +267,6 @@ describe("web workbench shell", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByLabelText("Filter project outline and map"));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Individuals" }));
     fireEvent.click(await screen.findByRole("tab", { name: /^Objects\s*2$/ }));
     const stagedIndividual = screen.getByRole("button", { name: "Primary Account, Object" });
     expect(stagedIndividual.closest("ul")).toHaveClass("object-group-items");

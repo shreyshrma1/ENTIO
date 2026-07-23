@@ -132,7 +132,7 @@ The default `Hierarchy` mode is a deterministic left-to-right class tree: root c
 
 Sibling classes are ordered by descending direct subclass count, connected property count, directly typed individual count, and total incoming/outgoing relationship count, then by label and IRI. These facts affect presentation only. Identical graph fingerprints and view settings produce identical positions.
 
-Object properties stay close to their asserted domain and connect to their asserted range. Datatype properties render as compact items below their asserted domain. Individuals are hidden initially and are revealed only through an explicit expansion. Large loaded branches are initially collapsed behind child counts and bounded expand/load-more actions.
+Object properties stay close to their asserted domain and connect to their asserted range. Datatype properties render as compact items below their asserted domain. The shared Individuals filter is selected initially, so bounded typed individuals are visible at launch and may be hidden explicitly. Large loaded branches are initially collapsed behind child counts and bounded expand/load-more actions.
 
 The toolbar provides `Hierarchy`, `Focus`, and `Full map` modes. `Focus` shows the selected entity's asserted neighborhood. `Full map` shows the currently loaded bounded graph without allowing cross-links to control class-tree placement. Radial layout is not prioritized.
 

@@ -60,8 +60,7 @@ const railItems: Array<{ id: RailItemId; label: string; icon: Parameters<typeof 
 
 const DISPLAY_NAME_STORAGE_KEY = "entio.displayName";
 const DEFAULT_DISPLAY_NAME = "Alice Contributor";
-const DEFAULT_MAP_NODE_KINDS: OntologyGraphNodeKind[] = ["Class", "ObjectProperty", "DatatypeProperty"];
-const ALL_MAP_NODE_KINDS: OntologyGraphNodeKind[] = [...DEFAULT_MAP_NODE_KINDS, "Individual"];
+const DEFAULT_MAP_NODE_KINDS: OntologyGraphNodeKind[] = ["Class", "ObjectProperty", "DatatypeProperty", "Individual"];
 const DEFAULT_MAP_EDGE_KINDS: OntologyGraphEdgeKind[] = ["SubclassOf", "Domain", "Range", "Type", "ObjectAssertion"];
 let fallbackDisplayName: string | null = null;
 
@@ -139,7 +138,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
     setActiveModule(initialModule);
     setMapOpen(searchParams.get("view") === "map");
     setMapSeed(undefined);
-    setMapViewState({ selectedNodeId: null });
+    setMapViewState({ selectedNodeId: null, nodeKinds: DEFAULT_MAP_NODE_KINDS, edgeKinds: DEFAULT_MAP_EDGE_KINDS, sourceVisible: true });
     setMapLoadedEntities({});
   }, [initialModule, projectId]);
 
@@ -191,7 +190,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
       }
       if ((mapViewState.expanded || Boolean(mapViewState.positions)) && !window.confirm("Replace the temporary map with a view centered on this entity?")) return;
       setMapSeed(entity);
-      setMapViewState({ selectedNodeId: null });
+      setMapViewState((current) => ({ ...current, selectedNodeId: null }));
       return;
     }
     openEntityDetails(entity, section);
@@ -418,7 +417,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
           <section className="sidebar-section sidebar-search" aria-labelledby="search-heading">
             <div role="search">
               <label className="visually-hidden" id="search-heading" htmlFor="entity-search">Search entities by label</label>
-              <div className="outline-search-controls"><div className="search-row"><Icon name="search" /><input id="entity-search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search entities" /></div><details ref={outlineFilterMenuRef} className="outline-filter-menu"><summary className="icon-button" aria-label="Filter project outline and map"><Icon name="filter" /></summary><div className="outline-filter-popover"><fieldset><legend>Entity kinds</legend>{ALL_MAP_NODE_KINDS.map((kind) => <label key={kind}><input type="checkbox" checked={visibleNodeKinds.has(kind)} onChange={() => toggleSharedNodeKind(kind)} />{kind === "ObjectProperty" ? "Object properties" : kind === "DatatypeProperty" ? "Datatype properties" : kind === "Individual" ? "Individuals" : "Classes"}</label>)}</fieldset><fieldset><legend>Map relationships</legend>{DEFAULT_MAP_EDGE_KINDS.map((kind) => <label key={kind}><input type="checkbox" checked={(mapViewState.edgeKinds ?? DEFAULT_MAP_EDGE_KINDS).includes(kind)} onChange={() => toggleSharedEdgeKind(kind)} />{kind}</label>)}</fieldset><label><input type="checkbox" checked={sourceVisible} onChange={() => setMapViewState({ ...mapViewState, sourceVisible: !sourceVisible })} />Ontology source</label><button className="button small" type="button" onClick={() => setMapViewState({ ...mapViewState, nodeKinds: ALL_MAP_NODE_KINDS, edgeKinds: DEFAULT_MAP_EDGE_KINDS, sourceVisible: true, revealedIndividualIds: (mapViewState.nodes ?? []).filter((node) => node.kind === "Individual").map((node) => node.identity.id) })}>Reset filters</button></div></details></div>
+              <div className="outline-search-controls"><div className="search-row"><Icon name="search" /><input id="entity-search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search entities" /></div><details ref={outlineFilterMenuRef} className="outline-filter-menu"><summary className="icon-button" aria-label="Filter project outline and map"><Icon name="filter" /></summary><div className="outline-filter-popover"><fieldset><legend>Entity kinds</legend>{DEFAULT_MAP_NODE_KINDS.map((kind) => <label key={kind}><input type="checkbox" checked={visibleNodeKinds.has(kind)} onChange={() => toggleSharedNodeKind(kind)} />{kind === "ObjectProperty" ? "Object properties" : kind === "DatatypeProperty" ? "Datatype properties" : kind === "Individual" ? "Individuals" : "Classes"}</label>)}</fieldset><fieldset><legend>Map relationships</legend>{DEFAULT_MAP_EDGE_KINDS.map((kind) => <label key={kind}><input type="checkbox" checked={(mapViewState.edgeKinds ?? DEFAULT_MAP_EDGE_KINDS).includes(kind)} onChange={() => toggleSharedEdgeKind(kind)} />{kind}</label>)}</fieldset><label><input type="checkbox" checked={sourceVisible} onChange={() => setMapViewState({ ...mapViewState, sourceVisible: !sourceVisible })} />Ontology source</label><button className="button small" type="button" onClick={() => setMapViewState({ ...mapViewState, nodeKinds: DEFAULT_MAP_NODE_KINDS, edgeKinds: DEFAULT_MAP_EDGE_KINDS, sourceVisible: true, revealedIndividualIds: (mapViewState.nodes ?? []).filter((node) => node.kind === "Individual").map((node) => node.identity.id) })}>Reset filters</button></div></details></div>
             </div>
           </section>
           {searchInput.trim() ? <section className="sidebar-section sidebar-search-results" aria-labelledby="search-results-heading">

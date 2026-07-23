@@ -25,7 +25,7 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await expect(page.getByRole("button", { name: "Class: Entity 0000" })).toBeVisible();
   await expect(page.getByRole("button", { name: "ObjectProperty: Entity 0005" })).toBeVisible();
   await expect(page.getByRole("button", { name: "DatatypeProperty: Entity 0002" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toBeVisible();
   await expect(page.getByLabel("Loaded ontology graph").locator("text=SubclassOf").first()).toBeAttached();
   await expect(page.getByText("24 loaded entities")).toBeVisible();
   await expect(page.getByRole("button", { name: "Class: Entity 0000" })).toBeInViewport();
@@ -42,7 +42,7 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await page.mouse.wheel(0, 120);
   await expect.poll(async () => Number((await page.getByLabel("Zoom percentage").textContent())?.replace("%", ""))).toBeLessThan(mapWheelZoomBefore);
   await page.getByLabel("Filter project outline and map").click();
-  await page.getByRole("checkbox", { name: "Individuals" }).check();
+  await expect(page.getByRole("checkbox", { name: "Individuals" })).toBeChecked();
   await expect(page.getByRole("button", { name: "Individual: Entity 0003" })).toBeVisible();
   await expect(page.getByRole("tab", { name: /Objects 1/ })).toBeVisible();
   await page.locator(".ontology-map-actions").click();
@@ -102,9 +102,6 @@ test("@performance production map render and popup meet five-run browser gates",
   });
   await page.goto("/projects/simple");
   await page.getByRole("button", { name: "View Map" }).first().click();
-  await page.getByLabel("Filter project outline and map").click();
-  await page.getByRole("checkbox", { name: "Individuals" }).check();
-  await page.getByLabel("Filter project outline and map").click();
   await expect(page.locator(".ontology-node")).toHaveCount(75);
   await page.getByRole("button", { name: "Class: Entity 0000" }).click();
   await expect(page.getByRole("dialog", { name: "Entity 0000 map summary" })).toBeVisible();
