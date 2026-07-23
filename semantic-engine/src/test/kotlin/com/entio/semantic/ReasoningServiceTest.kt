@@ -146,6 +146,43 @@ class ReasoningServiceTest {
     }
 
     @Test
+    fun excludesInferencesWhoseClassDependenciesAreNotDeclaredInTheLoadedOntology(): Unit {
+        val graph = parse(
+            """
+            @prefix ex: <https://example.com/> .
+            @prefix owl: <http://www.w3.org/2002/07/owl#> .
+            @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+            ex:Beneficiary a owl:Class ; rdfs:subClassOf ex:LocalRole .
+            ex:LocalRole a owl:Class ; rdfs:subClassOf <https://external.example/AgentRole> .
+            ex:Someone a ex:Beneficiary .
+            """.trimIndent(),
+        ).graph
+
+        val result = assertIs<EntioResult.Success<*>>(service.reason(graph))
+        val reasoning = assertIs<com.entio.core.ReasoningResult>(result.value)
+
+        assertTrue(
+            reasoning.classRelationships.none {
+                it.origin == FactOrigin.Inferred &&
+                    it.objectClass == Iri("https://external.example/AgentRole")
+            },
+        )
+        assertTrue(
+            reasoning.individualTypes.none {
+                it.origin == FactOrigin.Inferred &&
+                    it.type == Iri("https://external.example/AgentRole")
+            },
+        )
+        assertTrue(
+            reasoning.classRelationships.any {
+                it.origin == FactOrigin.Asserted &&
+                    it.subject == Iri("https://example.com/LocalRole") &&
+                    it.objectClass == Iri("https://external.example/AgentRole")
+            },
+        )
+    }
+
+    @Test
     fun marksIncompleteImportClosureWithoutClaimingCompleteConsistency(): Unit {
         val graph = parse(
             """
