@@ -54,6 +54,27 @@ class OntologyGraphContractsTest {
     }
 
     @Test
+    fun inferredEdgesRequireTheirGraphState(): Unit {
+        val edge = OntologyGraphEdge(
+            id = "inferred-subclass",
+            kind = OntologyGraphEdgeKind.SubclassOf,
+            source = customer,
+            target = person,
+            label = "subclass of",
+            provenance = OntologyGraphProvenance.Inferred,
+            inferredGraphState = InferredGraphState.Applied,
+        )
+
+        assertEquals(InferredGraphState.Applied, edge.inferredGraphState)
+        assertFailsWith<IllegalArgumentException> {
+            edge.copy(provenance = OntologyGraphProvenance.Asserted)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            edge.copy(inferredGraphState = null)
+        }
+    }
+
+    @Test
     fun objectAssertionsRequireTheirPredicateIri(): Unit {
         assertFailsWith<IllegalArgumentException> {
             OntologyGraphEdge(
@@ -119,9 +140,19 @@ class OntologyGraphContractsTest {
             totalEdgeCount = 2,
             nextCursor = OntologyGraphPageCursor(nodeOffset = 2, edgeOffset = 1),
             ambiguousCrossSourceRelationshipCount = 1,
+            inferredOverlays = listOf(
+                InferredOverlaySummary(
+                    graphState = InferredGraphState.Applied,
+                    state = InferredReadState.Updating,
+                ),
+            ),
         )
         assertTrue(page.hasMoreNodes)
         assertTrue(page.hasMoreEdges)
         assertEquals(1, page.ambiguousCrossSourceRelationshipCount)
+        assertEquals(InferredReadState.Updating, page.inferredOverlays.single().state)
+        assertFailsWith<IllegalArgumentException> {
+            page.copy(inferredOverlays = page.inferredOverlays + page.inferredOverlays)
+        }
     }
 }

@@ -49,7 +49,10 @@ public data class InferenceMaterializationFact(
 @JvmInline
 public value class SemanticFactKey(public val value: String) {
     init {
-        require(value.startsWith("entio-semantic-fact-v1:")) { "Semantic fact key must use the approved v1 prefix." }
+        require(
+            value.startsWith("entio-semantic-fact-v1:") ||
+                value.startsWith("entio-inferred-read-v1:"),
+        ) { "Semantic fact key must use an approved v1 prefix." }
         require(value.substringAfter(':').matches(Regex("[0-9a-f]{64}"))) { "Semantic fact key must contain a lowercase SHA-256 digest." }
     }
 }
