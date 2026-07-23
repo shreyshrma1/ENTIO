@@ -199,7 +199,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   }, []);
 
   function openEntity(entity: WebEntityReference, section?: EntitySectionTarget) {
-    const supportedMapKind = ["Class", "ObjectProperty", "DatatypeProperty", "Individual"].includes(entity.kind ?? "");
+    const supportedMapKind = ["class", "objectproperty", "datatypeproperty", "individual"].includes(entity.kind?.toLowerCase() ?? "");
     if (mapActive && entity.sourceId === sourceId && supportedMapKind) {
       const loadedId = mapLoadedEntities[`${entity.sourceId}\u0000${entity.iri}`];
       if (loadedId) {
