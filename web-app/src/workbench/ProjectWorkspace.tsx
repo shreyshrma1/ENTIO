@@ -59,6 +59,7 @@ const modules: Array<{ id: ModuleId; label: string; icon: Parameters<typeof Icon
 const railItems: Array<{ id: RailItemId; label: string; icon: Parameters<typeof Icon>[0]["name"] }> = modules;
 
 const DISPLAY_NAME_STORAGE_KEY = "entio.displayName";
+const ASSISTANT_OPEN_STORAGE_KEY = "entio.assistantOpen";
 const DEFAULT_DISPLAY_NAME = "Alice Contributor";
 const DEFAULT_MAP_NODE_KINDS: OntologyGraphNodeKind[] = ["Class", "ObjectProperty", "DatatypeProperty", "Individual"];
 const DEFAULT_MAP_EDGE_KINDS: OntologyGraphEdgeKind[] = ["SubclassOf", "Domain", "Range", "Type", "ObjectAssertion"];
@@ -87,6 +88,22 @@ function persistDisplayName(displayName: string) {
   }
 }
 
+function loadAssistantOpen(): boolean {
+  try {
+    return window.localStorage?.getItem(ASSISTANT_OPEN_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function persistAssistantOpen(open: boolean) {
+  try {
+    window.localStorage?.setItem(ASSISTANT_OPEN_STORAGE_KEY, String(open));
+  } catch {
+    // The current in-memory state still works when persistent browser storage is unavailable.
+  }
+}
+
 export default function ProjectWorkspace({ initialModule = "explore" }: { initialModule?: ModuleId }) {
   const { projectId = "" } = useParams();
   const navigate = useNavigate();
@@ -100,7 +117,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const [activeModule, setActiveModule] = useState<ModuleId>(initialModule);
   const [railExpanded, setRailExpanded] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
-  const [assistantOpen, setAssistantOpen] = useState(true);
+  const [assistantOpen, setAssistantOpen] = useState(loadAssistantOpen);
   const [displayName, setDisplayName] = useState(loadDisplayName);
   const [semanticJobIds, setSemanticJobIds] = useState<Record<"reasoning" | "shacl", string | null>>({ reasoning: null, shacl: null });
   const [sidebarWidth, setSidebarWidth] = useState(296);
@@ -293,6 +310,11 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
     setDisplayName(nextDisplayName);
   }
 
+  function setAssistantVisibility(open: boolean) {
+    persistAssistantOpen(open);
+    setAssistantOpen(open);
+  }
+
   function launchEditor(editor: ContextualEditor, targetSourceId = sourceId) {
     if (!targetSourceId) return;
     setContextMenu(null);
@@ -451,7 +473,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
         </aside>
         <section className={`workspace-pane ${assistantOpen ? "workspace-pane-with-ai" : ""}`} aria-label="Entity workspace">
           <div className="workspace-main">
-            <div className="workspace-toolbar"><div><span className="overline">{module.label}</span><span className="toolbar-title">{activeModule === "explore" ? mapActive ? "Ontology map" : activeTab?.label ?? "Semantic workspace" : module.label}</span></div><div className="toolbar-stats">{activeModule === "explore" ? <button className="button primary small" type="button" onClick={openMap}>View Map</button> : null}<span>{summary.data.graphTripleCount} statements</span><StatusBadge tone={stagedCount && stagedIsPendingReview ? "staged" : "neutral"}>{stagedCount} staged</StatusBadge><button className={`assistant-toggle ${assistantOpen ? "assistant-toggle-active" : ""}`} type="button" aria-label={assistantOpen ? "Hide Entio AI sidebar" : "Open Entio AI"} aria-expanded={assistantOpen} onClick={() => setAssistantOpen((value) => !value)}><Icon name="assistant" /><span>AI</span></button></div></div>
+            <div className="workspace-toolbar"><div><span className="overline">{module.label}</span><span className="toolbar-title">{activeModule === "explore" ? mapActive ? "Ontology map" : activeTab?.label ?? "Semantic workspace" : module.label}</span></div><div className="toolbar-stats">{activeModule === "explore" ? <button className="button primary small" type="button" onClick={openMap}>View Map</button> : null}<span>{summary.data.graphTripleCount} statements</span><StatusBadge tone={stagedCount && stagedIsPendingReview ? "staged" : "neutral"}>{stagedCount} staged</StatusBadge><button className={`assistant-toggle ${assistantOpen ? "assistant-toggle-active" : ""}`} type="button" aria-label={assistantOpen ? "Hide Entio AI sidebar" : "Open Entio AI"} aria-expanded={assistantOpen} onClick={() => setAssistantVisibility(!assistantOpen)}><Icon name="assistant" /><span>AI</span></button></div></div>
             {activeModule === "explore" && (tabs.length || mapOpen) ? <>
               <nav className="entity-tabs" aria-label="Open entities" role="tablist">{mapOpen ? <div className="entity-tab" role="presentation"><button type="button" role="tab" aria-label="Ontology map" aria-selected={mapActive} tabIndex={mapActive ? 0 : -1} onClick={openMap}>Ontology map<small>Map</small></button><button type="button" className="tab-close" aria-label="Close Ontology map" onClick={closeMap}><Icon name="close" /></button></div> : null}{tabs.map((tab) => <div
                 className={`entity-tab ${stagedIsPendingReview && stagedIris.has(tab.iri) ? "entity-staged" : ""} ${draggedTabIri === tab.iri ? "entity-tab-dragging" : ""}`}
@@ -470,7 +492,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
             </div>
             {activeModule !== "changes" ? <div className={`staged-dock ${stagedCount && stagedIsPendingReview ? "staged-dock-pending" : ""}`} aria-label="Shared staged changes"><div><span className="overline">Shared review queue</span><strong>{stagedCount ? `${stagedCount} change${stagedCount === 1 ? "" : "s"} staged` : "No staged changes"}</strong></div><span className="dock-meta">Review the complete proposal, then accept or reject it.</span><button type="button" onClick={() => openModule("changes")}>{stagedCount ? "Review proposal" : "Open proposal"}</button></div> : null}
           </div>
-          <aside className={`ai-sidebar ${assistantOpen ? "" : "ai-sidebar-closed"}`} aria-label="Entio AI assistant" aria-hidden={!assistantOpen}><div className="ai-sidebar-heading"><div><span className="overline">Entio AI</span><strong>Assistant</strong></div><button className="icon-button" type="button" aria-label="Close Entio AI" onClick={() => setAssistantOpen(false)}><Icon name="close" /></button></div><AiProposalPanel projectId={projectId} onStaged={() => void staged.refetch()} stagedAiRunIds={stagedEntries.map((entry) => entry.normalizedValues.aiRunId).filter((runId): runId is string => Boolean(runId))} compact /></aside>
+          <aside className={`ai-sidebar ${assistantOpen ? "" : "ai-sidebar-closed"}`} aria-label="Entio AI assistant" aria-hidden={!assistantOpen}><div className="ai-sidebar-heading"><div><span className="overline">Entio AI</span><strong>Assistant</strong></div><button className="icon-button" type="button" aria-label="Close Entio AI" onClick={() => setAssistantVisibility(false)}><Icon name="close" /></button></div><AiProposalPanel projectId={projectId} onStaged={() => void staged.refetch()} stagedAiRunIds={stagedEntries.map((entry) => entry.normalizedValues.aiRunId).filter((runId): runId is string => Boolean(runId))} compact /></aside>
         </section>
       </div>
       {contextMenu ? <ContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} /> : null}
