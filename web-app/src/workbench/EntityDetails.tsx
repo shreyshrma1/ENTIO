@@ -25,6 +25,8 @@ interface EntityDetailsProps {
   initialSection?: EntitySectionTarget;
   sectionRequestId?: number;
   onOpenEntity?: (entity: WebEntityReference, section?: EntitySectionTarget) => void;
+  includeAppliedInferred?: boolean;
+  includeProposalInferred?: boolean;
 }
 
 export type EntitySectionTarget = "overview" | "shacl";
@@ -32,8 +34,8 @@ type EditorSectionId = "overview" | "hierarchy" | "properties" | "schema" | "rel
 type ClassPropertyDirection = "outgoing" | "incoming" | "datatype";
 type StagedField = "preferredLabel" | "definition" | "alternateLabel" | "types" | "superclasses" | "subclasses" | "domains" | "ranges" | "properties" | "relationships" | "shacl";
 
-export default function EntityDetails({ projectId, iri, stagedEntity, stagedEntries = [], directType, initialSection, sectionRequestId, onOpenEntity }: EntityDetailsProps) {
-  const details = useEntityDetails(projectId, iri, !stagedEntity);
+export default function EntityDetails({ projectId, iri, stagedEntity, stagedEntries = [], directType, initialSection, sectionRequestId, onOpenEntity, includeAppliedInferred = false, includeProposalInferred = false }: EntityDetailsProps) {
+  const details = useEntityDetails(projectId, iri, !stagedEntity, includeAppliedInferred, includeProposalInferred);
   const sourceEntity = stagedEntity ?? details.data;
   const entity = useMemo(
     () => sourceEntity ? mergeStagedEntity(sourceEntity, stagedEntries) : undefined,
@@ -58,11 +60,56 @@ export default function EntityDetails({ projectId, iri, stagedEntity, stagedEntr
         </div>
       </div>
       <p className="entity-meta">Source: {entity.sourceId} · {stagedEntity ? "pending proposal review" : entity.locality.toLowerCase()}</p>
+      <InferredEntityFacts entity={entity} onOpenEntity={onOpenEntity} />
       {entity.locality !== "External"
         ? <EntityDetailWorkspace projectId={projectId} entity={entity} appliedEntity={sourceEntity ?? entity} stagedFields={stagedFields} directType={directType} initialSection={initialSection} sectionRequestId={sectionRequestId} onOpenEntity={onOpenEntity} />
         : <ExternalEntityOverview entity={entity} />}
     </article>
   );
+}
+
+function InferredEntityFacts({ entity, onOpenEntity }: {
+  entity: WebEntityDetailResponse;
+  onOpenEntity?: (entity: WebEntityReference) => void;
+}) {
+  const overlays = entity.inferredOverlays ?? [];
+  const facts = overlays.flatMap((overlay) => overlay.facts.map((fact) => ({ fact, state: overlay.graphState })))
+    .filter(({ fact }) => fact.subject === entity.iri || fact.objectValue === entity.iri);
+  const notices = overlays.filter((overlay) => overlay.state !== "Off" && overlay.state !== "Current");
+  if (!facts.length && !notices.length) return null;
+  return <section className="inferred-facts-panel" aria-label="Inferred facts">
+    <h3>Inferred facts</h3>
+    {notices.map((overlay) => <p className="inferred-state-message" role="status" key={overlay.graphState}>
+      <strong>{overlay.graphState}:</strong> {overlay.state === "Updating" ? "Reasoning is updating." : overlay.message ?? `Inferred facts are ${overlay.state.toLowerCase()}.`}
+    </p>)}
+    {facts.length ? <ul>{facts.map(({ fact, state }) => {
+      const otherIri = fact.subject === entity.iri ? fact.objectValue : fact.subject;
+      const label = technicalLabel(otherIri);
+      return <li className={`inferred-fact inferred-fact-${state.toLowerCase()}`} key={`${state}:${fact.semanticFactKey}`}>
+        <span><strong>{inferredKindLabel(fact.kind)}:</strong> </span>
+        <button type="button" className="inline-entity-link" onClick={() => onOpenEntity?.({ iri: otherIri, label, kind: null, sourceId: fact.sourceId })}>{label}</button>
+        <span className="inferred-badge">Inferred · {state}</span>
+      </li>;
+    })}</ul> : null}
+  </section>;
+}
+
+function inferredKindLabel(kind: string): string {
+  return {
+    SubclassRelationship: "Class hierarchy",
+    IndividualType: "Type",
+    ObjectPropertyAssertion: "Relationship",
+    EffectiveDomain: "Effective domain",
+    EffectiveRange: "Effective range",
+  }[kind] ?? "Relationship";
+}
+
+function technicalLabel(iri: string): string {
+  try {
+    return decodeURIComponent(iri.split(/[\/#]/).filter(Boolean).at(-1) ?? iri);
+  } catch {
+    return iri;
+  }
 }
 
 function EntityDetailWorkspace({ projectId, entity, appliedEntity, stagedFields, directType, initialSection, sectionRequestId, onOpenEntity }: {

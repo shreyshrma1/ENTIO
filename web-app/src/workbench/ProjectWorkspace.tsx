@@ -126,6 +126,8 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const [searchInput, setSearchInput] = useState("");
   const [searchText, setSearchText] = useState("");
   const [outlineTab, setOutlineTab] = useState<OutlineTabId>("classes");
+  const [includeAppliedInferred, setIncludeAppliedInferred] = useState(false);
+  const [includeProposalInferred, setIncludeProposalInferred] = useState(false);
   const [expandedClassIris, setExpandedClassIris] = useState<Set<string>>(() => new Set());
   const [collapsedObjectGroupIris, setCollapsedObjectGroupIris] = useState<Set<string>>(() => new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -136,8 +138,8 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const summary = useProjectSummary(projectId);
   const sourceId = summary.data?.sources.find((source) => source.roles.includes("ontology"))?.id ?? summary.data?.sources[0]?.id;
   const shapesSourceId = summary.data?.sources.find((source) => source.roles.map((role) => role.toLowerCase()).includes("shapes"))?.id;
-  const rootHierarchy = useHierarchy(projectId, sourceId);
-  const outline = useProjectOutline(projectId, sourceId);
+  const rootHierarchy = useHierarchy(projectId, sourceId, undefined, true, includeAppliedInferred, includeProposalInferred);
+  const outline = useProjectOutline(projectId, sourceId, includeAppliedInferred, includeProposalInferred);
   const search = useProjectSearch(projectId, searchText);
   const staged = useStagedChanges(projectId);
   const activeIri = searchParams.get("iri");
@@ -159,6 +161,8 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
     setMapSeed(undefined);
     setMapViewState({ selectedNodeId: null, nodeKinds: DEFAULT_MAP_NODE_KINDS, edgeKinds: DEFAULT_MAP_EDGE_KINDS, sourceVisible: true });
     setMapLoadedEntities({});
+    setIncludeAppliedInferred(false);
+    setIncludeProposalInferred(false);
   }, [initialModule, projectId]);
 
   useEffect(() => {
@@ -417,7 +421,19 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const createdObjects = stagedCreated.filter((item) => item.kind === "Individual");
   const createdProperties = stagedCreated.filter((item) => item.kind?.endsWith("Property"));
   const classCount = sourceVisible && visibleNodeKinds.has("Class") ? outlineItems.filter((item) => item.kind === "Class").length + createdClasses.length : 0;
-  const objects = outlineItems.filter((item) => item.kind === "Individual");
+  const inferredTypes = new Map((outline.data?.inferredOverlays ?? [])
+    .flatMap((overlay) => overlay.facts.filter((fact) => fact.kind === "IndividualType").map((fact) => [fact.subject, {
+      iri: fact.objectValue,
+      label: outlineItems.find((item) => item.iri === fact.objectValue)?.label ?? outlineLabel(fact.objectValue),
+      kind: "Class",
+      sourceId: fact.sourceId,
+      graphState: overlay.graphState,
+    }] as const)));
+  const objects = outlineItems.filter((item) => item.kind === "Individual").map((item) => {
+    if (item.directType) return item;
+    const inferred = inferredTypes.get(item.iri);
+    return inferred ? { ...item, directType: inferred, inferredState: inferred.graphState } : item;
+  });
   const properties = outlineItems.filter((item) => item.kind.endsWith("Property"));
   const objectItems = sourceVisible && visibleNodeKinds.has("Individual") ? mergeOutlineEntities(applyStagedLabels(objects, stagedLabels), createdObjects) : [];
   const propertyItems = sourceVisible ? mergeOutlineEntities(applyStagedLabels(properties, stagedLabels), createdProperties).filter((item) => visibleNodeKinds.has(item.kind as OntologyGraphNodeKind)) : [];
@@ -468,7 +484,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
           <section className="sidebar-section sidebar-search" aria-labelledby="search-heading">
             <div role="search">
               <label className="visually-hidden" id="search-heading" htmlFor="entity-search">Search entities by label</label>
-              <div className="outline-search-controls"><div className="search-row"><Icon name="search" /><input id="entity-search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search entities" /></div><details ref={outlineFilterMenuRef} className="outline-filter-menu"><summary className="icon-button" aria-label="Filter project outline and map"><Icon name="filter" /></summary><div className="outline-filter-popover"><fieldset><legend>Entity kinds</legend>{DEFAULT_MAP_NODE_KINDS.map((kind) => <label key={kind}><input type="checkbox" checked={visibleNodeKinds.has(kind)} onChange={() => toggleSharedNodeKind(kind)} />{kind === "ObjectProperty" ? "Object properties" : kind === "DatatypeProperty" ? "Datatype properties" : kind === "Individual" ? "Individuals" : "Classes"}</label>)}</fieldset><fieldset><legend>Map relationships</legend>{DEFAULT_MAP_EDGE_KINDS.map((kind) => <label key={kind}><input type="checkbox" checked={(mapViewState.edgeKinds ?? DEFAULT_MAP_EDGE_KINDS).includes(kind)} onChange={() => toggleSharedEdgeKind(kind)} />{kind}</label>)}</fieldset><label><input type="checkbox" checked={sourceVisible} onChange={() => setMapViewState({ ...mapViewState, sourceVisible: !sourceVisible })} />Ontology source</label><button className="button small" type="button" onClick={() => setMapViewState({ ...mapViewState, nodeKinds: DEFAULT_MAP_NODE_KINDS, edgeKinds: DEFAULT_MAP_EDGE_KINDS, sourceVisible: true, revealedIndividualIds: (mapViewState.nodes ?? []).filter((node) => node.kind === "Individual").map((node) => node.identity.id) })}>Reset filters</button></div></details></div>
+              <div className="outline-search-controls"><div className="search-row"><Icon name="search" /><input id="entity-search" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search entities" /></div><details ref={outlineFilterMenuRef} className="outline-filter-menu"><summary className="icon-button" aria-label="Filter project outline and map"><Icon name="filter" /></summary><div className="outline-filter-popover"><fieldset><legend>Entity kinds</legend>{DEFAULT_MAP_NODE_KINDS.map((kind) => <label key={kind}><input type="checkbox" checked={visibleNodeKinds.has(kind)} onChange={() => toggleSharedNodeKind(kind)} />{kind === "ObjectProperty" ? "Object properties" : kind === "DatatypeProperty" ? "Datatype properties" : kind === "Individual" ? "Individuals" : "Classes"}</label>)}</fieldset><fieldset><legend>Inferred facts</legend><label><input type="checkbox" checked={includeAppliedInferred} onChange={(event) => setIncludeAppliedInferred(event.target.checked)} />Show inferred for applied</label><label><input type="checkbox" checked={includeProposalInferred} onChange={(event) => setIncludeProposalInferred(event.target.checked)} />Show inferred for proposal</label></fieldset><fieldset><legend>Map relationships</legend>{DEFAULT_MAP_EDGE_KINDS.map((kind) => <label key={kind}><input type="checkbox" checked={(mapViewState.edgeKinds ?? DEFAULT_MAP_EDGE_KINDS).includes(kind)} onChange={() => toggleSharedEdgeKind(kind)} />{kind}</label>)}</fieldset><label><input type="checkbox" checked={sourceVisible} onChange={() => setMapViewState({ ...mapViewState, sourceVisible: !sourceVisible })} />Ontology source</label><button className="button small" type="button" onClick={() => { setIncludeAppliedInferred(false); setIncludeProposalInferred(false); setMapViewState({ ...mapViewState, nodeKinds: DEFAULT_MAP_NODE_KINDS, edgeKinds: DEFAULT_MAP_EDGE_KINDS, sourceVisible: true, revealedIndividualIds: (mapViewState.nodes ?? []).filter((node) => node.kind === "Individual").map((node) => node.identity.id) }); }}>Reset filters</button></div></details></div>
             </div>
           </section>
           {searchInput.trim() ? <section className="sidebar-section sidebar-search-results" aria-labelledby="search-results-heading">
@@ -486,7 +502,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
                 {outlineTab === "classes" ? <>
                   {rootHierarchy.isPending ? <p role="status">Loading hierarchy...</p> : null}
                   {rootHierarchy.isError ? <p role="alert">Hierarchy unavailable.</p> : null}
-                  {rootClassItems.length ? <ul className="hierarchy-list">{rootClassItems.map((item) => <HierarchyNode key={`${item.sourceId}:${item.iri}`} projectId={projectId} item={item} depth={0} onOpen={openOutlineEntity} onOpenDetails={openOutlineEntityDetails} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} stagedChildrenByParent={stagedIsPendingReview ? stagedClassHierarchy.childrenByParent : undefined} expandedIris={expandedClassIris} onExpandedChange={setClassExpanded} />)}</ul> : null}
+                  {rootClassItems.length ? <ul className="hierarchy-list">{rootClassItems.map((item) => <HierarchyNode key={`${item.sourceId}:${item.iri}`} projectId={projectId} item={item} depth={0} onOpen={openOutlineEntity} onOpenDetails={openOutlineEntityDetails} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} stagedChildrenByParent={stagedIsPendingReview ? stagedClassHierarchy.childrenByParent : undefined} expandedIris={expandedClassIris} onExpandedChange={setClassExpanded} includeAppliedInferred={includeAppliedInferred} includeProposalInferred={includeProposalInferred} />)}</ul> : null}
                 </> : null}
                 {outlineTab === "objects" ? <GroupedObjectOutline items={objectItems} loading={outline.isPending} error={outline.isError} onOpen={openOutlineEntity} onOpenDetails={openOutlineEntityDetails} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} collapsedGroupIris={collapsedObjectGroupIris} onExpandedChange={setObjectGroupExpanded} /> : null}
                 {outlineTab === "properties" ? <OutlineEntityList title="Properties" marker="P" items={propertyItems} loading={outline.isPending} error={outline.isError} onOpen={openOutlineEntity} onOpenDetails={openOutlineEntityDetails} onContextMenu={openEntityContextMenu} stagedIris={stagedIsPendingReview ? stagedIris : undefined} /> : null}
@@ -518,7 +534,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
               <span className="visually-hidden" role="status" aria-live="polite">{tabOrderMessage}</span>
             </> : null}
             <div className={`workspace-content ${activeModule === "explore" && activeIri && stagedIsPendingReview && stagedIris.has(activeIri) ? "workspace-content-staged" : ""}`} id="entity-workspace-panel" role="tabpanel" aria-label={activeModule === "explore" ? activeTab ? `${activeTab.label} details` : "Entity details" : `${module.label} workspace`} aria-live="polite">
-              {renderModule(activeModule, projectId, sourceId, shapesSourceId, activeTab, semanticJobIds, (kind, status) => setSemanticJobIds((current) => ({ ...current, [kind]: status.id })), () => openModule("changes"), mapActive && mapOpen && sourceId ? <OntologyMapShell projectId={projectId} sourceId={sourceId} seed={mapSeed} state={mapViewState} onStateChange={setMapViewState} onViewDetails={openEntityDetails} onLoadedEntities={setMapLoadedEntities} /> : activeTab ? <EntityDetails projectId={projectId} iri={activeTab.iri} stagedEntity={stagedDetails.get(activeTab.iri)} stagedEntries={stagedIsPendingReview ? stagedEntries : []} directType={activeTab.directType} initialSection={activeTab.requestedSection} sectionRequestId={activeTab.sectionRequestId} onOpenEntity={openEntity} /> : <EmptyWorkspace onOpenMap={openMap} />, displayName, saveDisplayName, launchEditor)}
+              {renderModule(activeModule, projectId, sourceId, shapesSourceId, activeTab, semanticJobIds, (kind, status) => setSemanticJobIds((current) => ({ ...current, [kind]: status.id })), () => openModule("changes"), mapActive && mapOpen && sourceId ? <OntologyMapShell projectId={projectId} sourceId={sourceId} seed={mapSeed} state={mapViewState} onStateChange={setMapViewState} onViewDetails={openEntityDetails} onLoadedEntities={setMapLoadedEntities} /> : activeTab ? <EntityDetails projectId={projectId} iri={activeTab.iri} stagedEntity={stagedDetails.get(activeTab.iri)} stagedEntries={stagedIsPendingReview ? stagedEntries : []} directType={activeTab.directType} initialSection={activeTab.requestedSection} sectionRequestId={activeTab.sectionRequestId} onOpenEntity={openEntity} includeAppliedInferred={includeAppliedInferred} includeProposalInferred={includeProposalInferred} /> : <EmptyWorkspace onOpenMap={openMap} />, displayName, saveDisplayName, launchEditor)}
             </div>
             {activeModule !== "changes" ? <div className={`staged-dock ${stagedCount && stagedIsPendingReview ? "staged-dock-pending" : ""}`} aria-label="Shared staged changes"><div><span className="overline">Shared review queue</span><strong>{stagedCount ? `${stagedCount} change${stagedCount === 1 ? "" : "s"} staged` : "No staged changes"}</strong></div><span className="dock-meta">Review the complete proposal, then accept or reject it.</span><button type="button" onClick={() => openModule("changes")}>{stagedCount ? "Review proposal" : "Open proposal"}</button></div> : null}
           </div>
@@ -749,6 +765,7 @@ function GroupedObjectOutline({ items, loading, error, onOpen, onOpenDetails, on
               <span className={`hierarchy-chevron ${expanded ? "hierarchy-chevron-expanded" : ""}`} aria-hidden="true" />
             </button>
             {group.type ? <button className="object-group-label" type="button" onClick={() => onOpen(group.type!)} onDoubleClick={() => onOpenDetails(group.type!)}>{heading}</button> : <span className="object-group-label">{heading}</span>}
+            {group.items[0]?.inferredState ? <span className="inferred-badge">Inferred · {group.items[0].inferredState}</span> : null}
           </div>
           <small>{group.items.length}</small>
         </div>
@@ -833,6 +850,14 @@ function applyStagedLabels<T extends WebEntityReference>(items: readonly T[], la
     const stagedLabel = labels.get(item.iri);
     return stagedLabel && stagedLabel !== item.label ? { ...item, label: stagedLabel } : item;
   });
+}
+
+function outlineLabel(iri: string): string {
+  try {
+    return decodeURIComponent(iri.split(/[\/#]/).filter(Boolean).at(-1) ?? iri);
+  } catch {
+    return iri;
+  }
 }
 
 function buildStagedEntityDetails(entries: WebStagedEntry[]): Map<string, WebEntityDetailResponse> {

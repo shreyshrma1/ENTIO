@@ -57,6 +57,7 @@ export interface WebHierarchyResponse {
   sourceId: string | null;
   parentIri: string | null;
   page: WebPage<WebHierarchyItem>;
+  inferredOverlays?: WebInferredFactsOverlay[];
 }
 
 export interface WebOutlineItem {
@@ -65,12 +66,14 @@ export interface WebOutlineItem {
   kind: string;
   sourceId: string;
   directType?: WebEntityReference | null;
+  inferredState?: "Applied" | "Proposal";
 }
 
 export interface WebOutlineResponse {
   apiVersion: "v1";
   sourceId: string | null;
   page: WebPage<WebOutlineItem>;
+  inferredOverlays?: WebInferredFactsOverlay[];
 }
 
 export interface WebEntityReference {
@@ -128,6 +131,34 @@ export interface WebEntityDetailResponse {
   ranges: WebEntityReference[];
   outgoingRelationships: WebRelationship[];
   incomingRelationships: WebRelationship[];
+  inferredOverlays?: WebInferredFactsOverlay[];
+}
+
+export interface WebInferredFact {
+  semanticFactKey: string;
+  subject: string;
+  predicate: string;
+  objectValue: string;
+  kind: "SubclassRelationship" | "IndividualType" | "ObjectPropertyAssertion" | "EffectiveDomain" | "EffectiveRange";
+  placements: string[];
+  graphState: "Applied" | "Proposal";
+  sourceId: string | null;
+}
+
+export interface WebInferredFactsOverlay {
+  graphState: "Applied" | "Proposal";
+  state: "Off" | "Current" | "Updating" | "Unavailable" | "Failed";
+  facts: WebInferredFact[];
+  totalFactCount: number;
+  truncated: boolean;
+  graphFingerprint: string | null;
+  proposalFingerprint: string | null;
+  message: string | null;
+}
+
+export interface InferredReadOptions {
+  includeAppliedInferred?: boolean;
+  includeProposalInferred?: boolean;
 }
 
 export interface WebSemanticSearchHit {
@@ -888,13 +919,15 @@ async function getGraphJson(path: string, signal: AbortSignal | undefined, fetch
 
 export async function loadHierarchy(
   projectId: string,
-  options: { sourceId?: string; parentIri?: string } & PageRequest = {},
+  options: { sourceId?: string; parentIri?: string } & PageRequest & InferredReadOptions = {},
   fetcher: WebFetcher = defaultFetcher,
 ): Promise<WebHierarchyResponse> {
   const page = normalizePageRequest(options);
   const params = new URLSearchParams({ offset: String(page.offset), limit: String(page.limit) });
   if (options.sourceId) params.set("sourceId", options.sourceId);
   if (options.parentIri) params.set("parentIri", options.parentIri);
+  if (options.includeAppliedInferred) params.set("includeAppliedInferred", "true");
+  if (options.includeProposalInferred) params.set("includeProposalInferred", "true");
   return getJson(
     `/api/v1/projects/${encodeURIComponent(projectId)}/hierarchy?${params.toString()}`,
     fetcher,
@@ -903,12 +936,14 @@ export async function loadHierarchy(
 
 export async function loadProjectOutline(
   projectId: string,
-  options: { sourceId?: string } & PageRequest = {},
+  options: { sourceId?: string } & PageRequest & InferredReadOptions = {},
   fetcher: WebFetcher = defaultFetcher,
 ): Promise<WebOutlineResponse> {
   const page = normalizePageRequest(options);
   const params = new URLSearchParams({ offset: String(page.offset), limit: String(page.limit) });
   if (options.sourceId) params.set("sourceId", options.sourceId);
+  if (options.includeAppliedInferred) params.set("includeAppliedInferred", "true");
+  if (options.includeProposalInferred) params.set("includeProposalInferred", "true");
   return getJson(
     `/api/v1/projects/${encodeURIComponent(projectId)}/outline?${params.toString()}`,
     fetcher,
@@ -920,9 +955,12 @@ export async function loadEntityDetails(
   iri: string,
   sourceId?: string,
   fetcher: WebFetcher = defaultFetcher,
+  inferred: InferredReadOptions = {},
 ): Promise<WebEntityDetailResponse> {
   const params = new URLSearchParams({ iri });
   if (sourceId) params.set("sourceId", sourceId);
+  if (inferred.includeAppliedInferred) params.set("includeAppliedInferred", "true");
+  if (inferred.includeProposalInferred) params.set("includeProposalInferred", "true");
   return getJson(
     `/api/v1/projects/${encodeURIComponent(projectId)}/entities?${params.toString()}`,
     fetcher,

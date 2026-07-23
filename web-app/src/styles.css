@@ -1064,3 +1064,10 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-map-stale { position: absolute; z-index: 8; inset: 52px 16px 16px; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 24px; border: 2px solid var(--warning); border-radius: 12px; background: color-mix(in srgb, var(--surface-1) 94%, transparent); color: var(--text-primary); text-align: center; }
 .ontology-map-stale h3, .ontology-map-stale p { max-width: 480px; margin: 0; }
 @media (prefers-reduced-motion: reduce) { .ontology-graph *, .ontology-graph *::before, .ontology-graph *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
+.inferred-facts-panel { margin: 0 40px 20px; padding: 14px 16px; border: 1px solid #b9d9ff; border-radius: 12px; background: #f2f8ff; }
+.inferred-facts-panel h3 { margin: 0 0 8px; font-size: 14px; }
+.inferred-facts-panel ul { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.inferred-fact { display: flex; align-items: center; gap: 5px; color: #29425f; }
+.inferred-fact-proposal { border-inline-start: 3px solid #8b7cf6; padding-inline-start: 8px; }
+.inferred-badge { margin-inline-start: auto; padding: 2px 7px; border: 1px solid #9cc9f7; border-radius: 999px; background: #deefff; color: #285b91; font-size: 11px; font-weight: 700; }
+.inferred-state-message { margin: 6px 0; color: var(--text-muted); font-size: 13px; }
