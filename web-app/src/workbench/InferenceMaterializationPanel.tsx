@@ -81,9 +81,9 @@ function ReasoningFactDialog({ projectId, jobId, origin, onClose }: {
         {!facts.length && page.isPending ? <p role="status">Loading reasoning facts…</p> : null}
         {!facts.length && page.data && !page.data.totalFactCount ? <p className="muted">No facts match this search.</p> : null}
         {facts.length ? <ul className="reasoning-fact-list">{facts.map((fact) => <li key={factKey(fact)}>
-          <strong>{shorten(fact.subject)}</strong>
-          <span>{shorten(fact.predicate ?? fact.kind)}</span>
-          <strong>{shorten(fact.objectValue)}</strong>
+          <strong>{fact.subjectLabel ?? shorten(fact.subject)}</strong>
+          <span>{fact.predicateLabel ?? shorten(fact.predicate ?? fact.kind)}</span>
+          <strong>{fact.objectLabel ?? shorten(fact.objectValue)}</strong>
           <small>{formatKind(fact.kind)}</small>
         </li>)}</ul> : null}
       </div>

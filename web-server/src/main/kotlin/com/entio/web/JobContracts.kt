@@ -50,8 +50,11 @@ public data class WebSemanticJobStatus(
 public data class WebReasoningFact(
     val kind: String,
     val subject: String,
+    val subjectLabel: String? = null,
     val predicate: String? = null,
+    val predicateLabel: String? = null,
     val objectValue: String,
+    val objectLabel: String? = null,
     val origin: String,
     val sourceId: String? = null,
 )

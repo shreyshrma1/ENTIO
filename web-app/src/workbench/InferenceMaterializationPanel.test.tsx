@@ -59,6 +59,22 @@ describe("reasoning fact browsers", () => {
     expect(await screen.findByText("MatchingAccount")).toBeInTheDocument();
     await waitFor(() => expect(paths.some((path) => path.includes("factQuery=owns+account"))).toBe(true));
   });
+
+  it("displays server-resolved ontology labels instead of IRI suffixes", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json(details([{
+      ...fact("Inferred", "Account33271"),
+      subjectLabel: "Checking Account 33271",
+      predicateLabel: "type",
+      objectLabel: "Account",
+    }], 1, null))));
+    renderPanel();
+
+    fireEvent.click(screen.getByRole("button", { name: /Inferred facts/ }));
+    expect(await screen.findByText("Checking Account 33271")).toBeInTheDocument();
+    expect(screen.getByText("type")).toBeInTheDocument();
+    expect(screen.getByText("Account")).toBeInTheDocument();
+    expect(screen.queryByText("Account33271")).not.toBeInTheDocument();
+  });
 });
 
 function renderPanel() {
