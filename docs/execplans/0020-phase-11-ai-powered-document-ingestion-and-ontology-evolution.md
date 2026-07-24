@@ -2,10 +2,11 @@
 
 ## Status
 
-Approved for implementation on 2026-07-24. Slice 0 was approved on
-2026-07-24 in
-[`phase-11-slice-0-contract-audit.md`](../decisions/phase-11-slice-0-contract-audit.md);
-production implementation may proceed in the dependency order below.
+Implemented and verified on 2026-07-24. All ten ordered slices are complete.
+Slice 0 was approved in
+[`phase-11-slice-0-contract-audit.md`](../decisions/phase-11-slice-0-contract-audit.md),
+and the final acceptance evidence is recorded in
+[`phase-11-slice-8-verification.md`](../decisions/phase-11-slice-8-verification.md).
 
 ## Goal
 

@@ -1,10 +1,10 @@
 # Agent Guidance For Entio
 
-This repository contains the implemented Entio foundation through Phase 10.5. Phase 11 is the active, approved implementation phase. Phases 1 through 8 are retained as historical delivery records, and the repository is no longer documentation-only.
+This repository contains the implemented Entio foundation through Phase 11. Phase 11 was implemented and verified on 2026-07-24. Phases 1 through 8 are retained as historical delivery records, and the repository is no longer documentation-only.
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
-Phases 1 through 8 are preserved as historical delivery records. Phase 9 is complete and adds bounded, read-only interactive ontology graph visualization. Phase 10 is complete and adds user-controlled staging of supported inferred relationships through the existing web proposal workflow. Phase 10.5 is complete and adds optional, read-only applied and proposal inferred-fact overlays to Explore and the ontology map. The current product also includes a native OpenAI-backed ontology assistant with project-scoped conversations, ontology-aware answers, review-only edit proposals, deterministic validation, and staging into the existing human-review workflow. Phase 11 is approved to extend that active AI foundation with bounded document ingestion, evidence-grounded analysis, cross-workflow provenance, and human-reviewed typed drafts. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
+Phases 1 through 8 are preserved as historical delivery records. Phase 9 is complete and adds bounded, read-only interactive ontology graph visualization. Phase 10's inferred-materialization delivery remains historical; the current Reasoning workspace exposes bounded read-only asserted and inferred fact browsers. Phase 10.5 is complete and adds optional, read-only applied and proposal inferred-fact overlays to Explore and the ontology map. The current product also includes a native OpenAI-backed ontology assistant with project-scoped conversations, ontology-aware answers, review-only edit proposals, deterministic validation, and staging into the existing human-review workflow. Phase 11 extends that active AI foundation with bounded document ingestion, evidence-grounded analysis, cross-workflow provenance, and human-reviewed typed drafts. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
 
 ## Product Context
 
@@ -22,7 +22,7 @@ If a task seems to require later-phase infrastructure, stop and explain why befo
 
 ## Current Scope
 
-The implemented Entio foundation is complete through Phase 10.5. Phase 11 is active but not yet implemented. The current codebase supports:
+The implemented Entio foundation is complete through Phase 11. The current codebase supports:
 
 - Loading an Entio project.
 - Parsing small Turtle/RDF ontology files with existing libraries.
@@ -46,6 +46,13 @@ The implemented Entio foundation is complete through Phase 10.5. Phase 11 is act
 - Storing per-user provider credentials in server memory without exposing them to the browser.
 - Discovering, selecting, and verifying current-user provider models through the server boundary.
 - Using the selected OpenAI model through the native ontology assistant for project-scoped conversations, ontology-aware answers, structured review-only proposals, deterministic validation, run history, cancellation, rejection, edit removal, and staging into the shared review queue.
+- Accepting bounded PDF, DOCX, TXT, and Markdown document sets through authorized project-scoped web routes.
+- Extracting located text, using bounded local OCR only for unreliable PDF pages, and preserving exact evidence locations, methods, and confidence.
+- Using the current user's verified selected compatible model for bounded document analysis while treating document and provider content as untrusted.
+- Matching verified candidates against local, imported, current-work, retained prior-provenance, and pinned FIBO scopes before recommending creation or change.
+- Presenting evidence-linked confirm, extend, revise, split, merge, conflict, and supersede recommendations for human review.
+- Converting accepted recommendations only into supported typed draft batches that use the existing proposal, approval, atomic apply, reload, and rollback workflow.
+- Retaining project-authorized provenance for successfully applied document-derived changes without storing it in ontology source files.
 
 Current implementation notes:
 
@@ -158,13 +165,13 @@ Phase 10.5 is complete and summarized in `docs/phase-summaries/phase-10.5-summar
 
 Phase 10.5 reuses current project-owned applied and proposal reasoning results as bounded, read-only overlays in existing Explore fields and on the ontology map. Kotlin owns inference meaning, provenance, freshness, ordering, deduplication, and bounds; Ktor owns authorized graph-state reads; React owns temporary visibility settings and presentation. Both overlays are off by default. They do not stage, materialize, apply, or write inferred facts, and inferred edges do not control the asserted hierarchy layout.
 
-Phase 11 is the active phase. Its approved planning documents are:
+Phase 11 is complete and summarized in `docs/phase-summaries/phase-11-summary.md`. Its approved and implemented planning documents are:
 
 - `docs/architecture/phase-11-scope.md`
 - `docs/specs/0020-phase-11-ai-powered-document-ingestion-and-ontology-evolution.md`
 - `docs/execplans/0020-phase-11-ai-powered-document-ingestion-and-ontology-evolution.md`
 
-Phase 11 will add bounded PDF, DOCX, TXT, and Markdown ingestion in the web workbench. Documents and provider output remain untrusted. Kotlin will own evidence verification, semantic matching, duplicate prevention, cross-workflow comparison, and typed-edit conversion; Ktor will own authorized temporary task orchestration and narrowly scoped durable provenance for successfully applied document-derived changes; React will own upload, progress, evidence, and recommendation review. No Phase 11 code is implemented yet. Implementation must begin with ExecPlan Slice 0 and proceed in order.
+Phase 11 adds bounded PDF, DOCX, TXT, and Markdown ingestion in the web workbench. Documents and provider output remain untrusted. Kotlin owns evidence verification, semantic matching, duplicate prevention, cross-workflow comparison, and typed-edit conversion; Ktor owns authorized temporary task orchestration and narrowly scoped durable provenance for successfully applied document-derived changes; React owns upload, progress, evidence, and recommendation review. The CLI and VS Code extension do not expose document-ingestion commands.
 
 ## Software Architecture Rules
 

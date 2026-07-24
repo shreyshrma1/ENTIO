@@ -6,7 +6,7 @@
 
 ## Status
 
-Approved on 2026-07-24.
+Implemented and verified on 2026-07-24.
 
 ## Purpose
 

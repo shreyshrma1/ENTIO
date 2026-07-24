@@ -17,7 +17,7 @@ The assistant supports:
 
 The assistant does not have arbitrary tools, shell or filesystem access, direct ontology-source writes, approval authority, or an automatic apply path. Staged AI edits use the ordinary proposal review, approval, apply, reload, and rollback workflow.
 
-Phase 11 is active and approved for implementation. It extends this existing assistant and provider foundation with bounded document ingestion and evidence-grounded recommendations. It does not replace or reintroduce the assistant.
+Phase 11 is implemented. It extends this existing assistant and provider foundation with a separate bounded document-ingestion workflow and evidence-grounded recommendations. It does not replace the conversational assistant.
 
 ## Active Server Ownership
 
@@ -30,9 +30,13 @@ Phase 11 is active and approved for implementation. It extends this existing ass
 | Assistant orchestration | `AiProposalService.kt` | Owns in-memory conversations and runs, ontology context, response routing, bounded FIBO context, validation/repair, cancellation, proposal state, and staging handoff. |
 | OpenAI generation adapter | `OpenAiProposalClient.kt` | Calls the fixed OpenAI Responses endpoint with the verified selected model and structured response formats. It exposes no tools or direct write capability. |
 | AI proposal validation | `AiSemanticProposalValidator.kt` and existing graph/proposal services | Checks generated edits deterministically before they can be staged. |
+| Document contracts and semantic checks | `DocumentIngestionContracts.kt`, `DocumentRecommendationContracts.kt`, `DocumentEvidenceVerifier.kt`, `DocumentOntologyMatcher.kt`, `DocumentRecommendationDraftTranslator.kt` | Owns bounded neutral records, exact evidence verification, deterministic reuse matching, duplicate prevention, evolution recommendations, and conversion to existing typed edits. |
+| Document task orchestration | `web/ingestion/` | Owns authorized intake, temporary storage, extraction, selective OCR, bounded provider analysis, review state, cancellation, cleanup, typed draft handoff, and durable applied-change provenance. |
+| Document analysis adapter | `OpenAiDocumentAnalysisClient.kt` | Uses the current verified selected compatible model through a fixed, strict-schema, no-tools provider request. |
 | Redacted HTTP boundary | `Application.kt` and `contract/AiProposalContracts.kt` | Exposes credential/model settings and authorized project-scoped assistant proposal routes. |
 | Provider settings UI | `web-app/src/workbench/AiCredentialSettings.tsx` | Collects credentials and renders redacted provider/model status. |
 | Assistant UI | `web-app/src/workbench/AiProposalPanel.tsx`, `ProjectWorkspace.tsx` | Provides the AI sidebar, conversations, history, status, proposal review, edit removal, cancellation, rejection, and staging controls. |
+| Document review UI | `web-app/src/workbench/document-ingestion/DocumentIngestionWorkspace.tsx` | Provides upload metadata, progress, safe evidence viewing, recommendation decisions, clarification, reconsideration, and typed-draft submission. |
 
 ## Active Routes
 
@@ -65,6 +69,20 @@ POST   /api/v1/projects/{projectId}/ai/proposals/{runId}/cancel
 
 The browser polls proposal status rather than using SSE. Conversations, runs, and history are process-memory state and are lost on server restart.
 
+Project-scoped document ingestion:
+
+```text
+POST   /api/v1/projects/{projectId}/document-ingestion/tasks
+GET    /api/v1/projects/{projectId}/document-ingestion/tasks
+GET    /api/v1/projects/{projectId}/document-ingestion/tasks/{taskId}
+GET    /api/v1/projects/{projectId}/document-ingestion/tasks/{taskId}/review
+GET    /api/v1/projects/{projectId}/document-ingestion/tasks/{taskId}/evidence/{evidenceId}
+POST   /api/v1/projects/{projectId}/document-ingestion/tasks/{taskId}/recommendations/{recommendationId}/decision
+POST   /api/v1/projects/{projectId}/document-ingestion/tasks/{taskId}/draft
+POST   /api/v1/projects/{projectId}/document-ingestion/tasks/{taskId}/cancel
+DELETE /api/v1/projects/{projectId}/document-ingestion/tasks/{taskId}
+```
+
 ## Security And Human-Control Boundary
 
 - API keys stay in server memory and never appear in browser DTOs, logs, model descriptors, or errors.
@@ -76,9 +94,9 @@ The browser polls proposal status rather than using SSE. Conversations, runs, an
 - Staging does not approve or apply a proposal.
 - Existing authorization, human review, validation, semantic diff, reasoning, SHACL, atomic apply, reload, and rollback boundaries remain authoritative.
 
-## Approved Phase 11 Extension
+## Active Phase 11 Document Extension
 
-Phase 11 may add project-scoped document-ingestion behavior only after the ExecPlan Slice 0 audit is approved. The extension must:
+The implemented extension:
 
 - reuse the active credential, verified-model, and provider boundaries;
 - keep ordinary assistant conversations and ontology proposals working;
@@ -88,6 +106,8 @@ Phase 11 may add project-scoped document-ingestion behavior only after the ExecP
 - keep temporary uploads, OCR artifacts, and incomplete task state out of ontology sources;
 - retain narrowly scoped provenance for successfully applied document-derived changes;
 - preserve human staging, review, approval, and apply boundaries.
+
+Uploads, extracted text, OCR images, incomplete task state, and review workspaces are temporary. Applied-change provenance is the only durable Phase 11 record, is authorized by project, and is stored separately from ontology sources. The feature supports English PDF, DOCX, TXT, and Markdown; it does not add production document/task storage, handwritten OCR, broader formats, external indexing, autonomous tools, or a direct apply path.
 
 ## Historical Records
 
