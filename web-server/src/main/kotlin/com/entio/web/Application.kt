@@ -132,6 +132,11 @@ public fun Application.module(
         staging = staging,
         configuration = documentIngestionConfiguration,
     )
+    documentIngestion.installProcessingBoundary(
+        dependencies.aiCredentials,
+        aiModelSettingsStore,
+        com.entio.web.ingestion.OpenAiDocumentAnalysisClient(),
+    )
     staging.installDocumentApplyHooks(documentIngestion.provenanceCoordinator)
     monitor.subscribe(io.ktor.server.application.ApplicationStopped) {
         documentIngestion.close()

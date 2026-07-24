@@ -1,17 +1,19 @@
 package com.entio.web.ingestion
 
+import com.entio.core.DocumentDraftProvenance
 import com.entio.core.DocumentTaskId
-import com.entio.web.contract.ProjectRegistry
-import com.entio.web.contract.WebPage
-import com.entio.web.contract.WebPageRequest
-import com.entio.web.contract.toWebPage
-import com.entio.web.StagingWorkflowService
-import com.entio.web.PreparedDocumentStagingItem
-import com.entio.web.contract.WebStagingResponse
 import com.entio.semantic.DocumentDraftOperation
 import com.entio.semantic.DocumentDraftTranslationResult
 import com.entio.semantic.DocumentRecommendationDraftTranslator
-import com.entio.core.DocumentDraftProvenance
+import com.entio.web.PreparedDocumentStagingItem
+import com.entio.web.StagingWorkflowService
+import com.entio.web.ai.AiCredentialStore
+import com.entio.web.ai.models.AiUserProviderSettingsStore
+import com.entio.web.contract.ProjectRegistry
+import com.entio.web.contract.WebPage
+import com.entio.web.contract.WebPageRequest
+import com.entio.web.contract.WebStagingResponse
+import com.entio.web.contract.toWebPage
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import io.ktor.http.content.MultiPartData
@@ -35,6 +37,8 @@ public class DocumentIngestionWebService(
     private val reviews = DocumentReviewWorkspaceStore(configuration.clock)
     private val completedIntakeKeys: MutableMap<String, DocumentIngestionTaskSnapshot> = linkedMapOf()
     private val draftTranslator = DocumentRecommendationDraftTranslator()
+    private var orchestrator: DocumentIngestionOrchestrator? = null
+    private var modelSettings: AiUserProviderSettingsStore? = null
     public val provenanceRepository: AppliedDocumentProvenanceRepository =
         AppliedDocumentProvenanceRepository(configuration.provenanceRoot, projectRegistry)
     internal val provenanceCoordinator: DocumentApplyProvenanceCoordinator =
@@ -111,6 +115,11 @@ public class DocumentIngestionWebService(
                 throw DocumentIngestionFailure("missing-document-part", "The multipart request did not include every declared document.")
             }
             val result = tasks.completeIntake(currentTaskId, projectId, userId)
+            orchestrator?.start(currentTaskId.value, projectId, userId)
+                ?: throw DocumentIngestionFailure(
+                    "document-processing-unavailable",
+                    "Document processing is not configured.",
+                )
             synchronized(completedIntakeKeys) {
                 completedIntakeKeys[key] = result
             }
@@ -187,6 +196,29 @@ public class DocumentIngestionWebService(
         reviews.install(input)
     }
 
+    internal fun installProcessingBoundary(
+        credentials: AiCredentialStore,
+        settings: AiUserProviderSettingsStore,
+        provider: DocumentAnalysisProvider,
+    ): Unit {
+        check(orchestrator == null) { "Document processing is already configured." }
+        modelSettings = settings
+        orchestrator = DocumentIngestionOrchestrator(
+            tasks,
+            reviews,
+            configuration,
+            projectRegistry,
+            provenanceRepository,
+            credentials,
+            settings,
+            provider,
+        )
+    }
+
+    internal suspend fun awaitProcessing(taskId: String): Unit {
+        orchestrator?.await(taskId)
+    }
+
     public fun buildDraft(
         projectId: String,
         taskId: String,
@@ -204,7 +236,16 @@ public class DocumentIngestionWebService(
         ) {
             throw DocumentIngestionFailure("document-review-stale", "The review workspace changed; reload before drafting.")
         }
-        val accepted = reviews.accepted(projectId, taskId, userId)
+        val currentModel = modelSettings?.find(userId)
+        val accepted = reviews.accepted(projectId, taskId, userId).map { candidate ->
+            candidate.copy(
+                context = candidate.context.copy(
+                    modelAndPromptCurrent = candidate.recommendation.modelId == null ||
+                        currentModel?.selectedModelId == candidate.recommendation.modelId &&
+                        currentModel?.selectionStatus == com.entio.web.ai.models.AiModelSelectionStatus.READY,
+                ),
+            )
+        }
         if (accepted.isEmpty()) {
             throw DocumentIngestionFailure("document-draft-empty", "Accept at least one current recommendation before drafting.")
         }
@@ -300,6 +341,7 @@ public class DocumentIngestionWebService(
     }
 
     override fun close(): Unit {
+        orchestrator?.close()
         tasks.close()
         synchronized(completedIntakeKeys) {
             completedIntakeKeys.clear()

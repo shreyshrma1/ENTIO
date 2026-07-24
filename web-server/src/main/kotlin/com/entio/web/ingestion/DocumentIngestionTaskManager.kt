@@ -54,6 +54,14 @@ private data class StoredIngestionTask(
     var progress: DocumentIngestionProgress,
 )
 
+internal data class DocumentIngestionProcessingInput(
+    val taskId: DocumentTaskId,
+    val projectId: String,
+    val ownerUserId: String,
+    val directory: TemporaryTaskDirectory,
+    val documents: List<AcceptedDocumentUpload>,
+)
+
 internal class DocumentIngestionTaskManager(
     private val configuration: DocumentIngestionConfiguration,
     private val storage: DocumentTemporaryStorage,
@@ -126,10 +134,56 @@ internal class DocumentIngestionTaskManager(
             failAndCleanup(task, "The multipart request did not include every declared document.")
             throw DocumentIngestionFailure("missing-document-part", "The multipart request did not include every declared document.")
         }
+        task.status = DocumentProcessingStatus.Extracting
         task.updatedAt = Instant.now(configuration.clock)
-        task.progress = task.progress.copy(percent = 100, message = "All documents passed intake validation.")
+        task.progress = task.progress.copy(
+            stage = "extracting",
+            completedDocuments = 0,
+            percent = 0,
+            message = "All documents passed intake validation; extraction started.",
+        )
         return task.snapshot()
     }
+
+    @Synchronized
+    fun processingInput(taskId: DocumentTaskId, projectId: String, userId: String): DocumentIngestionProcessingInput {
+        val task = ownedTask(taskId, projectId, userId)
+        if (task.status != DocumentProcessingStatus.Extracting) {
+            throw DocumentIngestionFailure("ingestion-task-state-invalid", "The ingestion task is not ready for extraction.")
+        }
+        return DocumentIngestionProcessingInput(task.id, task.projectId, task.ownerUserId, task.directory, task.documents.toList())
+    }
+
+    @Synchronized
+    fun transition(
+        taskId: DocumentTaskId,
+        projectId: String,
+        userId: String,
+        status: DocumentProcessingStatus,
+        completedDocuments: Int,
+        percent: Int,
+        message: String,
+    ): DocumentIngestionTaskSnapshot {
+        val task = ownedTask(taskId, projectId, userId)
+        if (task.status == DocumentProcessingStatus.Cancelled) {
+            throw DocumentIngestionFailure("ingestion-cancelled", "Document ingestion was cancelled.")
+        }
+        task.status = status
+        task.updatedAt = Instant.now(configuration.clock)
+        task.progress = DocumentIngestionProgress(
+            stage = status.name.toKebabCase(),
+            completedDocuments = completedDocuments,
+            totalDocuments = task.progress.totalDocuments,
+            percent = percent,
+            message = message.take(500),
+        )
+        return task.snapshot()
+    }
+
+    @Synchronized
+    fun isCancelled(taskId: DocumentTaskId, projectId: String, userId: String): Boolean =
+        runCatching { ownedTask(taskId, projectId, userId).status == DocumentProcessingStatus.Cancelled }
+            .getOrDefault(true)
 
     @Synchronized
     fun find(taskId: DocumentTaskId, projectId: String, userId: String): DocumentIngestionTaskSnapshot =
@@ -219,7 +273,13 @@ internal class DocumentIngestionTaskManager(
                 byteSize = document.byteSize,
                 checksumSha256 = document.checksumSha256,
                 authorityStatus = document.authority.status.name.toKebabCase(),
-                status = document.status.name.toKebabCase(),
+                status = when (status) {
+                    DocumentProcessingStatus.AwaitingReview -> DocumentProcessingStatus.AwaitingReview
+                    DocumentProcessingStatus.Completed -> DocumentProcessingStatus.Completed
+                    DocumentProcessingStatus.Cancelled -> DocumentProcessingStatus.Cancelled
+                    DocumentProcessingStatus.Failed -> DocumentProcessingStatus.Failed
+                    else -> document.status
+                }.name.toKebabCase(),
             )
         },
         progress = progress,
@@ -232,6 +292,7 @@ internal class DocumentIngestionTaskManager(
 
     private companion object {
         val activeExecutionStates: Set<DocumentProcessingStatus> = setOf(
+            DocumentProcessingStatus.Uploaded,
             DocumentProcessingStatus.Extracting,
             DocumentProcessingStatus.Analyzing,
             DocumentProcessingStatus.Matching,

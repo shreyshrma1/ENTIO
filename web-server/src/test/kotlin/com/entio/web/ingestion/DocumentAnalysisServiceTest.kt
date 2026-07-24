@@ -243,7 +243,7 @@ class DocumentAnalysisServiceTest {
         val settings: InMemoryAiUserProviderSettingsStore,
         val clock: Clock,
     ) {
-        fun service(provider: DocumentAnalysisProvider, isCancelled: () -> Boolean = { false }): DocumentAnalysisService =
+        fun service(provider: DocumentAnalysisProvider, isCancelled: (String) -> Boolean = { false }): DocumentAnalysisService =
             DocumentAnalysisService(credentials, settings, provider, clock = clock, isCancelled = isCancelled)
     }
 

@@ -122,7 +122,7 @@ internal class DocumentAnalysisService(
     private val verifier: DocumentEvidenceVerifier = DocumentEvidenceVerifier(),
     private val clock: Clock = Clock.systemUTC(),
     private val verificationLifetime: Duration = Duration.ofHours(24),
-    private val isCancelled: () -> Boolean = { false },
+    private val isCancelled: (String) -> Boolean = { false },
 ) {
     private val completedWork: MutableMap<String, CompletedDocumentAnalysis> = linkedMapOf()
     private val providerCallsByTask: MutableMap<String, Int> = linkedMapOf()
@@ -136,21 +136,21 @@ internal class DocumentAnalysisService(
         var calls = 0
         val candidates = mutableListOf<DocumentCandidate>()
         for (document in work.documents.sortedBy { it.document.id.value }) {
-            checkCancellation()
+            checkCancellation(work.taskId)
             val request = requestFor(
                 work,
                 DocumentAnalysisStage.PerDocument,
                 document.blocks,
                 emptyList(),
             )
-            val response = callProvider(userId, selectedModel, request) {
+            val response = callProvider(userId, selectedModel, request, work.taskId) {
                 reserveTaskCall(work.taskId)
                 calls += 1
             }
             candidates += verifyCandidates(listOf(document), response)
         }
         if (work.documents.size > 1) {
-            checkCancellation()
+            checkCancellation(work.taskId)
             val comparisonBlocks = work.documents.flatMap { it.blocks.take(MAX_COMPARISON_BLOCKS_PER_DOCUMENT) }
             val request = requestFor(
                 work,
@@ -158,7 +158,7 @@ internal class DocumentAnalysisService(
                 comparisonBlocks,
                 candidates.map { it.identity.normalizedValue }.distinct().sorted().take(MAX_PRIOR_CANDIDATE_KEYS),
             )
-            val response = callProvider(userId, selectedModel, request) {
+            val response = callProvider(userId, selectedModel, request, work.taskId) {
                 reserveTaskCall(work.taskId)
                 calls += 1
             }
@@ -204,11 +204,12 @@ internal class DocumentAnalysisService(
         userId: String,
         modelId: String,
         request: DocumentAnalysisRequest,
+        taskId: String,
         countCall: () -> Unit,
     ): DocumentAnalysisResponse {
         var attempts = 0
         while (true) {
-            checkCancellation()
+            checkCancellation(taskId)
             countCall()
             val result = credentials.withCredentialSuspending(userId) { providerId, apiKey ->
                 if (providerId != OPENAI_PROVIDER) {
@@ -377,8 +378,8 @@ internal class DocumentAnalysisService(
         providerCallsByTask[taskId] = next
     }
 
-    private fun checkCancellation(): Unit {
-        if (isCancelled()) throw CancellationException("Document analysis was cancelled.")
+    private fun checkCancellation(taskId: String): Unit {
+        if (isCancelled(taskId)) throw CancellationException("Document analysis was cancelled.")
     }
 
     private inline fun <reified T : Enum<T>> enumValue(value: String): T =

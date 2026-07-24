@@ -36,7 +36,16 @@ class DocumentTaskLifecycleTest {
         val firstDirectory = manager.directory(first, "project-a", "alice")
         val firstUpload = upload(first, firstDirectory, "a".repeat(64))
         manager.addDocument(first, "project-a", "alice", firstUpload)
-        assertEquals("uploaded", manager.completeIntake(first, "project-a", "alice").status)
+        assertEquals("extracting", manager.completeIntake(first, "project-a", "alice").status)
+        manager.transition(
+            first,
+            "project-a",
+            "alice",
+            DocumentProcessingStatus.AwaitingReview,
+            1,
+            100,
+            "Ready for review.",
+        )
 
         assertCode("ingestion-task-not-found") { manager.find(first, "project-a", "bob") }
         assertCode("ingestion-task-not-found") { manager.find(first, "project-b", "alice") }
