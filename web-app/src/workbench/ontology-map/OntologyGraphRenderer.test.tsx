@@ -108,6 +108,33 @@ describe("accessible ontology graph renderer", () => {
     expect(viewport.scrollTop).toBe(initialTop);
   });
 
+  it("allows highlighted nodes to move while preventing dimmed nodes from moving", () => {
+    const onStateChange = vi.fn();
+    const renderer = render(<OntologyGraphRenderer
+      nodes={nodes}
+      edges={[]}
+      state={{ selectedNodeId: "node-0", zoom: 1 }}
+      dimmedNodeIds={new Set(["node-1"])}
+      onStateChange={onStateChange}
+    />);
+    const highlighted = within(renderer.container).getByRole("button", { name: "Class: Class label" });
+    const dimmed = within(renderer.container).getByRole("button", { name: "ObjectProperty: ObjectProperty label" });
+    highlighted.setPointerCapture = vi.fn();
+    dimmed.setPointerCapture = vi.fn();
+
+    fireEvent.pointerDown(dimmed, { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(dimmed, { pointerId: 1, clientX: 140, clientY: 140 });
+    fireEvent.pointerUp(dimmed, { pointerId: 1 });
+    expect(dimmed.setPointerCapture).not.toHaveBeenCalled();
+    expect(onStateChange).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(highlighted, { pointerId: 2, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(highlighted, { pointerId: 2, clientX: 140, clientY: 140 });
+    fireEvent.pointerUp(highlighted, { pointerId: 2 });
+    expect(highlighted.setPointerCapture).toHaveBeenCalledWith(2);
+    expect(onStateChange).toHaveBeenCalled();
+  });
+
   it("keeps selected entity information in the scrollable graph world", () => {
     const renderer = render(<OntologyGraphRenderer
       nodes={nodes}

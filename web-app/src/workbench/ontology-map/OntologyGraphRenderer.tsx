@@ -89,7 +89,7 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
   }, [zoom, state, persistedPositions]);
 
   function nodePointerDown(event: PointerEvent, id: string) {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || dimmedNodeIds.has(id)) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     pointer.current = { id, x: event.clientX, y: event.clientY, origin: positions[id], dragged: false };
   }
