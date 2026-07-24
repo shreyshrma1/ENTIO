@@ -1,21 +1,42 @@
 # Entio AI Subsystem Map
 
-## Current status
+## Current Status
 
-Native AI execution has been removed from Entio. The active provider surface is deliberately limited to credential entry, credential verification, model discovery, model access verification, model selection, and the surrounding settings UI. The former assistant, conversation, task, draft, capability, SSE, and review-handoff architecture is retained only in the Phase 7/7.5/8 historical documents.
+Entio includes an active native ontology assistant backed by the OpenAI Responses API.
 
-## Active server ownership
+The assistant supports:
+
+- project-scoped conversations and in-memory chat history;
+- ontology-aware answers grounded in bounded project context;
+- response routing between answers, clarifications, and edit proposals;
+- optional bounded FIBO context;
+- structured review-only ontology edits;
+- deterministic proposal validation and repair attempts;
+- status polling and cancellation;
+- edit removal, proposal rejection, and staging into the shared review queue.
+
+The assistant does not have arbitrary tools, shell or filesystem access, direct ontology-source writes, approval authority, or an automatic apply path. Staged AI edits use the ordinary proposal review, approval, apply, reload, and rollback workflow.
+
+Phase 11 is active and approved for implementation. It extends this existing assistant and provider foundation with bounded document ingestion and evidence-grounded recommendations. It does not replace or reintroduce the assistant.
+
+## Active Server Ownership
 
 | Concern | Entry points | Boundary |
 | --- | --- | --- |
 | Credential storage and status | `AiProviderContracts.kt` (`AiCredentialService`, `AiCredentialStore`) | Secrets remain server-only and are exposed only through callback-scoped access. |
-| Provider credential verification | `OpenAiCredentialClient.kt`, `AiProviderClient` | Performs only the provider credential check; it does not call a model or execute a prompt. |
-| Model discovery and access verification | `provider/openai/OpenAiModelDiscoveryClient.kt` | Reads the provider model inventory and checks a selected model through the provider model-metadata endpoint. It does not send generation or tool requests. |
+| Provider credential verification | `OpenAiCredentialClient.kt`, `AiProviderClient` | Verifies the configured OpenAI credential through a fixed provider boundary. |
+| Model discovery and access verification | `provider/openai/OpenAiModelDiscoveryClient.kt` | Reads the provider model inventory and verifies explicit model access. |
 | Compatibility and selection state | `ai/models/` | Owns server-side filtering, per-user candidates, explicit selection, verification state, and freshness. |
-| Redacted HTTP boundary | `AiModelWebBoundary.kt`, `Application.kt` | Exposes only credential and model settings routes. No project-scoped AI routes are registered. |
-| Provider settings UI | `web-app/src/workbench/AiCredentialSettings.tsx` | Collects the key, renders redacted provider/model status, and lets the user discover, select, verify, replace, or remove settings. |
+| Assistant orchestration | `AiProposalService.kt` | Owns in-memory conversations and runs, ontology context, response routing, bounded FIBO context, validation/repair, cancellation, proposal state, and staging handoff. |
+| OpenAI generation adapter | `OpenAiProposalClient.kt` | Calls the fixed OpenAI Responses endpoint with the verified selected model and structured response formats. It exposes no tools or direct write capability. |
+| AI proposal validation | `AiSemanticProposalValidator.kt` and existing graph/proposal services | Checks generated edits deterministically before they can be staged. |
+| Redacted HTTP boundary | `Application.kt` and `contract/AiProposalContracts.kt` | Exposes credential/model settings and authorized project-scoped assistant proposal routes. |
+| Provider settings UI | `web-app/src/workbench/AiCredentialSettings.tsx` | Collects credentials and renders redacted provider/model status. |
+| Assistant UI | `web-app/src/workbench/AiProposalPanel.tsx`, `ProjectWorkspace.tsx` | Provides the AI sidebar, conversations, history, status, proposal review, edit removal, cancellation, rejection, and staging controls. |
 
-## Active routes
+## Active Routes
+
+Provider and model settings:
 
 ```text
 GET    /api/v1/ai/credential-status
@@ -30,15 +51,44 @@ POST   /api/v1/ai/model-selection/test
 DELETE /api/v1/ai/model-selection
 ```
 
-No assistant, conversation, run, task, draft, analysis, SSE, capability, or AI review-submission route is available. The ordinary ontology staging and human-review workflow remains independent of provider settings.
+Project-scoped assistant proposals:
 
-## Security boundary
+```text
+POST   /api/v1/projects/{projectId}/ai/proposals
+GET    /api/v1/projects/{projectId}/ai/proposals
+GET    /api/v1/projects/{projectId}/ai/proposals/{runId}
+POST   /api/v1/projects/{projectId}/ai/proposals/{runId}/edits/{editId}/remove
+POST   /api/v1/projects/{projectId}/ai/proposals/{runId}/stage
+POST   /api/v1/projects/{projectId}/ai/proposals/{runId}/reject
+POST   /api/v1/projects/{projectId}/ai/proposals/{runId}/cancel
+```
+
+The browser polls proposal status rather than using SSE. Conversations, runs, and history are process-memory state and are lost on server restart.
+
+## Security And Human-Control Boundary
 
 - API keys stay in server memory and never appear in browser DTOs, logs, model descriptors, or errors.
-- Provider adapters are fixed-host, provider-specific clients and cannot access ontology services, files, shell commands, project configuration, staging, or review controls.
-- Model verification uses provider metadata access only; it does not invoke a model, submit a prompt, or execute a tool.
-- The React client owns presentation only. Server-owned compatibility policy determines which discovered models can be selected.
+- OpenAI adapters use fixed approved endpoints.
+- The assistant receives bounded ontology and optional FIBO context; it cannot access arbitrary files, URLs, shell commands, or project secrets.
+- Provider output is parsed into supported structured edits and checked by deterministic validation.
+- The React client owns presentation and reviewer actions, not semantic policy.
+- A user must explicitly stage a valid AI proposal.
+- Staging does not approve or apply a proposal.
+- Existing authorization, human review, validation, semantic diff, reasoning, SHACL, atomic apply, reload, and rollback boundaries remain authoritative.
 
-## Historical records
+## Approved Phase 11 Extension
 
-The Phase 7, Phase 7.5, and Phase 8 specs, ExecPlans, decisions, and summaries describe the former native AI implementation and remain available as historical records. They do not authorize reintroducing native AI execution or override this current boundary.
+Phase 11 may add project-scoped document-ingestion behavior only after the ExecPlan Slice 0 audit is approved. The extension must:
+
+- reuse the active credential, verified-model, and provider boundaries;
+- keep ordinary assistant conversations and ontology proposals working;
+- analyze supported documents through a separate bounded, evidence-verifying workflow;
+- treat documents and provider output as untrusted;
+- convert accepted recommendations only through supported typed private-draft operations;
+- keep temporary uploads, OCR artifacts, and incomplete task state out of ontology sources;
+- retain narrowly scoped provenance for successfully applied document-derived changes;
+- preserve human staging, review, approval, and apply boundaries.
+
+## Historical Records
+
+The Phase 7, Phase 7.5, and Phase 8 specs, ExecPlans, decisions, and summaries remain historical delivery records. They provide context for earlier designs but do not override the current source tree, this subsystem map, or the approved Phase 11 boundaries.

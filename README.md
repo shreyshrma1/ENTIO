@@ -18,15 +18,15 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository contains the implemented Entio foundation through Phase 10.5. Phase 10.5, Inferred Facts in Explore and Ontology Map, is complete.
+This repository contains the implemented Entio foundation through Phase 10.5. Phase 10.5, Inferred Facts in Explore and Ontology Map, is complete. Phase 11, AI-Powered Document Ingestion and Ontology Evolution, is the active phase and has approved planning documents, but its implementation has not started.
 
-Native AI execution is not part of the current product surface; the remaining provider boundary is limited to credential entry, model discovery, and model selection.
+The current product includes a native OpenAI-backed ontology assistant. Users can hold project-scoped conversations, ask ontology questions, generate structured review-only edits, inspect validation results, remove edits, and stage valid proposals into the existing human-review workflow. Assistant runs remain in memory, the UI polls for status, and the assistant cannot execute arbitrary tools, approve or apply changes, or write ontology sources directly. Phase 11 extends this active foundation with bounded document analysis.
 
 Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because the core work is ontology loading, RDF/Turtle parsing, deterministic validation, semantic diffing, and CLI behavior.
 
 The current implementation supports small local Entio projects, Turtle/RDF parsing through Apache Jena, RDF-term-aware graph triples, deterministic validation reports, semantic graph diffs, reusable project loading, and a thin CLI.
 
-Phases 2 through 8 are preserved as historical delivery records. The current workbench preserves the Kotlin semantic engine as the authority for RDF and ontology behavior and exposes only optional provider credential and model settings from the former AI surface. Phase 9 adds an additive, bounded, read-only ontology map inside Explore. Phase 10 lets web users deliberately stage supported inferred facts through the existing proposal workflow. Phase 10.5 optionally displays current applied-graph and proposal-graph inferred facts in their corresponding Explore fields and as clearly marked map edges without changing ontology data.
+Phases 2 through 8 are preserved as historical delivery records. The current workbench preserves the Kotlin semantic engine as the authority for RDF and ontology behavior and includes provider credential/model settings plus the bounded native ontology assistant. Phase 9 adds an additive, bounded, read-only ontology map inside Explore. Phase 10 lets web users deliberately stage supported inferred facts through the existing proposal workflow. Phase 10.5 optionally displays current applied-graph and proposal-graph inferred facts in their corresponding Explore fields and as clearly marked map edges without changing ontology data.
 
 ## Workspace Structure
 
@@ -79,6 +79,9 @@ The current implementation supports:
 - Browsing FIBO content and staging supported external reuse intents from the browser.
 - Storing optional per-user provider credentials in server memory without returning the secret to the browser.
 - Discovering models available to the current provider credential and requiring explicit model selection and verification.
+- Holding project-scoped conversations with the native OpenAI-backed ontology assistant.
+- Answering ontology questions and preparing structured review-only edit proposals with bounded local and FIBO context.
+- Polling assistant run status, preserving in-memory chat history, removing proposed edits, cancelling or rejecting runs, and staging valid proposals into the shared review queue.
 - Opening a project-scoped ontology map from Explore to inspect bounded local classes, properties, individuals, and asserted relationships without modifying ontology data.
 - Expanding, searching, filtering, dragging, panning, scrolling, zooming, and navigating the map while retaining temporary state only for the open tab.
 - Rejecting stale or invalid graph continuations through fingerprint-aware, authorized Ktor read contracts.
@@ -160,8 +163,9 @@ npm test
 - Jena serialization does not preserve original Turtle source formatting or comments.
 - Proposal and staged-change state is process/session scoped rather than a durable review store.
 - Web project registration, development identity, collaboration, semantic jobs, staging, and AI credentials are in-memory development boundaries rather than production persistence or authentication.
-- Provider credentials, model settings, and discovery state remain in memory and are cleared on server restart. Native assistant conversations, runs, drafts, audits, and task workspaces are not exposed by the current product surface.
+- Provider credentials, model settings, assistant conversations, proposal runs, and chat history remain in memory and are cleared on server restart.
 - Reasoning results and materialization provenance are in-memory workflow state. Materialization is web-only, always user initiated, supports at most 100 selected facts per request, and does not add inferred relationships to the ontology map.
+- Phase 11 document upload, extraction, OCR, analysis, durable applied-change provenance, and recommendation review are approved but not implemented yet.
 
 ## Implemented Phase 2 Through Phase 6 Workflow
 
@@ -202,7 +206,7 @@ Phase 6 adds:
 - A versioned Ktor server over reusable Kotlin services.
 - A React browser workbench with shared staging, proposals, collaboration, reasoning, SHACL, and FIBO views.
 - In-memory development identity, collaboration, semantic-job, and credential boundaries.
-- Optional provider credential and model settings with server-side verification; no native assistant execution.
+- Optional provider credential and model settings with server-side verification, now consumed by the active native ontology assistant.
 
 ## Explicit Historical Non-Goals For Phase 2 Through Phase 2.5+
 
@@ -228,20 +232,30 @@ Phase 2 should not include:
 
 ## Current Phase
 
-Phase 10 is complete. It adds controlled materialization of selected inferred relationships to the existing web review workflow.
+Phase 11 is active and approved for implementation. It will add a bounded web workflow for PDF, DOCX, TXT, and Markdown ingestion:
 
-Phase 10:
+```text
+safe upload
+→ located text extraction
+→ bounded AI candidate analysis
+→ Kotlin evidence verification and ontology matching
+→ document comparison and recommendations
+→ human review
+→ typed private-draft batches
+→ existing validation and proposal workflow
+```
 
-- supports inferred subclass relationships, individual types, and object-property assertions;
-- accepts opaque server-issued fact IDs rather than browser-authored triples;
-- reruns applied-graph reasoning and validates ownership, freshness, duplicates, source choice, and import safety;
-- stages up to 100 selected facts atomically through existing typed edits and the shared review queue;
-- records reasoning provenance as workflow metadata, not ontology annotations;
-- preserves human review, validation, semantic diff, SHACL/reasoning impact, atomic apply, reload, and rollback.
+Phase 11 preserves these boundaries:
 
-The Phase 9 ontology map remains read-only and asserted-only. Automatic materialization, durable persistence, CLI/VS Code materialization commands, AI selection, and map inference display remain out of scope.
+- the current implementation remains complete through Phase 10.5 until Phase 11 slices are delivered and verified;
+- documents and provider output are untrusted;
+- AI recommendations cannot approve, apply, write raw RDF, or bypass typed operations;
+- original documents, OCR images, and incomplete task state remain temporary;
+- provenance for successfully applied document-derived changes is retained separately from ontology source files so later documents can confirm, revise, or challenge earlier evidence;
+- implementation starts with the mandatory contract, dependency, security, and typed-operation audit in ExecPlan Slice 0;
+- the CLI and VS Code extension do not gain document-ingestion commands.
 
-Phases 7, 7.5, and 8 remain available as historical planning and implementation records. Their native AI execution surfaces have been removed from the current product; only provider credential and model selection settings remain active.
+Phases 7, 7.5, and 8 remain historical delivery records, but the current codebase includes the bounded native ontology assistant described above. Phase 11 extends that assistant and provider foundation only with the document-ingestion workflow described by its approved scope, spec, and ExecPlan.
 
 ## Technical Principle
 
@@ -265,6 +279,9 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 7.5 Scope](docs/architecture/phase-7.5-scope.md)
 - [Phase 8 Scope](docs/architecture/phase-8-scope.md)
 - [Phase 9 Scope](docs/architecture/phase-9-scope.md)
+- [Phase 10 Scope](docs/architecture/phase-10-scope.md)
+- [Phase 10.5 Scope](docs/architecture/phase-10.5-scope.md)
+- [Phase 11 Scope](docs/architecture/phase-11-scope.md)
 - [Technical Approach](docs/architecture/002-technical-approach.md)
 - [Kotlin Engine Guidelines](docs/architecture/003-kotlin-engine-guidelines.md)
 - [Phase 1.5 Spec](docs/specs/0002-phase-1.5-core-semantic-engine-stabilization.md)
@@ -294,3 +311,11 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 9 Spec](docs/specs/0016-phase-9-interactive-ontology-graph-visualization.md)
 - [Phase 9 ExecPlan](docs/execplans/0016-phase-9-interactive-ontology-graph-visualization.md)
 - [Phase 9 Implementation Summary](docs/phase-summaries/phase-9-summary.md)
+- [Phase 10 Spec](docs/specs/0018-phase-10-materialize-inferred-relationships.md)
+- [Phase 10 ExecPlan](docs/execplans/0018-phase-10-materialize-inferred-relationships.md)
+- [Phase 10 Implementation Summary](docs/phase-summaries/phase-10-summary.md)
+- [Phase 10.5 Spec](docs/specs/0019-phase-10.5-inferred-facts-in-explore-and-ontology-map.md)
+- [Phase 10.5 ExecPlan](docs/execplans/0019-phase-10.5-inferred-facts-in-explore-and-ontology-map.md)
+- [Phase 10.5 Implementation Summary](docs/phase-summaries/phase-10.5-summary.md)
+- [Phase 11 Spec](docs/specs/0020-phase-11-ai-powered-document-ingestion-and-ontology-evolution.md)
+- [Phase 11 ExecPlan](docs/execplans/0020-phase-11-ai-powered-document-ingestion-and-ontology-evolution.md)

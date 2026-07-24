@@ -21,8 +21,8 @@ The Kotlin engine owns ontology meaning and validation. The server and CLI expos
 | `validation-engine/` | Deterministic project, proposal, metadata, deletion, namespace, and external-dependency validation. |
 | `graph-diff/` | Semantic diffs, combined previews, and proposal impact analysis. |
 | `cli/` | Thin command-line adapter over the Kotlin modules. |
-| `web-server/` | Ktor HTTP/WebSocket adapter, in-memory sessions, staging, collaboration, jobs, and provider settings. |
-| `web-app/` | React workbench and read-only ontology map. |
+| `web-server/` | Ktor HTTP/WebSocket adapter, in-memory sessions, staging, collaboration, jobs, provider settings, and native assistant orchestration. |
+| `web-app/` | React workbench, native assistant sidebar, and read-only ontology map. |
 | `vscode-extension/` | VS Code workbench that invokes the CLI instead of implementing ontology behavior. |
 | `shared/` | Small generic Kotlin utilities only. |
 | `external-ontologies/fibo/` | Pinned, read-only FIBO package and generated catalog data. |
@@ -78,9 +78,10 @@ More exactly:
 | Entity browsing and editing UI | `web-app/src/workbench/ProjectWorkspace`, `EntityDetails`, and picker/editor components |
 | Read-only ontology map | `semantic-engine/OntologyGraphService` → `web-server/OntologyGraphWebService` → `web-app/src/workbench/ontology-map/` |
 | Provider credentials and model selection | `web-server/ai/`, `AiModelWebBoundary`; UI in `AiCredentialSettings` |
+| Native ontology assistant | `web-server/ai/AiProposalService`, `OpenAiProposalClient`; routes in `Application.kt`; UI in `AiProposalPanel` and `ProjectWorkspace` |
 | VS Code workbench | `vscode-extension/`; semantic calls go through `engineCli.ts` to `cli/` |
 
-Native AI proposal/task execution is not active. Historical Phase 7–8 documents and some retained source files describe older work, but only credential and model settings are exposed by the current product.
+The native ontology assistant is active. `web-server` registers project-scoped AI proposal routes backed by the OpenAI Responses API, and `web-app` exposes conversations, history, status, review-only proposals, edit removal, staging, rejection, and cancellation. Credentials, model settings, conversations, and runs remain in-memory development state. The assistant has no arbitrary tools, direct source-write path, approval authority, or automatic apply path.
 
 ## Typical call paths
 
