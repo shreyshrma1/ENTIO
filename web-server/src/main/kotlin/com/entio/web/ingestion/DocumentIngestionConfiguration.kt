@@ -15,6 +15,11 @@ public data class DocumentIngestionConfiguration(
     val maximumPdfPages: Int = 500,
     val maximumActiveTasks: Int = 2,
     val taskLifetime: Duration = Duration.ofHours(24),
+    val maximumExtractedCharacters: Int = 5_000_000,
+    val maximumOcrPagesPerDocument: Int = 200,
+    val maximumRenderedImageBytesPerTask: Long = 512L * 1024L * 1024L,
+    val ocrDocumentTimeout: Duration = Duration.ofMinutes(10),
+    val tesseract: TesseractConfiguration? = null,
     val clock: Clock = Clock.systemUTC(),
     val idFactory: () -> String = { UUID.randomUUID().toString() },
 ) {
@@ -33,6 +38,14 @@ public data class DocumentIngestionConfiguration(
         require(maximumPdfPages in 1..500) { "PDF page limit exceeds the approved bound." }
         require(maximumActiveTasks > 0) { "Document ingestion requires a positive server task limit." }
         require(!taskLifetime.isNegative && !taskLifetime.isZero) { "Document task lifetime must be positive." }
+        require(maximumExtractedCharacters in 1..5_000_000) { "Extracted text limit exceeds the approved bound." }
+        require(maximumOcrPagesPerDocument in 1..200) { "OCR page limit exceeds the approved bound." }
+        require(maximumRenderedImageBytesPerTask in 1..512L * 1024L * 1024L) {
+            "Rendered image limit exceeds the approved bound."
+        }
+        require(!ocrDocumentTimeout.isNegative && !ocrDocumentTimeout.isZero &&
+            ocrDocumentTimeout <= Duration.ofMinutes(10)
+        ) { "OCR timeout exceeds the approved bound." }
     }
 }
 
