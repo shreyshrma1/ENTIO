@@ -134,12 +134,13 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await page.mouse.up();
   await expect.poll(async () => (await popup.boundingBox())?.x).toBeLessThan(popupBeforeDrag!.x);
   const popupBeforePan = await popup.boundingBox();
-  const viewportBounds = await page.locator(".ontology-graph-viewport").boundingBox();
-  await page.mouse.move(viewportBounds!.x + viewportBounds!.width - 40, viewportBounds!.y + viewportBounds!.height - 40);
-  await page.mouse.down();
-  await page.mouse.move(viewportBounds!.x + viewportBounds!.width - 100, viewportBounds!.y + viewportBounds!.height - 80, { steps: 4 });
-  await page.mouse.up();
+  const viewport = page.locator(".ontology-graph-viewport");
+  const scrollBeforePan = await viewport.evaluate((element) => element.scrollLeft + element.scrollTop);
+  await viewport.dispatchEvent("pointerdown", { button: 0, clientX: 200, clientY: 200, pointerId: 1 });
+  await viewport.dispatchEvent("pointermove", { button: 0, clientX: 140, clientY: 160, pointerId: 1 });
+  await viewport.dispatchEvent("pointerup", { button: 0, clientX: 140, clientY: 160, pointerId: 1 });
   await expect(popup).toBeVisible();
+  await expect.poll(async () => viewport.evaluate((element) => element.scrollLeft + element.scrollTop)).not.toBe(scrollBeforePan);
   await expect.poll(async () => (await popup.boundingBox())?.x).toBeLessThan(popupBeforePan!.x);
   await page.locator(".ontology-graph-controls").click();
   await expect(popup).toBeVisible();

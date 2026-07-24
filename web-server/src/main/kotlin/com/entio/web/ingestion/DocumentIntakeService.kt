@@ -7,6 +7,7 @@ import com.entio.core.DocumentMediaType
 import com.entio.core.DocumentProcessingStatus
 import com.entio.core.DocumentTaskId
 import com.entio.core.IngestionDocument
+import java.io.IOException
 import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
@@ -161,66 +162,72 @@ internal class DocumentIntakeService(
         var imageBytes = 0L
         var hasContentTypes = false
         var hasDocument = false
-        ZipInputStream(Files.newInputStream(path)).use { zip ->
-            while (true) {
-                val entry = zip.nextEntry ?: break
-                val name = entry.name
-                validateZipEntryName(name, names)
-                if (names.size > MAX_DOCX_ENTRIES) {
-                    throw DocumentIngestionFailure("docx-entry-limit", "The DOCX package contains too many entries.")
-                }
-                val lowerName = name.lowercase()
-                if (lowerName == "[content_types].xml") hasContentTypes = true
-                if (lowerName == "word/document.xml") hasDocument = true
-                if (lowerName.contains("vbaproject.bin") ||
-                    lowerName.startsWith("word/activex/") ||
-                    lowerName.startsWith("word/embeddings/") ||
-                    lowerName.endsWith(".exe") ||
-                    lowerName.endsWith(".dll") ||
-                    lowerName == "encryptedpackage"
-                ) {
-                    throw DocumentIngestionFailure("unsafe-docx-content", "The DOCX package contains unsupported active or embedded content.")
-                }
-
-                var entryExpanded = 0L
-                val capture = lowerName == "[content_types].xml" || lowerName.endsWith(".rels")
-                val captured = if (capture) java.io.ByteArrayOutputStream() else null
-                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        try {
+            ZipInputStream(Files.newInputStream(path)).use { zip ->
                 while (true) {
-                    val read = zip.read(buffer)
-                    if (read < 0) break
-                    entryExpanded += read
-                    totalExpanded += read
-                    if (entryExpanded > MAX_DOCX_ENTRY_BYTES || totalExpanded > MAX_DOCX_EXPANDED_BYTES) {
-                        throw DocumentIngestionFailure("docx-expansion-limit", "The DOCX package exceeds safe expansion limits.")
+                    val entry = zip.nextEntry ?: break
+                    val name = entry.name
+                    validateZipEntryName(name, names)
+                    if (names.size > MAX_DOCX_ENTRIES) {
+                        throw DocumentIngestionFailure("docx-entry-limit", "The DOCX package contains too many entries.")
                     }
-                    if (captured != null) {
-                        if (captured.size() + read > MAX_DOCX_INSPECTED_XML_BYTES) {
-                            throw DocumentIngestionFailure("docx-xml-limit", "The DOCX package metadata exceeds safe inspection limits.")
-                        }
-                        captured.write(buffer, 0, read)
-                    }
-                }
-                val compressed = entry.compressedSize
-                if (compressed > 0 && entryExpanded > compressed * MAX_DOCX_EXPANSION_RATIO) {
-                    throw DocumentIngestionFailure("docx-compression-ratio", "The DOCX package exceeds the safe compression ratio.")
-                }
-                if (lowerName.startsWith("word/media/")) {
-                    imageCount += 1
-                    imageBytes += entryExpanded
-                    if (imageCount > MAX_DOCX_IMAGES || entryExpanded > MAX_DOCX_IMAGE_BYTES || imageBytes > MAX_DOCX_TOTAL_IMAGE_BYTES) {
-                        throw DocumentIngestionFailure("docx-image-limit", "The DOCX package exceeds safe image limits.")
-                    }
-                }
-                captured?.toString(StandardCharsets.UTF_8)?.let { xml ->
-                    if (Regex("""TargetMode\s*=\s*["']External["']""", RegexOption.IGNORE_CASE).containsMatchIn(xml) ||
-                        Regex("macroEnabled", RegexOption.IGNORE_CASE).containsMatchIn(xml)
+                    val lowerName = name.lowercase()
+                    if (lowerName == "[content_types].xml") hasContentTypes = true
+                    if (lowerName == "word/document.xml") hasDocument = true
+                    if (lowerName.contains("vbaproject.bin") ||
+                        lowerName.startsWith("word/activex/") ||
+                        lowerName.startsWith("word/embeddings/") ||
+                        lowerName.endsWith(".exe") ||
+                        lowerName.endsWith(".dll") ||
+                        lowerName == "encryptedpackage"
                     ) {
-                        throw DocumentIngestionFailure("unsafe-docx-content", "The DOCX package contains macros or external relationships.")
+                        throw DocumentIngestionFailure("unsafe-docx-content", "The DOCX package contains unsupported active or embedded content.")
                     }
+
+                    var entryExpanded = 0L
+                    val capture = lowerName == "[content_types].xml" || lowerName.endsWith(".rels")
+                    val captured = if (capture) java.io.ByteArrayOutputStream() else null
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        val read = zip.read(buffer)
+                        if (read < 0) break
+                        entryExpanded += read
+                        totalExpanded += read
+                        if (entryExpanded > MAX_DOCX_ENTRY_BYTES || totalExpanded > MAX_DOCX_EXPANDED_BYTES) {
+                            throw DocumentIngestionFailure("docx-expansion-limit", "The DOCX package exceeds safe expansion limits.")
+                        }
+                        if (captured != null) {
+                            if (captured.size() + read > MAX_DOCX_INSPECTED_XML_BYTES) {
+                                throw DocumentIngestionFailure("docx-xml-limit", "The DOCX package metadata exceeds safe inspection limits.")
+                            }
+                            captured.write(buffer, 0, read)
+                        }
+                    }
+                    val compressed = entry.compressedSize
+                    if (compressed > 0 && entryExpanded > compressed * MAX_DOCX_EXPANSION_RATIO) {
+                        throw DocumentIngestionFailure("docx-compression-ratio", "The DOCX package exceeds the safe compression ratio.")
+                    }
+                    if (lowerName.startsWith("word/media/")) {
+                        imageCount += 1
+                        imageBytes += entryExpanded
+                        if (imageCount > MAX_DOCX_IMAGES || entryExpanded > MAX_DOCX_IMAGE_BYTES || imageBytes > MAX_DOCX_TOTAL_IMAGE_BYTES) {
+                            throw DocumentIngestionFailure("docx-image-limit", "The DOCX package exceeds safe image limits.")
+                        }
+                    }
+                    captured?.toString(StandardCharsets.UTF_8)?.let { xml ->
+                        if (Regex("""TargetMode\s*=\s*["']External["']""", RegexOption.IGNORE_CASE).containsMatchIn(xml) ||
+                            Regex("macroEnabled", RegexOption.IGNORE_CASE).containsMatchIn(xml)
+                        ) {
+                            throw DocumentIngestionFailure("unsafe-docx-content", "The DOCX package contains macros or external relationships.")
+                        }
+                    }
+                    zip.closeEntry()
                 }
-                zip.closeEntry()
             }
+        } catch (failure: DocumentIngestionFailure) {
+            throw failure
+        } catch (failure: IOException) {
+            throw DocumentIngestionFailure("document-signature-mismatch", "The uploaded DOCX package is malformed.")
         }
         if (!hasContentTypes || !hasDocument) {
             throw DocumentIngestionFailure("document-signature-mismatch", "The uploaded file is not a supported DOCX document.")
