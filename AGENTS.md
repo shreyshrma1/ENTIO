@@ -1,16 +1,16 @@
 # Agent Guidance For Entio
 
-This repository contains the implemented Entio foundation through Phase 10.5, with Phases 1 through 8 retained as historical delivery records. Earlier planning documents remain for history; the repository is no longer documentation-only.
+This repository contains the implemented Entio foundation through Phase 10.5. Phase 11 is the active, approved implementation phase. Phases 1 through 8 are retained as historical delivery records, and the repository is no longer documentation-only.
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
-Phases 1 through 8 are preserved as historical delivery records. Phase 9 is complete and adds bounded, read-only interactive ontology graph visualization. Phase 10 is complete and adds user-controlled staging of supported inferred relationships through the existing web proposal workflow. Phase 10.5 is complete and adds optional, read-only applied and proposal inferred-fact overlays to Explore and the ontology map. Native AI execution has been removed from the current product surface; only provider credential entry, model discovery, model selection, and their surrounding settings UI remain. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
+Phases 1 through 8 are preserved as historical delivery records. Phase 9 is complete and adds bounded, read-only interactive ontology graph visualization. Phase 10 is complete and adds user-controlled staging of supported inferred relationships through the existing web proposal workflow. Phase 10.5 is complete and adds optional, read-only applied and proposal inferred-fact overlays to Explore and the ontology map. The current product also includes a native OpenAI-backed ontology assistant with project-scoped conversations, ontology-aware answers, review-only edit proposals, deterministic validation, and staging into the existing human-review workflow. Phase 11 is approved to extend that active AI foundation with bounded document ingestion, evidence-grounded analysis, cross-workflow provenance, and human-reviewed typed drafts. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
 
 ## Product Context
 
 Entio helps teams build clean, trustworthy knowledge graphs from enterprise information.
 
-The system is ontology-first, meaning any future AI work must operate within approved concepts, relationships, and constraints instead of freely inventing graph structure. Native AI-generated graph or ontology changes are not currently exposed.
+The system is ontology-first, meaning AI work must operate within approved concepts, relationships, and constraints instead of freely inventing graph structure. The active native assistant can answer ontology questions and prepare structured review-only edits, but it cannot directly approve, apply, write source files, or execute arbitrary tools. Phase 11 adds a narrow document-analysis path whose evidence-linked recommendations remain drafts until deterministic checks and human review succeed.
 
 ## Current Rule For Agents
 
@@ -22,7 +22,7 @@ If a task seems to require later-phase infrastructure, stop and explain why befo
 
 ## Current Scope
 
-Phase 1, Phase 1.5, Phase 2, Phase 2.5, Phase 2.5+, Phase 3, Phase 4, Phase 5, Phase 6, Phase 7, and Phase 7.5 are complete. The current Entio foundation supports:
+The implemented Entio foundation is complete through Phase 10.5. Phase 11 is active but not yet implemented. The current codebase supports:
 
 - Loading an Entio project.
 - Parsing small Turtle/RDF ontology files with existing libraries.
@@ -41,10 +41,11 @@ Phase 1, Phase 1.5, Phase 2, Phase 2.5, Phase 2.5+, Phase 3, Phase 4, Phase 5, P
 - Translating supported semantic edits through the existing proposal, validation, diff, approval, apply, reload, and rollback workflow.
 - Browsing and searching a pinned, read-only FIBO catalog with deterministic ranking, explicit dependency review, and controlled external reuse proposals.
 - Serving approved projects through a Ktor HTTP and WebSocket boundary without moving semantic logic out of the Kotlin engine.
-- Using a React web workbench for project navigation, entity inspection, label-first typed editing, shared staging, proposal review, reasoning, SHACL, FIBO, collaboration, and provider settings.
+- Using a React web workbench for project navigation, entity inspection, label-first typed editing, shared staging, proposal review, reasoning, SHACL, FIBO, collaboration, provider settings, and the native ontology assistant.
 - Coordinating shared staged state, collaboration presence/activity, asynchronous semantic jobs, and in-memory development sessions through explicit server-owned contracts.
 - Storing per-user provider credentials in server memory without exposing them to the browser.
-- Discovering, selecting, and verifying current-user provider models through the server boundary. No native assistant, task, draft, or AI review execution path is active.
+- Discovering, selecting, and verifying current-user provider models through the server boundary.
+- Using the selected OpenAI model through the native ontology assistant for project-scoped conversations, ontology-aware answers, structured review-only proposals, deterministic validation, run history, cancellation, rejection, edit removal, and staging into the shared review queue.
 
 Current implementation notes:
 
@@ -91,7 +92,7 @@ Phase 6 implemented:
 - A Ktor `web-server` with versioned HTTP contracts, approved-project registration, development identity, collaboration, shared staging, proposal routes, semantic jobs, FIBO adapters, and provider credential/model boundaries.
 - A React/TypeScript/Vite `web-app` with ontology navigation, entity details, label-first editing, proposal review, reasoning and SHACL workspaces, FIBO browsing, collaboration indicators, settings, and provider credential/model settings.
 - Server-authoritative shared state and asynchronous job status while preserving existing CLI, VS Code, semantic engine, proposal, application, reload, and rollback behavior.
-- A provider-neutral provider-settings foundation with server-memory credentials and model discovery/selection. Native assistant execution is not active.
+- A provider-neutral provider-settings foundation with server-memory credentials and model discovery/selection, now used by the active native ontology assistant.
 
 Phase 2 implemented:
 
@@ -131,7 +132,7 @@ Phase 6 is complete and summarized in `docs/phase-summaries/phase-6-summary.md`.
 
 Phase 7 and Phase 7.5 are complete and summarized in `docs/phase-summaries/phase-7-summary.md` and `docs/phase-summaries/phase-7.5-summary.md`.
 
-Phase 8 remains documented as a historical delivery record in `docs/phase-summaries/phase-8-summary.md`. Its native AI execution surfaces are not active in the current product.
+Phase 8 remains documented as a historical delivery record in `docs/phase-summaries/phase-8-summary.md`. The current native ontology assistant is defined by the implemented source and current architecture documentation rather than by every historical Phase 8 orchestration design.
 
 Phase 9 is complete and summarized in `docs/phase-summaries/phase-9-summary.md`. Its approved planning documents are:
 
@@ -156,6 +157,14 @@ Phase 10.5 is complete and summarized in `docs/phase-summaries/phase-10.5-summar
 - `docs/execplans/0019-phase-10.5-inferred-facts-in-explore-and-ontology-map.md`
 
 Phase 10.5 reuses current project-owned applied and proposal reasoning results as bounded, read-only overlays in existing Explore fields and on the ontology map. Kotlin owns inference meaning, provenance, freshness, ordering, deduplication, and bounds; Ktor owns authorized graph-state reads; React owns temporary visibility settings and presentation. Both overlays are off by default. They do not stage, materialize, apply, or write inferred facts, and inferred edges do not control the asserted hierarchy layout.
+
+Phase 11 is the active phase. Its approved planning documents are:
+
+- `docs/architecture/phase-11-scope.md`
+- `docs/specs/0020-phase-11-ai-powered-document-ingestion-and-ontology-evolution.md`
+- `docs/execplans/0020-phase-11-ai-powered-document-ingestion-and-ontology-evolution.md`
+
+Phase 11 will add bounded PDF, DOCX, TXT, and Markdown ingestion in the web workbench. Documents and provider output remain untrusted. Kotlin will own evidence verification, semantic matching, duplicate prevention, cross-workflow comparison, and typed-edit conversion; Ktor will own authorized temporary task orchestration and narrowly scoped durable provenance for successfully applied document-derived changes; React will own upload, progress, evidence, and recommendation review. No Phase 11 code is implemented yet. Implementation must begin with ExecPlan Slice 0 and proceed in order.
 
 ## Software Architecture Rules
 
@@ -233,7 +242,7 @@ Do not report a feature complete unless tests were added or updated and the veri
 
 Do not add later-phase infrastructure unless explicitly requested.
 
-The VS Code extension, deterministic FIBO catalog, Ktor web server, and React web application are already implemented and should be extended only through approved specs and ExecPlans. Still-deferred infrastructure includes document ingestion, entity-resolution agents, Stardog integration, unrestricted autonomous agents, durable production persistence, production identity/tenancy, additional ontology catalogs, and unbounded external indexing.
+The VS Code extension, deterministic FIBO catalog, Ktor web server, and React web application are already implemented and should be extended only through approved specs and ExecPlans. Document ingestion is authorized only within the approved Phase 11 scope and ExecPlan. Still-deferred infrastructure includes entity-resolution agents, Stardog integration, unrestricted autonomous agents, production document/task persistence beyond Phase 11's narrow applied-change provenance, production identity/tenancy, additional ontology catalogs, and unbounded external indexing.
 
 ### 10. Document important architecture decisions
 
