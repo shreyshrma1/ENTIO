@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { useState } from "react";
 import ProjectListPage from "./workbench/ProjectListPage";
 import ProjectWorkspace from "./workbench/ProjectWorkspace";

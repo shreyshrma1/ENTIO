@@ -1,5 +1,5 @@
 import { type DragEvent, type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import EntityDetails, { type EntitySectionTarget } from "./EntityDetails";
 import HierarchyNode from "./HierarchyNode";
 import StagingPanel from "./StagingPanel";
