@@ -52,6 +52,7 @@ import java.time.Clock
 import com.entio.web.ingestion.DocumentIngestionConfiguration
 import com.entio.web.ingestion.DocumentIngestionFailure
 import com.entio.web.ingestion.DocumentReviewDecisionRequest
+import com.entio.web.ingestion.DocumentDraftBuildRequest
 import com.entio.web.ingestion.DocumentIngestionWebService
 
 /**
@@ -128,8 +129,10 @@ public fun Application.module(
     )
     val documentIngestion = DocumentIngestionWebService(
         projectRegistry = dependencies.projectRegistry,
+        staging = staging,
         configuration = documentIngestionConfiguration,
     )
+    staging.installDocumentApplyHooks(documentIngestion.provenanceCoordinator)
     monitor.subscribe(io.ktor.server.application.ApplicationStopped) {
         documentIngestion.close()
     }
@@ -378,6 +381,22 @@ public fun Application.module(
                     user.id,
                     call.receive<DocumentReviewDecisionRequest>(),
                     call.pageRequest(),
+                )
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/document-ingestion/tasks/{taskId}/draft") {
+            call.respondIngestion {
+                val user = call.requireIngestionUser(dependencies)
+                if (!dependencies.authorization.isAllowed(user.role, com.entio.web.contract.WebAction.STAGE_OWN_CHANGE)) {
+                    throw DocumentIngestionFailure("forbidden", "The current user cannot stage document-derived changes.")
+                }
+                documentIngestion.buildDraft(
+                    call.requiredProjectId(),
+                    call.requiredIngestionTaskId(),
+                    user.id,
+                    call.requiredIngestionIdempotencyKey(),
+                    call.receive<DocumentDraftBuildRequest>(),
                 )
             }
         }

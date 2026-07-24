@@ -7,6 +7,7 @@ import {
   useDocumentReview,
   useDocumentReviewDecision,
   useUploadDocuments,
+  useBuildDocumentDraft,
 } from "../../web/queries";
 import type {
   WebDocumentEvidenceView,
@@ -109,6 +110,7 @@ export default function DocumentIngestionWorkspace({ projectId }: { projectId: s
 function DocumentReview({ projectId, taskId }: { projectId: string; taskId: string }) {
   const review = useDocumentReview(projectId, taskId);
   const decision = useDocumentReviewDecision(projectId, taskId);
+  const draft = useBuildDocumentDraft(projectId, taskId);
   const [evidenceId, setEvidenceId] = useState<string | null>(null);
   const evidence = useDocumentEvidence(projectId, taskId, evidenceId);
   const evidenceHeading = useRef<HTMLHeadingElement>(null);
@@ -146,6 +148,20 @@ function DocumentReview({ projectId, taskId }: { projectId: string; taskId: stri
         <strong>Draft impact preview</strong>
         <span>{workspace.draftImpact.acceptedCount} accepted · {workspace.draftImpact.pendingCount} pending · {workspace.draftImpact.blockedCount} blocked</span>
         <small>Read only. Staging becomes available in the next workflow step.</small>
+        <button
+          className="button primary"
+          type="button"
+          disabled={!workspace.draftImpact.acceptedCount || draft.isPending}
+          onClick={() => draft.mutate({
+            expectedWorkKey: workspace.exactWorkKey,
+            expectedGraphFingerprint: workspace.graphFingerprint,
+          })}
+        >
+          Add accepted items to proposal
+        </button>
+        {draft.isPending ? <span role="status">Building typed draft batches...</span> : null}
+        {draft.isSuccess ? <span role="status">{draft.data.stagedEditCount} typed edit{draft.data.stagedEditCount === 1 ? "" : "s"} added to the shared proposal.</span> : null}
+        {draft.isError ? <span role="alert">Accepted items could not be drafted. Resolve stale or blocked recommendations and retry.</span> : null}
       </div>
     </div>
 

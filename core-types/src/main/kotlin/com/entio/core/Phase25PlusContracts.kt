@@ -157,6 +157,7 @@ public data class StagedChange(
     public val validationReport: ValidationReport? = null,
     public val status: StagedChangeStatus = StagedChangeStatus.Previewed,
     public val materializationProvenance: InferenceMaterializationProvenance? = null,
+    public val documentDraftProvenance: DocumentDraftProvenance? = null,
 )
 
 public enum class StagedChangeSetStatus {

@@ -60,6 +60,20 @@ public data class WebStagedEntry(
     val generatedIris: List<String>,
     val validationMessages: List<String>,
     val materializationProvenance: WebInferenceMaterializationProvenance? = null,
+    val documentDraftProvenance: WebDocumentDraftProvenance? = null,
+)
+
+public data class WebDocumentDraftProvenance(
+    val taskId: String,
+    val recommendationId: String,
+    val decisionId: String,
+    val evidenceIds: List<String>,
+    val modelId: String?,
+    val promptVersion: String?,
+    val extractionMethods: List<String>,
+    val confidence: Int,
+    val targetSourceId: String?,
+    val normalizedTypedOperationKey: String?,
 )
 
 public data class WebInferenceMaterializationProvenance(

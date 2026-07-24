@@ -4,11 +4,15 @@ import com.entio.core.DocumentEvidenceReference
 import com.entio.core.DocumentRecommendation
 import com.entio.core.DocumentRecommendationReviewStatus
 import com.entio.core.LocatedDocumentTextBlock
+import com.entio.core.DocumentReviewDecision
 import com.entio.web.contract.WebPage
 import com.entio.web.contract.WebPageRequest
 import com.entio.web.contract.toWebPage
 import java.time.Clock
 import java.time.Instant
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import com.entio.semantic.DocumentDraftTranslationContext
 
 public data class DocumentReviewWorkspaceResponse(
     val apiVersion: String = "v1",
@@ -128,6 +132,15 @@ internal data class DocumentReviewWorkspaceInput(
     val summaries: List<VerifiedDocumentAnalysisSummary>,
     val recommendations: List<DocumentRecommendation>,
     val priorWorkflowProvenance: Map<String, List<String>> = emptyMap(),
+    val draftContexts: Map<String, DocumentDraftTranslationContext> = emptyMap(),
+)
+
+internal data class DocumentReviewDraftCandidate(
+    val recommendation: DocumentRecommendation,
+    val context: DocumentDraftTranslationContext,
+    val decision: DocumentReviewDecision,
+    val documents: List<DocumentIngestionDocumentSnapshot>,
+    val blocks: Map<String, LocatedDocumentTextBlock>,
 )
 
 private data class MutableReviewRecommendation(
@@ -138,6 +151,7 @@ private data class MutableReviewRecommendation(
     var targetSourceId: String? = source.targetSourceId,
     var clarification: String? = null,
     var reconsiderationCount: Int = 0,
+    var lastDecision: DocumentReviewDecision? = null,
 )
 
 private data class StoredReviewWorkspace(
@@ -145,12 +159,14 @@ private data class StoredReviewWorkspace(
     val ownerUserId: String,
     val exactWorkKey: String,
     val graphFingerprint: String,
+    val taskDocuments: List<DocumentIngestionDocumentSnapshot>,
     val documents: List<DocumentReviewDocumentSummary>,
     val blocks: Map<String, LocatedDocumentTextBlock>,
     val evidence: Map<String, DocumentEvidenceReference>,
     val summaries: List<DocumentReviewSummary>,
     val recommendations: LinkedHashMap<String, MutableReviewRecommendation>,
     val priorWorkflowProvenance: Map<String, List<String>>,
+    val draftContexts: Map<String, DocumentDraftTranslationContext>,
     var updatedAt: Instant,
 )
 
@@ -176,6 +192,7 @@ internal class DocumentReviewWorkspaceStore(
             ownerUserId = task.ownerUserId,
             exactWorkKey = input.exactWorkKey,
             graphFingerprint = input.graphFingerprint,
+            taskDocuments = task.documents,
             documents = task.documents.map { document ->
                 val extracted = extractedById.getValue(document.documentId)
                 DocumentReviewDocumentSummary(
@@ -202,6 +219,7 @@ internal class DocumentReviewWorkspaceStore(
             priorWorkflowProvenance = input.priorWorkflowProvenance.mapValues { (_, values) ->
                 values.distinct().sorted().take(MAX_PRIOR_RECORDS)
             },
+            draftContexts = input.draftContexts,
             updatedAt = Instant.now(clock),
         )
     }
@@ -265,6 +283,7 @@ internal class DocumentReviewWorkspaceStore(
         requireCurrent(workspace, request)
         val recommendation = workspace.recommendations[recommendationId]
             ?: throw DocumentIngestionFailure("document-recommendation-not-found", "The requested recommendation was not found.")
+        val previousStatus = recommendation.status
         when (request.action) {
             "accept" -> {
                 if (recommendation.source.mandatoryClarificationReasons.isNotEmpty() && request.clarification.isNullOrBlank()) {
@@ -305,12 +324,81 @@ internal class DocumentReviewWorkspaceStore(
             else -> throw DocumentIngestionFailure("document-review-action-invalid", "The requested review action is unsupported.")
         }
         workspace.updatedAt = Instant.now(clock)
+        if (previousStatus != recommendation.status) {
+            recommendation.lastDecision = DocumentReviewDecision(
+                decisionId = decisionId(taskId, recommendationId, userId, workspace.exactWorkKey),
+                recommendationId = recommendationId,
+                actorUserId = userId,
+                decidedAt = workspace.updatedAt,
+                previousStatus = previousStatus,
+                newStatus = recommendation.status,
+                clarification = recommendation.clarification,
+            )
+        }
         return workspace.response(taskId, page)
     }
 
     @Synchronized
     fun remove(taskId: String): Unit {
         workspaces.remove(taskId)
+    }
+
+    @Synchronized
+    fun accepted(
+        projectId: String,
+        taskId: String,
+        userId: String,
+    ): List<DocumentReviewDraftCandidate> {
+        val workspace = owned(projectId, taskId, userId)
+        return workspace.recommendations.values
+            .filter { it.status == DocumentRecommendationReviewStatus.Accepted }
+            .map { state ->
+                val context = workspace.draftContexts[state.source.id]
+                    ?: throw DocumentIngestionFailure(
+                        "document-draft-context-missing",
+                        "An accepted recommendation is missing its server-owned typed context.",
+                    )
+                val recommendation = state.source.copy(
+                    proposedLabel = state.proposedLabel,
+                    selectedMatch = state.selectedMatchIri?.let { selected ->
+                        state.source.matches.singleOrNull { it.entityIri.value == selected }
+                    },
+                    targetSourceId = state.targetSourceId,
+                )
+                DocumentReviewDraftCandidate(
+                    recommendation = recommendation,
+                    context = context.copy(
+                        targetSourceId = state.targetSourceId ?: context.targetSourceId,
+                        acceptedForDraft = true,
+                        clarificationResolved = !state.clarification.isNullOrBlank(),
+                    ),
+                    decision = state.lastDecision ?: DocumentReviewDecision(
+                        decisionId(taskId, state.source.id, userId, workspace.exactWorkKey),
+                        state.source.id,
+                        userId,
+                        workspace.updatedAt,
+                        state.source.reviewStatus,
+                        DocumentRecommendationReviewStatus.Accepted,
+                        state.clarification,
+                    ),
+                    documents = workspace.taskDocuments,
+                    blocks = workspace.blocks,
+                )
+            }
+    }
+
+    @Synchronized
+    fun markDrafted(projectId: String, taskId: String, userId: String, recommendationIds: Set<String>): Unit {
+        val workspace = owned(projectId, taskId, userId)
+        recommendationIds.forEach { id ->
+            val state = workspace.recommendations[id]
+                ?: throw DocumentIngestionFailure("document-recommendation-not-found", "A drafted recommendation was not found.")
+            if (state.status != DocumentRecommendationReviewStatus.Accepted) {
+                throw DocumentIngestionFailure("document-recommendation-not-accepted", "Only accepted recommendations can be drafted.")
+            }
+            state.status = DocumentRecommendationReviewStatus.Drafted
+        }
+        workspace.updatedAt = Instant.now(clock)
     }
 
     private fun merge(workspace: StoredReviewWorkspace, primaryId: String, mergedIds: List<String>): Unit {
@@ -427,6 +515,13 @@ internal class DocumentReviewWorkspaceStore(
                 throw DocumentIngestionFailure("document-review-input-invalid", "Review input exceeds the approved bound.")
             }
         }
+
+    private fun decisionId(taskId: String, recommendationId: String, userId: String, workKey: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest("$taskId\u0000$recommendationId\u0000$userId\u0000$workKey".toByteArray(StandardCharsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        return "decision-$digest"
+    }
 
     private companion object {
         const val MAX_RECOMMENDATIONS: Int = 2_000

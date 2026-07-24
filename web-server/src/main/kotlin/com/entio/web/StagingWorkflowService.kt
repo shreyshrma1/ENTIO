@@ -42,6 +42,7 @@ import com.entio.core.StagedChangeOperation
 import com.entio.core.StagedChangeSetStatus
 import com.entio.core.SymbolKind
 import com.entio.core.TypedOntologyEdit
+import com.entio.core.DocumentDraftProvenance
 import com.entio.diff.GraphDiffer
 import com.entio.semantic.DeletionDependencyAnalyzer
 import com.entio.semantic.DeterministicIriGenerator
@@ -53,6 +54,8 @@ import com.entio.semantic.ProposalCreator
 import com.entio.semantic.StagedChangeSetNormalizer
 import com.entio.semantic.TypedOntologyEditTranslator
 import com.entio.semantic.TypedShaclEditTranslator
+import com.entio.semantic.DocumentDraftOperation
+import com.entio.web.ingestion.DocumentApplyHooks
 import com.entio.web.contract.IdempotencyDecision
 import com.entio.web.contract.InMemoryIdempotencyStore
 import com.entio.web.contract.ProjectRegistry
@@ -67,6 +70,7 @@ import com.entio.web.contract.WebShaclImpact
 import com.entio.web.contract.WebStageChangeRequest
 import com.entio.web.contract.WebStagedEntry
 import com.entio.web.contract.WebInferenceMaterializationProvenance
+import com.entio.web.contract.WebDocumentDraftProvenance
 import com.entio.web.contract.WebStagingResponse
 import com.entio.web.contract.WebDiffEntry
 import java.time.Clock
@@ -97,7 +101,17 @@ private data class ProjectSession(
     var preparedProposal: PreparedWebProposal? = null,
     val idempotency: InMemoryIdempotencyStore = InMemoryIdempotencyStore(),
     val materializationReplays: MutableMap<String, InferenceMaterializationBatchResult> = linkedMapOf(),
+    val documentBatchCounts: MutableMap<String, Int> = linkedMapOf(),
+    val documentBatchPayloads: MutableMap<String, String> = linkedMapOf(),
     var nextOrder: Int = 1,
+)
+
+public data class PreparedDocumentStagingItem(
+    val summary: String,
+    val editType: String,
+    val targetSourceId: String,
+    val operation: DocumentDraftOperation,
+    val provenance: DocumentDraftProvenance,
 )
 
 private data class PreparedStageRequest(
@@ -136,6 +150,7 @@ public class StagingWorkflowService(
     private val additionalPostApplyVerification: (String, EntioProject) -> EntioResult<Unit> = { _, _ -> EntioResult.Success(Unit) },
     private val clock: Clock = Clock.systemUTC(),
 ) {
+    private var documentApplyHooks: DocumentApplyHooks? = null
     private val sessions: MutableMap<String, ProjectSession> = linkedMapOf()
     private val proposalPlanner: WebProposalPlanner = WebProposalPlanner(
         normalizer = normalizer,
@@ -147,6 +162,11 @@ public class StagingWorkflowService(
         labelResolver = labelResolver,
         iriGenerator = iriGenerator,
     )
+
+    internal fun installDocumentApplyHooks(hooks: DocumentApplyHooks): Unit {
+        check(documentApplyHooks == null) { "Document apply hooks are already installed." }
+        documentApplyHooks = hooks
+    }
 
     @Synchronized
     public fun snapshot(projectId: String): WebStagingResponse = response(projectId, session(projectId))
@@ -362,6 +382,130 @@ public class StagingWorkflowService(
         return InferenceMaterializationStagingResult(response(projectId, session), batchResult)
     }
 
+    /** Atomically appends one already-reviewed document-derived batch. */
+    @Synchronized
+    public fun stageDocumentBatch(
+        projectId: String,
+        userId: String,
+        taskId: String,
+        idempotencyKey: String,
+        items: List<PreparedDocumentStagingItem>,
+    ): WebStagingResponse {
+        if (items.isEmpty() || items.size > com.entio.core.MAX_DOCUMENT_DRAFT_BATCH_SIZE) {
+            throw WebWorkflowFailure("document-draft-batch-limit", "A document draft batch requires between one and 20 edits.")
+        }
+        val session = session(projectId)
+        val payload = items.joinToString("\n") { item ->
+            "${item.provenance.recommendationId}|${item.provenance.normalizedTypedOperationKey}"
+        }
+        session.documentBatchPayloads[idempotencyKey]?.let { existingPayload ->
+            if (existingPayload == payload) {
+                return response(projectId, session)
+            }
+            throw WebWorkflowFailure("idempotency-conflict", "The idempotency key was already used for another draft batch.")
+        }
+        val project = load(projectId)
+        if (session.entries.any { it.staged.documentDraftProvenance?.taskId?.value != taskId }) {
+            throw WebWorkflowFailure(
+                "document-draft-shared-staging-not-empty",
+                "Shared staging must be empty or contain only entries from this document task.",
+            )
+        }
+        val existingDocumentItems = session.entries.count { it.staged.documentDraftProvenance?.taskId?.value == taskId }
+        if (existingDocumentItems + items.size > com.entio.core.MAX_ACCEPTED_DOCUMENT_EDITS) {
+            throw WebWorkflowFailure("document-draft-task-limit", "A document task cannot stage more than 100 edits.")
+        }
+        if (session.documentBatchCounts.getOrDefault(taskId, 0) >= 5) {
+            throw WebWorkflowFailure("document-draft-batch-count-limit", "A document task cannot stage more than five batches.")
+        }
+        if (items.any { it.provenance.taskId.value != taskId || it.targetSourceId != it.provenance.targetSourceId }) {
+            throw WebWorkflowFailure("document-draft-provenance-mismatch", "Document draft provenance does not match its task or target.")
+        }
+        val existingKeys = session.entries.mapNotNull { it.staged.documentDraftProvenance?.normalizedTypedOperationKey }.toSet()
+        val newKeys = items.mapNotNull { it.provenance.normalizedTypedOperationKey }
+        if (newKeys.size != newKeys.distinct().size || newKeys.any(existingKeys::contains)) {
+            throw WebWorkflowFailure("document-draft-duplicate", "The document draft contains a duplicate typed operation.")
+        }
+        val prepared = items.map { item ->
+            val source = project.resolvedSources.firstOrNull { it.id == item.targetSourceId }
+                ?: throw WebWorkflowFailure("unknown-source", "A document draft target source was not found.")
+            val stagedOperation = when (val operation = item.operation) {
+                is DocumentDraftOperation.Ontology -> {
+                    if (com.entio.core.ShaclGraphRole.Ontology !in source.roles) {
+                        throw WebWorkflowFailure("invalid-ontology-source-role", "Ontology edits require an ontology source.")
+                    }
+                    when (val translated = editTranslator.translate(operation.edit)) {
+                        is EntioResult.Failure -> throw WebWorkflowFailure("document-draft-edit-invalid", translated.message)
+                        is EntioResult.Success -> if (translated.value.changes.isEmpty()) {
+                            throw WebWorkflowFailure("document-draft-edit-empty", "A document draft edit produced no graph change.")
+                        } else {
+                            StagedChangeOperation.TypedEdit(operation.edit)
+                        }
+                    }
+                }
+                is DocumentDraftOperation.Semantic -> {
+                    if (com.entio.core.ShaclGraphRole.Ontology !in source.roles || operation.edit.sourceId != item.targetSourceId) {
+                        throw WebWorkflowFailure("invalid-ontology-source-role", "Semantic edits require their selected ontology source.")
+                    }
+                    when (val translated = editTranslator.translate(operation.edit)) {
+                        is EntioResult.Failure -> throw WebWorkflowFailure("document-draft-edit-invalid", translated.message)
+                        is EntioResult.Success -> StagedChangeOperation.GraphChanges(translated.value)
+                    }
+                }
+                is DocumentDraftOperation.Shacl -> {
+                    if (operation.edit.sourceId != item.targetSourceId) {
+                        throw WebWorkflowFailure("document-draft-source-mismatch", "The SHACL edit target does not match its source.")
+                    }
+                    val shapesGraph = project.ontologies.firstOrNull { it.source.id == item.targetSourceId }?.graph
+                        ?: throw WebWorkflowFailure("unknown-source", "The SHACL target source was not found.")
+                    when (val translated = shaclEditTranslator.translate(operation.edit, shapesGraph)) {
+                        is EntioResult.Failure -> throw WebWorkflowFailure("document-draft-edit-invalid", translated.message)
+                        is EntioResult.Success -> StagedChangeOperation.ShaclEdit(operation.edit)
+                    }
+                }
+                is DocumentDraftOperation.ExternalReuse -> {
+                    when (val translated = externalIntentTranslator.translate(
+                        operation.intent,
+                        operation.targetOntologyIri,
+                        existingGraph = project.graph,
+                    )) {
+                        is EntioResult.Failure -> throw WebWorkflowFailure("document-draft-external-invalid", translated.message)
+                        is EntioResult.Success -> StagedChangeOperation.GraphChanges(translated.value)
+                    }
+                }
+            }
+            item to stagedOperation
+        }
+        val nextOrder = session.nextOrder
+        val newEntries = prepared.mapIndexed { index, (item, operation) ->
+            val order = nextOrder + index
+            StoredEntry(
+                staged = StagedChange(
+                    id = "stage-$order",
+                    order = order,
+                    targetSourceId = item.targetSourceId,
+                    summary = item.summary,
+                    operation = operation,
+                    normalizedValues = mapOf(
+                        "documentTaskId" to taskId,
+                        "documentRecommendationId" to item.provenance.recommendationId,
+                    ),
+                    documentDraftProvenance = item.provenance,
+                ),
+                editType = item.editType,
+                authorId = userId,
+                latestEditorId = userId,
+                comment = "Accepted from document evidence; review before approval.",
+            )
+        }
+        session.entries += newEntries
+        session.nextOrder += newEntries.size
+        session.documentBatchCounts[taskId] = session.documentBatchCounts.getOrDefault(taskId, 0) + 1
+        session.documentBatchPayloads[idempotencyKey] = payload
+        session.clearPreparedProposal()
+        return response(projectId, session, "Document draft batch added to shared staging.")
+    }
+
     @Synchronized
     public fun stageExternal(
         projectId: String,
@@ -539,6 +683,22 @@ public class StagingWorkflowService(
         if (proposal.status != ChangeProposalStatus.Approved) throw WebWorkflowFailure("proposal-not-approved", "Only an approved proposal can be applied.")
         val prepared = session.preparedProposal
             ?: throw WebWorkflowFailure("missing-prepared-application", "Preview the staged changes again before applying.")
+        val documentEntries = session.entries.map(StoredEntry::staged).filter { it.documentDraftProvenance != null }
+        if (documentEntries.isNotEmpty()) {
+            val hooks = documentApplyHooks
+                ?: throw WebWorkflowFailure("document-provenance-unavailable", "Document provenance is unavailable.")
+            hooks.begin(
+                projectId = projectId,
+                proposalId = proposal.id,
+                baselineFingerprint = webGraphFingerprint(load(projectId).graph),
+                expectedFingerprint = webGraphFingerprint(
+                    proposal.preview?.graph
+                        ?: throw WebWorkflowFailure("missing-proposal-preview", "The approved proposal preview is unavailable."),
+                ),
+                staged = documentEntries,
+                appliedByUserId = userId,
+            )
+        }
         val result = MultiSourceAtomicApplier(
             postSaveVerification = {
                 val reloaded = try {
@@ -548,7 +708,17 @@ public class StagingWorkflowService(
                 }
                 when (val verification = proposalPlanner.verifyAppliedProject(reloaded, prepared.expectedShaclResults)) {
                     is EntioResult.Failure -> verification
-                    is EntioResult.Success -> additionalPostApplyVerification(projectId, reloaded)
+                    is EntioResult.Success -> when (val additional = additionalPostApplyVerification(projectId, reloaded)) {
+                        is EntioResult.Failure -> additional
+                        is EntioResult.Success -> try {
+                            if (documentEntries.isNotEmpty()) {
+                                documentApplyHooks?.commit(projectId)
+                            }
+                            EntioResult.Success(Unit)
+                        } catch (failure: Exception) {
+                            EntioResult.Failure(failure.message ?: "Document provenance could not be committed.")
+                        }
+                    }
                 }
             },
         ).apply(prepared.targets)
@@ -559,13 +729,21 @@ public class StagingWorkflowService(
                 session.preparedProposal = null
                 response(projectId, session, "Proposal applied by $userId; source was reloaded.")
             }
-            MultiSourceApplyStatus.RolledBack,
-            MultiSourceApplyStatus.RollbackFailed,
-            -> {
+            MultiSourceApplyStatus.RolledBack -> {
+                if (documentEntries.isNotEmpty()) {
+                    documentApplyHooks?.rolledBack(projectId)
+                }
                 session.proposal = proposal.copy(status = ChangeProposalStatus.RolledBack)
                 response(projectId, session, result.reason ?: "Proposal application failed and source files were restored.")
             }
+            MultiSourceApplyStatus.RollbackFailed -> {
+                session.proposal = proposal.copy(status = ChangeProposalStatus.RolledBack)
+                response(projectId, session, result.reason ?: "Proposal application failed and source rollback could not be verified.")
+            }
             MultiSourceApplyStatus.Failed -> {
+                if (documentEntries.isNotEmpty()) {
+                    documentApplyHooks?.rolledBack(projectId)
+                }
                 session.proposal = proposal.copy(status = ChangeProposalStatus.ApplyFailed)
                 response(projectId, session, result.reason ?: "Proposal application failed.")
             }
@@ -626,6 +804,20 @@ public class StagingWorkflowService(
                             entailedBeforeAssertion = provenance.entailedBeforeAssertion,
                             importDependence = provenance.importDependence.state.name,
                             importSourceIds = provenance.importDependence.sourceIds,
+                        )
+                    },
+                    documentDraftProvenance = entry.staged.documentDraftProvenance?.let { provenance ->
+                        WebDocumentDraftProvenance(
+                            taskId = provenance.taskId.value,
+                            recommendationId = provenance.recommendationId,
+                            decisionId = provenance.decisionId,
+                            evidenceIds = provenance.evidenceIds.map { it.value },
+                            modelId = provenance.modelId,
+                            promptVersion = provenance.promptVersion,
+                            extractionMethods = provenance.extractionMethods.map { it.name },
+                            confidence = provenance.confidence,
+                            targetSourceId = provenance.targetSourceId,
+                            normalizedTypedOperationKey = provenance.normalizedTypedOperationKey,
                         )
                     },
                 )

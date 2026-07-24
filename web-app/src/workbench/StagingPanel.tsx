@@ -162,12 +162,26 @@ function ProposalDetailsDialog({ entries, diff, onRemove, onAccept, onReject, on
         <code>{stagedTriple(entry)}</code>
         <small>{entry.sourceId} · Staged by {entry.authorId}{entry.comment ? ` · ${entry.comment}` : ""}</small>
         {entry.materializationProvenance ? <MaterializationProvenance entry={entry} /> : null}
+        {entry.documentDraftProvenance ? <DocumentDraftProvenance entry={entry} /> : null}
         <button className="button small" type="button" onClick={() => void onRemove(entry)} disabled={disabled}>Remove</button>
       </article>)}</div>
       {diff.length ? <section className="staging-details-diff" aria-labelledby="staging-net-changes-heading"><h4 id="staging-net-changes-heading">Net graph changes</h4><div className="staging-details-list" aria-label="Proposal semantic diff">{diff.map((entry, index) => <article className="staging-detail-item" key={`${entry.kind}-${entry.subject}-${index}`}><div className="staging-detail-heading"><span className={`diff-kind diff-${entry.kind.toLowerCase()}`}>{displayStatus(entry.kind)}</span><strong>{labelFirstDiff(entry, entries)}</strong></div></article>)}</div></section> : null}
     </div>
     <footer className="staging-details-footer"><div><button className="button danger" type="button" onClick={() => void onReject()} disabled={disabled}>Reject</button>{canAccept ? <button className="button primary" type="button" onClick={() => void onAccept()} disabled={disabled}>Accept</button> : null}</div><button className="button" type="button" onClick={onClose}>Close</button></footer>
   </section></div>;
+}
+
+function DocumentDraftProvenance({ entry }: { entry: WebStagedEntry }) {
+  const provenance = entry.documentDraftProvenance;
+  if (!provenance) return null;
+  return <dl className="materialization-provenance" aria-label="Document recommendation provenance">
+    <div><dt>Origin</dt><dd>Accepted document recommendation</dd></div>
+    <div><dt>Task</dt><dd>{provenance.taskId}</dd></div>
+    <div><dt>Recommendation</dt><dd>{provenance.recommendationId}</dd></div>
+    <div><dt>Confidence</dt><dd>{provenance.confidence}%</dd></div>
+    <div><dt>Evidence</dt><dd>{provenance.evidenceIds.length} verified reference{provenance.evidenceIds.length === 1 ? "" : "s"}</dd></div>
+    <div><dt>Target source</dt><dd>{provenance.targetSourceId}</dd></div>
+  </dl>;
 }
 
 function MaterializationProvenance({ entry }: { entry: WebStagedEntry }) {

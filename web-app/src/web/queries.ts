@@ -59,6 +59,7 @@ import {
   loadDocumentEvidence,
   decideDocumentRecommendation,
   type WebDocumentReviewDecision,
+  buildDocumentDraft,
 } from "./projectApi";
 import type {
   WebAiProviderSettings,
@@ -151,6 +152,18 @@ export function useDocumentReviewDecision(projectId: string, taskId: string) {
     mutationFn: ({ recommendationId, decision }: { recommendationId: string; decision: WebDocumentReviewDecision }) =>
       decideDocumentRecommendation(projectId, taskId, recommendationId, decision),
     onSuccess: (workspace) => client.setQueryData(queryKeys.documentReview(projectId, taskId), workspace),
+  });
+}
+
+export function useBuildDocumentDraft(projectId: string, taskId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (request: { expectedWorkKey: string; expectedGraphFingerprint: string }) =>
+      buildDocumentDraft(projectId, taskId, request),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.documentReview(projectId, taskId) });
+      void client.invalidateQueries({ queryKey: queryKeys.staged(projectId) });
+    },
   });
 }
 

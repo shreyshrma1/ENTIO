@@ -119,6 +119,21 @@ export async function decideDocumentRecommendation(
   );
 }
 
+export async function buildDocumentDraft(
+  projectId: string,
+  taskId: string,
+  request: { expectedWorkKey: string; expectedGraphFingerprint: string },
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<{ apiVersion: "v1"; staging: WebStagingResponse; batchCount: number; stagedEditCount: number; confirmCount: number }> {
+  return sendJson(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/document-ingestion/tasks/${encodeURIComponent(taskId)}/draft`,
+    "POST",
+    request,
+    fetcher,
+    { "Idempotency-Key": globalThis.crypto?.randomUUID?.() ?? `document-draft-${Date.now()}` },
+  );
+}
+
 function mediaTypeForFilename(filename: string): string {
   const extension = filename.split(".").pop()?.toLowerCase();
   if (extension === "pdf") return "application/pdf";
@@ -484,6 +499,20 @@ export interface WebStagedEntry {
   generatedIris: string[];
   validationMessages: string[];
   materializationProvenance?: WebInferenceMaterializationProvenance | null;
+  documentDraftProvenance?: WebDocumentDraftProvenance | null;
+}
+
+export interface WebDocumentDraftProvenance {
+  taskId: string;
+  recommendationId: string;
+  decisionId: string;
+  evidenceIds: string[];
+  modelId: string | null;
+  promptVersion: string | null;
+  extractionMethods: string[];
+  confidence: number;
+  targetSourceId: string | null;
+  normalizedTypedOperationKey: string | null;
 }
 
 export interface WebDeletionDependenciesRequest {
