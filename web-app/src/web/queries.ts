@@ -51,6 +51,14 @@ import {
   type WebProjectSummaryResponse,
   type WebSemanticSearchResponse,
   type WebShaclShapeListResponse,
+  loadDocumentIngestionTasks,
+  uploadDocuments,
+  cancelDocumentIngestionTask,
+  deleteDocumentIngestionTask,
+  loadDocumentReview,
+  loadDocumentEvidence,
+  decideDocumentRecommendation,
+  type WebDocumentReviewDecision,
 } from "./projectApi";
 import type {
   WebAiProviderSettings,
@@ -77,11 +85,74 @@ export const queryKeys = {
   fiboSearch: (projectId: string, text: string) => ["project", projectId, "fibo", "search", text] as const,
   fiboDetails: (projectId: string, iri: string) => ["project", projectId, "fibo", "details", iri] as const,
   aiProviderSettings: ["ai", "provider-settings"] as const,
+  documentTasks: (projectId: string) => ["project", projectId, "document-ingestion", "tasks"] as const,
+  documentReview: (projectId: string, taskId: string) => ["project", projectId, "document-ingestion", taskId, "review"] as const,
+  documentEvidence: (projectId: string, taskId: string, evidenceId: string) =>
+    ["project", projectId, "document-ingestion", taskId, "evidence", evidenceId] as const,
   ontologyGraph: (projectId: string, options: Omit<OntologyGraphInitialOptions, "signal">) =>
     ["project", projectId, "ontology-graph", options] as const,
   ontologyGraphNeighborhood: (projectId: string, options: Omit<OntologyGraphNeighborhoodOptions, "signal">) =>
     ["project", projectId, "ontology-graph-neighborhood", options] as const,
 };
+
+export function useDocumentIngestionTasks(projectId: string) {
+  return useQuery({
+    queryKey: queryKeys.documentTasks(projectId),
+    queryFn: () => loadDocumentIngestionTasks(projectId),
+    enabled: Boolean(projectId),
+  });
+}
+
+export function useUploadDocuments(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ files, authorityStatus, businessArea, jurisdiction }: {
+      files: File[]; authorityStatus: string; businessArea?: string; jurisdiction?: string;
+    }) => uploadDocuments(projectId, files, { authorityStatus, businessArea, jurisdiction }),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.documentTasks(projectId) }),
+  });
+}
+
+export function useCancelDocumentTask(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (taskId: string) => cancelDocumentIngestionTask(projectId, taskId),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.documentTasks(projectId) }),
+  });
+}
+
+export function useDeleteDocumentTask(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (taskId: string) => deleteDocumentIngestionTask(projectId, taskId),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.documentTasks(projectId) }),
+  });
+}
+
+export function useDocumentReview(projectId: string, taskId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.documentReview(projectId, taskId ?? ""),
+    queryFn: () => loadDocumentReview(projectId, taskId!),
+    enabled: Boolean(projectId && taskId),
+  });
+}
+
+export function useDocumentEvidence(projectId: string, taskId: string | null, evidenceId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.documentEvidence(projectId, taskId ?? "", evidenceId ?? ""),
+    queryFn: () => loadDocumentEvidence(projectId, taskId!, evidenceId!),
+    enabled: Boolean(projectId && taskId && evidenceId),
+  });
+}
+
+export function useDocumentReviewDecision(projectId: string, taskId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ recommendationId, decision }: { recommendationId: string; decision: WebDocumentReviewDecision }) =>
+      decideDocumentRecommendation(projectId, taskId, recommendationId, decision),
+    onSuccess: (workspace) => client.setQueryData(queryKeys.documentReview(projectId, taskId), workspace),
+  });
+}
 
 export function useOntologyGraph(projectId: string, options: Omit<OntologyGraphInitialOptions, "signal">, enabled = true) {
   return useQuery({

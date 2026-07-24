@@ -22,6 +22,111 @@ export async function loadProjects(fetcher: WebFetcher = defaultFetcher): Promis
   return getJson("/api/v1/projects", fetcher);
 }
 
+export async function loadDocumentIngestionTasks(
+  projectId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebPage<WebDocumentIngestionTask>> {
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/document-ingestion/tasks?offset=0&limit=50`, fetcher);
+}
+
+export async function uploadDocuments(
+  projectId: string,
+  files: File[],
+  metadata: { authorityStatus: string; businessArea?: string; jurisdiction?: string },
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebDocumentIngestionTask> {
+  const form = new FormData();
+  const documents = files.map((file, index) => ({
+    clientDocumentId: `upload-${index + 1}`,
+    filename: file.name,
+    declaredMediaType: file.type || mediaTypeForFilename(file.name),
+    language: "en",
+    authorityStatus: metadata.authorityStatus,
+    businessArea: metadata.businessArea || null,
+    jurisdiction: metadata.jurisdiction || null,
+  }));
+  form.append("metadata", JSON.stringify({ documents }));
+  files.forEach((file, index) => form.append(`document.upload-${index + 1}`, file, file.name));
+  const response = await fetcher(`/api/v1/projects/${encodeURIComponent(projectId)}/document-ingestion/tasks`, {
+    method: "POST",
+    headers: { "Idempotency-Key": globalThis.crypto?.randomUUID?.() ?? `upload-${Date.now()}` },
+    body: form,
+  });
+  if (!response.ok) throw await webRequestError(response);
+  return response.json() as Promise<WebDocumentIngestionTask>;
+}
+
+export async function cancelDocumentIngestionTask(
+  projectId: string,
+  taskId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebDocumentIngestionTask> {
+  return sendJson(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/document-ingestion/tasks/${encodeURIComponent(taskId)}/cancel`,
+    "POST",
+    undefined,
+    fetcher,
+  );
+}
+
+export async function deleteDocumentIngestionTask(
+  projectId: string,
+  taskId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<void> {
+  const response = await fetcher(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/document-ingestion/tasks/${encodeURIComponent(taskId)}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) throw await webRequestError(response);
+}
+
+export async function loadDocumentReview(
+  projectId: string,
+  taskId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebDocumentReviewWorkspace> {
+  return getJson(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/document-ingestion/tasks/${encodeURIComponent(taskId)}/review?offset=0&limit=100`,
+    fetcher,
+  );
+}
+
+export async function loadDocumentEvidence(
+  projectId: string,
+  taskId: string,
+  evidenceId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebDocumentEvidenceView> {
+  return getJson(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/document-ingestion/tasks/${encodeURIComponent(taskId)}/evidence/${encodeURIComponent(evidenceId)}`,
+    fetcher,
+  );
+}
+
+export async function decideDocumentRecommendation(
+  projectId: string,
+  taskId: string,
+  recommendationId: string,
+  decision: WebDocumentReviewDecision,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebDocumentReviewWorkspace> {
+  return sendJson(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/document-ingestion/tasks/${encodeURIComponent(taskId)}/recommendations/${encodeURIComponent(recommendationId)}/decision?offset=0&limit=100`,
+    "POST",
+    decision,
+    fetcher,
+  );
+}
+
+function mediaTypeForFilename(filename: string): string {
+  const extension = filename.split(".").pop()?.toLowerCase();
+  if (extension === "pdf") return "application/pdf";
+  if (extension === "docx") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (extension === "md") return "text/markdown";
+  return "text/plain";
+}
+
 export interface WebProjectSummary {
   id: string;
   displayName: string;
@@ -42,6 +147,109 @@ export interface WebProjectSummaryResponse {
   sources: WebOntologySourceSummary[];
   symbolCount: number;
   graphTripleCount: number;
+}
+
+export interface WebDocumentIngestionProgress {
+  stage: string;
+  completedDocuments: number;
+  totalDocuments: number;
+  percent: number;
+  message: string;
+}
+
+export interface WebDocumentIngestionDocument {
+  documentId: string;
+  safeFilename: string;
+  mediaType: string;
+  byteSize: number;
+  checksumSha256: string;
+  authorityStatus: string;
+  status: string;
+}
+
+export interface WebDocumentIngestionTask {
+  taskId: string;
+  projectId: string;
+  ownerUserId: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  documents: WebDocumentIngestionDocument[];
+  progress: WebDocumentIngestionProgress;
+}
+
+export interface WebDocumentEvidenceSummary {
+  evidenceId: string;
+  evidenceType: string;
+  documentId: string | null;
+  pageNumber: number | null;
+  extractionMethod: string | null;
+  ocrConfidence: number | null;
+  excerpt: string | null;
+  priorRecordId: string | null;
+}
+
+export interface WebDocumentReviewRecommendation {
+  id: string;
+  category: "OntologyStructure" | "BusinessFact";
+  type: string;
+  action: string;
+  proposedLabel: string | null;
+  confidence: number;
+  confidenceBand: "High" | "Medium" | "Low";
+  rationale: string;
+  reviewStatus: "Pending" | "Accepted" | "Rejected" | "NeedsClarification" | "Drafted";
+  evidence: WebDocumentEvidenceSummary[];
+  matches: Array<{ scope: string; entityIri: string; sourceId: string; preferredLabel: string | null; score: number; reason: string }>;
+  selectedMatchIri: string | null;
+  conflicts: Array<{ id: string; alternatives: string[]; affectedEntityIris: string[]; resolutionOptions: string[] }>;
+  mandatoryClarificationReasons: string[];
+  clarification: string | null;
+  targetSourceId: string | null;
+  reconsiderationCount: number;
+  priorWorkflowProvenance: string[];
+}
+
+export interface WebDocumentReviewWorkspace {
+  apiVersion: "v1";
+  taskId: string;
+  projectId: string;
+  exactWorkKey: string;
+  graphFingerprint: string;
+  documents: Array<{
+    documentId: string; safeFilename: string; mediaType: string; authorityStatus: string;
+    pageCount: number | null; warningCount: number;
+  }>;
+  summaries: Array<{ documentId: string; purpose: string; highlights: string[] }>;
+  recommendations: WebPage<WebDocumentReviewRecommendation>;
+  draftImpact: { acceptedCount: number; pendingCount: number; blockedCount: number; maximumAcceptedEdits: number; readOnly: true };
+}
+
+export interface WebDocumentEvidenceView {
+  apiVersion: "v1";
+  evidenceId: string;
+  documentId: string;
+  safeFilename: string;
+  pageNumber: number | null;
+  sectionHeading: string | null;
+  extractionMethod: string;
+  ocrConfidence: number | null;
+  text: string;
+  highlightStart: number;
+  highlightEnd: number;
+  pageImageAvailable: boolean;
+  truncated: boolean;
+}
+
+export interface WebDocumentReviewDecision {
+  action: "accept" | "reject" | "clarify" | "edit" | "rematch" | "merge" | "reconsider";
+  expectedWorkKey: string;
+  expectedGraphFingerprint: string;
+  proposedLabel?: string;
+  selectedMatchIri?: string;
+  targetSourceId?: string;
+  clarification?: string;
+  mergedRecommendationIds?: string[];
 }
 
 export interface WebHierarchyItem {
