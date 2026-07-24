@@ -18,9 +18,9 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository contains the implemented Entio foundation through Phase 10.5. Phase 10.5, Inferred Facts in Explore and Ontology Map, is complete. Phase 11, AI-Powered Document Ingestion and Ontology Evolution, is the active phase and has approved planning documents, but its implementation has not started.
+This repository contains the implemented Entio foundation through Phase 11. Phase 11, AI-Powered Document Ingestion and Ontology Evolution, was implemented and verified on 2026-07-24.
 
-The current product includes a native OpenAI-backed ontology assistant. Users can hold project-scoped conversations, ask ontology questions, generate structured review-only edits, inspect validation results, remove edits, and stage valid proposals into the existing human-review workflow. Assistant runs remain in memory, the UI polls for status, and the assistant cannot execute arbitrary tools, approve or apply changes, or write ontology sources directly. Phase 11 extends this active foundation with bounded document analysis.
+The current product includes a native OpenAI-backed ontology assistant. Users can hold project-scoped conversations, ask ontology questions, generate structured review-only edits, inspect validation results, remove edits, and stage valid proposals into the existing human-review workflow. Assistant runs remain in memory, the UI polls for status, and the assistant cannot execute arbitrary tools, approve or apply changes, or write ontology sources directly. Phase 11 extends this active foundation with bounded, evidence-grounded document analysis.
 
 Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because the core work is ontology loading, RDF/Turtle parsing, deterministic validation, semantic diffing, and CLI behavior.
 
@@ -82,12 +82,16 @@ The current implementation supports:
 - Holding project-scoped conversations with the native OpenAI-backed ontology assistant.
 - Answering ontology questions and preparing structured review-only edit proposals with bounded local and FIBO context.
 - Polling assistant run status, preserving in-memory chat history, removing proposed edits, cancelling or rejecting runs, and staging valid proposals into the shared review queue.
+- Uploading bounded PDF, DOCX, TXT, and Markdown document sets through the web workbench.
+- Extracting located text, using selective local OCR for unreliable PDF pages, and showing exact evidence with extraction method and confidence.
+- Producing bounded AI-assisted summaries and candidates, then verifying evidence and matching against local, imported, current-work, prior-provenance, and pinned FIBO scopes in Kotlin.
+- Reviewing confirm, extend, revise, split, merge, conflict, and supersede recommendations before converting accepted items into supported typed draft batches.
+- Retaining narrowly scoped provenance only for successfully applied document-derived changes while keeping uploads, OCR images, incomplete tasks, and review workspaces temporary.
 - Opening a project-scoped ontology map from Explore to inspect bounded local classes, properties, individuals, and asserted relationships without modifying ontology data.
 - Expanding, searching, filtering, dragging, panning, scrolling, zooming, and navigating the map while retaining temporary state only for the open tab.
 - Rejecting stale or invalid graph continuations through fingerprint-aware, authorized Ktor read contracts.
 - Reviewing asserted and inferred reasoning facts separately in the web Reasoning workspace.
-- Staging selected inferred subclass relationships, individual types, and object-property assertions as an all-or-nothing batch using server-issued fact IDs.
-- Rechecking reasoning freshness, duplicates, writable sources, and import safety before staging, then retaining reasoning provenance through normal proposal review, atomic apply, reload, and rollback.
+- Browsing asserted and inferred reasoning facts through read-only, bounded fact browsers. Phase 10 materialization remains a historical delivery record rather than an active Reasoning write control.
 - Reusing project-owned reasoning results as bounded, read-only applied and proposal overlays in the Project Outline, entity details, and ontology map.
 - Keeping inferred overlays off by default, visually distinct, fingerprint-aware, and subordinate to asserted facts and asserted map layout.
 
@@ -164,8 +168,9 @@ npm test
 - Proposal and staged-change state is process/session scoped rather than a durable review store.
 - Web project registration, development identity, collaboration, semantic jobs, staging, and AI credentials are in-memory development boundaries rather than production persistence or authentication.
 - Provider credentials, model settings, assistant conversations, proposal runs, and chat history remain in memory and are cleared on server restart.
-- Reasoning results and materialization provenance are in-memory workflow state. Materialization is web-only, always user initiated, supports at most 100 selected facts per request, and does not add inferred relationships to the ontology map.
-- Phase 11 document upload, extraction, OCR, analysis, durable applied-change provenance, and recommendation review are approved but not implemented yet.
+- Reasoning results are in-memory workflow state. The current Reasoning fact browsers are read-only, and inferred overlays do not add ontology statements.
+- Phase 11 uploads, extracted text, OCR images, incomplete tasks, and review workspaces are temporary and cleared by cancellation, deletion, or restart cleanup.
+- Phase 11 supports English PDF, DOCX, TXT, and Markdown only. Encrypted documents, handwritten OCR, broader formats, production document/task persistence, external indexing, and durable workflow history beyond applied-change provenance remain out of scope.
 
 ## Implemented Phase 2 Through Phase 6 Workflow
 
@@ -232,7 +237,7 @@ Phase 2 should not include:
 
 ## Current Phase
 
-Phase 11 is active and approved for implementation. It will add a bounded web workflow for PDF, DOCX, TXT, and Markdown ingestion:
+Phase 11 is implemented and verified. It adds this bounded web workflow for PDF, DOCX, TXT, and Markdown ingestion:
 
 ```text
 safe upload
@@ -247,15 +252,13 @@ safe upload
 
 Phase 11 preserves these boundaries:
 
-- the current implementation remains complete through Phase 10.5 until Phase 11 slices are delivered and verified;
 - documents and provider output are untrusted;
 - AI recommendations cannot approve, apply, write raw RDF, or bypass typed operations;
 - original documents, OCR images, and incomplete task state remain temporary;
 - provenance for successfully applied document-derived changes is retained separately from ontology source files so later documents can confirm, revise, or challenge earlier evidence;
-- implementation starts with the mandatory contract, dependency, security, and typed-operation audit in ExecPlan Slice 0;
 - the CLI and VS Code extension do not gain document-ingestion commands.
 
-Phases 7, 7.5, and 8 remain historical delivery records, but the current codebase includes the bounded native ontology assistant described above. Phase 11 extends that assistant and provider foundation only with the document-ingestion workflow described by its approved scope, spec, and ExecPlan.
+Phases 7, 7.5, and 8 remain historical delivery records, but the current codebase includes the bounded native ontology assistant described above. Phase 11 extends that assistant and provider foundation only with the implemented document-ingestion workflow described by its scope, spec, ExecPlan, and phase summary.
 
 ## Technical Principle
 
@@ -319,3 +322,4 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 10.5 Implementation Summary](docs/phase-summaries/phase-10.5-summary.md)
 - [Phase 11 Spec](docs/specs/0020-phase-11-ai-powered-document-ingestion-and-ontology-evolution.md)
 - [Phase 11 ExecPlan](docs/execplans/0020-phase-11-ai-powered-document-ingestion-and-ontology-evolution.md)
+- [Phase 11 Implementation Summary](docs/phase-summaries/phase-11-summary.md)
