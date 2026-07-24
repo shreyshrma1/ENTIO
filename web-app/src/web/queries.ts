@@ -101,8 +101,21 @@ export function useDocumentIngestionTasks(projectId: string) {
     queryKey: queryKeys.documentTasks(projectId),
     queryFn: () => loadDocumentIngestionTasks(projectId),
     enabled: Boolean(projectId),
+    refetchInterval: (query) =>
+      query.state.data?.items.some((task) => ACTIVE_DOCUMENT_TASK_STATUSES.has(task.status)) ? 750 : false,
   });
 }
+
+const ACTIVE_DOCUMENT_TASK_STATUSES = new Set([
+  "uploaded",
+  "extracting",
+  "analyzing",
+  "matching",
+  "comparing",
+  "preparing-recommendations",
+  "building-draft",
+  "validating",
+]);
 
 export function useUploadDocuments(projectId: string) {
   const client = useQueryClient();

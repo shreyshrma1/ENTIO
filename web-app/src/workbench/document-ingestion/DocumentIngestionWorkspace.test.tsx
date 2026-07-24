@@ -42,6 +42,13 @@ describe("document ingestion review workspace", () => {
     expect(screen.getByRole("note")).toHaveTextContent("Choose the applicable source");
     expect(screen.getByLabelText("Read-only draft impact")).toHaveTextContent("Read only");
 
+    fireEvent.click(screen.getByRole("button", { name: "Status Updates" }));
+    const statusDialog = screen.getByRole("dialog", { name: "Ingestion Status Updates" });
+    expect(within(statusDialog).getByText("Documents uploaded and awaiting extraction.")).toBeInTheDocument();
+    expect(within(statusDialog).getByText("Ready for review.")).toBeInTheDocument();
+    expect(within(statusDialog).getByText("Awaiting Review · 100% · 1 of 1 documents")).toBeInTheDocument();
+    fireEvent.click(within(statusDialog).getByRole("button", { name: "Close ingestion status updates" }));
+
     fireEvent.click(screen.getByRole("button", { name: "Open Explicit evidence" }));
     const dialog = await screen.findByRole("dialog", { name: "Evidence" });
     expect(await within(dialog).findByText("OCR confidence 87%", { exact: false })).toBeInTheDocument();
@@ -119,6 +126,10 @@ const tasks = {
       status: "awaiting-review",
     }],
     progress: { stage: "awaiting-review", completedDocuments: 1, totalDocuments: 1, percent: 100, message: "Ready for review." },
+    updates: [
+      { order: 1, stage: "uploaded", completedDocuments: 0, totalDocuments: 1, percent: 0, message: "Documents uploaded and awaiting extraction.", timestamp: "2026-07-24T12:00:00Z" },
+      { order: 2, stage: "awaiting-review", completedDocuments: 1, totalDocuments: 1, percent: 100, message: "Ready for review.", timestamp: "2026-07-24T12:01:00Z" },
+    ],
   }],
   offset: 0,
   limit: 50,

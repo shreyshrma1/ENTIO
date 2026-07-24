@@ -37,7 +37,7 @@ class DocumentTaskLifecycleTest {
         val firstUpload = upload(first, firstDirectory, "a".repeat(64))
         manager.addDocument(first, "project-a", "alice", firstUpload)
         assertEquals("extracting", manager.completeIntake(first, "project-a", "alice").status)
-        manager.transition(
+        val ready = manager.transition(
             first,
             "project-a",
             "alice",
@@ -46,6 +46,10 @@ class DocumentTaskLifecycleTest {
             100,
             "Ready for review.",
         )
+        assertEquals(listOf(1, 2, 3, 4), ready.updates.map { it.order })
+        assertEquals(listOf("uploaded", "uploaded", "extracting", "awaiting-review"), ready.updates.map { it.stage })
+        assertEquals("Ready for review.", ready.updates.last().message)
+        assertTrue(ready.updates.all { it.timestamp.isNotBlank() })
 
         assertCode("ingestion-task-not-found") { manager.find(first, "project-a", "bob") }
         assertCode("ingestion-task-not-found") { manager.find(first, "project-b", "alice") }
@@ -57,12 +61,50 @@ class DocumentTaskLifecycleTest {
         }
         val cancelled = manager.cancel(second, "project-a", "alice")
         assertEquals("cancelled", cancelled.status)
+        assertEquals(listOf("uploaded", "cancelled"), cancelled.updates.map { it.stage })
         assertFalse(storage.taskExists(secondDirectory))
 
         manager.delete(first, "project-a", "alice")
         assertCode("ingestion-task-not-found") { manager.find(first, "project-a", "alice") }
         manager.close()
         assertFalse(Files.list(root).use { paths -> paths.anyMatch { it.fileName.toString().startsWith("task-") } })
+    }
+
+    @Test
+    fun keepsStatusUpdateHistoryBoundedAndOrdered(): Unit {
+        val root = Files.createTempDirectory("entio-task-status-history")
+        val storage = DocumentTemporaryStorage(root)
+        val manager = DocumentIngestionTaskManager(
+            DocumentIngestionConfiguration(
+                temporaryRoot = root,
+                provenanceRoot = Files.createTempDirectory("entio-task-status-history-provenance"),
+                idFactory = { "history" },
+            ),
+            storage,
+        )
+        val task = manager.begin("project-a", "alice", 1)
+        val directory = manager.directory(task, "project-a", "alice")
+        manager.addDocument(task, "project-a", "alice", upload(task, directory, "d".repeat(64)))
+        manager.completeIntake(task, "project-a", "alice")
+
+        var snapshot = manager.find(task, "project-a", "alice")
+        repeat(60) { index ->
+            snapshot = manager.transition(
+                task,
+                "project-a",
+                "alice",
+                DocumentProcessingStatus.Analyzing,
+                1,
+                40,
+                "Analysis update ${index + 1}.",
+            )
+        }
+
+        assertEquals(50, snapshot.updates.size)
+        assertEquals(14, snapshot.updates.first().order)
+        assertEquals(63, snapshot.updates.last().order)
+        assertEquals("Analysis update 60.", snapshot.updates.last().message)
+        manager.close()
     }
 
     @Test

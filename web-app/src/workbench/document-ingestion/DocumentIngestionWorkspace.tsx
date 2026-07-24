@@ -11,6 +11,7 @@ import {
 } from "../../web/queries";
 import type {
   WebDocumentEvidenceView,
+  WebDocumentIngestionTask,
   WebDocumentReviewDecision,
   WebDocumentReviewRecommendation,
 } from "../../web/projectApi";
@@ -25,8 +26,10 @@ export default function DocumentIngestionWorkspace({ projectId }: { projectId: s
   const [authorityStatus, setAuthorityStatus] = useState("Supporting");
   const [businessArea, setBusinessArea] = useState("");
   const [jurisdiction, setJurisdiction] = useState("");
+  const [statusTaskId, setStatusTaskId] = useState<string | null>(null);
   const taskItems = tasks.data?.items ?? [];
   const selectedTask = taskItems.find((task) => task.taskId === selectedTaskId) ?? null;
+  const statusTask = taskItems.find((task) => task.taskId === statusTaskId) ?? null;
 
   useEffect(() => {
     if (!selectedTaskId && taskItems.length) setSelectedTaskId(taskItems[0].taskId);
@@ -92,8 +95,14 @@ export default function DocumentIngestionWorkspace({ projectId }: { projectId: s
               <progress value={task.progress.percent} max={100} aria-label={`${task.progress.stage} progress`} />
             </button>
             <div className="document-task-actions">
+              <button type="button" onClick={() => setStatusTaskId(task.taskId)}>Status Updates</button>
               <button type="button" onClick={() => cancel.mutate(task.taskId)} disabled={task.status === "cancelled"}>Cancel</button>
-              <button type="button" onClick={() => remove.mutate(task.taskId, { onSuccess: () => setSelectedTaskId(null) })}>Delete</button>
+              <button type="button" onClick={() => remove.mutate(task.taskId, {
+                onSuccess: () => {
+                  setSelectedTaskId(null);
+                  if (statusTaskId === task.taskId) setStatusTaskId(null);
+                },
+              })}>Delete</button>
             </div>
           </li>)}</ul>
         </section>
@@ -103,8 +112,38 @@ export default function DocumentIngestionWorkspace({ projectId }: { projectId: s
             : <p>Select a task to review its results.</p>}
         </section>
       </div>
+      {statusTask ? <DocumentStatusDialog task={statusTask} onClose={() => setStatusTaskId(null)} /> : null}
     </div>
   );
+}
+
+function DocumentStatusDialog({ task, onClose }: { task: WebDocumentIngestionTask; onClose: () => void }) {
+  const end = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    end.current?.scrollIntoView?.({ block: "nearest" });
+  }, [task.updates.length]);
+
+  return <div className="ai-modal-backdrop"><section className="ai-modal" role="dialog" aria-modal="true" aria-labelledby="document-status-title">
+    <header><h2 id="document-status-title">Ingestion Status Updates</h2><button className="icon-button" type="button" aria-label="Close ingestion status updates" onClick={onClose}>×</button></header>
+    <p>{task.documents.map((document) => document.safeFilename).join(", ") || "Pending upload"}</p>
+    <div className="ai-status-list">
+      {task.updates.map((update) => <div className="ai-status-item" key={update.order}>
+        <strong>{update.order}</strong>
+        <div>
+          <span>{update.message}</span>
+          <small className="document-status-details">{statusStageLabel(update.stage)} · {update.percent}% · {update.completedDocuments} of {update.totalDocuments} documents</small>
+        </div>
+        <time dateTime={update.timestamp}>{new Date(update.timestamp).toLocaleTimeString()}</time>
+      </div>)}
+      <div ref={end} />
+    </div>
+    <button className="button" type="button" onClick={onClose}>Close</button>
+  </section></div>;
+}
+
+function statusStageLabel(stage: string): string {
+  return stage.replaceAll("-", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function DocumentReview({ projectId, taskId }: { projectId: string; taskId: string }) {

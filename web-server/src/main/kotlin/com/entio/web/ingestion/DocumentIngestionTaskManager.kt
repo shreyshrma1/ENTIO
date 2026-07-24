@@ -21,6 +21,16 @@ public data class DocumentIngestionProgress(
     }
 }
 
+public data class DocumentIngestionStatusUpdate(
+    val order: Int,
+    val stage: String,
+    val completedDocuments: Int,
+    val totalDocuments: Int,
+    val percent: Int,
+    val message: String,
+    val timestamp: String,
+)
+
 public data class DocumentIngestionTaskSnapshot(
     val taskId: String,
     val projectId: String,
@@ -30,6 +40,7 @@ public data class DocumentIngestionTaskSnapshot(
     val updatedAt: String,
     val documents: List<DocumentIngestionDocumentSnapshot>,
     val progress: DocumentIngestionProgress,
+    val updates: List<DocumentIngestionStatusUpdate> = emptyList(),
 )
 
 public data class DocumentIngestionDocumentSnapshot(
@@ -52,6 +63,7 @@ private data class StoredIngestionTask(
     val directory: TemporaryTaskDirectory,
     val documents: MutableList<AcceptedDocumentUpload> = mutableListOf(),
     var progress: DocumentIngestionProgress,
+    val updates: MutableList<DocumentIngestionStatusUpdate>,
 )
 
 internal data class DocumentIngestionProcessingInput(
@@ -83,6 +95,13 @@ internal class DocumentIngestionTaskManager(
         val taskId = DocumentTaskId("task-${configuration.idFactory()}")
         val now = Instant.now(configuration.clock)
         val directory = storage.createTask(taskId.value)
+        val initialProgress = DocumentIngestionProgress(
+            "uploaded",
+            0,
+            expectedDocuments,
+            0,
+            "Documents uploaded and awaiting extraction.",
+        )
         tasks[taskId] = StoredIngestionTask(
             id = taskId,
             projectId = projectId,
@@ -91,7 +110,8 @@ internal class DocumentIngestionTaskManager(
             updatedAt = now,
             status = DocumentProcessingStatus.Uploaded,
             directory = directory,
-            progress = DocumentIngestionProgress("uploaded", 0, expectedDocuments, 0, "Documents uploaded and awaiting extraction."),
+            progress = initialProgress,
+            updates = mutableListOf(initialProgress.toStatusUpdate(1, now)),
         )
         return taskId
     }
@@ -119,12 +139,11 @@ internal class DocumentIngestionTaskManager(
             throw DocumentIngestionFailure("duplicate-document", "The ingestion task contains duplicate document content.")
         }
         task.documents += upload
-        task.updatedAt = Instant.now(configuration.clock)
-        task.progress = task.progress.copy(
+        task.recordProgress(task.progress.copy(
             completedDocuments = task.documents.size,
             percent = (task.documents.size * 100) / task.progress.totalDocuments,
             message = "Accepted ${task.documents.size} of ${task.progress.totalDocuments} documents.",
-        )
+        ))
     }
 
     @Synchronized
@@ -135,13 +154,12 @@ internal class DocumentIngestionTaskManager(
             throw DocumentIngestionFailure("missing-document-part", "The multipart request did not include every declared document.")
         }
         task.status = DocumentProcessingStatus.Extracting
-        task.updatedAt = Instant.now(configuration.clock)
-        task.progress = task.progress.copy(
+        task.recordProgress(task.progress.copy(
             stage = "extracting",
             completedDocuments = 0,
             percent = 0,
             message = "All documents passed intake validation; extraction started.",
-        )
+        ))
         return task.snapshot()
     }
 
@@ -169,14 +187,13 @@ internal class DocumentIngestionTaskManager(
             throw DocumentIngestionFailure("ingestion-cancelled", "Document ingestion was cancelled.")
         }
         task.status = status
-        task.updatedAt = Instant.now(configuration.clock)
-        task.progress = DocumentIngestionProgress(
+        task.recordProgress(DocumentIngestionProgress(
             stage = status.name.toKebabCase(),
             completedDocuments = completedDocuments,
             totalDocuments = task.progress.totalDocuments,
             percent = percent,
             message = message.take(500),
-        )
+        ))
         return task.snapshot()
     }
 
@@ -203,8 +220,7 @@ internal class DocumentIngestionTaskManager(
         val task = ownedTask(taskId, projectId, userId)
         if (task.status !in terminalStates) {
             task.status = DocumentProcessingStatus.Cancelled
-            task.updatedAt = Instant.now(configuration.clock)
-            task.progress = task.progress.copy(stage = "cancelled", message = "Document ingestion was cancelled.")
+            task.recordProgress(task.progress.copy(stage = "cancelled", message = "Document ingestion was cancelled."))
             storage.deleteTask(task.directory)
         }
         return task.snapshot()
@@ -241,21 +257,46 @@ internal class DocumentIngestionTaskManager(
     private fun expireTasks(): Unit {
         val now = Instant.now(configuration.clock)
         tasks.values
-            .filter { Duration.between(it.createdAt, now) >= configuration.taskLifetime }
+            .filter {
+                Duration.between(it.createdAt, now) >= configuration.taskLifetime &&
+                    it.progress.stage != "expired"
+            }
             .forEach { task ->
                 if (storage.taskExists(task.directory)) runCatching { storage.deleteTask(task.directory) }
                 task.status = DocumentProcessingStatus.Cancelled
-                task.updatedAt = now
-                task.progress = task.progress.copy(stage = "expired", message = "The temporary ingestion task expired.")
+                task.recordProgress(
+                    task.progress.copy(stage = "expired", message = "The temporary ingestion task expired."),
+                    now,
+                )
             }
     }
 
     private fun failAndCleanup(task: StoredIngestionTask, message: String): Unit {
         task.status = DocumentProcessingStatus.Failed
-        task.updatedAt = Instant.now(configuration.clock)
-        task.progress = task.progress.copy(stage = "failed", message = message.take(500))
+        task.recordProgress(task.progress.copy(stage = "failed", message = message.take(500)))
         if (storage.taskExists(task.directory)) runCatching { storage.deleteTask(task.directory) }
     }
+
+    private fun StoredIngestionTask.recordProgress(
+        nextProgress: DocumentIngestionProgress,
+        now: Instant = Instant.now(configuration.clock),
+    ): Unit {
+        updatedAt = now
+        progress = nextProgress
+        updates += nextProgress.toStatusUpdate((updates.lastOrNull()?.order ?: 0) + 1, now)
+        while (updates.size > MAX_STATUS_UPDATES) updates.removeFirst()
+    }
+
+    private fun DocumentIngestionProgress.toStatusUpdate(order: Int, timestamp: Instant): DocumentIngestionStatusUpdate =
+        DocumentIngestionStatusUpdate(
+            order = order,
+            stage = stage,
+            completedDocuments = completedDocuments,
+            totalDocuments = totalDocuments,
+            percent = percent,
+            message = message,
+            timestamp = timestamp.toString(),
+        )
 
     private fun StoredIngestionTask.snapshot(): DocumentIngestionTaskSnapshot = DocumentIngestionTaskSnapshot(
         taskId = id.value,
@@ -283,6 +324,7 @@ internal class DocumentIngestionTaskManager(
             )
         },
         progress = progress,
+        updates = updates.toList(),
     )
 
     private fun DocumentProcessingStatus.isActiveExecution(): Boolean = this in activeExecutionStates
@@ -291,6 +333,8 @@ internal class DocumentIngestionTaskManager(
         replace(Regex("([a-z0-9])([A-Z])"), "$1-$2").lowercase()
 
     private companion object {
+        const val MAX_STATUS_UPDATES: Int = 50
+
         val activeExecutionStates: Set<DocumentProcessingStatus> = setOf(
             DocumentProcessingStatus.Uploaded,
             DocumentProcessingStatus.Extracting,
