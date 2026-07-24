@@ -19,7 +19,6 @@ import com.entio.core.ShaclGraphRole
 import com.entio.core.ShaclNodeShape
 import com.entio.core.ShaclPath
 import com.entio.core.ShaclTarget
-import com.entio.semantic.ProjectLoader
 import com.entio.semantic.SemanticDescriptionService
 import com.entio.semantic.ShaclShapeAuthoringService
 import com.entio.semantic.FiboCatalogLoader
@@ -208,7 +207,7 @@ public class ProjectReadFailure(
 /** Adapts existing semantic services to stable, read-only web responses. */
 public class ReadOnlyProjectAdapter(
     private val projectRegistry: ProjectRegistry,
-    private val projectLoader: ProjectLoader = ProjectLoader(),
+    private val loadedProjects: LoadedProjectCache = LoadedProjectCache(),
     private val descriptionService: SemanticDescriptionService = SemanticDescriptionService(),
     private val shaclAuthoringService: ShaclShapeAuthoringService = ShaclShapeAuthoringService(),
     private val fiboCatalogLoader: FiboCatalogLoader = FiboCatalogLoader(defaultFiboPackageRoot()),
@@ -401,7 +400,7 @@ public class ReadOnlyProjectAdapter(
         if (projectRegistry.find(projectId) == null) {
             throw ProjectReadFailure("unknown-project", "The requested project is not registered.")
         }
-        return when (val result = projectLoader.loadProject(projectRegistry.rootFor(projectId))) {
+        return when (val result = loadedProjects.load(projectRegistry.rootFor(projectId))) {
             is EntioResult.Success -> result.value
             is EntioResult.Failure -> throw ProjectReadFailure(
                 "project-load-failed",

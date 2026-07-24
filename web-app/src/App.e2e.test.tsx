@@ -55,6 +55,10 @@ describe("application workbench journey", () => {
     expect(reasoningIndex).toBeGreaterThan(requestedPaths.findIndex((path) => path.includes("/hierarchy")));
     expect(reasoningIndex).toBeGreaterThan(requestedPaths.findIndex((path) => path.includes("/outline")));
     expect(reasoningIndex).toBeGreaterThan(requestedPaths.findIndex((path) => path.includes("/staged")));
+    expect(requestedPaths.filter((path) => path.includes("/hierarchy")).length).toBe(1);
+    expect(requestedPaths.filter((path) => path.includes("/outline")).length).toBe(1);
+    expect(requestedPaths.find((path) => path.includes("/hierarchy"))).toContain("sourceId=simple");
+    expect(requestedPaths.find((path) => path.includes("/outline"))).toContain("sourceId=simple");
     fireEvent.click(await screen.findByRole("button", { name: /Customer/ }));
     expect(await screen.findByRole("textbox", { name: "Definition" })).toHaveValue("A customer.");
     app.unmount();

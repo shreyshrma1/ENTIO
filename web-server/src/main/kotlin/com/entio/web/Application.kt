@@ -58,7 +58,8 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
     }
     install(WebSockets)
 
-    val readOnly = ReadOnlyProjectAdapter(dependencies.projectRegistry)
+    val loadedProjects = LoadedProjectCache()
+    val readOnly = ReadOnlyProjectAdapter(dependencies.projectRegistry, loadedProjects = loadedProjects)
     val staging = StagingWorkflowService(dependencies.projectRegistry)
     val collaboration = CollaborationHub(dependencies.projectRegistry, staging::snapshot)
     val fibo = FiboWebService(dependencies.projectRegistry, staging)
@@ -107,7 +108,11 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
         },
     )
     val inferredFacts = InferredFactsWebService(jobs)
-    val ontologyGraph = OntologyGraphWebService(dependencies.projectRegistry, inferredFacts = inferredFacts)
+    val ontologyGraph = OntologyGraphWebService(
+        dependencies.projectRegistry,
+        loadedProjects = loadedProjects,
+        inferredFacts = inferredFacts,
+    )
     val inferenceMaterialization = InferenceMaterializationWebService(
         jobs = jobs,
         staging = staging,

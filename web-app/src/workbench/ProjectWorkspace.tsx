@@ -147,8 +147,8 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const refreshedReasoningJob = useRef<string | null>(null);
   const sourceId = summary.data?.sources.find((source) => source.roles.includes("ontology"))?.id ?? summary.data?.sources[0]?.id;
   const shapesSourceId = summary.data?.sources.find((source) => source.roles.map((role) => role.toLowerCase()).includes("shapes"))?.id;
-  const rootHierarchy = useHierarchy(projectId, sourceId, undefined, true, includeAppliedInferred, includeProposalInferred);
-  const outline = useProjectOutline(projectId, sourceId, includeAppliedInferred, includeProposalInferred);
+  const rootHierarchy = useHierarchy(projectId, sourceId, undefined, Boolean(sourceId), includeAppliedInferred, includeProposalInferred);
+  const outline = useProjectOutline(projectId, sourceId, includeAppliedInferred, includeProposalInferred, Boolean(sourceId));
   const search = useProjectSearch(projectId, searchText);
   const staged = useStagedChanges(projectId);
   const mapActive = searchParams.get("view") === "map";
