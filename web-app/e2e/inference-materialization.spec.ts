@@ -1,21 +1,18 @@
 import { expect, test, type Route } from "@playwright/test";
 
-test("reviews inferred facts before explicit assertion and never applies from Reasoning", async ({ page }) => {
-  const materializationBodies: Array<Record<string, unknown>> = [];
+test("browses asserted and inferred reasoning facts without writing from Reasoning", async ({ page }) => {
   const writePaths: string[] = [];
-  let entries: Array<Record<string, unknown>> = [];
-  let proposal: Record<string, unknown> | null = null;
-  let applied = false;
 
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
-    const path = new URL(request.url()).pathname;
+    const url = new URL(request.url());
+    const path = url.pathname;
     const method = request.method();
     if (path.endsWith("/summary")) return json(route, {
       apiVersion: "v1",
       project: { id: "simple", displayName: "Simple ontology", name: "simple-ontology" },
       sources: [{ id: "simple", path: "ontology/simple.ttl", format: "turtle", roles: ["ontology"], tripleCount: 10 }],
-      symbolCount: 5, graphTripleCount: applied ? 11 : 10,
+      symbolCount: 5, graphTripleCount: 10,
     });
     if (path.endsWith("/sources")) return json(route, {
       items: [{ id: "simple", path: "ontology/simple.ttl", format: "turtle", roles: ["ontology"], writable: true }],
@@ -25,42 +22,14 @@ test("reviews inferred facts before explicit assertion and never applies from Re
       apiVersion: "v1", sourceId: "simple", parentIri: null,
       page: { items: [], offset: 0, limit: 100, total: 0, nextOffset: null },
     });
-    if (path.endsWith("/staged") && method === "GET") return json(route, staging(entries, proposal));
+    if (path.endsWith("/staged") && method === "GET") return json(route, staging([], null));
     if (path.endsWith("/semantic-jobs") && method === "POST") return json(route, job());
     if (path.endsWith("/semantic-jobs/job-1") && method === "GET") return json(route, job());
-    if (path.endsWith("/semantic-jobs/job-1/details")) return json(route, details());
-    if (path.endsWith("/semantic-jobs/job-1/materializations")) {
-      const body = request.postDataJSON() as Record<string, unknown>;
-      materializationBodies.push(body);
-      entries = [materializedEntry()];
-      proposal = null;
-      return json(route, {
-        apiVersion: "v1", projectId: "simple", reasoningJobId: "job-1", graphFingerprint: "graph-current",
-        mappings: [{ factId: "fact-subclass", stagedChangeId: "stage-1" }],
-        staging: staging(entries, proposal),
-      });
+    if (path.endsWith("/semantic-jobs/job-1/details")) {
+      return json(route, details(url.searchParams.get("factOrigin") ?? "Asserted"));
     }
-    if (path.endsWith("/proposal/preview")) {
-      proposal = readyProposal();
-      return json(route, staging(entries, proposal));
-    }
-    if (path.endsWith("/proposal/reject")) {
+    if (method !== "GET" && (path.includes("/materializations") || path.includes("/proposal/"))) {
       writePaths.push(path);
-      entries = [];
-      proposal = null;
-      return json(route, staging(entries, proposal));
-    }
-    if (path.endsWith("/proposal/approve")) {
-      writePaths.push(path);
-      proposal = { ...readyProposal(), status: "APPROVED" };
-      return json(route, staging(entries, proposal));
-    }
-    if (path.endsWith("/proposal/apply")) {
-      writePaths.push(path);
-      applied = true;
-      entries = [];
-      proposal = { ...readyProposal(), status: "APPLIED" };
-      return json(route, staging(entries, proposal));
     }
     return json(route, { apiVersion: "v1", page: { items: [], offset: 0, limit: 50, total: 0, nextOffset: null } });
   });
@@ -68,35 +37,24 @@ test("reviews inferred facts before explicit assertion and never applies from Re
   await page.goto("/projects/simple");
   await page.getByRole("tab", { name: "Reasoning" }).click();
   await page.getByRole("button", { name: "Refresh reasoning" }).click();
-  await expect(page.getByRole("heading", { name: "Asserted facts" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Inferred facts" })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "Subclass", exact: true })).toBeVisible();
-  await page.getByLabel("Select Account subclass of Financial entity").focus();
-  await page.keyboard.press("Space");
-  await page.getByRole("button", { name: "Stage as asserted" }).click();
+  const asserted = page.getByRole("button", { name: /Asserted facts/ });
+  await asserted.focus();
+  await asserted.press("Enter");
+  const assertedDialog = page.getByRole("dialog", { name: "Asserted facts" });
+  await expect(assertedDialog).toContainText("Account");
+  await expect(assertedDialog).toContainText("Financial entity");
+  await assertedDialog.getByRole("button", { name: "Done" }).press("Enter");
 
-  await expect(page.getByRole("heading", { name: "Review queue" })).toBeVisible();
-  expect(materializationBodies).toHaveLength(1);
-  expect(materializationBodies[0].selections).toEqual([{ factId: "fact-subclass" }]);
-  expect(JSON.stringify(materializationBodies[0])).not.toContain("subject");
+  const inferred = page.getByRole("button", { name: /Inferred facts/ });
+  await inferred.focus();
+  await inferred.press("Enter");
+  const inferredDialog = page.getByRole("dialog", { name: "Inferred facts" });
+  await expect(inferredDialog).toContainText("Customer");
+  await inferredDialog.getByRole("textbox", { name: "Search relationships" }).fill("Customer");
+  await inferredDialog.getByRole("button", { name: "Search" }).press("Enter");
+  await expect(inferredDialog).toContainText("subclass of");
+  await expect(page.getByRole("button", { name: "Stage as asserted" })).toHaveCount(0);
   expect(writePaths).toEqual([]);
-
-  await page.getByRole("button", { name: "View Details" }).click();
-  await expect(page.getByText("Materialized from reasoning", { exact: true })).toBeVisible();
-  await expect(page.getByText("Added · Account · superclass · Financial entity")).toBeVisible();
-  await page.getByRole("dialog", { name: "View Details" }).getByRole("button", { name: "Reject" }).click();
-  await expect(page.getByText("No staged changes")).toBeVisible();
-  expect(writePaths).toEqual(["/api/v1/projects/simple/proposal/reject"]);
-
-  await page.getByRole("tab", { name: "Reasoning" }).click();
-  await page.getByLabel("Select Account subclass of Financial entity").check();
-  await page.getByRole("button", { name: "Stage as asserted" }).click();
-  await page.getByRole("button", { name: "Accept" }).click();
-  await expect(page.getByText("Proposal accepted and applied. The project has been refreshed.")).toBeVisible();
-  expect(writePaths.slice(-2)).toEqual([
-    "/api/v1/projects/simple/proposal/approve",
-    "/api/v1/projects/simple/proposal/apply",
-  ]);
 });
 
 function job() {
@@ -107,58 +65,31 @@ function job() {
   };
 }
 
-function details() {
+function details(origin: string) {
+  const inferred = origin === "Inferred";
   return {
     apiVersion: "v1",
     job: job(),
     facts: [{
-      kind: "SubclassRelationship", subject: "https://example.com/Account",
+      kind: "SubclassRelationship",
+      subject: inferred ? "https://example.com/Customer" : "https://example.com/Account",
+      subjectLabel: inferred ? "Customer" : "Account",
       predicate: "http://www.w3.org/2000/01/rdf-schema#subClassOf",
-      objectValue: "https://example.com/FinancialEntity", origin: "Asserted", sourceId: "simple",
+      predicateLabel: "subclass of",
+      objectValue: "https://example.com/FinancialEntity",
+      objectLabel: "Financial entity",
+      origin,
+      sourceId: "simple",
     }],
-    materializationCandidates: [{
-      factId: "fact-subclass", kind: "SubclassRelationship",
-      subject: "https://example.com/Account", subjectLabel: "Account",
-      predicate: "http://www.w3.org/2000/01/rdf-schema#subClassOf", predicateLabel: "subclass of",
-      objectValue: "https://example.com/FinancialEntity", objectLabel: "Financial entity",
-      origin: "Inferred", stageability: "Stageable", reason: "Ready to stage.",
-      sourceCandidates: [{ sourceId: "simple", selected: true }], selectedSourceId: "simple",
-      existingStagedChangeId: null, importDependence: "LocalOnly", importSourceIds: [],
-    }],
-    shaclFindings: [], warnings: [], errors: [], truncated: false,
-  };
-}
-
-function materializedEntry() {
-  return {
-    id: "stage-1", order: 1, sourceId: "simple", summary: "add-superclass · Account",
-    editType: "add-superclass", status: "STAGED", authorId: "alice", latestEditorId: "alice",
-    comment: "Materialized from reasoning; review before approval.",
-    normalizedValues: {
-      subjectIri: "https://example.com/Account", subjectLabel: "Account",
-      predicateIri: "http://www.w3.org/2000/01/rdf-schema#subClassOf", predicateLabel: "superclass",
-      objectIri: "https://example.com/FinancialEntity", objectLabel: "Financial entity",
-    },
-    generatedIris: [], validationMessages: [],
-    materializationProvenance: {
-      origin: "MaterializedFromReasoning", inferenceKind: "SubclassRelationship", reasoningJobId: "job-1",
-      graphFingerprint: "graph-current", factId: "fact-subclass", stagedByUserId: "alice",
-      stagedAt: "2026-07-23T15:00:00Z", targetSourceId: "simple", entailedBeforeAssertion: true,
-      importDependence: "LocalOnly", importSourceIds: [],
-    },
-  };
-}
-
-function readyProposal() {
-  return {
-    id: "proposal-1", status: "READYFORREVIEW", stagedChangeIds: ["stage-1"],
-    baselineProjectFingerprint: "baseline", validationMessages: [], validationIssues: [],
-    diff: [{
-      kind: "Added", subject: "https://example.com/Account",
-      predicate: "http://www.w3.org/2000/01/rdf-schema#subClassOf",
-      objectValue: "https://example.com/FinancialEntity", description: "Added asserted superclass.",
-    }],
-    targetSourceIds: ["simple"], shaclImpact: null, message: "Ready for review.",
+    factOffset: 0,
+    factLimit: 50,
+    totalFactCount: 1,
+    nextFactOffset: null,
+    materializationCandidates: [],
+    shaclFindings: [],
+    warnings: [],
+    errors: [],
+    truncated: false,
   };
 }
 

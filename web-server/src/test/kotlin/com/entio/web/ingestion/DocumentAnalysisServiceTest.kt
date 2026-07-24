@@ -193,6 +193,53 @@ class DocumentAnalysisServiceTest {
         })
     }
 
+    @Test
+    fun rejectsCandidateOverflowAndEnforcesTheTaskProviderCallLimit(): Unit = runBlocking {
+        val candidateFixture = fixture()
+        val overflowing = DocumentAnalysisProvider { _, _, _, request ->
+            val block = request.blocks.single()
+            DocumentAnalysisProviderResult.Completed(
+                DocumentAnalysisResponse(
+                    candidates = List(201) {
+                        response(block, "Customer", DocumentCandidateCategory.Class).candidates.single()
+                    },
+                ),
+            )
+        }
+        assertEquals(
+            "document-provider-schema-invalid",
+            assertFailsWith<DocumentAnalysisFailure> {
+                candidateFixture.service(overflowing).analyze("alice", work(extracted("Customer records matter.")))
+            }.code,
+        )
+
+        val callFixture = fixture()
+        var calls = 0
+        val successful = DocumentAnalysisProvider { _, _, _, request ->
+            calls += 1
+            DocumentAnalysisProviderResult.Completed(
+                response(request.blocks.single(), "Customer", DocumentCandidateCategory.Class),
+            )
+        }
+        val service = callFixture.service(successful)
+        repeat(20) { index ->
+            service.analyze(
+                "alice",
+                work(extracted("Customer records matter.")).copy(ontologyFingerprint = "fingerprint-$index"),
+            )
+        }
+        assertEquals(
+            "document-provider-call-limit",
+            assertFailsWith<DocumentAnalysisFailure> {
+                service.analyze(
+                    "alice",
+                    work(extracted("Customer records matter.")).copy(ontologyFingerprint = "fingerprint-overflow"),
+                )
+            }.code,
+        )
+        assertEquals(20, calls)
+    }
+
     private fun fixture(ready: Boolean = true): AnalysisFixture {
         val now = Instant.parse("2026-07-24T12:00:00Z")
         val credentials = InMemoryAiCredentialStore().also { it.save("alice", "openai", "secret-value") }

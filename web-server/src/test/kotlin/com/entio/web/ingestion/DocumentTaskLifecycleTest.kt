@@ -81,6 +81,46 @@ class DocumentTaskLifecycleTest {
         DocumentTemporaryStorage(root).close()
     }
 
+    @Test
+    fun cancellationPreventsMatchingAndDraftPreparationFromAdvancing(): Unit {
+        val root = Files.createTempDirectory("entio-stage-cancellation")
+        val storage = DocumentTemporaryStorage(root)
+        val ids = sequenceOf("matching", "draft").iterator()
+        val manager = DocumentIngestionTaskManager(
+            DocumentIngestionConfiguration(
+                temporaryRoot = root,
+                provenanceRoot = Files.createTempDirectory("entio-stage-cancellation-provenance"),
+                idFactory = ids::next,
+            ),
+            storage,
+        )
+
+        fun cancelAt(status: DocumentProcessingStatus): Unit {
+            val task = manager.begin("project-a", "alice", 1)
+            val directory = manager.directory(task, "project-a", "alice")
+            val checksum = if (status == DocumentProcessingStatus.Matching) "b".repeat(64) else "c".repeat(64)
+            manager.addDocument(task, "project-a", "alice", upload(task, directory, checksum))
+            manager.completeIntake(task, "project-a", "alice")
+            manager.transition(task, "project-a", "alice", status, 1, 75, "Processing.")
+            manager.cancel(task, "project-a", "alice")
+            assertCode("ingestion-cancelled") {
+                manager.transition(
+                    task,
+                    "project-a",
+                    "alice",
+                    DocumentProcessingStatus.AwaitingReview,
+                    1,
+                    100,
+                    "Must not advance.",
+                )
+            }
+        }
+
+        cancelAt(DocumentProcessingStatus.Matching)
+        cancelAt(DocumentProcessingStatus.PreparingRecommendations)
+        manager.close()
+    }
+
     private fun upload(taskId: DocumentTaskId, directory: TemporaryTaskDirectory, checksum: String): AcceptedDocumentUpload {
         val file = directory.path.resolve("document-${taskId.value}.bin")
         Files.writeString(file, "content")

@@ -101,6 +101,26 @@ class DocumentIntakeServiceTest {
         }
     }
 
+    @Test
+    fun rejectsHostileAndMalformedDocxPackages(): Unit {
+        val fixture = fixture(maximumBytes = 2 * 1024 * 1024)
+
+        assertDocxCode(fixture, "unsafe-docx-entry", docx(extraEntries = listOf("../escape.xml" to "escape".toByteArray())))
+        assertDocxCode(fixture, "unsafe-docx-content", docx(extraEntries = listOf("word/vbaProject.bin" to byteArrayOf(1))))
+        assertDocxCode(
+            fixture,
+            "unsafe-docx-content",
+            docx(contentTypes = """<Types ContentType="application/vnd.ms-word.document.macroEnabled.main+xml"/>"""),
+        )
+        assertDocxCode(
+            fixture,
+            "docx-compression-ratio",
+            docx(extraEntries = listOf("word/media/compressed.bin" to ByteArray(200_000) { 'A'.code.toByte() })),
+        )
+        assertDocxCode(fixture, "document-signature-mismatch", byteArrayOf(0x50, 0x4B, 0x03, 0x04, 0x01))
+        assertDocxCode(fixture, "document-signature-mismatch", zipOf("unrelated.txt" to "not a document".toByteArray()))
+    }
+
     private fun fixture(maximumBytes: Long = 1024 * 1024): IntakeFixture {
         val root = Files.createTempDirectory("entio-intake-test")
         val storage = DocumentTemporaryStorage(root)
@@ -123,22 +143,45 @@ class DocumentIntakeServiceTest {
         businessArea = "Governance",
     )
 
-    private fun docx(externalRelationship: Boolean = false): ByteArray {
+    private fun docx(
+        externalRelationship: Boolean = false,
+        contentTypes: String = "<Types/>",
+        extraEntries: List<Pair<String, ByteArray>> = emptyList(),
+    ): ByteArray {
+        val entries = buildList {
+            add("[Content_Types].xml" to contentTypes.toByteArray(StandardCharsets.UTF_8))
+            add("word/document.xml" to "<w:document/>".toByteArray(StandardCharsets.UTF_8))
+            if (externalRelationship) {
+                add("word/_rels/document.xml.rels" to """<Relationship TargetMode="External"/>""".toByteArray(StandardCharsets.UTF_8))
+            }
+            addAll(extraEntries)
+        }
+        return zipOf(*entries.toTypedArray())
+    }
+
+    private fun zipOf(vararg entries: Pair<String, ByteArray>): ByteArray {
         val output = java.io.ByteArrayOutputStream()
         ZipOutputStream(output).use { zip ->
-            zip.putNextEntry(ZipEntry("[Content_Types].xml"))
-            zip.write("""<Types/>""".toByteArray(StandardCharsets.UTF_8))
-            zip.closeEntry()
-            zip.putNextEntry(ZipEntry("word/document.xml"))
-            zip.write("""<w:document/>""".toByteArray(StandardCharsets.UTF_8))
-            zip.closeEntry()
-            if (externalRelationship) {
-                zip.putNextEntry(ZipEntry("word/_rels/document.xml.rels"))
-                zip.write("""<Relationship TargetMode="External"/>""".toByteArray(StandardCharsets.UTF_8))
+            entries.forEach { (name, bytes) ->
+                zip.putNextEntry(ZipEntry(name))
+                zip.write(bytes)
                 zip.closeEntry()
             }
         }
         return output.toByteArray()
+    }
+
+    private fun assertDocxCode(fixture: IntakeFixture, code: String, bytes: ByteArray): Unit {
+        assertCode(code) {
+            fixture.service.accept(
+                DocumentTaskId("task-$code"),
+                fixture.directory,
+                "project-a",
+                "alice",
+                metadata("policy.docx", DOCX),
+                ByteArrayInputStream(bytes),
+            )
+        }
     }
 
     private fun assertCode(code: String, block: () -> Unit): Unit {
