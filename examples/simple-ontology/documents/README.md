@@ -7,8 +7,8 @@ Templates:
 
 Completed fictional examples:
 
-- `003-commercial-account-and-payment-authorization-policy.md`
-- `004-consumer-lending-servicing-compliance-standard.md`
+- `commercial-account-and-payment-authorization-policy.pdf`
+- `consumer-lending-servicing-compliance-standard.pdf`
 
 The examples are written as controlled Meridian Community Bank documents. They use fictional people, organizations, accounts, loans, payments, and control records. Their subject matter is intentionally adjacent to the `simple-ontology` financial model without copying its named records or presenting ontology definitions.
 
