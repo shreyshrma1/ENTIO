@@ -87,6 +87,27 @@ describe("accessible ontology graph renderer", () => {
     expect(fireEvent.contextMenu(viewport)).toBe(false);
   });
 
+  it("does not start map panning when a graph-local information card is dragged", () => {
+    const renderer = render(<OntologyGraphRenderer
+      nodes={nodes}
+      edges={[]}
+      state={{ selectedNodeId: "node-0", zoom: 1 }}
+      viewportOverlay={{ content: <aside className="ontology-node-popup">Entity information</aside> }}
+      onStateChange={vi.fn()}
+    />);
+    const viewport = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport")!;
+    const popup = within(renderer.container).getByText("Entity information");
+    viewport.setPointerCapture = vi.fn();
+    const initialLeft = viewport.scrollLeft;
+    const initialTop = viewport.scrollTop;
+    fireEvent.pointerDown(popup, { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(viewport, { pointerId: 1, clientX: 50, clientY: 50 });
+    fireEvent.pointerUp(viewport, { pointerId: 1 });
+    expect(viewport.setPointerCapture).not.toHaveBeenCalled();
+    expect(viewport.scrollLeft).toBe(initialLeft);
+    expect(viewport.scrollTop).toBe(initialTop);
+  });
+
   it("keeps selected entity information in the scrollable graph world", () => {
     const renderer = render(<OntologyGraphRenderer
       nodes={nodes}
@@ -98,8 +119,9 @@ describe("accessible ontology graph renderer", () => {
     const overlay = renderer.container.querySelector<HTMLElement>(".ontology-graph-world > .ontology-graph-viewport-overlay");
     const positioner = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport-overlay-position");
     const viewport = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport")!;
-    expect(overlay).toContainElement(screen.getByText("Entity information"));
-    expect(viewport).toContainElement(screen.getByText("Entity information"));
+    const information = within(renderer.container).getByText("Entity information");
+    expect(overlay).toContainElement(information);
+    expect(viewport).toContainElement(information);
     expect(positioner).toHaveStyle({ left: "30px", top: "40px" });
     renderer.rerender(<OntologyGraphRenderer
       nodes={nodes}

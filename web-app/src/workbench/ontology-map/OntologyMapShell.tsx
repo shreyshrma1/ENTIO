@@ -132,6 +132,7 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   }
   function startPopupDrag(event: PointerEvent<HTMLElement>) {
     if ((event.target as HTMLElement).closest("button")) return;
+    event.stopPropagation();
     const popup = popupRef.current;
     const positioner = popup?.closest<HTMLElement>(".ontology-graph-viewport-overlay-position");
     const viewport = popup?.closest<HTMLElement>(".ontology-graph-viewport-overlay");
@@ -146,6 +147,7 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
     popupDrag.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, x, y, latestX: x, latestY: y };
   }
   function movePopup(event: PointerEvent<HTMLElement>) {
+    event.stopPropagation();
     const drag = popupDrag.current;
     const popup = popupRef.current;
     const positioner = popup?.closest<HTMLElement>(".ontology-graph-viewport-overlay-position");
@@ -159,7 +161,8 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
     drag.latestX = x;
     drag.latestY = y;
   }
-  function stopPopupDrag() {
+  function stopPopupDrag(event?: PointerEvent<HTMLElement>) {
+    event?.stopPropagation();
     const drag = popupDrag.current;
     popupDrag.current = null;
     if (drag) onStateChange({ ...state, popupPosition: { x: drag.latestX, y: drag.latestY }, popupCoordinateSpace: "graph" });
