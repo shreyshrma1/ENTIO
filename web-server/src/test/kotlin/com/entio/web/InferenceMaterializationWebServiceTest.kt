@@ -105,6 +105,9 @@ class InferenceMaterializationWebServiceTest {
             assertEquals(1, inferredFacts.nextFactOffset)
         }
         val searchableFact = inferredFacts.facts.single()
+        assertTrue(searchableFact.subjectLabel?.isNotBlank() == true)
+        assertTrue(searchableFact.predicateLabel?.isNotBlank() == true)
+        assertTrue(searchableFact.objectLabel?.isNotBlank() == true)
         val searchedFacts = assertNotNull(
             jobs.details(
                 projectId = "reasoning",
@@ -356,13 +359,13 @@ class InferenceMaterializationWebServiceTest {
             @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
             @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
-            ex:A a owl:Class ; rdfs:subClassOf ex:B .
-            ex:B a owl:Class ; rdfs:subClassOf ex:C .
-            ex:C a owl:Class .
-            ex:x a owl:NamedIndividual, ex:A .
+            ex:A a owl:Class ; rdfs:label "Account category A" ; rdfs:subClassOf ex:B .
+            ex:B a owl:Class ; rdfs:label "Account category B" ; rdfs:subClassOf ex:C .
+            ex:C a owl:Class ; rdfs:label "Account category C" .
+            ex:x a owl:NamedIndividual, ex:A ; rdfs:label "Checking Account 33271" .
             ex:y a owl:NamedIndividual .
             ex:z a owl:NamedIndividual .
-            ex:related a owl:ObjectProperty, owl:TransitiveProperty .
+            ex:related a owl:ObjectProperty, owl:TransitiveProperty ; rdfs:label "related account" .
             ex:x ex:related ex:y .
             ex:y ex:related ex:z .
             """.trimIndent(),

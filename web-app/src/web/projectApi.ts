@@ -513,8 +513,11 @@ export interface WebSemanticJobFinding {
 export interface WebReasoningFact {
   kind: string;
   subject: string;
+  subjectLabel?: string | null;
   predicate: string | null;
+  predicateLabel?: string | null;
   objectValue: string;
+  objectLabel?: string | null;
   origin: "Asserted" | "Inferred";
   sourceId: string | null;
 }

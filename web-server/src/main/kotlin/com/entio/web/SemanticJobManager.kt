@@ -173,7 +173,8 @@ public class SemanticJobManager(
         val record = jobs[jobId]?.takeIf { it.projectId == projectId } ?: return null
         val reasoning = record.reasoningResult
         val shacl = record.shaclReport
-        val allFacts = reasoning?.toWebFacts().orEmpty()
+        val labels = reasoning?.let { projectLabels(projectId) }.orEmpty()
+        val allFacts = reasoning?.toWebFacts(labels).orEmpty()
             .filter { requestedOrigin == null || it.origin == requestedOrigin.name }
             .filter { fact -> factQuery.isNullOrBlank() || fact.matchesSemanticQuery(factQuery) }
         val factPage = allFacts.drop(factOffset).take(limit)
@@ -569,25 +570,58 @@ public class SemanticJobManager(
         return GraphState(triples)
     }
 
-    private fun ReasoningResult.toWebFacts(): List<WebReasoningFact> = buildList {
+    private fun ReasoningResult.toWebFacts(labels: Map<String, String>): List<WebReasoningFact> = buildList {
         classRelationships.forEach { fact ->
-            add(WebReasoningFact("class-relationship", fact.subject.value, RDFS_SUBCLASS, fact.objectClass.value, fact.origin.name, fact.sourceId))
+            add(reasoningFact("class-relationship", fact.subject.value, RDFS_SUBCLASS, fact.objectClass.value, fact.origin.name, fact.sourceId, labels))
         }
         individualTypes.forEach { fact ->
-            add(WebReasoningFact("individual-type", fact.individual.value, RDF_TYPE, fact.type.value, fact.origin.name, fact.sourceId))
+            add(reasoningFact("individual-type", fact.individual.value, RDF_TYPE, fact.type.value, fact.origin.name, fact.sourceId, labels))
         }
         propertyRelationships.forEach { fact ->
-            add(WebReasoningFact("property-relationship", fact.subject.value, fact.predicate.value, fact.objectResource.value, fact.origin.name, fact.sourceId))
+            add(reasoningFact("property-relationship", fact.subject.value, fact.predicate.value, fact.objectResource.value, fact.origin.name, fact.sourceId, labels))
         }
     }.sortedWith(compareBy(WebReasoningFact::kind, WebReasoningFact::subject, WebReasoningFact::predicate, WebReasoningFact::objectValue))
 
     private fun WebReasoningFact.matchesSemanticQuery(query: String): Boolean {
-        val searchable = listOf(kind, subject, predicate.orEmpty(), objectValue)
+        val searchable = listOf(kind, subject, subjectLabel.orEmpty(), predicate.orEmpty(), predicateLabel.orEmpty(), objectValue, objectLabel.orEmpty())
             .flatMap { value -> listOf(value, value.substringAfterLast('#', value.substringAfterLast('/'))) }
             .joinToString(" ")
             .lowercase()
         return query.lowercase().split(Regex("\\s+")).filter(String::isNotBlank).all(searchable::contains)
     }
+
+    private fun projectLabels(projectId: String): Map<String, String> =
+        when (val loaded = projectLoader.loadProject(projectRegistry.rootFor(projectId))) {
+            is EntioResult.Failure -> emptyMap()
+            is EntioResult.Success -> loaded.value.symbols
+                .sortedWith(compareBy({ it.iri.value }, { it.sourceId }))
+                .mapNotNull { symbol -> symbol.label?.let { symbol.iri.value to it } }
+                .toMap()
+        }
+
+    private fun reasoningFact(
+        kind: String,
+        subject: String,
+        predicate: String,
+        objectValue: String,
+        origin: String,
+        sourceId: String?,
+        labels: Map<String, String>,
+    ): WebReasoningFact = WebReasoningFact(
+        kind = kind,
+        subject = subject,
+        subjectLabel = labels[subject],
+        predicate = predicate,
+        predicateLabel = labels[predicate] ?: when (predicate) {
+            RDF_TYPE -> "type"
+            RDFS_SUBCLASS -> "subclass of"
+            else -> null
+        },
+        objectValue = objectValue,
+        objectLabel = labels[objectValue],
+        origin = origin,
+        sourceId = sourceId,
+    )
 
     private fun materializationCandidates(
         record: MutableSemanticJob,
