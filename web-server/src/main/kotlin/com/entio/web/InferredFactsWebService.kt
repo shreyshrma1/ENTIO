@@ -13,9 +13,6 @@ public class InferredFactsWebService(
         includeApplied: Boolean,
         includeProposal: Boolean,
     ): List<WebInferredFactsOverlay> {
-        // Applied reasoning starts on the first authorized project read even while
-        // presentation filters remain off.
-        jobs.ensureInferredRead(projectId, WebJobScope.Applied)
         return readCore(projectId, includeApplied, includeProposal).map(InferredFactsOverlay::toWeb)
     }
 
@@ -24,7 +21,6 @@ public class InferredFactsWebService(
         includeApplied: Boolean,
         includeProposal: Boolean,
     ): List<InferredFactsOverlay> {
-        jobs.ensureInferredRead(projectId, WebJobScope.Applied)
         return listOf(
             jobs.inferredReadOverlay(projectId, WebJobScope.Applied, includeApplied),
             jobs.inferredReadOverlay(projectId, WebJobScope.Proposal, includeProposal),
@@ -33,7 +29,6 @@ public class InferredFactsWebService(
 
     public fun refreshProposal(projectId: String): Unit {
         jobs.invalidateProposalJobs(projectId)
-        jobs.ensureInferredRead(projectId, WebJobScope.Proposal)
     }
 
     public fun refreshApplied(projectId: String): Unit {

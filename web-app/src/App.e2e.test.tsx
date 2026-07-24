@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
@@ -9,8 +9,10 @@ describe("application workbench journey", () => {
   });
 
   it("navigates from a project to a local entity and a FIBO detail", async () => {
+    const requestedPaths: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
+      requestedPaths.push(path);
       if (path === "/api/v1/projects") {
         return json({ apiVersion: "v1", projects: [{ id: "simple", displayName: "Simple ontology" }] });
       }
@@ -48,6 +50,11 @@ describe("application workbench journey", () => {
 
     fireEvent.click(await screen.findByRole("link", { name: /Simple ontology/ }));
     expect(await screen.findByRole("heading", { name: "simple-ontology" })).toBeInTheDocument();
+    await waitFor(() => expect(requestedPaths.some((path) => path.includes("ensure-applied-reasoning"))).toBe(true));
+    const reasoningIndex = requestedPaths.findIndex((path) => path.includes("ensure-applied-reasoning"));
+    expect(reasoningIndex).toBeGreaterThan(requestedPaths.findIndex((path) => path.includes("/hierarchy")));
+    expect(reasoningIndex).toBeGreaterThan(requestedPaths.findIndex((path) => path.includes("/outline")));
+    expect(reasoningIndex).toBeGreaterThan(requestedPaths.findIndex((path) => path.includes("/staged")));
     fireEvent.click(await screen.findByRole("button", { name: /Customer/ }));
     expect(await screen.findByRole("textbox", { name: "Definition" })).toHaveValue("A customer.");
     app.unmount();

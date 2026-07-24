@@ -186,26 +186,40 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   }, [activeIri, restoredEntity.data]);
 
   useEffect(() => {
-    if (!summary.isSuccess || !projectId || ensuredReasoningProject.current === projectId) return;
-    ensuredReasoningProject.current = projectId;
-    ensureAppliedReasoning.mutate(undefined, {
-      onSuccess: (status) => {
-        setSemanticJobIds((current) => ({ ...current, reasoning: status.id }));
-      },
-    });
-  }, [projectId, summary.isSuccess]);
+    const restoredEntityReady = !activeIri || Boolean(activeTab) || restoredEntity.isSuccess || restoredEntity.isError;
+    if (!summary.isSuccess || !rootHierarchy.isSuccess || !outline.isSuccess || !staged.isSuccess || !restoredEntityReady || !projectId || ensuredReasoningProject.current === projectId) return;
+    const startReasoning = () => {
+      ensuredReasoningProject.current = projectId;
+      ensureAppliedReasoning.mutate(undefined, {
+        onSuccess: (status) => {
+          setSemanticJobIds((current) => ({ ...current, reasoning: status.id }));
+        },
+      });
+    };
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (idleWindow.requestIdleCallback) {
+      const handle = idleWindow.requestIdleCallback(startReasoning, { timeout: 2_000 });
+      return () => idleWindow.cancelIdleCallback?.(handle);
+    }
+    const handle = window.setTimeout(startReasoning, 0);
+    return () => window.clearTimeout(handle);
+  }, [activeIri, activeTab, outline.isSuccess, projectId, restoredEntity.isError, restoredEntity.isSuccess, rootHierarchy.isSuccess, staged.isSuccess, summary.isSuccess]);
 
   useEffect(() => {
     const status = backgroundReasoning.data;
     if (status?.status !== "Completed" || refreshedReasoningJob.current === status.id) return;
     refreshedReasoningJob.current = status.id;
+    if (!includeAppliedInferred && !includeProposalInferred) return;
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: ["project", projectId, "hierarchy"] }),
       queryClient.invalidateQueries({ queryKey: ["project", projectId, "outline"] }),
       queryClient.invalidateQueries({ queryKey: ["project", projectId, "entity"] }),
       queryClient.invalidateQueries({ queryKey: ["project", projectId, "ontology-graph"] }),
     ]);
-  }, [backgroundReasoning.data, projectId, queryClient]);
+  }, [backgroundReasoning.data, includeAppliedInferred, includeProposalInferred, projectId, queryClient]);
 
   useEffect(() => {
     const normalizedSearch = searchInput.trim();
