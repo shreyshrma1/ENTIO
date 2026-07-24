@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useProjects } from "../web/queries";
 import StatusBadge from "../components/ui/StatusBadge";
 
