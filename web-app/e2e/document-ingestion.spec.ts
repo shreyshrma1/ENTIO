@@ -79,6 +79,19 @@ test("completes the accessible document review and proposal workflow", async ({ 
   await page.goto("/projects/simple");
   await page.getByRole("tab", { name: "Documents" }).click();
   await expect(page.getByRole("tabpanel", { name: "Documents workspace" })).toBeVisible();
+  const documentsIcon = page.getByRole("tab", { name: "Documents" }).locator(".ui-icon");
+  const activityIcon = page.getByRole("tab", { name: "Activity" }).locator(".ui-icon");
+  await expect(documentsIcon).toHaveText("▤");
+  await expect(documentsIcon).not.toHaveText(await activityIcon.textContent() ?? "");
+
+  const assistantToggle = page.getByRole("button", { name: /Entio AI/ });
+  if (await assistantToggle.getAttribute("aria-expanded") === "false") await assistantToggle.click();
+  const assistant = page.getByRole("complementary", { name: "Entio AI assistant" });
+  await expect(assistant).toBeVisible();
+  await expect.poll(async () => page.locator(".document-workspace").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  const uploadCardBounds = await page.locator(".document-upload-card").boundingBox();
+  const assistantBounds = await assistant.boundingBox();
+  expect(uploadCardBounds!.x + uploadCardBounds!.width).toBeLessThanOrEqual(assistantBounds!.x + 1);
 
   const input = page.locator('input[type="file"]');
   await input.setInputFiles([

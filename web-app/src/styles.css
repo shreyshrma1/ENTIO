@@ -1123,11 +1123,13 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .inferred-fact-proposal { border-inline-start: 3px solid #8b7cf6; padding-inline-start: 8px; }
 .inferred-badge { margin-inline-start: auto; padding: 2px 7px; border: 1px solid #9cc9f7; border-radius: 999px; background: #deefff; color: #285b91; font-size: 11px; font-weight: 700; }
 .inferred-state-message { margin: 6px 0; color: var(--text-muted); font-size: 13px; }
-.document-workspace { display: grid; gap: 18px; padding: 20px; }
+.document-workspace { display: grid; min-width: 0; max-width: 100%; gap: 18px; padding: 20px; }
 .document-workspace-header { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+.document-workspace-header > * { min-width: 0; }
 .document-workspace-header h1, .document-workspace-header p { margin: 0; }
 .document-workspace-header p { max-width: 620px; color: var(--text-secondary); }
-.document-upload-card { display: grid; grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(130px, 1fr)) auto; gap: 12px; align-items: end; padding: 16px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--surface-1); }
+.document-upload-card { display: grid; min-width: 0; grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(130px, 1fr)) auto; gap: 12px; align-items: end; padding: 16px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--surface-1); }
+.document-upload-card > * { min-width: 0; }
 .document-upload-card label, .document-review-fields label, .document-recommendation-card > label { display: grid; gap: 5px; color: var(--text-secondary); font-size: 12px; font-weight: 700; }
 .document-upload-card input, .document-upload-card select, .document-review-fields input, .document-review-fields textarea, .document-recommendation-card select { min-width: 0; padding: 8px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--surface-1); color: var(--text-primary); }
 .document-workspace-grid { display: grid; grid-template-columns: minmax(220px, 290px) minmax(0, 1fr); gap: 16px; align-items: start; }
@@ -1161,7 +1163,18 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .document-evidence-dialog header { display: flex; align-items: center; justify-content: space-between; }
 .document-evidence-dialog pre { overflow: auto; padding: 16px; border: 1px solid var(--border-subtle); background: var(--surface-2); white-space: pre-wrap; word-break: break-word; }
 .document-evidence-dialog mark { background: #fde68a; color: inherit; }
-@media (max-width: 900px) {
-  .document-upload-card, .document-workspace-grid { grid-template-columns: 1fr; }
+/* Reflow against the workspace width, which changes independently when the AI sidebar opens. */
+@container workspace (max-width: 1050px) {
   .document-workspace-header { display: grid; }
+  .document-upload-card { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .document-upload-card > label:first-child { grid-column: 1 / -1; }
+  .document-upload-card > button { justify-self: start; }
+}
+@container workspace (max-width: 760px) {
+  .document-workspace { padding: 14px; }
+  .document-workspace-grid { grid-template-columns: 1fr; }
+}
+@container workspace (max-width: 520px) {
+  .document-upload-card, .document-review-fields { grid-template-columns: 1fr; }
+  .document-upload-card > label:first-child, .document-review-fields label:last-child { grid-column: auto; }
 }

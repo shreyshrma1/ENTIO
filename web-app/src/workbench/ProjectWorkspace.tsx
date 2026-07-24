@@ -50,7 +50,7 @@ interface StagedEntityReference extends WebEntityReference {
 
 const modules: Array<{ id: ModuleId; label: string; icon: Parameters<typeof Icon>[0]["name"] }> = [
   { id: "explore", label: "Explore", icon: "explore" },
-  { id: "documents", label: "Documents", icon: "activity" },
+  { id: "documents", label: "Documents", icon: "documents" },
   { id: "changes", label: "Proposal", icon: "changes" },
   { id: "reasoning", label: "Reasoning", icon: "reasoning" },
   { id: "validation", label: "Validation", icon: "constraints" },
