@@ -87,7 +87,7 @@ describe("accessible ontology graph renderer", () => {
     expect(fireEvent.contextMenu(viewport)).toBe(false);
   });
 
-  it("keeps selected entity information fixed in the viewport across map zoom changes", () => {
+  it("keeps selected entity information in the scrollable graph world", () => {
     const renderer = render(<OntologyGraphRenderer
       nodes={nodes}
       edges={[]}
@@ -95,15 +95,11 @@ describe("accessible ontology graph renderer", () => {
       viewportOverlay={{ position: { x: 30, y: 40 }, content: <aside>Entity information</aside> }}
       onStateChange={vi.fn()}
     />);
-    const overlay = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport-frame > .ontology-graph-viewport-overlay");
+    const overlay = renderer.container.querySelector<HTMLElement>(".ontology-graph-world > .ontology-graph-viewport-overlay");
     const positioner = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport-overlay-position");
     const viewport = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport")!;
     expect(overlay).toContainElement(screen.getByText("Entity information"));
-    expect(viewport).not.toContainElement(screen.getByText("Entity information"));
-    expect(positioner).toHaveStyle({ left: "30px", top: "40px" });
-    viewport.scrollLeft = 240;
-    viewport.scrollTop = 180;
-    fireEvent.scroll(viewport);
+    expect(viewport).toContainElement(screen.getByText("Entity information"));
     expect(positioner).toHaveStyle({ left: "30px", top: "40px" });
     renderer.rerender(<OntologyGraphRenderer
       nodes={nodes}

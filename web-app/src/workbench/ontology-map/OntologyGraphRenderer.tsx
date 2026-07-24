@@ -163,6 +163,11 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
             </g>
             </svg>
           </div>
+          {viewportOverlay ? <div className="ontology-graph-viewport-overlay">
+            <div className="ontology-graph-viewport-overlay-position" style={viewportOverlay.position ? { left: viewportOverlay.position.x, top: viewportOverlay.position.y } : defaultOverlayPosition(state.selectedNodeId, positions, bounds, zoom)}>
+              {viewportOverlay.content}
+            </div>
+          </div> : null}
         </div>
       </div>
       <details className="ontology-map-legend" open>
@@ -183,12 +188,18 @@ export default function OntologyGraphRenderer({ nodes, edges, state, toolbarStar
           </section>
         </div>
       </details>
-      {viewportOverlay ? <div className="ontology-graph-viewport-overlay">
-        <div className="ontology-graph-viewport-overlay-position" style={viewportOverlay.position ? { left: viewportOverlay.position.x, top: viewportOverlay.position.y } : undefined}>
-          {viewportOverlay.content}
-        </div>
-      </div> : null}
     </div>
     <details className="ontology-loaded-list"><summary>Loaded entities ({nodes.length})</summary><ul>{nodes.map((node) => <li key={node.identity.id}><button type="button" onClick={() => { onStateChange({ ...state, positions: persistedPositions, zoom, selectedNodeId: node.identity.id }); document.getElementById(`ontology-node-${node.identity.id}`)?.focus(); }}>{node.label} <small>{node.kind}</small></button></li>)}</ul></details>
   </div>;
+}
+
+function defaultOverlayPosition(selectedNodeId: string | null, positions: Record<string, GraphPoint>, bounds: ReturnType<typeof graphWorldBounds>, zoom: number): { left: string; top: string } {
+  const selected = positions[selectedNodeId ?? ""];
+  if (!selected) return { left: "calc(50% + 40px)", top: "calc(50% - 160px)" };
+  const nodeRight = (selected.x - bounds.minX + graphNodeSize.width) * zoom + 16;
+  const nodeTop = (selected.y - bounds.minY) * zoom;
+  return {
+    left: `calc(50% - ${bounds.width * zoom / 2}px + ${nodeRight}px)`,
+    top: `calc(50% - ${bounds.height * zoom / 2}px + ${nodeTop}px)`,
+  };
 }
