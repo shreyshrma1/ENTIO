@@ -2,7 +2,10 @@
 
 ## Status
 
-Approved for implementation on 2026-07-24. Implementation begins with Slice 0; production implementation remains blocked until the Slice 0 decisions are approved.
+Approved for implementation on 2026-07-24. Slice 0 was approved on
+2026-07-24 in
+[`phase-11-slice-0-contract-audit.md`](../decisions/phase-11-slice-0-contract-audit.md);
+production implementation may proceed in the dependency order below.
 
 ## Goal
 

@@ -610,20 +610,11 @@ Phase 11 is complete when:
 
 ## Open Questions
 
-These questions must be closed during Slice 0 before implementation:
-
-- Do PDFBox, Apache POI, Tess4J/Tesseract, and their transitive licenses satisfy the repository's approved dependency and distribution policy?
-- Is a bundled Tesseract runtime allowed for development and deployment, or must the server require an administrator-provided fixed binary/data installation?
-- Which already-supported selected models pass the structured-output and context-bound fixtures for this workflow?
-- Which existing typed SHACL operations are safe to expose from ingestion without expanding Phase 4's supported constraint set?
-- Can the current in-memory identity boundary express the exact upload, review, and proposal permissions additively, or must Phase 11 remain development-user scoped?
-- Which existing document-viewer component can safely render retained PDFs, or is a minimal browser-native PDF page view required?
-- What minimal durable provenance repository schema, retention, authorization, migration, atomicity, and recovery contract will be used?
-- What OCR rendering DPI, page dimensions, total-image-byte limit, and evidence-view lifetime are safe?
-- What server-wide ingestion concurrency limit is safe?
-- Does English-only intake use deterministic language detection or an explicit user declaration plus validation?
-
-If any answer requires production persistence, arbitrary process execution, a new apply path, raw RDF, unbounded indexing, or expanded ontology semantics, that part must be deferred or the spec must be revised and reapproved.
+Slice 0 closed these questions in
+[`phase-11-slice-0-contract-audit.md`](../decisions/phase-11-slice-0-contract-audit.md).
+The approved decisions keep production persistence, user-selected executables,
+new apply paths, raw RDF, unbounded indexing, and expanded ontology semantics
+out of Phase 11.
 
 ## Boundary Check
 
