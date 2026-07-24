@@ -497,6 +497,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .relationship-row-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .relationship-row-list li { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 52px; padding: 9px 11px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-2); }
 .relationship-row-list li.relationship-row-staged { border-color: #f5c451; background: var(--staged-subtle); }
+.relationship-row-list li.relationship-row-inferred { border-color: #b9d9ff; background: #f2f8ff; }
+.relationship-row-inferred .relationship-row-status small { color: #397eaf; }
+.relationship-row-list li.relationship-row-inferred-proposal { border-inline-start: 3px solid #8b7cf6; }
 .relationship-row-list li > div:first-child { display: grid; gap: 2px; min-width: 0; }
 .relationship-row-list strong { overflow: hidden; color: var(--text-primary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .relationship-row-list li > div:first-child span { overflow: hidden; color: var(--text-secondary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
@@ -546,6 +549,28 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .materialization-provenance div { display: flex; gap: 5px; }
 .materialization-provenance dt { color: var(--text-secondary); font-weight: 700; }
 .materialization-provenance dd { margin: 0; }
+.reasoning-fact-browsers { display: grid; gap: 14px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-subtle); }
+.reasoning-fact-browser-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.reasoning-fact-browser-button { display: grid; gap: 5px; padding: 16px; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-1); color: var(--text-primary); text-align: left; }
+.reasoning-fact-browser-button:hover:not(:disabled) { border-color: var(--primary-300); background: var(--primary-50); }
+.reasoning-fact-browser-button strong { font-size: 14px; }
+.reasoning-fact-browser-button span { color: var(--text-muted); font-size: 11px; }
+.reasoning-fact-dialog-backdrop { position: fixed; z-index: 40; inset: 0; display: grid; place-items: center; padding: 24px; background: rgb(20 28 45 / 34%); }
+.reasoning-fact-dialog { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; width: min(760px, 92vw); max-height: min(760px, 86vh); overflow: hidden; border: 1px solid var(--border-default); border-radius: 16px; background: var(--surface-1); box-shadow: var(--shadow-lg); }
+.reasoning-fact-dialog > header, .reasoning-fact-dialog > footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; }
+.reasoning-fact-dialog > header { border-bottom: 1px solid var(--border-subtle); }
+.reasoning-fact-dialog > header h3, .reasoning-fact-dialog > header p { margin: 0; }
+.reasoning-fact-dialog > footer { justify-content: flex-end; border-top: 1px solid var(--border-subtle); }
+.reasoning-fact-search { display: grid; gap: 6px; padding: 14px 18px 8px; }
+.reasoning-fact-search label { color: var(--text-secondary); font-size: 10px; font-weight: 700; }
+.reasoning-fact-search > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.reasoning-fact-count { margin: 0; padding: 4px 18px 10px; color: var(--text-muted); font-size: 10px; }
+.reasoning-fact-scroll { min-height: 220px; overflow: auto; padding: 0 18px 16px; }
+.reasoning-fact-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.reasoning-fact-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; padding: 11px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-2); }
+.reasoning-fact-list li > strong:last-of-type { text-align: right; }
+.reasoning-fact-list li > span { color: var(--primary-700); font-size: 10px; font-weight: 700; }
+.reasoning-fact-list li > small { grid-column: 1 / -1; color: var(--text-muted); font-size: 9px; }
 .constraints-toolbar, .constraints-library, .constraints-validation { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-1); }
 .constraints-toolbar { grid-template-columns: 1fr; align-items: stretch; }
 .constraints-toolbar > div:first-child { justify-self: start; max-width: 72ch; text-align: left; }
@@ -1011,11 +1036,13 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-zoom-stepper button:hover:not(:disabled) { background: var(--surface-1); color: var(--text-primary); box-shadow: 0 1px 3px rgb(23 32 51 / 9%); }
 .ontology-zoom-stepper .ontology-fit-button { min-width: 48px; margin-left: 3px; border-left: 1px solid var(--border-subtle); border-radius: 0 6px 6px 0; font-size: 12px; }
 .ontology-graph-controls output { min-width: 52px; color: var(--text-secondary); text-align: center; font-size: 12px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.ontology-graph-viewport-frame { position: relative; min-height: 460px; }
 .ontology-graph-viewport { display: flex; min-height: 460px; max-height: 65vh; overflow: auto; border: 1px solid var(--border-default); background-color: #f8f9fc; background-image: radial-gradient(circle at 1px 1px, #e8ebf5 1px, transparent 1px); background-size: 24px 24px; cursor: grab; overscroll-behavior: contain; touch-action: pan-x pan-y; }
 .ontology-graph-viewport.panning { cursor: grabbing; user-select: none; }
 .ontology-graph-world { position: relative; display: grid; flex: none; place-items: center; margin: auto; }
 .ontology-graph-canvas { position: relative; }
-.ontology-graph-world-overlay { position: absolute; z-index: 4; }
+.ontology-graph-viewport-overlay { position: absolute; z-index: 7; inset: 0; pointer-events: none; }
+.ontology-graph-viewport-overlay-position { position: absolute; max-width: calc(100% - 16px); max-height: calc(100% - 16px); pointer-events: auto; }
 .ontology-edge path { fill: none; stroke: #8092b8; stroke-width: 1.7; }
 .ontology-edge.edge-Domain path, .ontology-edge.edge-Range path, .ontology-edge.edge-ObjectAssertion path { stroke: #8b5cc7; }
 .ontology-edge.edge-Type path { stroke: #8092b8; }
@@ -1029,10 +1056,25 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-edge.inferred-proposal text { fill: #6659b7; }
 #ontology-arrow-inferred-applied path { fill: #56a7df; }
 #ontology-arrow-inferred-proposal path { fill: #8478dc; }
-.ontology-graph-legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 8px 4px 0; color: var(--text-muted); font-size: 11px; font-weight: 700; }
-.ontology-graph-legend span::before { display: inline-block; width: 22px; margin-right: 6px; border-top: 2px solid #8092b8; content: ""; vertical-align: middle; }
-.ontology-graph-legend .inferred-applied::before { border-color: #56a7df; border-top-style: dashed; }
-.ontology-graph-legend .inferred-proposal::before { border-color: #8478dc; border-top-style: dashed; }
+.ontology-map-legend { position: absolute; z-index: 6; top: 12px; left: 12px; width: 188px; border: 1px solid var(--border-default); border-radius: 10px; background: color-mix(in srgb, var(--surface-1) 96%, transparent); box-shadow: var(--shadow-sm); color: var(--text-secondary); cursor: default; }
+.ontology-map-legend summary { padding: 8px 10px; color: var(--text-primary); font-size: 11px; font-weight: 750; cursor: pointer; user-select: none; }
+.ontology-map-legend[open] summary { border-bottom: 1px solid var(--border-subtle); }
+.ontology-map-legend-content { display: grid; gap: 10px; padding: 9px 10px 11px; }
+.ontology-map-legend-content section { display: grid; gap: 6px; }
+.ontology-map-legend-content strong { color: var(--text-muted); font-size: 9px; letter-spacing: .05em; text-transform: uppercase; }
+.ontology-map-legend-content span { display: flex; align-items: center; gap: 7px; font-size: 10px; font-weight: 650; }
+.legend-node::before { display: grid; width: 18px; height: 18px; place-items: center; border: 1px solid currentColor; border-radius: 5px; font-size: 7px; font-weight: 800; content: ""; }
+.legend-class { color: #4e7fea; }
+.legend-class::before { content: "C"; }
+.legend-object-property { color: #8a4fc5; }
+.legend-object-property::before { content: "OP"; }
+.legend-datatype-property { color: #2f9f79; }
+.legend-datatype-property::before { content: "DP"; }
+.legend-individual { color: #d99129; }
+.legend-individual::before { content: "I"; }
+.legend-edge::before { display: inline-block; width: 24px; border-top: 2px solid #8092b8; content: ""; }
+.legend-edge.inferred-applied::before { border-color: #56a7df; border-top-style: dashed; }
+.legend-edge.inferred-proposal::before { border-color: #8478dc; border-top-style: dashed; }
 .ontology-node { width: 100%; height: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 9px; border: 1.5px solid #8bb5ff; border-radius: 11px; background: #fff; color: #28354c; padding: 11px 12px; text-align: left; cursor: grab; box-shadow: 0 4px 8px rgb(48 59 90 / 8%); }
 .ontology-node:active { cursor: grabbing; }
 .ontology-node > span { display: grid; place-items: center; min-width: 22px; min-height: 22px; border-radius: 5px; background: #5f87ea; color: #fff; font-size: 9px; font-weight: 800; }
@@ -1074,7 +1116,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .ontology-map-stale { position: absolute; z-index: 8; inset: 52px 16px 16px; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 24px; border: 2px solid var(--warning); border-radius: 12px; background: color-mix(in srgb, var(--surface-1) 94%, transparent); color: var(--text-primary); text-align: center; }
 .ontology-map-stale h3, .ontology-map-stale p { max-width: 480px; margin: 0; }
 @media (prefers-reduced-motion: reduce) { .ontology-graph *, .ontology-graph *::before, .ontology-graph *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
-.inferred-facts-panel { margin: 0 40px 20px; padding: 14px 16px; border: 1px solid #b9d9ff; border-radius: 12px; background: #f2f8ff; }
+.inferred-facts-panel { margin: 0 0 20px; padding: 14px 16px; border: 1px solid #b9d9ff; border-radius: 12px; background: #f2f8ff; }
 .inferred-facts-panel h3 { margin: 0 0 8px; font-size: 14px; }
 .inferred-facts-panel ul { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .inferred-fact { display: flex; align-items: center; gap: 5px; color: #29425f; }

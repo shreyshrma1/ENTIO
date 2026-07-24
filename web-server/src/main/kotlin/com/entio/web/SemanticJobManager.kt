@@ -160,12 +160,24 @@ public class SemanticJobManager(
         jobId: String,
         limit: Int = 50,
         requestingUserId: String? = null,
+        factOffset: Int = 0,
+        factOrigin: String? = null,
+        factQuery: String? = null,
     ): WebSemanticJobDetails? {
         require(limit in 1..100) { "semantic-job-detail-limit-must-be-between-1-and-100" }
+        require(factOffset >= 0) { "semantic-job-detail-offset-must-not-be-negative" }
+        val requestedOrigin = factOrigin?.takeIf(String::isNotBlank)?.let { origin ->
+            FactOrigin.entries.firstOrNull { it.name.equals(origin, ignoreCase = true) }
+                ?: throw IllegalArgumentException("semantic-job-detail-origin-must-be-asserted-or-inferred")
+        }
         val record = jobs[jobId]?.takeIf { it.projectId == projectId } ?: return null
         val reasoning = record.reasoningResult
         val shacl = record.shaclReport
         val allFacts = reasoning?.toWebFacts().orEmpty()
+            .filter { requestedOrigin == null || it.origin == requestedOrigin.name }
+            .filter { fact -> factQuery.isNullOrBlank() || fact.matchesSemanticQuery(factQuery) }
+        val factPage = allFacts.drop(factOffset).take(limit)
+        val nextFactOffset = (factOffset + factPage.size).takeIf { it < allFacts.size }
         val materializationCandidates = if (
             reasoning != null &&
             requestingUserId == record.submittedByUserId &&
@@ -208,7 +220,11 @@ public class SemanticJobManager(
         }
         return WebSemanticJobDetails(
             job = currentStatus,
-            facts = allFacts.take(limit),
+            facts = factPage,
+            factOffset = factOffset,
+            factLimit = limit,
+            totalFactCount = allFacts.size,
+            nextFactOffset = nextFactOffset,
             materializationCandidates = materializationCandidates.take(limit),
             unsatisfiableClasses = allUnsatisfiable.take(limit),
             shaclFindings = allFindings.take(limit),
@@ -282,24 +298,24 @@ public class SemanticJobManager(
      * Results are deliberately independent of the requesting user.
      */
     @Synchronized
-    public fun ensureInferredRead(projectId: String, scope: WebJobScope): Unit {
+    public fun ensureInferredRead(projectId: String, scope: WebJobScope): WebSemanticJobStatus? {
         val snapshot = try {
             if (scope == WebJobScope.Proposal) staging.inferredReadGraphSnapshot(projectId)
             else staging.graphSnapshot(projectId, scope)
         } catch (_: WebWorkflowFailure) {
             if (scope == WebJobScope.Proposal) latestProposalReasoning.remove(projectId)
-            return
+            return null
         }
         val cached = if (scope == WebJobScope.Applied) latestAppliedReasoning[projectId] else latestProposalReasoning[projectId]
         if (cached?.snapshot?.graphFingerprint == snapshot.graphFingerprint &&
             cached.snapshot.proposalFingerprint == snapshot.proposalFingerprint
-        ) return
-        val active = jobs.values.any {
+        ) return jobs[cached.jobId]?.status()
+        val active = jobs.values.firstOrNull {
             it.projectId == projectId && it.request.kind == WebJobKind.Reasoning &&
                 it.request.scope == scope && it.snapshot.graphFingerprint == snapshot.graphFingerprint &&
                 it.snapshot.proposalFingerprint == snapshot.proposalFingerprint && it.isActive()
         }
-        if (!active) submit(projectId, WebJobRequest(scope = scope.name.lowercase()), "system")
+        return active?.status() ?: submit(projectId, WebJobRequest(scope = scope.name.lowercase()), "system")
     }
 
     @Synchronized
@@ -564,6 +580,14 @@ public class SemanticJobManager(
             add(WebReasoningFact("property-relationship", fact.subject.value, fact.predicate.value, fact.objectResource.value, fact.origin.name, fact.sourceId))
         }
     }.sortedWith(compareBy(WebReasoningFact::kind, WebReasoningFact::subject, WebReasoningFact::predicate, WebReasoningFact::objectValue))
+
+    private fun WebReasoningFact.matchesSemanticQuery(query: String): Boolean {
+        val searchable = listOf(kind, subject, predicate.orEmpty(), objectValue)
+            .flatMap { value -> listOf(value, value.substringAfterLast('#', value.substringAfterLast('/'))) }
+            .joinToString(" ")
+            .lowercase()
+        return query.lowercase().split(Regex("\\s+")).filter(String::isNotBlank).all(searchable::contains)
+    }
 
     private fun materializationCandidates(
         record: MutableSemanticJob,

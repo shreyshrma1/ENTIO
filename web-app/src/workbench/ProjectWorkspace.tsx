@@ -11,7 +11,8 @@ import AiProposalPanel from "./AiProposalPanel";
 import ProfileSettings from "./ProfileSettings";
 import Icon from "../components/ui/Icon";
 import StatusBadge from "../components/ui/StatusBadge";
-import { useHierarchy, useProjectActivity, useProjectOutline, useProjectSearch, useProjectSummary, useSemanticJobDetails, useShaclShapes, useStagedChanges } from "../web/queries";
+import { useEnsureAppliedReasoning, useEntityDetails, useHierarchy, useProjectActivity, useProjectOutline, useProjectSearch, useProjectSummary, useSemanticJob, useSemanticJobDetails, useShaclShapes, useStagedChanges } from "../web/queries";
+import { useQueryClient } from "@tanstack/react-query";
 import type { WebEntityDetailResponse, WebEntityReference, WebHierarchyItem, WebOutlineItem, WebShaclConstraintSummary, WebShaclShapeSummary, WebStagedEntry } from "../web/projectApi";
 import { entityKindPresentation } from "./entityKindPresentation";
 import {
@@ -115,7 +116,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const outlineFilterMenuRef = useRef<HTMLDetailsElement>(null);
   const outlineClickTimer = useRef<number | null>(null);
   const [mapLoadedEntities, setMapLoadedEntities] = useState<Record<string, string>>({});
-  const [activeModule, setActiveModule] = useState<ModuleId>(initialModule);
+  const [activeModule, setActiveModule] = useState<ModuleId>(() => requestedModule(initialModule, searchParams.get("module")));
   const [railExpanded, setRailExpanded] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(loadAssistantOpen);
@@ -135,17 +136,23 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const [clipboardMessage, setClipboardMessage] = useState<string | null>(null);
   const [draggedTabIri, setDraggedTabIri] = useState<string | null>(null);
   const [tabOrderMessage, setTabOrderMessage] = useState<string | null>(null);
+  const activeIri = searchParams.get("iri");
+  const activeTab = useMemo(() => tabs.find((tab) => tab.iri === activeIri), [tabs, activeIri]);
+  const restoredEntity = useEntityDetails(projectId, activeIri ?? "", Boolean(activeIri && !activeTab));
   const summary = useProjectSummary(projectId);
+  const queryClient = useQueryClient();
+  const ensureAppliedReasoning = useEnsureAppliedReasoning(projectId);
+  const backgroundReasoning = useSemanticJob(projectId, semanticJobIds.reasoning);
+  const ensuredReasoningProject = useRef<string | null>(null);
+  const refreshedReasoningJob = useRef<string | null>(null);
   const sourceId = summary.data?.sources.find((source) => source.roles.includes("ontology"))?.id ?? summary.data?.sources[0]?.id;
   const shapesSourceId = summary.data?.sources.find((source) => source.roles.map((role) => role.toLowerCase()).includes("shapes"))?.id;
   const rootHierarchy = useHierarchy(projectId, sourceId, undefined, true, includeAppliedInferred, includeProposalInferred);
   const outline = useProjectOutline(projectId, sourceId, includeAppliedInferred, includeProposalInferred);
   const search = useProjectSearch(projectId, searchText);
   const staged = useStagedChanges(projectId);
-  const activeIri = searchParams.get("iri");
   const mapActive = searchParams.get("view") === "map";
   const mapPageActive = activeModule === "explore" && mapOpen && mapActive;
-  const activeTab = useMemo(() => tabs.find((tab) => tab.iri === activeIri), [tabs, activeIri]);
   const stagedEntries = staged.data?.entries ?? [];
   const proposalStatus = staged.data?.proposal?.status;
   const stagedIsPendingReview = proposalStatus !== "APPROVED" && proposalStatus !== "APPLIED";
@@ -156,7 +163,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const stagedDetails = useMemo(() => proposalStatus === "APPLIED" ? new Map<string, WebEntityDetailResponse>() : buildStagedEntityDetails(stagedEntries), [proposalStatus, stagedEntries]);
 
   useEffect(() => {
-    setActiveModule(initialModule);
+    setActiveModule(requestedModule(initialModule, searchParams.get("module")));
     setMapOpen(searchParams.get("view") === "map");
     setMapSeed(undefined);
     setMapViewState({ selectedNodeId: null, nodeKinds: DEFAULT_MAP_NODE_KINDS, edgeKinds: DEFAULT_MAP_EDGE_KINDS, sourceVisible: true });
@@ -164,6 +171,41 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
     setIncludeAppliedInferred(false);
     setIncludeProposalInferred(false);
   }, [initialModule, projectId]);
+
+  useEffect(() => {
+    const entity = restoredEntity.data;
+    if (!activeIri || !entity) return;
+    setTabs((current) => current.some((tab) => tab.iri === activeIri) ? current : [...current, {
+      iri: entity.iri,
+      label: entity.label,
+      kind: entity.kind,
+      sourceId: entity.sourceId,
+      openedAt: Date.now(),
+      directType: entity.assertedTypes[0] ?? null,
+    }]);
+  }, [activeIri, restoredEntity.data]);
+
+  useEffect(() => {
+    if (!summary.isSuccess || !projectId || ensuredReasoningProject.current === projectId) return;
+    ensuredReasoningProject.current = projectId;
+    ensureAppliedReasoning.mutate(undefined, {
+      onSuccess: (status) => {
+        setSemanticJobIds((current) => ({ ...current, reasoning: status.id }));
+      },
+    });
+  }, [projectId, summary.isSuccess]);
+
+  useEffect(() => {
+    const status = backgroundReasoning.data;
+    if (status?.status !== "Completed" || refreshedReasoningJob.current === status.id) return;
+    refreshedReasoningJob.current = status.id;
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["project", projectId, "hierarchy"] }),
+      queryClient.invalidateQueries({ queryKey: ["project", projectId, "outline"] }),
+      queryClient.invalidateQueries({ queryKey: ["project", projectId, "entity"] }),
+      queryClient.invalidateQueries({ queryKey: ["project", projectId, "ontology-graph"] }),
+    ]);
+  }, [backgroundReasoning.data, projectId, queryClient]);
 
   useEffect(() => {
     const normalizedSearch = searchInput.trim();
@@ -313,6 +355,15 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   function openModule(moduleId: ModuleId) {
     setAccountOpen(false);
     setActiveModule(moduleId);
+    if (moduleId === "explore") {
+      navigate(activeIri
+        ? `/projects/${encodeURIComponent(projectId)}?iri=${encodeURIComponent(activeIri)}`
+        : mapOpen
+          ? `/projects/${encodeURIComponent(projectId)}?view=map`
+          : `/projects/${encodeURIComponent(projectId)}`);
+      return;
+    }
+    navigate(`/projects/${encodeURIComponent(projectId)}?module=${encodeURIComponent(moduleId)}`);
   }
 
   function saveDisplayName(nextDisplayName: string) {
@@ -1014,6 +1065,11 @@ function entityContextMenu(
 }
 
 function EmptyWorkspace({ onOpenMap }: { onOpenMap: () => void }) { return <div className="empty-workspace"><span className="overline">Explore</span><h1>Select an entity</h1><p>Choose a class from the outline or search by label to open its details in a tab.</p><button className="button primary" type="button" onClick={onOpenMap}>View Map</button></div>; }
+
+function requestedModule(initialModule: ModuleId, requested: string | null): ModuleId {
+  if (initialModule !== "explore") return initialModule;
+  return modules.some((module) => module.id === requested) ? requested as ModuleId : "explore";
+}
 
 function reorderTabs(tabs: EntityTab[], sourceIri: string, targetIri: string): EntityTab[] {
   const sourceIndex = tabs.findIndex((tab) => tab.iri === sourceIri);

@@ -166,6 +166,35 @@ class ApplicationTest {
     }
 
     @Test
+    fun ontologyMapLoadsCurrentAppliedInferredOverlay(): Unit = testApplication {
+        val allowedRoot = Files.createTempDirectory("entio-web-inferred-map")
+        val projectRoot = createReadOnlyFixture(allowedRoot)
+        val registry = InMemoryProjectRegistry(setOf(allowedRoot))
+        registry.register("simple", "Simple ontology", projectRoot)
+        application { module(WebApplicationDependencies(projectRegistry = registry)) }
+
+        var response = client.get(
+            "/api/v1/projects/simple/graph?sourceId=simple&includeAppliedInferred=true",
+        )
+        for (attempt in 0 until 50) {
+            if (response.status == HttpStatusCode.OK &&
+                "\"graphState\":\"Applied\",\"state\":\"Current\"" in response.bodyAsText()
+            ) {
+                break
+            }
+            Thread.sleep(20)
+            response = client.get(
+                "/api/v1/projects/simple/graph?sourceId=simple&includeAppliedInferred=true",
+            )
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertContains(response.bodyAsText(), "\"graphState\":\"Applied\",\"state\":\"Current\"")
+        assertContains(response.bodyAsText(), "\"provenance\":\"Inferred\"")
+        assertContains(response.bodyAsText(), "\"inferredGraphState\":\"Applied\"")
+    }
+
+    @Test
     fun resolvedFiboImportsEnrichReadOnlySuperclassDetailsWithoutCopyingTriples(): Unit = testApplication {
         val allowedRoot = Files.createTempDirectory("entio-web-fibo-import")
         val projectRoot = createReadOnlyFixture(allowedRoot)
@@ -778,6 +807,15 @@ class ApplicationTest {
         registry.register("simple", "Simple ontology", projectRoot)
 
         application { module(WebApplicationDependencies(projectRegistry = registry)) }
+
+        val ensured = client.post("/api/v1/projects/simple/semantic-jobs/ensure-applied-reasoning")
+        assertEquals(HttpStatusCode.OK, ensured.status, ensured.bodyAsText())
+        val ensuredJobId = Regex("\\\"id\\\":\\\"([^\\\"]+)\\\"").find(ensured.bodyAsText())?.groupValues?.get(1)
+            ?: error("A background reasoning job id was not returned.")
+        pollJob(client, ensuredJobId)
+        val reused = client.post("/api/v1/projects/simple/semantic-jobs/ensure-applied-reasoning")
+        assertEquals(HttpStatusCode.OK, reused.status, reused.bodyAsText())
+        assertContains(reused.bodyAsText(), "\"id\":\"$ensuredJobId\"")
 
         val reasoning = client.post("/api/v1/projects/simple/semantic-jobs") {
             contentType(ContentType.Application.Json)

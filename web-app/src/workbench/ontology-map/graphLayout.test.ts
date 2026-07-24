@@ -32,6 +32,8 @@ describe("ontology graph geometry", () => {
     expect(draggedPoint({ x: 10, y: 10 }, 4, 0)).toEqual({ x: 14, y: 10 });
     const nextScroll = anchoredScroll(200, 75, 1, 1.5);
     expect(Math.abs((nextScroll + 75) / 1.5 - (200 + 75))).toBeLessThanOrEqual(1);
+    const centeredCanvasScroll = anchoredScroll(200, 75, 1, 1.5, 120, 60);
+    expect((centeredCanvasScroll + 75 - 60) / 1.5).toBe((200 + 75 - 120) / 1);
   });
 
   it("keeps cyclic ontologies in compact columns and routes curves to card boundaries", () => {

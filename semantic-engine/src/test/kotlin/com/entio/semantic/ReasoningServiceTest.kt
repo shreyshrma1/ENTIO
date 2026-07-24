@@ -139,6 +139,78 @@ class ReasoningServiceTest {
                     it.origin == FactOrigin.Inferred
             },
         )
+        assertEquals(
+            listOf("Certain assertions are currently unavailable. Reasoning completeness is not guaranteed."),
+            reasoning.warnings,
+        )
+    }
+
+    @Test
+    fun excludesInferencesWhoseClassDependenciesAreNotDeclaredInTheLoadedOntology(): Unit {
+        val graph = parse(
+            """
+            @prefix ex: <https://example.com/> .
+            @prefix owl: <http://www.w3.org/2002/07/owl#> .
+            @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+            ex:Beneficiary a owl:Class ; rdfs:subClassOf ex:LocalRole .
+            ex:LocalRole a owl:Class ; rdfs:subClassOf <https://external.example/AgentRole> .
+            ex:Someone a ex:Beneficiary .
+            """.trimIndent(),
+        ).graph
+
+        val result = assertIs<EntioResult.Success<*>>(service.reason(graph))
+        val reasoning = assertIs<com.entio.core.ReasoningResult>(result.value)
+
+        assertTrue(
+            reasoning.classRelationships.none {
+                it.origin == FactOrigin.Inferred &&
+                    it.objectClass == Iri("https://external.example/AgentRole")
+            },
+        )
+        assertTrue(
+            reasoning.individualTypes.none {
+                it.origin == FactOrigin.Inferred &&
+                    it.type == Iri("https://external.example/AgentRole")
+            },
+        )
+        assertTrue(
+            reasoning.classRelationships.any {
+                it.origin == FactOrigin.Asserted &&
+                    it.subject == Iri("https://example.com/LocalRole") &&
+                    it.objectClass == Iri("https://external.example/AgentRole")
+            },
+        )
+    }
+
+    @Test
+    fun keepsGenericRdfPropertyAssertionsAssertedWhenOwlClassifiesTheProperty(): Unit {
+        val graph = parse(
+            """
+            @prefix ex: <https://example.com/> .
+            @prefix owl: <http://www.w3.org/2002/07/owl#> .
+            @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+            @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+            ex:Customer a owl:Class .
+            ex:Account a owl:Class .
+            ex:Shrey a owl:NamedIndividual, ex:Customer ;
+                ex:ownsAccount ex:Account101, ex:Account33271 .
+            ex:Account101 a owl:NamedIndividual, ex:Account .
+            ex:Account33271 a owl:NamedIndividual, ex:Account .
+            ex:ownsAccount a rdf:Property ;
+                rdfs:domain ex:Customer ;
+                rdfs:range ex:Account .
+            """.trimIndent(),
+        ).graph
+
+        val result = assertIs<EntioResult.Success<*>>(service.reason(graph))
+        val reasoning = assertIs<com.entio.core.ReasoningResult>(result.value)
+        val ownerships = reasoning.propertyRelationships.filter {
+            it.subject == Iri("https://example.com/Shrey") &&
+                it.predicate == Iri("https://example.com/ownsAccount")
+        }
+
+        assertEquals(2, ownerships.size)
+        assertTrue(ownerships.all { it.origin == FactOrigin.Asserted })
     }
 
     @Test

@@ -20,6 +20,7 @@ export interface OntologyMapViewState extends RendererState {
   expandedClassIds?: string[];
   revealedIndividualIds?: string[];
   popupPosition?: { x: number; y: number };
+  popupCoordinateSpace?: "graph";
 }
 
 const LARGE_BRANCH_LIMIT = 6;
@@ -37,7 +38,7 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   includeProposalInferred?: boolean;
 }) {
   const popupRef = useRef<HTMLElement>(null);
-  const popupDrag = useRef<{ pointerId: number; clientX: number; clientY: number; x: number; y: number } | null>(null);
+  const popupDrag = useRef<{ pointerId: number; clientX: number; clientY: number; x: number; y: number; latestX: number; latestY: number } | null>(null);
   const outsidePointer = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
   const graph = useOntologyGraph(projectId, {
     sourceIds: [sourceId],
@@ -74,16 +75,19 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   useEffect(() => {
     if (!selected) return;
     const trackOutsidePointer = (event: globalThis.PointerEvent) => {
-      outsidePointer.current = popupRef.current?.contains(event.target as Node)
-        ? null
-        : { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY };
+      const target = event.target as Element;
+      const insideMap = target.closest(".ontology-graph-viewport");
+      const protectedControl = target.closest(".ontology-node-popup, .ontology-map-legend");
+      outsidePointer.current = insideMap && !protectedControl
+        ? { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY }
+        : null;
     };
     const dismissOutsideClick = (event: globalThis.PointerEvent) => {
       const start = outsidePointer.current;
       outsidePointer.current = null;
       if (!start || start.pointerId !== event.pointerId) return;
       if (Math.hypot(event.clientX - start.clientX, event.clientY - start.clientY) > OUTSIDE_CLICK_THRESHOLD) return;
-      if (!popupRef.current?.contains(event.target as Node)) onStateChange({ ...state, selectedNodeId: null });
+      onStateChange({ ...state, selectedNodeId: null });
     };
     const cancelOutsidePointer = () => { outsidePointer.current = null; };
     document.addEventListener("pointerdown", trackOutsidePointer);
@@ -94,6 +98,23 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
       document.removeEventListener("pointerup", dismissOutsideClick);
       document.removeEventListener("pointercancel", cancelOutsidePointer);
     };
+  }, [onStateChange, selected, state]);
+  useEffect(() => {
+    if (!selected || !state.popupPosition || state.popupCoordinateSpace !== "graph") return;
+    const frame = popupRef.current?.closest<HTMLElement>(".ontology-graph-viewport-overlay");
+    const positioner = popupRef.current?.closest<HTMLElement>(".ontology-graph-viewport-overlay-position");
+    const popup = popupRef.current;
+    if (!frame || !positioner || !popup) return;
+    const frameWidth = frame.clientWidth;
+    const frameHeight = frame.clientHeight;
+    if (!frameWidth || !frameHeight) return;
+    const x = Math.max(0, Math.min(frameWidth - popup.offsetWidth, state.popupPosition.x));
+    const y = Math.max(0, Math.min(frameHeight - popup.offsetHeight, state.popupPosition.y));
+    positioner.style.left = `${x}px`;
+    positioner.style.top = `${y}px`;
+    if (x !== state.popupPosition.x || y !== state.popupPosition.y) {
+      onStateChange({ ...state, popupPosition: { x, y }, popupCoordinateSpace: "graph" });
+    }
   }, [onStateChange, selected, state]);
   const emphasizedIds = useMemo(() => selectionNeighborhood(state.selectedNodeId, nodes, edges), [edges, nodes, state.selectedNodeId]);
   const dimmedNodeIds = useMemo(() => state.selectedNodeId ? new Set(visibleNodes.map((node) => node.identity.id).filter((id) => !emphasizedIds.has(id))) : new Set<string>(), [emphasizedIds, state.selectedNodeId, visibleNodes]);
@@ -111,22 +132,41 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   }
   function startPopupDrag(event: PointerEvent<HTMLElement>) {
     if ((event.target as HTMLElement).closest("button")) return;
+    event.stopPropagation();
     const popup = popupRef.current;
-    const wrapper = popup?.parentElement;
-    if (!popup || !wrapper) return;
+    const positioner = popup?.closest<HTMLElement>(".ontology-graph-viewport-overlay-position");
+    const viewport = popup?.closest<HTMLElement>(".ontology-graph-viewport-overlay");
+    if (!popup || !positioner || !viewport) return;
+    const popupBounds = popup.getBoundingClientRect();
+    const viewportBounds = viewport.getBoundingClientRect();
+    const x = popupBounds.left - viewportBounds.left;
+    const y = popupBounds.top - viewportBounds.top;
     event.currentTarget.setPointerCapture(event.pointerId);
-    popupDrag.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, x: wrapper.offsetLeft, y: wrapper.offsetTop };
+    positioner.style.left = `${x}px`;
+    positioner.style.top = `${y}px`;
+    popupDrag.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, x, y, latestX: x, latestY: y };
   }
   function movePopup(event: PointerEvent<HTMLElement>) {
+    event.stopPropagation();
     const drag = popupDrag.current;
     const popup = popupRef.current;
-    const world = popup?.parentElement?.parentElement;
-    if (!drag || drag.pointerId !== event.pointerId || !popup || !world) return;
-    const x = Math.max(0, Math.min(world.scrollWidth - popup.offsetWidth, drag.x + event.clientX - drag.clientX));
-    const y = Math.max(0, Math.min(world.scrollHeight - popup.offsetHeight, drag.y + event.clientY - drag.clientY));
-    onStateChange({ ...state, popupPosition: { x, y } });
+    const positioner = popup?.closest<HTMLElement>(".ontology-graph-viewport-overlay-position");
+    const viewport = popup?.closest<HTMLElement>(".ontology-graph-viewport-overlay");
+    if (!drag || drag.pointerId !== event.pointerId || !popup || !viewport) return;
+    const x = Math.max(0, Math.min(viewport.clientWidth - popup.offsetWidth, drag.x + event.clientX - drag.clientX));
+    const y = Math.max(0, Math.min(viewport.clientHeight - popup.offsetHeight, drag.y + event.clientY - drag.clientY));
+    if (!positioner) return;
+    positioner.style.left = `${x}px`;
+    positioner.style.top = `${y}px`;
+    drag.latestX = x;
+    drag.latestY = y;
   }
-  function stopPopupDrag() { popupDrag.current = null; }
+  function stopPopupDrag(event?: PointerEvent<HTMLElement>) {
+    event?.stopPropagation();
+    const drag = popupDrag.current;
+    popupDrag.current = null;
+    if (drag) onStateChange({ ...state, popupPosition: { x: drag.latestX, y: drag.latestY }, popupCoordinateSpace: "graph" });
+  }
   const selectedCard = selected ? <aside ref={popupRef} className="ontology-node-popup" role="dialog" aria-label={`${selected.label} map summary`}>
       <button className="ontology-node-popup-close" type="button" aria-label="Close entity summary" onClick={() => onStateChange({ ...state, selectedNodeId: null })}>×</button>
       <header className="ontology-node-popup-drag-handle" onPointerDown={startPopupDrag} onPointerMove={movePopup} onPointerUp={stopPopupDrag} onPointerCancel={stopPopupDrag}><h3>{selected.label}</h3><p>{selected.kind} · Asserted</p></header>
@@ -140,7 +180,7 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
       <button className="ontology-node-popup-view" type="button" onClick={() => onViewDetails({ iri: selected.identity.entityIri, label: selected.label, kind: selected.kind, sourceId: selected.identity.sourceId })}>View Details</button>
     </aside> : null;
   return <section className="ontology-map-shell" aria-label="Ontology map">
-    <OntologyGraphRenderer nodes={visibleNodes} edges={visibleEdges} state={state} toolbarStart={<fieldset disabled={state.stale} className="ontology-map-actions"><legend className="visually-hidden">Current ontology map actions</legend><div className="ontology-layout-modes" role="group" aria-label="Map layout mode">{(["Focus", "FullMap"] as const).map((mode) => <button aria-pressed={(state.layoutMode ?? "FullMap") === mode} className={(state.layoutMode ?? "FullMap") === mode ? "active" : ""} key={mode} type="button" onClick={() => onStateChange({ ...state, layoutMode: mode })}>{mode === "FullMap" ? "Full map" : mode}</button>)}</div></fieldset>} worldOverlay={selected && selectedCard ? { nodeId: selected.identity.id, position: state.popupPosition, content: selectedCard } : undefined} childCounts={childCounts} dimmedNodeIds={dimmedNodeIds} dimmedEdgeIds={dimmedEdgeIds} onStateChange={onStateChange} />
+    <OntologyGraphRenderer nodes={visibleNodes} edges={visibleEdges} state={state} toolbarStart={<fieldset disabled={state.stale} className="ontology-map-actions"><legend className="visually-hidden">Current ontology map actions</legend><div className="ontology-layout-modes" role="group" aria-label="Map layout mode">{(["Focus", "FullMap"] as const).map((mode) => <button aria-pressed={(state.layoutMode ?? "FullMap") === mode} className={(state.layoutMode ?? "FullMap") === mode ? "active" : ""} key={mode} type="button" onClick={() => onStateChange({ ...state, layoutMode: mode })}>{mode === "FullMap" ? "Full map" : mode}</button>)}</div></fieldset>} viewportOverlay={selected && selectedCard ? { position: state.popupCoordinateSpace === "graph" ? state.popupPosition : undefined, content: selectedCard } : undefined} childCounts={childCounts} dimmedNodeIds={dimmedNodeIds} dimmedEdgeIds={dimmedEdgeIds} onStateChange={onStateChange} />
     {state.stale ? <div className="ontology-map-stale" role="alertdialog" aria-modal="true" aria-labelledby="ontology-map-stale-title"><h3 id="ontology-map-stale-title">Ontology map is out of date</h3><p>The displayed map is preserved for reference. Refresh before loading or opening current project data.</p><button type="button" autoFocus onClick={() => void refreshStaleGraph()}>Refresh map</button></div> : null}
     <p className="visually-hidden" role="status" aria-live="polite">{state.stale ? "Ontology map is stale" : ""}</p>
   </section>;

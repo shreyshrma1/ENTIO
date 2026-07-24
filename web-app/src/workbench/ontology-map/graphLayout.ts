@@ -238,8 +238,16 @@ export function graphWorldBounds(positions: Record<string, GraphPoint>): GraphBo
 
 export function clampZoom(value: number): number { return Math.min(2, Math.max(0.25, value)); }
 
-export function anchoredScroll(scroll: number, anchor: number, previousZoom: number, nextZoom: number): number {
-  return ((scroll + anchor) / previousZoom) * nextZoom - anchor;
+export function anchoredScroll(
+  scroll: number,
+  anchor: number,
+  previousZoom: number,
+  nextZoom: number,
+  previousCanvasOffset: number = 0,
+  nextCanvasOffset: number = 0,
+): number {
+  const graphCoordinate = (scroll + anchor - previousCanvasOffset) / previousZoom;
+  return nextCanvasOffset + graphCoordinate * nextZoom - anchor;
 }
 
 export function draggedPoint(origin: GraphPoint, dx: number, dy: number, threshold = 4): GraphPoint | null {

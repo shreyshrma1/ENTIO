@@ -20,6 +20,7 @@ import {
   loadSemanticJob,
   loadSemanticJobDetails,
   submitSemanticJob,
+  ensureAppliedReasoning,
   materializeInferenceFacts,
   type WebInferenceMaterializationRequest,
   type WebSemanticJobRequest,
@@ -217,10 +218,10 @@ export function useSemanticJob(projectId: string, jobId: string | null) {
   });
 }
 
-export function useSemanticJobDetails(projectId: string, jobId: string | null) {
+export function useSemanticJobDetails(projectId: string, jobId: string | null, options: { factOrigin?: "Asserted" | "Inferred"; factOffset?: number; factQuery?: string; limit?: number } = {}) {
   return useQuery({
-    queryKey: [...queryKeys.semanticJob(projectId, jobId ?? ""), "details"],
-    queryFn: () => loadSemanticJobDetails(projectId, jobId!),
+    queryKey: [...queryKeys.semanticJob(projectId, jobId ?? ""), "details", options],
+    queryFn: () => loadSemanticJobDetails(projectId, jobId!, options),
     enabled: projectId.length > 0 && Boolean(jobId),
     refetchInterval: (query) => {
       const status = query.state.data?.job.status;
@@ -238,6 +239,17 @@ export function useSemanticJobActions(projectId: string) {
     submit: useMutation({ mutationFn: (request: WebSemanticJobRequest) => submitSemanticJob(projectId, request), onSuccess: refresh }),
     cancel: useMutation({ mutationFn: (jobId: string) => cancelSemanticJob(projectId, jobId), onSuccess: refresh }),
   };
+}
+
+export function useEnsureAppliedReasoning(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationKey: ["project", projectId, "ensure-applied-reasoning"],
+    mutationFn: () => ensureAppliedReasoning(projectId),
+    onSuccess: (status) => {
+      queryClient.setQueryData(queryKeys.semanticJob(projectId, status.id), status);
+    },
+  });
 }
 
 export function useInferenceMaterialization(projectId: string, jobId: string) {

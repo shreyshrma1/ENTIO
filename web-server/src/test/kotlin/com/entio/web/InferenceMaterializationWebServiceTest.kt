@@ -89,6 +89,35 @@ class InferenceMaterializationWebServiceTest {
         assertTrue(aliceDetails.materializationCandidates.any { it.kind == "SubclassRelationship" })
         assertEquals(emptyList(), jobs.details("reasoning", submitted.id, 100, "bob")?.materializationCandidates)
 
+        val inferredFacts = assertNotNull(
+            jobs.details(
+                projectId = "reasoning",
+                jobId = submitted.id,
+                limit = 1,
+                requestingUserId = "alice",
+                factOrigin = "Inferred",
+            ),
+        )
+        assertEquals(1, inferredFacts.facts.size)
+        assertTrue(inferredFacts.facts.all { it.origin == "Inferred" })
+        assertTrue(inferredFacts.totalFactCount >= inferredFacts.facts.size)
+        if (inferredFacts.totalFactCount > inferredFacts.facts.size) {
+            assertEquals(1, inferredFacts.nextFactOffset)
+        }
+        val searchableFact = inferredFacts.facts.single()
+        val searchedFacts = assertNotNull(
+            jobs.details(
+                projectId = "reasoning",
+                jobId = submitted.id,
+                limit = 50,
+                requestingUserId = "alice",
+                factOrigin = "inferred",
+                factQuery = searchableFact.objectValue.substringAfterLast('/').substringAfterLast('#'),
+            ),
+        )
+        assertTrue(searchedFacts.facts.any { it == searchableFact })
+        assertTrue(searchedFacts.facts.all { it.origin == "Inferred" })
+
         val selected = aliceDetails.materializationCandidates.first { it.stageability == "Stageable" }
         val before = fixture.source.readBytes()
         val response = service.materialize(

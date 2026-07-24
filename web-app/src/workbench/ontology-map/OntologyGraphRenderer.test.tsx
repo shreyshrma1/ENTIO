@@ -44,18 +44,27 @@ describe("accessible ontology graph renderer", () => {
     expect(onStateChange).toHaveBeenCalledWith(expect.objectContaining({ zoom: expect.any(Number) }));
   });
 
-  it("labels inferred edges by graph state and provides a non-color legend", () => {
+  it("keeps inferred edge labels concise and provides a retractable non-color legend", () => {
     const view = render(<OntologyGraphRenderer nodes={nodes} edges={[
       { id: "applied", kind: "Type", sourceNodeId: "node-3", targetNodeId: "node-0", label: "type", predicateIri: null, provenance: "Inferred", inferredGraphState: "Applied" },
       { id: "proposal", kind: "Domain", sourceNodeId: "node-1", targetNodeId: "node-0", label: "domain", predicateIri: null, provenance: "Inferred", inferredGraphState: "Proposal" },
     ]} state={{ selectedNodeId: null }} onStateChange={vi.fn()} />);
     const rendered = within(view.container);
-    expect(rendered.getByText("type · Inferred · Applied")).toBeVisible();
-    expect(rendered.getByText("domain · Inferred · Proposal")).toBeVisible();
+    expect(rendered.getByText("type · Inferred")).toBeVisible();
+    expect(rendered.getByText("domain · Inferred")).toBeVisible();
+    expect(rendered.queryByText("type · Inferred · Applied")).not.toBeInTheDocument();
+    const legendControl = rendered.getByText("Legend").closest("details");
+    expect(legendControl).toHaveAttribute("open");
     const legend = rendered.getByLabelText("Relationship legend");
     expect(legend).toHaveTextContent("Asserted");
     expect(legend).toHaveTextContent("Inferred · Applied");
     expect(legend).toHaveTextContent("Inferred · Proposal");
+    expect(legendControl).toHaveTextContent("Class");
+    expect(legendControl).toHaveTextContent("Object property");
+    expect(legendControl).toHaveTextContent("Datatype property");
+    expect(legendControl).toHaveTextContent("Individual");
+    fireEvent.click(rendered.getByText("Legend"));
+    expect(legendControl).not.toHaveAttribute("open");
   });
 
   it("pans with left-drag on empty space and right-drag over a node", () => {
@@ -78,14 +87,76 @@ describe("accessible ontology graph renderer", () => {
     expect(fireEvent.contextMenu(viewport)).toBe(false);
   });
 
-  it("places selected entity information inside the pannable graph world", () => {
+  it("does not start map panning when a graph-local information card is dragged", () => {
+    const renderer = render(<OntologyGraphRenderer
+      nodes={nodes}
+      edges={[]}
+      state={{ selectedNodeId: "node-0", zoom: 1 }}
+      viewportOverlay={{ content: <aside className="ontology-node-popup">Entity information</aside> }}
+      onStateChange={vi.fn()}
+    />);
+    const viewport = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport")!;
+    const popup = within(renderer.container).getByText("Entity information");
+    viewport.setPointerCapture = vi.fn();
+    const initialLeft = viewport.scrollLeft;
+    const initialTop = viewport.scrollTop;
+    fireEvent.pointerDown(popup, { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(viewport, { pointerId: 1, clientX: 50, clientY: 50 });
+    fireEvent.pointerUp(viewport, { pointerId: 1 });
+    expect(viewport.setPointerCapture).not.toHaveBeenCalled();
+    expect(viewport.scrollLeft).toBe(initialLeft);
+    expect(viewport.scrollTop).toBe(initialTop);
+  });
+
+  it("allows highlighted nodes to move while preventing dimmed nodes from moving", () => {
+    const onStateChange = vi.fn();
+    const renderer = render(<OntologyGraphRenderer
+      nodes={nodes}
+      edges={[]}
+      state={{ selectedNodeId: "node-0", zoom: 1 }}
+      dimmedNodeIds={new Set(["node-1"])}
+      onStateChange={onStateChange}
+    />);
+    const highlighted = within(renderer.container).getByRole("button", { name: "Class: Class label" });
+    const dimmed = within(renderer.container).getByRole("button", { name: "ObjectProperty: ObjectProperty label" });
+    highlighted.setPointerCapture = vi.fn();
+    dimmed.setPointerCapture = vi.fn();
+
+    fireEvent.pointerDown(dimmed, { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(dimmed, { pointerId: 1, clientX: 140, clientY: 140 });
+    fireEvent.pointerUp(dimmed, { pointerId: 1 });
+    expect(dimmed.setPointerCapture).not.toHaveBeenCalled();
+    expect(onStateChange).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(highlighted, { pointerId: 2, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(highlighted, { pointerId: 2, clientX: 140, clientY: 140 });
+    fireEvent.pointerUp(highlighted, { pointerId: 2 });
+    expect(highlighted.setPointerCapture).toHaveBeenCalledWith(2);
+    expect(onStateChange).toHaveBeenCalled();
+  });
+
+  it("keeps selected entity information in the scrollable graph world", () => {
     const renderer = render(<OntologyGraphRenderer
       nodes={nodes}
       edges={[]}
       state={{ selectedNodeId: "node-0" }}
-      worldOverlay={{ nodeId: "node-0", content: <aside>Entity information</aside> }}
+      viewportOverlay={{ position: { x: 30, y: 40 }, content: <aside>Entity information</aside> }}
       onStateChange={vi.fn()}
     />);
-    expect(renderer.container.querySelector(".ontology-graph-world .ontology-graph-world-overlay")).toContainElement(screen.getByText("Entity information"));
+    const overlay = renderer.container.querySelector<HTMLElement>(".ontology-graph-world > .ontology-graph-viewport-overlay");
+    const positioner = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport-overlay-position");
+    const viewport = renderer.container.querySelector<HTMLElement>(".ontology-graph-viewport")!;
+    const information = within(renderer.container).getByText("Entity information");
+    expect(overlay).toContainElement(information);
+    expect(viewport).toContainElement(information);
+    expect(positioner).toHaveStyle({ left: "30px", top: "40px" });
+    renderer.rerender(<OntologyGraphRenderer
+      nodes={nodes}
+      edges={[]}
+      state={{ selectedNodeId: "node-0", zoom: 1.8 }}
+      viewportOverlay={{ position: { x: 30, y: 40 }, content: <aside>Entity information</aside> }}
+      onStateChange={vi.fn()}
+    />);
+    expect(positioner).toHaveStyle({ left: "30px", top: "40px" });
   });
 });

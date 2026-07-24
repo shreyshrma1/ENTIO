@@ -44,13 +44,17 @@ describe("application workbench journey", () => {
       return json({ apiVersion: "v1", page: { items: [], offset: 0, limit: 50, total: 0, nextOffset: null } });
     }));
 
-    render(<App />);
+    const app = render(<App />);
 
     fireEvent.click(await screen.findByRole("link", { name: /Simple ontology/ }));
     expect(await screen.findByRole("heading", { name: "simple-ontology" })).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: /Customer/ }));
     expect(await screen.findByRole("textbox", { name: "Definition" })).toHaveValue("A customer.");
+    app.unmount();
+    render(<App />);
+    expect(await screen.findByRole("textbox", { name: "Definition" })).toHaveValue("A customer.");
     fireEvent.click(await screen.findByRole("tab", { name: "FIBO" }));
+    expect(window.location.search).toBe("?module=fibo");
     expect(await screen.findByRole("heading", { name: "External ontology browser" })).toBeInTheDocument();
 
     fireEvent.click(await screen.findByRole("button", { name: /Agreements/ }));

@@ -555,6 +555,10 @@ export interface WebSemanticJobDetails {
   apiVersion: "v1";
   job: WebSemanticJobStatus;
   facts: WebReasoningFact[];
+  factOffset: number;
+  factLimit: number;
+  totalFactCount: number;
+  nextFactOffset: number | null;
   materializationCandidates: WebInferenceMaterializationCandidate[];
   shaclFindings: WebSemanticJobFinding[];
   warnings: string[];
@@ -698,6 +702,13 @@ export async function submitSemanticJob(
   return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/semantic-jobs`, "POST", request, fetcher);
 }
 
+export async function ensureAppliedReasoning(
+  projectId: string,
+  fetcher: WebFetcher = defaultFetcher,
+): Promise<WebSemanticJobStatus> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/semantic-jobs/ensure-applied-reasoning`, "POST", undefined, fetcher);
+}
+
 export async function loadSemanticJob(
   projectId: string,
   jobId: string,
@@ -709,9 +720,15 @@ export async function loadSemanticJob(
 export async function loadSemanticJobDetails(
   projectId: string,
   jobId: string,
+  options: { factOrigin?: "Asserted" | "Inferred"; factOffset?: number; factQuery?: string; limit?: number } = {},
   fetcher: WebFetcher = defaultFetcher,
 ): Promise<WebSemanticJobDetails> {
-  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/semantic-jobs/${encodeURIComponent(jobId)}/details`, fetcher);
+  const params = new URLSearchParams();
+  if (options.factOrigin) params.set("factOrigin", options.factOrigin);
+  if (options.factOffset) params.set("factOffset", String(options.factOffset));
+  if (options.factQuery) params.set("factQuery", options.factQuery);
+  params.set("limit", String(options.limit ?? 50));
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/semantic-jobs/${encodeURIComponent(jobId)}/details?${params}`, fetcher);
 }
 
 export async function cancelSemanticJob(

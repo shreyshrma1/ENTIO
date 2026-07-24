@@ -102,6 +102,7 @@ public class ReasoningService(
                     emptyList()
                 }
 
+                val declaredClassIris = declaredEntities(graph, CLASS_DECLARATION_TYPES)
                 val objectPropertyIris = document.ontology.objectPropertiesInSignature()
                     .toList()
                     .map { it.iri.toString() }
@@ -112,6 +113,7 @@ public class ReasoningService(
                         reasoner = reasoner,
                         ontology = document.ontology,
                         asserted = assertedClassRelationships.toSet(),
+                        declaredClassIris = declaredClassIris,
                         sourceId = sourceId,
                     )
                 } else {
@@ -123,6 +125,7 @@ public class ReasoningService(
                         reasoner = reasoner,
                         ontology = document.ontology,
                         asserted = assertedTypes.toSet(),
+                        declaredClassIris = declaredClassIris,
                         sourceId = sourceId,
                     )
                 } else {
@@ -141,11 +144,9 @@ public class ReasoningService(
                 }
                 val warnings = buildList {
                     if (!consistent) add("HermiT could not classify an inconsistent ontology.")
-                    featureReport.findings
-                        .filter { it.affectsCompleteness }
-                        .mapNotNull { it.message }
-                        .sorted()
-                        .forEach(::add)
+                    if (featureReport.findings.any { it.affectsCompleteness }) {
+                        add("Certain assertions are currently unavailable. Reasoning completeness is not guaranteed.")
+                    }
                     importClosure?.findings
                         ?.filter { it.kind.name != "Cycle" }
                         ?.map { it.message }
@@ -250,17 +251,20 @@ public class ReasoningService(
         reasoner: OWLReasoner,
         ontology: OWLOntology,
         asserted: Set<ReasoningClassRelationship>,
+        declaredClassIris: Set<String>,
         sourceId: String?,
     ): List<ReasoningClassRelationship> {
         val assertedKeys = asserted.map { classKey(it.subject, it.objectClass) }.toSet()
         val inferred = mutableListOf<ReasoningClassRelationship>()
         ontology.classesInSignature().toList().sortedBy { it.iri.toString() }.forEach { owlClass ->
             val subject = toIriResource(owlClass)
+            if (subject.value !in declaredClassIris) return@forEach
             val superClasses = reasoner.getSuperClasses(owlClass, false).entities().toList()
             val equivalents = reasoner.getEquivalentClasses(owlClass).getEntitiesMinus(owlClass).toList()
             (superClasses + equivalents).forEach { objectClass ->
                 if (objectClass.isOWLThing || objectClass.isOWLNothing) return@forEach
                 val target = toIriResource(objectClass)
+                if (target.value !in declaredClassIris) return@forEach
                 if (classKey(subject, target) !in assertedKeys) {
                     inferred += ReasoningClassRelationship(subject, target, FactOrigin.Inferred, sourceId)
                 }
@@ -283,6 +287,7 @@ public class ReasoningService(
         reasoner: OWLReasoner,
         ontology: OWLOntology,
         asserted: Set<ReasoningIndividualType>,
+        declaredClassIris: Set<String>,
         sourceId: String?,
     ): List<ReasoningIndividualType> {
         val assertedKeys = asserted.map { individualTypeKey(it.individual, it.type) }.toSet()
@@ -292,6 +297,7 @@ public class ReasoningService(
             reasoner.getTypes(individual, false).entities().toList().forEach { type ->
                 if (type.isOWLThing || type.isOWLNothing) return@forEach
                 val typeResource = toIriResource(type)
+                if (typeResource.value !in declaredClassIris) return@forEach
                 if (individualTypeKey(individualResource, typeResource) !in assertedKeys) {
                     inferred += ReasoningIndividualType(
                         individual = individualResource,
@@ -304,6 +310,15 @@ public class ReasoningService(
         }
         return inferred.distinct()
     }
+
+    private fun declaredEntities(graph: GraphState, declarationTypes: Set<String>): Set<String> = graph.triples
+        .mapNotNull { triple ->
+            if (triple.predicate.value != RDF_TYPE) return@mapNotNull null
+            val declarationType = triple.objectTerm as? Iri ?: return@mapNotNull null
+            val subject = triple.subjectResource as? Iri ?: return@mapNotNull null
+            subject.value.takeIf { declarationType.value in declarationTypes }
+        }
+        .toSet()
 
     private fun assertedPropertyRelationships(
         graph: GraphState,
@@ -420,10 +435,14 @@ public class ReasoningService(
         private const val DEFAULT_REASONER_CONFIGURATION = "hermit-default"
         private const val RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
         private const val RDFS_SUBCLASS = "http://www.w3.org/2000/01/rdf-schema#subClassOf"
+        private const val RDFS_CLASS = "http://www.w3.org/2000/01/rdf-schema#Class"
         private const val OWL_EQUIVALENT_CLASS = "http://www.w3.org/2002/07/owl#equivalentClass"
+        private const val OWL_CLASS = "http://www.w3.org/2002/07/owl#Class"
+        private const val OWL_OBJECT_PROPERTY = "http://www.w3.org/2002/07/owl#ObjectProperty"
+        private val CLASS_DECLARATION_TYPES = setOf(OWL_CLASS, RDFS_CLASS)
         private val DECLARATION_TYPES = setOf(
-            "http://www.w3.org/2002/07/owl#Class",
-            "http://www.w3.org/2002/07/owl#ObjectProperty",
+            OWL_CLASS,
+            OWL_OBJECT_PROPERTY,
             "http://www.w3.org/2002/07/owl#DatatypeProperty",
             "http://www.w3.org/2002/07/owl#AnnotationProperty",
             "http://www.w3.org/2002/07/owl#Ontology",
