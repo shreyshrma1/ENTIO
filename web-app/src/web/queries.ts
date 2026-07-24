@@ -129,11 +129,11 @@ export function useHierarchy(projectId: string, sourceId?: string, parentIri?: s
   });
 }
 
-export function useProjectOutline(projectId: string, sourceId?: string, applied = false, proposal = false) {
+export function useProjectOutline(projectId: string, sourceId?: string, applied = false, proposal = false, enabled = true) {
   return useQuery<WebOutlineResponse>({
     queryKey: queryKeys.outline(projectId, sourceId, applied, proposal),
     queryFn: () => loadProjectOutline(projectId, { sourceId, limit: 100, includeAppliedInferred: applied, includeProposalInferred: proposal }),
-    enabled: projectId.length > 0,
+    enabled: enabled && projectId.length > 0,
   });
 }
 

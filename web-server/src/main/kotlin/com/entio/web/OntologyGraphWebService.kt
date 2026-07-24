@@ -15,7 +15,6 @@ import com.entio.core.OntologyGraphPage
 import com.entio.core.OntologyGraphPageCursor
 import com.entio.core.ShaclGraphRole
 import com.entio.semantic.OntologyGraphService
-import com.entio.semantic.ProjectLoader
 import com.entio.web.contract.ProjectRegistry
 import com.entio.web.contract.WebOntologyGraphEdge
 import com.entio.web.contract.WebInferredFactsOverlay
@@ -38,7 +37,7 @@ public class OntologyGraphWebFailure(public val code: String, message: String) :
 /** Enforces web scope and maps the deterministic semantic graph without exposing cursor internals. */
 public class OntologyGraphWebService(
     private val projectRegistry: ProjectRegistry,
-    private val projectLoader: ProjectLoader = ProjectLoader(),
+    private val loadedProjects: LoadedProjectCache = LoadedProjectCache(),
     private val graphService: OntologyGraphService = OntologyGraphService(),
     private val clock: Clock = Clock.systemUTC(),
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
@@ -111,7 +110,7 @@ public class OntologyGraphWebService(
 
     private fun load(projectId: String): EntioProject {
         if (projectRegistry.find(projectId) == null) throw OntologyGraphWebFailure("unknown-project", "The requested project is not registered.")
-        return when (val result = projectLoader.loadProject(projectRegistry.rootFor(projectId))) {
+        return when (val result = loadedProjects.load(projectRegistry.rootFor(projectId))) {
             is EntioResult.Success -> result.value
             is EntioResult.Failure -> throw OntologyGraphWebFailure("project-load-failed", "The registered project could not be loaded.")
         }
