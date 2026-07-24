@@ -172,6 +172,11 @@ export interface WebDocumentIngestionProgress {
   message: string;
 }
 
+export interface WebDocumentIngestionStatusUpdate extends WebDocumentIngestionProgress {
+  order: number;
+  timestamp: string;
+}
+
 export interface WebDocumentIngestionDocument {
   documentId: string;
   safeFilename: string;
@@ -191,6 +196,7 @@ export interface WebDocumentIngestionTask {
   updatedAt: string;
   documents: WebDocumentIngestionDocument[];
   progress: WebDocumentIngestionProgress;
+  updates: WebDocumentIngestionStatusUpdate[];
 }
 
 export interface WebDocumentEvidenceSummary {

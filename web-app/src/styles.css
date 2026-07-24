@@ -1142,6 +1142,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .document-task-list progress { width: 100%; }
 .document-task-actions, .document-review-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .document-task-actions button, .document-review-actions button { padding: 6px 9px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-2); }
+.document-status-details { display: block; margin-top: 3px; color: var(--text-muted); }
 .document-review-region { display: grid; gap: 18px; }
 .document-review-summary, .document-recommendation-group { display: grid; gap: 10px; }
 .document-review-summary h2, .document-recommendation-group h2 { margin: 0; }
