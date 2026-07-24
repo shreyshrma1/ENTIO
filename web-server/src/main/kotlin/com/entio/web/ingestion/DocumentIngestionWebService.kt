@@ -24,6 +24,7 @@ public class DocumentIngestionWebService(
     private val storage = DocumentTemporaryStorage(configuration.temporaryRoot)
     private val intake = DocumentIntakeService(configuration, storage)
     private val tasks = DocumentIngestionTaskManager(configuration, storage)
+    private val reviews = DocumentReviewWorkspaceStore(configuration.clock)
     private val completedIntakeKeys: MutableMap<String, DocumentIngestionTaskSnapshot> = linkedMapOf()
     public val provenanceRepository: AppliedDocumentProvenanceRepository =
         AppliedDocumentProvenanceRepository(configuration.provenanceRoot, projectRegistry)
@@ -132,6 +133,47 @@ public class DocumentIngestionWebService(
     public fun delete(projectId: String, taskId: String, userId: String): Unit {
         requireProject(projectId)
         tasks.delete(DocumentTaskId(taskId), projectId, userId)
+        reviews.remove(taskId)
+    }
+
+    public fun review(
+        projectId: String,
+        taskId: String,
+        userId: String,
+        page: WebPageRequest,
+    ): DocumentReviewWorkspaceResponse {
+        requireProject(projectId)
+        tasks.find(DocumentTaskId(taskId), projectId, userId)
+        return reviews.read(projectId, taskId, userId, page)
+    }
+
+    public fun evidence(
+        projectId: String,
+        taskId: String,
+        evidenceId: String,
+        userId: String,
+    ): DocumentEvidenceViewResponse {
+        requireProject(projectId)
+        tasks.find(DocumentTaskId(taskId), projectId, userId)
+        return reviews.evidence(projectId, taskId, userId, evidenceId)
+    }
+
+    public fun decide(
+        projectId: String,
+        taskId: String,
+        recommendationId: String,
+        userId: String,
+        request: DocumentReviewDecisionRequest,
+        page: WebPageRequest,
+    ): DocumentReviewWorkspaceResponse {
+        requireProject(projectId)
+        tasks.find(DocumentTaskId(taskId), projectId, userId)
+        return reviews.decide(projectId, taskId, recommendationId, userId, request, page)
+    }
+
+    internal fun installReview(input: DocumentReviewWorkspaceInput): Unit {
+        tasks.find(DocumentTaskId(input.task.taskId), input.task.projectId, input.task.ownerUserId)
+        reviews.install(input)
     }
 
     override fun close(): Unit {

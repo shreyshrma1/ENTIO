@@ -51,6 +51,7 @@ import com.entio.web.contract.WebInferenceMaterializationRequest
 import java.time.Clock
 import com.entio.web.ingestion.DocumentIngestionConfiguration
 import com.entio.web.ingestion.DocumentIngestionFailure
+import com.entio.web.ingestion.DocumentReviewDecisionRequest
 import com.entio.web.ingestion.DocumentIngestionWebService
 
 /**
@@ -340,6 +341,44 @@ public fun Application.module(
             call.respondIngestion {
                 val user = call.requireIngestionUser(dependencies)
                 documentIngestion.find(call.requiredProjectId(), call.requiredIngestionTaskId(), user.id)
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/document-ingestion/tasks/{taskId}/review") {
+            call.respondIngestion {
+                val user = call.requireIngestionUser(dependencies)
+                documentIngestion.review(
+                    call.requiredProjectId(),
+                    call.requiredIngestionTaskId(),
+                    user.id,
+                    call.pageRequest(),
+                )
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/document-ingestion/tasks/{taskId}/evidence/{evidenceId}") {
+            call.respondIngestion {
+                val user = call.requireIngestionUser(dependencies)
+                documentIngestion.evidence(
+                    call.requiredProjectId(),
+                    call.requiredIngestionTaskId(),
+                    call.requiredIngestionEvidenceId(),
+                    user.id,
+                )
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/document-ingestion/tasks/{taskId}/recommendations/{recommendationId}/decision") {
+            call.respondIngestion {
+                val user = call.requireIngestionUser(dependencies)
+                documentIngestion.decide(
+                    call.requiredProjectId(),
+                    call.requiredIngestionTaskId(),
+                    call.requiredIngestionRecommendationId(),
+                    user.id,
+                    call.receive<DocumentReviewDecisionRequest>(),
+                    call.pageRequest(),
+                )
             }
         }
 
@@ -740,6 +779,14 @@ private fun ApplicationCall.requiredIdempotencyKey(): String = request.header("I
 private fun ApplicationCall.requiredIngestionTaskId(): String = parameters["taskId"]
     ?.takeIf(String::isNotBlank)
     ?: throw DocumentIngestionFailure("ingestion-task-not-found", "The requested ingestion task was not found.")
+
+private fun ApplicationCall.requiredIngestionEvidenceId(): String = parameters["evidenceId"]
+    ?.takeIf { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,199}")) }
+    ?: throw DocumentIngestionFailure("document-evidence-not-found", "The requested evidence was not found.")
+
+private fun ApplicationCall.requiredIngestionRecommendationId(): String = parameters["recommendationId"]
+    ?.takeIf { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,199}")) }
+    ?: throw DocumentIngestionFailure("document-recommendation-not-found", "The requested recommendation was not found.")
 
 private fun ApplicationCall.requiredIngestionIdempotencyKey(): String = request.header("Idempotency-Key")
     ?.takeIf(String::isNotBlank)

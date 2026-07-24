@@ -1123,3 +1123,45 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .inferred-fact-proposal { border-inline-start: 3px solid #8b7cf6; padding-inline-start: 8px; }
 .inferred-badge { margin-inline-start: auto; padding: 2px 7px; border: 1px solid #9cc9f7; border-radius: 999px; background: #deefff; color: #285b91; font-size: 11px; font-weight: 700; }
 .inferred-state-message { margin: 6px 0; color: var(--text-muted); font-size: 13px; }
+.document-workspace { display: grid; gap: 18px; padding: 20px; }
+.document-workspace-header { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+.document-workspace-header h1, .document-workspace-header p { margin: 0; }
+.document-workspace-header p { max-width: 620px; color: var(--text-secondary); }
+.document-upload-card { display: grid; grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(130px, 1fr)) auto; gap: 12px; align-items: end; padding: 16px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--surface-1); }
+.document-upload-card label, .document-review-fields label, .document-recommendation-card > label { display: grid; gap: 5px; color: var(--text-secondary); font-size: 12px; font-weight: 700; }
+.document-upload-card input, .document-upload-card select, .document-review-fields input, .document-review-fields textarea, .document-recommendation-card select { min-width: 0; padding: 8px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--surface-1); color: var(--text-primary); }
+.document-workspace-grid { display: grid; grid-template-columns: minmax(220px, 290px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.document-task-list, .document-review-region { min-width: 0; padding: 16px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--surface-1); }
+.document-task-list h2 { margin-top: 0; }
+.document-task-list ul, .document-recommendation-card ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.document-task-list li { display: grid; gap: 5px; }
+.document-task-list li > button { display: grid; gap: 6px; width: 100%; padding: 10px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--surface-2); color: var(--text-primary); text-align: left; }
+.document-task-list li > button.active { border-color: var(--primary-600); }
+.document-task-list progress { width: 100%; }
+.document-task-actions, .document-review-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.document-task-actions button, .document-review-actions button { padding: 6px 9px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-2); }
+.document-review-region { display: grid; gap: 18px; }
+.document-review-summary, .document-recommendation-group { display: grid; gap: 10px; }
+.document-review-summary h2, .document-recommendation-group h2 { margin: 0; }
+.document-review-summary article, .document-draft-impact, .document-recommendation-card { padding: 13px; border: 1px solid var(--border-subtle); border-radius: 10px; }
+.document-review-summary article h3, .document-review-summary article p { margin: 0 0 6px; }
+.document-draft-impact { display: grid; gap: 4px; background: var(--surface-2); }
+.document-recommendation-card { display: grid; gap: 10px; }
+.document-recommendation-card > header { display: flex; justify-content: space-between; gap: 16px; }
+.document-recommendation-card h3, .document-recommendation-card p { margin: 0; }
+.document-recommendation-card dl { display: flex; gap: 20px; margin: 0; }
+.document-recommendation-card dl div { display: grid; gap: 2px; }
+.document-recommendation-card dt { color: var(--text-muted); font-size: 10px; text-transform: uppercase; }
+.document-recommendation-card dd { margin: 0; }
+.document-recommendation-card li button { border: 0; background: transparent; color: var(--primary-700); text-align: left; text-decoration: underline; }
+.document-review-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.document-review-fields label:last-child { grid-column: 1 / -1; }
+.document-conflict { padding: 10px; border-left: 3px solid var(--warning); background: var(--surface-2); }
+.document-evidence-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; padding: 18px; border-radius: 12px; background: var(--surface-1); }
+.document-evidence-dialog header { display: flex; align-items: center; justify-content: space-between; }
+.document-evidence-dialog pre { overflow: auto; padding: 16px; border: 1px solid var(--border-subtle); background: var(--surface-2); white-space: pre-wrap; word-break: break-word; }
+.document-evidence-dialog mark { background: #fde68a; color: inherit; }
+@media (max-width: 900px) {
+  .document-upload-card, .document-workspace-grid { grid-template-columns: 1fr; }
+  .document-workspace-header { display: grid; }
+}

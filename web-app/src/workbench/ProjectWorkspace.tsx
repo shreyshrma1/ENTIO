@@ -24,8 +24,9 @@ import {
 import type { WebStagingEditType } from "./stagingEditTypes";
 import OntologyMapShell, { type OntologyMapViewState } from "./ontology-map/OntologyMapShell";
 import type { OntologyGraphEdgeKind, OntologyGraphNodeKind } from "../web/contracts";
+import DocumentIngestionWorkspace from "./document-ingestion/DocumentIngestionWorkspace";
 
-type ModuleId = "explore" | "changes" | "reasoning" | "validation" | "fibo" | "activity" | "settings";
+type ModuleId = "explore" | "documents" | "changes" | "reasoning" | "validation" | "fibo" | "activity" | "settings";
 type RailItemId = ModuleId;
 type OutlineTabId = "classes" | "objects" | "properties";
 
@@ -49,6 +50,7 @@ interface StagedEntityReference extends WebEntityReference {
 
 const modules: Array<{ id: ModuleId; label: string; icon: Parameters<typeof Icon>[0]["name"] }> = [
   { id: "explore", label: "Explore", icon: "explore" },
+  { id: "documents", label: "Documents", icon: "activity" },
   { id: "changes", label: "Proposal", icon: "changes" },
   { id: "reasoning", label: "Reasoning", icon: "reasoning" },
   { id: "validation", label: "Validation", icon: "constraints" },
@@ -615,6 +617,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
 
 function renderModule(module: ModuleId, projectId: string, sourceId: string | undefined, shapesSourceId: string | undefined, activeTab: EntityTab | undefined, semanticJobIds: Record<"reasoning" | "shacl", string | null>, onSemanticJobSubmitted: (kind: "reasoning" | "shacl", status: { id: string }) => void, onOpenChanges: () => void, exploreContent: React.ReactNode, displayName: string, onDisplayNameSave: (displayName: string) => void, onOpenEditor: (editor: ContextualEditor, sourceId?: string) => void) {
   if (module === "explore") return <div className="explore-layout"><div className="entity-surface">{exploreContent}</div></div>;
+  if (module === "documents") return <DocumentIngestionWorkspace projectId={projectId} />;
   if (module === "changes") return sourceId ? <div className="module-page proposal-page"><PageIntro eyebrow="Review" title="Proposal" description="Review all staged edits together, then accept and apply them or reject the proposal." /><StagingPanel projectId={projectId} /></div> : <Unavailable />;
   if (module === "reasoning") return <ReasoningWorkspace projectId={projectId} initialJobId={semanticJobIds.reasoning} onJobSubmitted={onSemanticJobSubmitted} onOpenChanges={onOpenChanges} />;
   if (module === "validation") return <ValidationWorkspace projectId={projectId} shapesSourceId={shapesSourceId} shaclJobId={semanticJobIds.shacl} onJobSubmitted={onSemanticJobSubmitted} onOpen={(editType) => onOpenEditor({ kind: "typed", editType }, shapesSourceId)} />;
