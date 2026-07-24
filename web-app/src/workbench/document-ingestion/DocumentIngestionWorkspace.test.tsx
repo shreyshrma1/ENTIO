@@ -68,6 +68,7 @@ describe("document ingestion review workspace", () => {
     fireEvent.change(screen.getByLabelText("Supported label edit"), { target: { value: "Customer record" } });
     fireEvent.change(screen.getByLabelText("Target ontology source"), { target: { value: "ontology" } });
     fireEvent.change(screen.getByLabelText("Clarification"), { target: { value: "Confirmed by policy owner." } });
+    expect(screen.getByRole("button", { name: "Accept" })).not.toHaveAttribute("tabindex", "-1");
     fireEvent.click(screen.getByRole("button", { name: "Save edits" }));
     fireEvent.click(screen.getByRole("button", { name: "Reconsider" }));
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -75,7 +76,6 @@ describe("document ingestion review workspace", () => {
 
     await waitFor(() => expect(requests.some((request) => request.path.endsWith("/cancel"))).toBe(true));
     expect(requests.some((request) => request.method === "DELETE")).toBe(true);
-    expect(screen.getByRole("button", { name: "Accept" })).not.toHaveAttribute("tabindex", "-1");
   });
 });
 
