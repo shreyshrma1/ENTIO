@@ -10,6 +10,7 @@ import io.ktor.server.websocket.webSocket
 import io.ktor.websocket.close
 import io.ktor.server.request.header
 import io.ktor.server.request.receive
+import io.ktor.server.request.receiveMultipart
 import io.ktor.server.response.respondText
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
@@ -48,11 +49,17 @@ import com.entio.web.contract.WebAiModelSelectionRequest
 import com.entio.web.contract.WebAiProposalCreateRequest
 import com.entio.web.contract.WebInferenceMaterializationRequest
 import java.time.Clock
+import com.entio.web.ingestion.DocumentIngestionConfiguration
+import com.entio.web.ingestion.DocumentIngestionFailure
+import com.entio.web.ingestion.DocumentIngestionWebService
 
 /**
  * Installs the smallest server boundary needed before semantic web contracts are added.
  */
-public fun Application.module(dependencies: WebApplicationDependencies = WebApplicationDependencies()): Unit {
+public fun Application.module(
+    dependencies: WebApplicationDependencies = WebApplicationDependencies(),
+    documentIngestionConfiguration: DocumentIngestionConfiguration = DocumentIngestionConfiguration(),
+): Unit {
     install(ContentNegotiation) {
         jackson()
     }
@@ -118,6 +125,13 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
         staging = staging,
         projectRegistry = dependencies.projectRegistry,
     )
+    val documentIngestion = DocumentIngestionWebService(
+        projectRegistry = dependencies.projectRegistry,
+        configuration = documentIngestionConfiguration,
+    )
+    monitor.subscribe(io.ktor.server.application.ApplicationStopped) {
+        documentIngestion.close()
+    }
 
     routing {
         get("/health") {
@@ -301,6 +315,47 @@ public fun Application.module(dependencies: WebApplicationDependencies = WebAppl
 
         get("/api/v1/projects/{projectId}/summary") {
             call.respondReadOnly { readOnly.summary(call.requiredProjectId()) }
+        }
+
+        post("/api/v1/projects/{projectId}/document-ingestion/tasks") {
+            call.respondIngestion(HttpStatusCode.Accepted) {
+                val user = call.requireIngestionUser(dependencies)
+                documentIngestion.intake(
+                    call.requiredProjectId(),
+                    user.id,
+                    call.requiredIngestionIdempotencyKey(),
+                    call.receiveMultipart(),
+                )
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/document-ingestion/tasks") {
+            call.respondIngestion {
+                val user = call.requireIngestionUser(dependencies)
+                documentIngestion.list(call.requiredProjectId(), user.id, call.pageRequest())
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/document-ingestion/tasks/{taskId}") {
+            call.respondIngestion {
+                val user = call.requireIngestionUser(dependencies)
+                documentIngestion.find(call.requiredProjectId(), call.requiredIngestionTaskId(), user.id)
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/document-ingestion/tasks/{taskId}/cancel") {
+            call.respondIngestion {
+                val user = call.requireIngestionUser(dependencies)
+                documentIngestion.cancel(call.requiredProjectId(), call.requiredIngestionTaskId(), user.id)
+            }
+        }
+
+        delete("/api/v1/projects/{projectId}/document-ingestion/tasks/{taskId}") {
+            call.respondIngestion(HttpStatusCode.NoContent) {
+                val user = call.requireIngestionUser(dependencies)
+                documentIngestion.delete(call.requiredProjectId(), call.requiredIngestionTaskId(), user.id)
+                Unit
+            }
         }
 
         get("/api/v1/projects/{projectId}/sources") {
@@ -682,9 +737,27 @@ private fun ApplicationCall.requiredIdempotencyKey(): String = request.header("I
     ?.takeIf(String::isNotBlank)
     ?: throw WebWorkflowFailure("missing-idempotency-key", "An Idempotency-Key header is required for this request.")
 
+private fun ApplicationCall.requiredIngestionTaskId(): String = parameters["taskId"]
+    ?.takeIf(String::isNotBlank)
+    ?: throw DocumentIngestionFailure("ingestion-task-not-found", "The requested ingestion task was not found.")
+
+private fun ApplicationCall.requiredIngestionIdempotencyKey(): String = request.header("Idempotency-Key")
+    ?.takeIf(String::isNotBlank)
+    ?: throw DocumentIngestionFailure("missing-idempotency-key", "An Idempotency-Key header is required for this request.")
+
 private fun ApplicationCall.requireUser(dependencies: WebApplicationDependencies): com.entio.web.contract.WebSessionUser {
     val user = dependencies.identityProvider.find(request.headers["X-Entio-User"])
         ?: throw WebWorkflowFailure("unknown-development-user", "The requested development user is not configured.")
+    return user
+}
+
+private fun ApplicationCall.requireIngestionUser(
+    dependencies: WebApplicationDependencies,
+): com.entio.web.contract.WebSessionUser {
+    val user = requireUser(dependencies)
+    if (!dependencies.authorization.isAllowed(user.role, com.entio.web.contract.WebAction.PREPARE_EDIT)) {
+        throw DocumentIngestionFailure("forbidden", "The current user cannot prepare document-derived changes.")
+    }
     return user
 }
 
@@ -849,6 +922,47 @@ private suspend inline fun <reified T : Any> ApplicationCall.respondWorkflow(cro
             requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
             code = failure.code,
             message = failure.message ?: "The workflow request could not be completed.",
+        ),
+    )
+}
+
+private suspend inline fun <reified T : Any> ApplicationCall.respondIngestion(
+    successStatus: HttpStatusCode = HttpStatusCode.OK,
+    crossinline block: suspend () -> T,
+): Unit = try {
+    respond(successStatus, block())
+} catch (failure: DocumentIngestionFailure) {
+    val status = when (failure.code) {
+        "ingestion-task-not-found" -> HttpStatusCode.NotFound
+        "forbidden" -> HttpStatusCode.Forbidden
+        "document-too-large" -> HttpStatusCode.PayloadTooLarge
+        "unsupported-document-type" -> HttpStatusCode.UnsupportedMediaType
+        "duplicate-document",
+        "duplicate-document-part",
+        "project-ingestion-in-progress",
+        "ingestion-concurrency-limit",
+        -> HttpStatusCode.Conflict
+        "temporary-storage-failed",
+        "provenance-read-failed",
+        "provenance-atomic-move-unsupported",
+        -> HttpStatusCode.InternalServerError
+        else -> HttpStatusCode.BadRequest
+    }
+    respond(
+        status,
+        WebErrorResponse(
+            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
+            code = failure.code,
+            message = failure.message ?: "The document ingestion request could not be completed.",
+        ),
+    )
+} catch (_: IllegalArgumentException) {
+    respond(
+        HttpStatusCode.BadRequest,
+        WebErrorResponse(
+            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
+            code = "invalid-document-request",
+            message = "The document ingestion request is invalid.",
         ),
     )
 }
