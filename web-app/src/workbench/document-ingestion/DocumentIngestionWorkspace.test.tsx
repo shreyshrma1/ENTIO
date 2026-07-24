@@ -8,9 +8,20 @@ describe("document ingestion review workspace", () => {
 
   it("renders untrusted content as text and exposes evidence and review labels accessibly", async () => {
     const decisions: unknown[] = [];
+    const drafts: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path.includes("/evidence/evidence-1")) return json(evidence);
+      if (path.endsWith("/draft")) {
+        drafts.push(JSON.parse(String(init?.body)));
+        return json({
+          apiVersion: "v1",
+          staging: { apiVersion: "v1", projectId: "simple", status: "READY", entries: [], proposal: null },
+          batchCount: 1,
+          stagedEditCount: 1,
+          confirmCount: 0,
+        });
+      }
       if (path.includes("/decision")) {
         decisions.push(JSON.parse(String(init?.body)));
         return json(workspace("Accepted"));
@@ -47,6 +58,12 @@ describe("document ingestion review workspace", () => {
       expectedWorkKey: "work-key",
       expectedGraphFingerprint: "graph-fingerprint",
     });
+    fireEvent.click(await screen.findByRole("button", { name: "Add accepted items to proposal" }));
+    await waitFor(() => expect(drafts).toEqual([{
+      expectedWorkKey: "work-key",
+      expectedGraphFingerprint: "graph-fingerprint",
+    }]));
+    expect(await screen.findByRole("status")).toHaveTextContent("1 typed edit added to the shared proposal.");
   });
 
   it("supports keyboard-reachable task, match, edit, reconsider, cancel, and delete controls", async () => {

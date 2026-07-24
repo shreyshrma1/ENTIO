@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WebStagedEntry } from "../web/projectApi";
 import StagingPanel from "./StagingPanel";
@@ -224,6 +224,47 @@ describe("staging panel", () => {
     expect(screen.getByText("Unknown")).toBeInTheDocument();
     expect(screen.queryByText("private-import-source")).not.toBeInTheDocument();
     expect(screen.getByText("Added · Subject · predicate · Object")).toBeInTheDocument();
+  });
+
+  it("shows document recommendation provenance on the staged typed edit", async () => {
+    const entry: WebStagedEntry = {
+      ...stagedEntry(),
+      documentDraftProvenance: {
+        taskId: "task-1",
+        recommendationId: "recommendation-1",
+        decisionId: "decision-1",
+        evidenceIds: ["evidence-1", "evidence-2"],
+        modelId: "gpt-test",
+        promptVersion: "prompt-v1",
+        extractionMethods: ["Text"],
+        confidence: 92,
+        targetSourceId: "simple",
+        normalizedTypedOperationKey: "create-class-customer",
+      },
+    };
+    const proposal = {
+      id: "proposal-1", status: "READYFORREVIEW", stagedChangeIds: [entry.id],
+      baselineProjectFingerprint: "baseline", validationMessages: [], validationIssues: [],
+      diff: [], targetSourceIds: ["simple"], shaclImpact: null, message: null,
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (init?.method === "POST" && path.endsWith("/proposal/preview")) {
+        return json({ ...stagingResponse([entry]), proposal });
+      }
+      if (path.endsWith("/staged")) return json({ ...stagingResponse([entry]), proposal });
+      if (path.endsWith("/summary")) return json({});
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${path}`);
+    }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(<QueryClientProvider client={client}><StagingPanel projectId="simple" /></QueryClientProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "View Details" }));
+    const provenance = screen.getByLabelText("Document recommendation provenance");
+    expect(within(provenance).getByText("Accepted document recommendation")).toBeInTheDocument();
+    expect(within(provenance).getByText("task-1")).toBeInTheDocument();
+    expect(within(provenance).getByText("recommendation-1")).toBeInTheDocument();
+    expect(within(provenance).getByText("2 verified references")).toBeInTheDocument();
   });
 });
 
