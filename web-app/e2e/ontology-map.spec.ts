@@ -140,9 +140,11 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await page.mouse.move(viewportBounds!.x + viewportBounds!.width - 100, viewportBounds!.y + viewportBounds!.height - 80, { steps: 4 });
   await page.mouse.up();
   await expect(popup).toBeVisible();
-  await expect.poll(async () => (await popup.boundingBox())?.x).toBeLessThan(popupBeforePan!.x);
+  await expect.poll(async () => (await popup.boundingBox())?.x).toBeCloseTo(popupBeforePan!.x, 0);
+  await expect.poll(async () => (await popup.boundingBox())?.y).toBeCloseTo(popupBeforePan!.y, 0);
   await page.locator(".ontology-graph-controls").click();
-  await expect(popup).toHaveCount(0);
+  await expect(popup).toBeVisible();
+  await page.getByRole("button", { name: "Close entity summary" }).click();
   await node.click();
   await expect(popup).toBeVisible();
   await node.focus();
