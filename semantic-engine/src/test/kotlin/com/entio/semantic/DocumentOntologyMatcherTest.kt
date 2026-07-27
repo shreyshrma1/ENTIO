@@ -5,6 +5,8 @@ import com.entio.core.DocumentAuthorityStatus
 import com.entio.core.DocumentCandidate
 import com.entio.core.DocumentCandidateCategory
 import com.entio.core.DocumentCandidateIdentity
+import com.entio.core.DocumentConnectedModelItem
+import com.entio.core.DocumentConnectedModelItemKind
 import com.entio.core.DocumentConflictAlternative
 import com.entio.core.DocumentEvidence
 import com.entio.core.DocumentEvidenceId
@@ -20,10 +22,74 @@ import com.entio.core.Iri
 import java.time.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class DocumentOntologyMatcherTest {
+    @Test
+    fun resolvesCanonicalAlignmentTargetsAcrossEveryApprovedScope(): Unit {
+        val item = alignedItem("Customer")
+        val scopes = DocumentMatchScope.entries
+        val records = scopes.mapIndexed { index, scope ->
+            record(
+                scope,
+                "https://example.com/customer-$index",
+                sourceId = if (scope == DocumentMatchScope.CuratedFibo) "fibo-approved" else "source-$index",
+            )
+        }
+
+        val targets = DocumentOntologyMatcher().resolveAlignmentTargets(
+            item,
+            records,
+            records,
+            curatedFiboSourceIds = setOf("fibo-approved"),
+        )
+
+        assertEquals(scopes.toSet(), targets.map { it.scope }.toSet())
+        assertEquals(records.map { it.entityIri }.toSet(), targets.map { it.entityIri }.toSet())
+    }
+
+    @Test
+    fun independentlyRejectsUnrelatedOrUnapprovedAlignmentTargets(): Unit {
+        val matcher = DocumentOntologyMatcher()
+        val payment = alignedItem("Payment")
+        val account = record(DocumentMatchScope.AppliedLocal, "https://example.com/Account", label = "Account")
+        assertFailsWith<IllegalArgumentException> {
+            matcher.resolveAlignmentTargets(payment, listOf(account), listOf(account))
+        }
+
+        val fibo = record(
+            DocumentMatchScope.CuratedFibo,
+            "https://spec.edmcouncil.org/fibo/Payment",
+            label = "Payment",
+            sourceId = "fibo-unapproved",
+        )
+        assertFailsWith<IllegalArgumentException> {
+            matcher.resolveAlignmentTargets(payment, listOf(fibo), listOf(fibo))
+        }
+
+        val connection = DocumentConnectedModelItem(
+            id = "model-customer-loan",
+            kind = DocumentConnectedModelItemKind.ObjectProperty,
+            label = "customer loan connection",
+            rationale = "A proposed relationship requires independent semantic review.",
+            discoveryIds = listOf("discovery-connection"),
+            order = 0,
+        )
+        val unrelatedConnections = listOf(
+            record(DocumentMatchScope.AppliedLocal, "https://example.com/Customer", label = "Customer"),
+            record(DocumentMatchScope.AppliedLocal, "https://example.com/Loan", label = "Loan"),
+            record(DocumentMatchScope.AppliedLocal, "https://example.com/Account", label = "Account"),
+            record(DocumentMatchScope.AppliedLocal, "https://example.com/Invoice", label = "Invoice"),
+        )
+        unrelatedConnections.forEach { target ->
+            assertFailsWith<IllegalArgumentException> {
+                matcher.resolveAlignmentTargets(connection, listOf(target), unrelatedConnections)
+            }
+        }
+    }
+
     @Test
     fun searchesApprovedScopesInOrderAndKeepsFiboPinned(): Unit {
         val candidate = candidate("Customer")
@@ -363,4 +429,13 @@ class DocumentOntologyMatcherTest {
             ambiguityFlags = flags.sorted(),
         )
     }
+
+    private fun alignedItem(label: String): DocumentConnectedModelItem = DocumentConnectedModelItem(
+        id = "model-${label.lowercase()}",
+        kind = DocumentConnectedModelItemKind.Class,
+        label = label,
+        rationale = "The verified discoveries describe $label.",
+        discoveryIds = listOf("discovery-${label.lowercase()}"),
+        order = 0,
+    )
 }

@@ -207,6 +207,39 @@ class OpenAiDocumentAnalysisClientTest {
     }
 
     @Test
+    fun sendsStrictOntologyAlignmentRequestUsingOnlyBoundedContextReferences(): Unit = runBlocking {
+        var body = ""
+        val engine = MockEngine { request ->
+            body = (request.body as TextContent).text
+            respond(
+                providerEnvelope(validOntologyAlignmentOutput()),
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+
+        val result = OpenAiDocumentAnalysisClient(engine = engine).use {
+            it.align(
+                "secret-value",
+                "gpt-test-2026",
+                "Use only supplied context references.",
+                ontologyAlignmentRequest(),
+            )
+        }
+
+        val completed = assertIs<DocumentOntologyAlignmentProviderResult.Completed>(result)
+        assertEquals("Reuse", completed.response.records.single().action)
+        val root = ObjectMapper().readTree(body)
+        val format = root.path("text").path("format")
+        val fields = format.path("schema").path("properties").path("records").path("items").path("properties")
+        assertEquals("phase_11_5_document_ontology_alignment", format.path("name").asText())
+        assertEquals(false, format.path("schema").path("additionalProperties").asBoolean())
+        assertTrue(fields.path("action").path("enum").map { it.asText() }.contains("ConflictReview"))
+        assertTrue(root.path("tools").isEmpty)
+        assertTrue(!body.contains("secret-value"))
+        assertTrue(root.path("input").asText().contains("\"referenceId\":\"context-payment\""))
+    }
+
+    @Test
     fun sendsStrictBoundedRequestWithoutToolsOrSecretInBody(): Unit = runBlocking {
         var body = ""
         val engine = MockEngine { request ->
@@ -585,6 +618,45 @@ class OpenAiDocumentAnalysisClientTest {
         ),
     )
 
+    private fun ontologyAlignmentRequest(): DocumentOntologyAlignmentRequest {
+        val model = DocumentConnectedModel(
+            listOf(
+                DocumentConnectedModelItem(
+                    id = "model-payment",
+                    kind = DocumentConnectedModelItemKind.Class,
+                    label = "Payment",
+                    rationale = "The verified discoveries describe Payment.",
+                    discoveryIds = listOf("discovery-1"),
+                    order = 0,
+                ),
+            ),
+        )
+        return DocumentOntologyAlignmentRequest(
+            taskId = "task-1",
+            projectId = "project-a",
+            connectedModel = model,
+            reconciliation = emptyList(),
+            snapshot = DocumentOntologyAlignmentSnapshot(
+                projectId = "project-a",
+                ontologyFingerprint = "ontology-fingerprint",
+                currentWorkFingerprint = "current-work-fingerprint",
+                entries = listOf(
+                    DocumentOntologyAlignmentContextEntry(
+                        referenceId = "context-payment",
+                        projectId = "project-a",
+                        scope = "AppliedLocal",
+                        entityIri = "https://example.com/entio/simple#Payment",
+                        sourceId = "simple",
+                        preferredLabel = "Payment",
+                        category = "Class",
+                        writable = true,
+                    ),
+                ),
+                writableSourceIds = listOf("simple"),
+            ),
+        )
+    }
+
     private fun validStructuredOutput(): String =
         """{"schemaVersion":"phase-11-document-analysis-response-v4","candidates":[{"category":"Class","recommendationCategory":"OntologyStructure","proposedLabel":"Customer","proposedDefinition":null,"proposedDomainIri":null,"proposedRangeIri":null,"proposedConnectionLabel":null,"proposedConnectionDomainIri":null,"reasoningSummary":"Customer is material domain meaning supported by the document.","confidence":90,"interpretation":"explicit","evidenceType":"Explicit","evidence":[{"documentId":"document-1","blockId":"block-1","startOffsetInBlock":0,"endOffsetInBlock":8,"excerpt":"Customer"}],"ambiguityFlags":[]}]}"""
 
@@ -598,6 +670,9 @@ class OpenAiDocumentAnalysisClientTest {
 
     private fun validReconciliationOutput(): String =
         """{"schemaVersion":"phase-11-5-reconciliation-response-v1","records":[{"providerId":"same-meaning","kind":"Duplicate","participantIds":["discovery-1","discovery-2"],"evidenceIds":["evidence-1","evidence-2"],"priorProvenanceIds":[],"explanation":"Both documents describe the same payment approval meaning.","humanDecisionRequired":false}]}"""
+
+    private fun validOntologyAlignmentOutput(): String =
+        """{"schemaVersion":"phase-11-5-ontology-alignment-response-v1","records":[{"providerId":"alignment-payment","modelItemId":"model-payment","action":"Reuse","advisedReferenceIds":["context-payment"],"targetSourceId":null,"rationale":"The current ontology already contains Payment.","ontologyFitConfidence":95,"domainRangeRationale":null}]}"""
 
     private fun providerEnvelope(output: String): String {
         val mapper = ObjectMapper()
