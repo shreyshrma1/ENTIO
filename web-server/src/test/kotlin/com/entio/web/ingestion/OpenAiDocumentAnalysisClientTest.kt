@@ -36,14 +36,51 @@ class OpenAiDocumentAnalysisClientTest {
             )
         }
 
-        assertIs<DocumentAnalysisProviderResult.Completed>(result)
+        val completed = assertIs<DocumentAnalysisProviderResult.Completed>(result)
+        assertEquals(
+            "Customer is material domain meaning supported by the document.",
+            completed.response.candidates.single().reasoningSummary,
+        )
         val root = ObjectMapper().readTree(body)
         assertEquals(false, root.path("store").asBoolean())
         assertEquals("json_schema", root.path("text").path("format").path("type").asText())
         assertEquals(false, root.path("text").path("format").path("schema").path("additionalProperties").asBoolean())
+        val candidateProperties = root.path("text").path("format").path("schema")
+            .path("properties").path("candidates").path("items").path("properties")
+        assertEquals(
+            listOf("OntologyStructure", "BusinessFact"),
+            candidateProperties.path("recommendationCategory").path("enum").map { it.asText() },
+        )
+        assertEquals(
+            APPROVED_DOCUMENT_INTERPRETATIONS,
+            candidateProperties.path("interpretation").path("enum").map { it.asText() },
+        )
+        assertEquals(
+            PROVIDER_DOCUMENT_EVIDENCE_TYPES,
+            candidateProperties.path("evidenceType").path("enum").map { it.asText() },
+        )
+        val candidateCategories = candidateProperties.path("category").path("enum").map { it.asText() }
+        assertTrue(candidateCategories.contains("ShaclConstraint"))
+        assertTrue(!candidateCategories.contains("BusinessRule"))
+        assertEquals(
+            listOf("string", "null"),
+            candidateProperties.path("proposedDefinition").path("type").map { it.asText() },
+        )
+        assertEquals(
+            listOf("string", "null"),
+            candidateProperties.path("proposedConnectionLabel").path("type").map { it.asText() },
+        )
+        assertEquals(
+            listOf("string", "null"),
+            candidateProperties.path("reasoningSummary").path("type").map { it.asText() },
+        )
+        val evidenceProperties = candidateProperties.path("evidence").path("items").path("properties")
+        assertTrue(evidenceProperties.path("startOffsetInBlock").path("description").asText().contains("inclusive"))
+        assertTrue(evidenceProperties.path("endOffsetInBlock").path("description").asText().contains("Exclusive"))
         assertTrue(!body.contains("secret-value"))
         assertTrue(root.path("tools").isMissingNode || root.path("tools").isEmpty)
         assertTrue(root.path("input").asText().contains("block-1"))
+        assertTrue(root.path("input").asText().contains("https://example.com/Account"))
     }
 
     @Test
@@ -71,15 +108,61 @@ class OpenAiDocumentAnalysisClientTest {
         assertTrue(assertIs<DocumentAnalysisProviderResult.Failed>(rate).retryable)
     }
 
+    @Test
+    fun distinguishesIncompleteRefusedAndEmptyProviderResponses(): Unit = runBlocking {
+        suspend fun failureCode(body: String): String {
+            val engine = MockEngine {
+                respond(
+                    body,
+                    headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+                )
+            }
+            val result = OpenAiDocumentAnalysisClient(engine = engine).use {
+                it.analyze("secret", "gpt-test", "instruction", request())
+            }
+            return assertIs<DocumentAnalysisProviderResult.Failed>(result).safeCode
+        }
+
+        assertEquals(
+            "document-provider-incomplete-output",
+            failureCode("""{"status":"incomplete","output":[]}"""),
+        )
+        assertEquals(
+            "document-provider-output-token-limit",
+            failureCode("""{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[]}"""),
+        )
+        assertEquals(
+            "document-provider-content-filter",
+            failureCode("""{"status":"incomplete","incomplete_details":{"reason":"content_filter"},"output":[]}"""),
+        )
+        assertEquals(
+            "document-provider-refusal",
+            failureCode("""{"status":"completed","output":[{"content":[{"type":"refusal","refusal":"declined"}]}]}"""),
+        )
+        assertEquals(
+            "document-provider-empty-output",
+            failureCode("""{"status":"completed","output":[]}"""),
+        )
+    }
+
     private fun request(): DocumentAnalysisRequest = DocumentAnalysisRequest(
         stage = DocumentAnalysisStage.PerDocument,
         taskId = "task-1",
         ontologyFingerprint = "fingerprint",
         blocks = listOf(DocumentAnalysisBlock("document-1", "block-1", 1, "Scope", "Customer records matter.")),
+        ontologyContext = listOf(
+            DocumentOntologyContextEntity(
+                iri = "https://example.com/Account",
+                kind = "Class",
+                sourceId = "simple",
+                preferredLabel = "Account",
+            ),
+        ),
+        writableSourceIds = listOf("simple"),
     )
 
     private fun validStructuredOutput(): String =
-        """{"schemaVersion":"phase-11-document-analysis-response-v1","candidates":[{"category":"Class","recommendationCategory":"OntologyStructure","proposedLabel":"Customer","confidence":90,"interpretation":"explicit","evidenceType":"Explicit","evidence":[{"documentId":"document-1","blockId":"block-1","startOffsetInBlock":0,"endOffsetInBlock":8,"excerpt":"Customer"}],"ambiguityFlags":[]}]}"""
+        """{"schemaVersion":"phase-11-document-analysis-response-v4","candidates":[{"category":"Class","recommendationCategory":"OntologyStructure","proposedLabel":"Customer","proposedDefinition":null,"proposedDomainIri":null,"proposedRangeIri":null,"proposedConnectionLabel":null,"proposedConnectionDomainIri":null,"reasoningSummary":"Customer is material domain meaning supported by the document.","confidence":90,"interpretation":"explicit","evidenceType":"Explicit","evidence":[{"documentId":"document-1","blockId":"block-1","startOffsetInBlock":0,"endOffsetInBlock":8,"excerpt":"Customer"}],"ambiguityFlags":[]}]}"""
 
     private fun providerEnvelope(output: String): String {
         val mapper = ObjectMapper()

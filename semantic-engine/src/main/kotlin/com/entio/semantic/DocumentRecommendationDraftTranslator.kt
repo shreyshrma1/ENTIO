@@ -53,6 +53,10 @@ public data class DocumentDraftTranslationContext(
     val graphCurrent: Boolean = true,
     val modelAndPromptCurrent: Boolean = true,
     val duplicateOperation: Boolean = false,
+    val domainIri: Iri? = null,
+    val rangeIri: Iri? = null,
+    val connectionPropertyIri: Iri? = null,
+    val connectionDomainIri: Iri? = null,
 )
 
 public data class PreparedDocumentDraftOperation(
@@ -72,6 +76,25 @@ public sealed interface DocumentDraftTranslationResult {
 
 /** Converts reviewed recommendations only into existing, approved typed operations. */
 public class DocumentRecommendationDraftTranslator {
+    /**
+     * Produces the same typed operations as drafting without requiring an acceptance decision first.
+     *
+     * Review-only, stale, duplicate, or incomplete recommendations remain blocked. Human-review
+     * gates are bypassed only so the UI can show what an approval would stage after those gates
+     * are resolved.
+     */
+    public fun previewSafely(
+        recommendation: DocumentRecommendation,
+        context: DocumentDraftTranslationContext,
+    ): DocumentDraftTranslationResult = translateSafely(
+        recommendation,
+        context.copy(
+            acceptedForDraft = true,
+            clarificationResolved = true,
+            lowConfidenceOcrConfirmed = true,
+        ),
+    )
+
     public fun translate(
         recommendation: DocumentRecommendation,
         context: DocumentDraftTranslationContext,
@@ -102,20 +125,18 @@ public class DocumentRecommendationDraftTranslator {
             )
         }
         val operations = when (recommendation.type) {
-            DocumentCandidateCategory.Class -> listOf(
-                DocumentDraftOperation.Ontology(
-                    CreateClassEdit(required(context.targetIri, "class IRI"), recommendation.proposedLabel?.asLabel()),
-                ),
+            DocumentCandidateCategory.Class -> classOperations(recommendation, context, sourceId)
+            DocumentCandidateCategory.ObjectProperty -> propertyOperations(
+                recommendation,
+                context,
+                sourceId,
+                objectProperty = true,
             )
-            DocumentCandidateCategory.ObjectProperty -> listOf(
-                DocumentDraftOperation.Ontology(
-                    CreateObjectPropertyEdit(required(context.targetIri, "property IRI"), recommendation.proposedLabel?.asLabel()),
-                ),
-            )
-            DocumentCandidateCategory.DatatypeProperty -> listOf(
-                DocumentDraftOperation.Ontology(
-                    CreateDatatypePropertyEdit(required(context.targetIri, "property IRI"), recommendation.proposedLabel?.asLabel()),
-                ),
+            DocumentCandidateCategory.DatatypeProperty -> propertyOperations(
+                recommendation,
+                context,
+                sourceId,
+                objectProperty = false,
             )
             DocumentCandidateCategory.Individual -> listOf(
                 DocumentDraftOperation.Ontology(
@@ -201,12 +222,17 @@ public class DocumentRecommendationDraftTranslator {
                     ),
                 ),
             )
-            DocumentCandidateCategory.BusinessRule,
             DocumentCandidateCategory.ShaclConstraint,
             -> listOf(DocumentDraftOperation.Shacl(approvedShacl(context.shaclEdit, sourceId)))
             DocumentCandidateCategory.Conflict,
             DocumentCandidateCategory.Ambiguity,
             -> return blocked("document-recommendation-review-only", "This recommendation remains review-only.")
+        }
+        if (operations.isEmpty()) {
+            return blocked(
+                "document-recommendation-no-exact-change",
+                "This recommendation does not contain an exact supported ontology change.",
+            )
         }
         return DocumentDraftTranslationResult.Prepared(
             operations.map { operation ->
@@ -218,6 +244,62 @@ public class DocumentRecommendationDraftTranslator {
                 )
             },
         )
+    }
+
+    private fun classOperations(
+        recommendation: DocumentRecommendation,
+        context: DocumentDraftTranslationContext,
+        sourceId: String,
+    ): List<DocumentDraftOperation> {
+        val target = required(context.targetIri, "class IRI")
+        return buildList {
+            if (recommendation.action == DocumentRecommendationAction.CreateLocal) {
+                add(DocumentDraftOperation.Ontology(CreateClassEdit(target, recommendation.proposedLabel?.asLabel())))
+            }
+            recommendation.proposedDefinition?.let { definition ->
+                add(DocumentDraftOperation.Semantic(SemanticEditRequest.AddDefinition(target, definition, sourceId)))
+            }
+            if (recommendation.action == DocumentRecommendationAction.CreateLocal) {
+                recommendation.proposedConnectionLabel?.let { connectionLabel ->
+                    val property = required(context.connectionPropertyIri, "connecting property IRI")
+                    val domain = required(context.connectionDomainIri, "connecting property domain IRI")
+                    add(DocumentDraftOperation.Ontology(CreateObjectPropertyEdit(property, connectionLabel.asLabel())))
+                    add(DocumentDraftOperation.Ontology(SetPropertyDomainEdit(property, domain)))
+                    add(DocumentDraftOperation.Ontology(SetPropertyRangeEdit(property, target)))
+                }
+            }
+        }
+    }
+
+    private fun propertyOperations(
+        recommendation: DocumentRecommendation,
+        context: DocumentDraftTranslationContext,
+        sourceId: String,
+        objectProperty: Boolean,
+    ): List<DocumentDraftOperation> {
+        val property = required(context.targetIri, "property IRI")
+        return buildList {
+            if (recommendation.action == DocumentRecommendationAction.CreateLocal) {
+                add(
+                    DocumentDraftOperation.Ontology(
+                        if (objectProperty) {
+                            CreateObjectPropertyEdit(property, recommendation.proposedLabel?.asLabel())
+                        } else {
+                            CreateDatatypePropertyEdit(property, recommendation.proposedLabel?.asLabel())
+                        },
+                    ),
+                )
+            }
+            context.domainIri?.let { domain ->
+                add(DocumentDraftOperation.Ontology(SetPropertyDomainEdit(property, domain)))
+            }
+            context.rangeIri?.let { range ->
+                add(DocumentDraftOperation.Ontology(SetPropertyRangeEdit(property, range)))
+            }
+            recommendation.proposedDefinition?.let { definition ->
+                add(DocumentDraftOperation.Semantic(SemanticEditRequest.AddDefinition(property, definition, sourceId)))
+            }
+        }
     }
 
     private fun gate(

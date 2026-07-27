@@ -20,7 +20,6 @@ public enum class DocumentCandidateCategory {
     TypeAssertion,
     ObjectPropertyAssertion,
     DatatypeValue,
-    BusinessRule,
     ShaclConstraint,
     Conflict,
     Ambiguity,
@@ -103,6 +102,11 @@ public data class DocumentCandidate(
     public val confidence: Int,
     public val evidence: List<DocumentEvidence>,
     public val ambiguityFlags: List<String> = emptyList(),
+    public val proposedDomainIri: Iri? = null,
+    public val proposedRangeIri: Iri? = null,
+    public val proposedConnectionLabel: String? = null,
+    public val proposedConnectionDomainIri: Iri? = null,
+    public val analysisRationale: String? = null,
 ) {
     init {
         require(identity.category == category) { "Document candidate identity category must match its candidate." }
@@ -123,6 +127,20 @@ public data class DocumentCandidate(
         require(categorySupportsRecommendationCategory(category, recommendationCategory)) {
             "Document candidate category is incompatible with its schema or fact category."
         }
+        require(
+            (proposedDomainIri == null && proposedRangeIri == null) ||
+                category in setOf(DocumentCandidateCategory.ObjectProperty, DocumentCandidateCategory.DatatypeProperty),
+        ) {
+            "Only property candidates may propose a domain or range."
+        }
+        requireOptionalDocumentText(proposedConnectionLabel, "Document candidate connection label", 500)
+        require((proposedConnectionLabel == null) == (proposedConnectionDomainIri == null)) {
+            "A proposed ontology connection requires both a property label and domain."
+        }
+        require(proposedConnectionLabel == null || category == DocumentCandidateCategory.Class) {
+            "Only class candidates may propose a connecting object property."
+        }
+        requireOptionalDocumentText(analysisRationale, "Document candidate analysis rationale", 2_000)
     }
 
     public val confidenceBand: DocumentConfidenceBand
@@ -234,6 +252,11 @@ public data class DocumentRecommendation(
     public val relatedDraftItemIds: List<String> = emptyList(),
     public val modelId: String? = null,
     public val promptVersion: String? = null,
+    public val proposedDomainIri: Iri? = null,
+    public val proposedRangeIri: Iri? = null,
+    public val proposedConnectionLabel: String? = null,
+    public val proposedConnectionDomainIri: Iri? = null,
+    public val analysisRationale: String? = null,
 ) {
     init {
         requireOpaqueDocumentId(id, "Document recommendation ID")
@@ -247,6 +270,20 @@ public data class DocumentRecommendation(
             "Document recommendation requires a proposed label, value, or definition."
         }
         requireOptionalDocumentText(proposedLabel, "Document recommendation label", 500)
+        require(
+            (proposedDomainIri == null && proposedRangeIri == null) ||
+                type in setOf(DocumentCandidateCategory.ObjectProperty, DocumentCandidateCategory.DatatypeProperty),
+        ) {
+            "Only property recommendations may propose a domain or range."
+        }
+        requireOptionalDocumentText(proposedConnectionLabel, "Document recommendation connection label", 500)
+        require((proposedConnectionLabel == null) == (proposedConnectionDomainIri == null)) {
+            "A proposed ontology connection requires both a property label and domain."
+        }
+        require(proposedConnectionLabel == null || type == DocumentCandidateCategory.Class) {
+            "Only class recommendations may propose a connecting object property."
+        }
+        requireOptionalDocumentText(analysisRationale, "Document recommendation analysis rationale", 2_000)
         require(confidence in 0..100) { "Document recommendation confidence must be between 0 and 100." }
         requireNonBlankBounded(rationale, "Document recommendation rationale", 2_000)
         require(evidence.flatMap(DocumentEvidence::references).size <= MAX_DOCUMENT_EVIDENCE_REFERENCES) {
@@ -550,7 +587,6 @@ private fun categorySupportsRecommendationCategory(
     DocumentCandidateCategory.SuperclassRelationship,
     DocumentCandidateCategory.Domain,
     DocumentCandidateCategory.Range,
-    DocumentCandidateCategory.BusinessRule,
     DocumentCandidateCategory.ShaclConstraint,
     -> recommendation == DocumentRecommendationCategory.OntologyStructure
     DocumentCandidateCategory.AnnotationValue,

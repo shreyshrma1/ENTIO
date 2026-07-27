@@ -1,6 +1,7 @@
 import { expect, test, type Route } from "@playwright/test";
 
 test("completes the accessible document review and proposal workflow", async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 864 });
   let uploaded = false;
   let accepted = false;
   let staged = false;
@@ -107,11 +108,18 @@ test("completes the accessible document review and proposal workflow", async ({ 
   await page.getByRole("button", { name: "Upload and analyze" }).press("Enter");
 
   await expect(page.getByRole("heading", { name: "Ontology structure" })).toBeVisible();
+  await expect.poll(async () =>
+    page.locator(".document-workspace").evaluate((element) => element.scrollWidth <= element.clientWidth),
+  ).toBe(true);
+  await expect.poll(async () =>
+    page.locator(".document-review-region").evaluate((element) => element.scrollWidth <= element.clientWidth),
+  ).toBe(true);
   for (const filename of ["text.pdf", "scan.pdf", "mixed.pdf", "policy.docx", "policy.txt", "amendment.md"]) {
     expect(multipartBody).toContain(filename);
   }
-  await expect(page.getByText("Conflict requires review")).toBeVisible();
-  await expect(page.getByText("Prior workflow evidence: applied-document-change-1")).toBeVisible();
+  await expect(page.getByText("Conflicting evidence needs a decision")).toBeVisible();
+  await expect(page.getByText("Earlier Entio records: applied-document-change-1")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Exact proposed changes" })).toContainText("Add definition");
 
   const evidenceButton = page.getByRole("button", { name: "Open Explicit evidence" });
   await evidenceButton.focus();
@@ -121,8 +129,9 @@ test("completes the accessible document review and proposal workflow", async ({ 
   await expect(dialog.getByLabel("Extracted evidence text")).toContainText("Supplier");
   await dialog.getByRole("button", { name: "Close evidence viewer" }).press("Enter");
 
-  await page.getByLabel("Clarification").fill("The later amendment governs.");
-  const accept = page.getByRole("button", { name: "Accept", exact: true });
+  await page.getByText("Review options and technical details").click();
+  await page.getByLabel("Reviewer note").fill("The later amendment governs.");
+  const accept = page.getByRole("button", { name: "Approve for proposal" });
   await accept.focus();
   await accept.press("Enter");
   await expect(page.getByText("1 accepted · 0 pending · 1 blocked")).toBeVisible();
@@ -153,7 +162,7 @@ const task = {
   status: "awaiting-review",
   createdAt: "2026-07-24T12:00:00Z",
   updatedAt: "2026-07-24T12:01:00Z",
-  documents: [{ documentId: "document-amendment", safeFilename: "amendment.md", mediaType: "markdown", byteSize: 20, checksumSha256: "a".repeat(64), authorityStatus: "authoritative", status: "awaiting-review" }],
+  documents: [{ documentId: "document-amendment", safeFilename: "commercial-account-and-payment-authorization-policy.md", mediaType: "markdown", byteSize: 20, checksumSha256: "a".repeat(64), authorityStatus: "authoritative", status: "awaiting-review" }],
   progress: { stage: "awaiting-review", completedDocuments: 6, totalDocuments: 6, percent: 100, message: "Evidence-linked recommendations are ready for review." },
 };
 
@@ -164,7 +173,7 @@ function reviewWorkspace(accepted: boolean) {
     projectId: "simple",
     exactWorkKey: "document-work-key",
     graphFingerprint: "graph-fingerprint",
-    documents: [{ documentId: "document-amendment", safeFilename: "amendment.md", mediaType: "markdown", authorityStatus: "authoritative", pageCount: null, warningCount: 0 }],
+    documents: [{ documentId: "document-amendment", safeFilename: "commercial-account-and-payment-authorization-policy.md", mediaType: "markdown", authorityStatus: "authoritative", pageCount: null, warningCount: 0 }],
     summaries: [{ documentId: "document-amendment", purpose: "Revises the supplier definition.", highlights: ["Supplier"] }],
     recommendations: {
       items: [{
@@ -173,6 +182,17 @@ function reviewWorkspace(accepted: boolean) {
         type: "Class",
         action: "Extend",
         proposedLabel: "Supplier",
+        description: "The document adds a definition to the existing Supplier class.",
+        changePreview: {
+          draftable: true,
+          summary: "1 exact change will be added to the proposal.",
+          operations: [{
+            operation: "Add definition",
+            description: "Add the amendment definition to https://example.com/entio/simple#CommercialAccountPaymentAuthorizationSupplier.",
+            targetSourceId: "simple",
+          }],
+          blockingReason: null,
+        },
         confidence: 94,
         confidenceBand: "High",
         rationale: "The amendment explicitly revises Supplier.",

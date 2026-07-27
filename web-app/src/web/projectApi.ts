@@ -216,6 +216,13 @@ export interface WebDocumentReviewRecommendation {
   type: string;
   action: string;
   proposedLabel: string | null;
+  description: string;
+  changePreview: {
+    draftable: boolean;
+    summary: string;
+    operations: Array<{ operation: string; description: string; targetSourceId: string | null }>;
+    blockingReason: string | null;
+  };
   confidence: number;
   confidenceBand: "High" | "Medium" | "Low";
   rationale: string;
@@ -229,6 +236,8 @@ export interface WebDocumentReviewRecommendation {
   targetSourceId: string | null;
   reconsiderationCount: number;
   priorWorkflowProvenance: string[];
+  modelId: string | null;
+  promptVersion: string | null;
 }
 
 export interface WebDocumentReviewWorkspace {

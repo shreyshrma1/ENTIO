@@ -47,6 +47,8 @@ public data class DocumentReviewRecommendation(
     val type: String,
     val action: String,
     val proposedLabel: String?,
+    val description: String,
+    val changePreview: DocumentReviewChangePreview,
     val confidence: Int,
     val confidenceBand: String,
     val rationale: String,
@@ -60,6 +62,21 @@ public data class DocumentReviewRecommendation(
     val targetSourceId: String?,
     val reconsiderationCount: Int,
     val priorWorkflowProvenance: List<String>,
+    val modelId: String?,
+    val promptVersion: String?,
+)
+
+public data class DocumentReviewChangePreview(
+    val draftable: Boolean,
+    val summary: String,
+    val operations: List<DocumentReviewProposedOperation>,
+    val blockingReason: String?,
+)
+
+public data class DocumentReviewProposedOperation(
+    val operation: String,
+    val description: String,
+    val targetSourceId: String?,
 )
 
 public data class DocumentReviewEvidenceSummary(
@@ -172,6 +189,7 @@ private data class StoredReviewWorkspace(
 
 internal class DocumentReviewWorkspaceStore(
     private val clock: Clock = Clock.systemUTC(),
+    private val changeExplainer: DocumentReviewChangeExplainer = DocumentReviewChangeExplainer(),
 ) {
     private val workspaces: MutableMap<String, StoredReviewWorkspace> = linkedMapOf()
 
@@ -369,6 +387,7 @@ internal class DocumentReviewWorkspaceStore(
                     recommendation = recommendation,
                     context = context.copy(
                         targetSourceId = state.targetSourceId ?: context.targetSourceId,
+                        targetIri = recommendation.selectedMatch?.entityIri ?: context.targetIri,
                         acceptedForDraft = true,
                         clarificationResolved = !state.clarification.isNullOrBlank(),
                     ),
@@ -433,7 +452,9 @@ internal class DocumentReviewWorkspaceStore(
             ?: throw DocumentIngestionFailure("ingestion-task-not-found", "The requested ingestion task was not found.")
 
     private fun StoredReviewWorkspace.response(taskId: String, page: WebPageRequest): DocumentReviewWorkspaceResponse {
-        val items = recommendations.values.map { it.response(priorWorkflowProvenance[it.source.id].orEmpty()) }
+        val items = recommendations.values.map {
+            it.response(priorWorkflowProvenance[it.source.id].orEmpty(), draftContexts[it.source.id])
+        }
         return DocumentReviewWorkspaceResponse(
             taskId = taskId,
             projectId = projectId,
@@ -453,13 +474,32 @@ internal class DocumentReviewWorkspaceStore(
         )
     }
 
-    private fun MutableReviewRecommendation.response(prior: List<String>): DocumentReviewRecommendation =
-        DocumentReviewRecommendation(
+    private fun MutableReviewRecommendation.response(
+        prior: List<String>,
+        draftContext: DocumentDraftTranslationContext?,
+    ): DocumentReviewRecommendation =
+        source.copy(
+            proposedLabel = proposedLabel,
+            selectedMatch = selectedMatchIri?.let { selected ->
+                source.matches.singleOrNull { it.entityIri.value == selected }
+            },
+            targetSourceId = targetSourceId,
+        ).let { current ->
+            val explanation = changeExplainer.explain(
+                current,
+                draftContext?.copy(
+                    targetSourceId = targetSourceId ?: draftContext.targetSourceId,
+                    targetIri = current.selectedMatch?.entityIri ?: draftContext.targetIri,
+                ),
+            )
+            DocumentReviewRecommendation(
             id = source.id,
             category = source.category.name,
             type = source.type.name,
             action = source.action.name,
             proposedLabel = proposedLabel,
+            description = explanation.description,
+            changePreview = explanation.changePreview,
             confidence = source.confidence,
             confidenceBand = source.confidenceBand.name,
             rationale = source.rationale,
@@ -499,7 +539,10 @@ internal class DocumentReviewWorkspaceStore(
             targetSourceId = targetSourceId,
             reconsiderationCount = reconsiderationCount,
             priorWorkflowProvenance = prior,
+            modelId = source.modelId,
+            promptVersion = source.promptVersion,
         )
+        }
 
     private fun safeRequiredText(value: String?, label: String, maximum: Int = 2_000): String {
         val safe = value?.trim()

@@ -46,6 +46,9 @@ class DocumentIngestionOrchestratorTest {
         val task = fixture.manager.find(taskId, "simple", "alice")
         assertEquals("awaiting-review", task.status)
         assertEquals(100, task.progress.percent)
+        assertTrue(task.updates.any { it.message.contains("Waiting for the selected model to analyze document 1 of 1") })
+        assertTrue(task.updates.any { it.message.contains("verifying its evidence") })
+        assertTrue(task.updates.any { it.message.contains("evidence-grounded candidates") })
         val review = fixture.reviews.read("simple", taskId.value, "alice", WebPageRequest())
         val recommendation = review.recommendations.items.single()
         assertEquals("Supplier", recommendation.proposedLabel)
@@ -53,6 +56,46 @@ class DocumentIngestionOrchestratorTest {
         assertEquals("simple", recommendation.targetSourceId)
         assertEquals(before.toList(), Files.readAllBytes(fixture.source).toList())
         assertTrue(directory.path.toFile().exists())
+        fixture.close()
+    }
+
+    @Test
+    fun preparesACompoundConceptAndConnectionAgainstCurrentOntologyContext(): Unit = runBlocking {
+        val fixture = fixture(readyModel = true, compoundConcept = true)
+        val taskId = fixture.manager.begin("simple", "alice", 1)
+        val directory = fixture.manager.directory(taskId, "simple", "alice")
+        val text = "Account closure means the date the account is closed after all adjustments."
+        val upload = fixture.intake.accept(
+            taskId,
+            directory,
+            "simple",
+            "alice",
+            metadata(),
+            ByteArrayInputStream(text.toByteArray()),
+        )
+        fixture.manager.addDocument(taskId, "simple", "alice", upload)
+        fixture.manager.completeIntake(taskId, "simple", "alice")
+
+        fixture.orchestrator.start(taskId.value, "simple", "alice")
+        fixture.orchestrator.await(taskId.value)
+
+        val recommendation = fixture.reviews
+            .read("simple", taskId.value, "alice", WebPageRequest())
+            .recommendations
+            .items
+            .single()
+        assertEquals("Account closure", recommendation.proposedLabel)
+        assertTrue(recommendation.changePreview.draftable)
+        assertEquals(
+            listOf(
+                "Create class",
+                "Add definition",
+                "Create relationship",
+                "Set relationship source",
+                "Set relationship target",
+            ),
+            recommendation.changePreview.operations.map { it.operation },
+        )
         fixture.close()
     }
 
@@ -83,7 +126,44 @@ class DocumentIngestionOrchestratorTest {
         fixture.close()
     }
 
-    private fun fixture(readyModel: Boolean): Fixture {
+    @Test
+    fun reportsSafeSpecificProviderFailureWithoutExposingProviderPayloads(): Unit = runBlocking {
+        val fixture = fixture(
+            readyModel = true,
+            providerFailure = DocumentAnalysisProviderResult.Failed(
+                retryable = false,
+                safeCode = "document-provider-request-rejected",
+            ),
+        )
+        val taskId = fixture.manager.begin("simple", "alice", 1)
+        val directory = fixture.manager.directory(taskId, "simple", "alice")
+        val upload = fixture.intake.accept(
+            taskId,
+            directory,
+            "simple",
+            "alice",
+            metadata(),
+            ByteArrayInputStream("Supplier policy defines approved suppliers.".toByteArray()),
+        )
+        fixture.manager.addDocument(taskId, "simple", "alice", upload)
+        fixture.manager.completeIntake(taskId, "simple", "alice")
+
+        fixture.orchestrator.start(taskId.value, "simple", "alice")
+        fixture.orchestrator.await(taskId.value)
+
+        val task = fixture.manager.find(taskId, "simple", "alice")
+        assertEquals("failed", task.status)
+        assertEquals("The model provider rejected Entio's document-analysis request.", task.progress.message)
+        assertTrue(task.updates.last().message.contains("rejected"))
+        assertTrue(directory.path.toFile().exists().not())
+        fixture.close()
+    }
+
+    private fun fixture(
+        readyModel: Boolean,
+        providerFailure: DocumentAnalysisProviderResult.Failed? = null,
+        compoundConcept: Boolean = false,
+    ): Fixture {
         val now = Instant.parse("2026-07-24T12:00:00Z")
         val root = Files.createTempDirectory("entio-orchestration-projects")
         val project = Files.createDirectory(root.resolve("simple"))
@@ -106,7 +186,9 @@ class DocumentIngestionOrchestratorTest {
             """
             @prefix ex: <https://example.com/simple#> .
             @prefix owl: <http://www.w3.org/2002/07/owl#> .
+            @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
             ex:Customer a owl:Class .
+            ex:Account a owl:Class ; rdfs:label "Account" .
             """.trimIndent(),
         )
         val registry = InMemoryProjectRegistry(setOf(root)).also {
@@ -125,14 +207,17 @@ class DocumentIngestionOrchestratorTest {
         val credentials = InMemoryAiCredentialStore().also { it.save("alice", "openai", "secret") }
         val settings = settings(now, readyModel)
         val provider = DocumentAnalysisProvider { _, _, _, request ->
+            if (providerFailure != null) return@DocumentAnalysisProvider providerFailure
             val block = request.blocks.single()
+            val proposedLabel = if (compoundConcept) "Account closure" else "Supplier"
+            val excerpt = if (compoundConcept) block.text else "Supplier"
             DocumentAnalysisProviderResult.Completed(
                 DocumentAnalysisResponse(
                     candidates = listOf(
                         ProviderDocumentCandidate(
                             category = DocumentCandidateCategory.Class.name,
                             recommendationCategory = "OntologyStructure",
-                            proposedLabel = "Supplier",
+                            proposedLabel = proposedLabel,
                             confidence = 95,
                             interpretation = "explicit",
                             evidenceType = "Explicit",
@@ -141,10 +226,13 @@ class DocumentIngestionOrchestratorTest {
                                     block.documentId,
                                     block.blockId,
                                     0,
-                                    8,
-                                    "Supplier",
+                                    excerpt.length,
+                                    excerpt,
                                 ),
                             ),
+                            proposedDefinition = excerpt.takeIf { compoundConcept },
+                            proposedConnectionLabel = "has account closure".takeIf { compoundConcept },
+                            proposedConnectionDomainIri = "https://example.com/simple#Account".takeIf { compoundConcept },
                         ),
                     ),
                 ),

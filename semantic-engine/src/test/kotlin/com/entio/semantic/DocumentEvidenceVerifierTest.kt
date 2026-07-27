@@ -37,18 +37,53 @@ class DocumentEvidenceVerifierTest {
     }
 
     @Test
-    fun rejectsAlteredInventedOutOfRangeAndCrossDocumentClaims(): Unit {
+    fun reconcilesUniquePresentationDifferencesAndPreservesExactServerText(): Unit {
+        val formattedText = "The customer’s payment authori-\nzation must be “reviewed”\tbefore approval."
+        val formattedBlock = block.copy(
+            endOffset = formattedText.length,
+            exactText = formattedText,
+        )
+        val reference = DocumentEvidenceVerifier().verify(
+            listOf(formattedBlock),
+            listOf(
+                UnverifiedDocumentEvidence(
+                    "document-1",
+                    "block-1",
+                    500,
+                    600,
+                    "customer's payment authorization must be \"reviewed\" before approval",
+                ),
+            ),
+        ).single()
+
+        assertEquals(
+            "customer’s payment authori-\nzation must be “reviewed”\tbefore approval",
+            reference.exactExcerpt,
+        )
+        assertEquals(reference.exactExcerpt, formattedBlock.exactText.substring(
+            reference.startOffsetInBlock,
+            reference.endOffsetInBlock,
+        ))
+    }
+
+    @Test
+    fun rejectsAlteredInventedAmbiguousAndCrossDocumentClaims(): Unit {
         assertCode("evidence-excerpt-mismatch") {
             verify(UnverifiedDocumentEvidence("document-1", "block-1", 0, 8, "Consumer"))
         }
         assertCode("evidence-block-not-found") {
             verify(UnverifiedDocumentEvidence("document-1", "block-invented", 0, 8, "Customer"))
         }
-        assertCode("evidence-offset-invalid") {
-            verify(UnverifiedDocumentEvidence("document-1", "block-1", 0, 99, "Customer"))
-        }
         assertCode("evidence-cross-document") {
             verify(UnverifiedDocumentEvidence("document-2", "block-1", 0, 8, "Customer"))
+        }
+        val repeatedText = "Customer Customer"
+        val repeated = block.copy(endOffset = repeatedText.length, exactText = repeatedText)
+        assertCode("evidence-excerpt-mismatch") {
+            DocumentEvidenceVerifier().verify(
+                listOf(repeated),
+                listOf(UnverifiedDocumentEvidence("document-1", "block-1", 99, 100, "Customer")),
+            )
         }
     }
 

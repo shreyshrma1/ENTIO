@@ -5,6 +5,7 @@ import com.entio.core.DocumentAuthorityStatus
 import com.entio.core.DocumentCandidate
 import com.entio.core.DocumentCandidateCategory
 import com.entio.core.DocumentCandidateIdentity
+import com.entio.core.DocumentConflictAlternative
 import com.entio.core.DocumentEvidence
 import com.entio.core.DocumentEvidenceId
 import com.entio.core.DocumentEvidenceReference
@@ -83,7 +84,7 @@ class DocumentOntologyMatcherTest {
                 promptVersion = "prompt-v1",
             ),
         )
-        assertTrue(sameTask.recommendations.all { it.action == DocumentRecommendationAction.Confirm })
+        assertTrue(sameTask.recommendations.all { it.action == DocumentRecommendationAction.CreateLocal })
     }
 
     @Test
@@ -104,6 +105,26 @@ class DocumentOntologyMatcherTest {
     }
 
     @Test
+    fun preservesTheModelsConclusionAndKeepsExplicitAmbiguityReviewOnly(): Unit {
+        val rationale = "The document defines material customer meaning that is absent from the ontology."
+        assertEquals(
+            rationale,
+            matcher(candidate("Customer").copy(analysisRationale = rationale)).rationale,
+        )
+
+        val source = candidate("Effective Date")
+        val ambiguity = source.copy(
+            identity = source.identity.copy(category = DocumentCandidateCategory.Ambiguity),
+            category = DocumentCandidateCategory.Ambiguity,
+            analysisRationale = "Two documents imply incompatible ontology structures.",
+        )
+        assertEquals(
+            DocumentRecommendationAction.InsufficientEvidence,
+            matcher(ambiguity).action,
+        )
+    }
+
+    @Test
     fun emitsReviewOnlyEvolutionActionsAndConflictAlternatives(): Unit {
         val expected = mapOf(
             "extend" to DocumentRecommendationAction.Extend,
@@ -114,15 +135,18 @@ class DocumentOntologyMatcherTest {
             "unsupported" to DocumentRecommendationAction.Unsupported,
         )
         expected.forEach { (flag, action) ->
+            val label = "Customer-$flag"
             val recommendation = matcher(
-                candidate("Customer-$flag", flags = listOf(flag)),
-                records = if (flag == "conflict") {
-                    listOf(
+                candidate(label, flags = listOf(flag)),
+                records = when (flag) {
+                    "conflict" -> listOf(
                         record(DocumentMatchScope.AppliedLocal, "https://example.com/one", label = "Customer conflict"),
                         record(DocumentMatchScope.AppliedLocal, "https://example.com/two", label = "Customer conflict"),
                     )
-                } else {
-                    emptyList()
+                    "extend", "revise" -> listOf(
+                        record(DocumentMatchScope.AppliedLocal, "https://example.com/existing-$flag", label = label),
+                    )
+                    else -> emptyList()
                 },
             )
             assertEquals(action, recommendation.action)
@@ -139,6 +163,49 @@ class DocumentOntologyMatcherTest {
                 assertTrue(recommendation.conflicts.single().alternatives.size >= 2)
             }
         }
+    }
+
+    @Test
+    fun buildsUnmatchedCrossDocumentConflictsFromTheirSourceEvidence(): Unit {
+        val first = candidate("Payment authorization", flags = listOf("conflict"))
+        val secondEvidenceId = DocumentEvidenceId("evidence-document-2")
+        val secondReference = DocumentEvidenceReference(
+            id = secondEvidenceId,
+            documentId = DocumentId("document-2"),
+            blockId = DocumentTextBlockId("block-2"),
+            startOffsetInBlock = 0,
+            endOffsetInBlock = 21,
+            exactExcerpt = "Payment authorization",
+            extractionMethod = DocumentExtractionMethod.Text,
+        )
+        val conflict = first.copy(
+            identity = first.identity.copy(
+                evidenceKeys = (first.identity.evidenceKeys + secondEvidenceId.value).sorted(),
+            ),
+            evidence = (
+                first.evidence +
+                    DocumentEvidence(
+                        secondEvidenceId,
+                        DocumentEvidenceType.Explicit,
+                        listOf(secondReference),
+                    )
+                ).sortedBy { it.id.value },
+        )
+
+        val recommendation = matcher(conflict)
+
+        assertEquals(DocumentRecommendationAction.Conflict, recommendation.action)
+        assertEquals(2, recommendation.conflicts.single().alternatives.size)
+        assertTrue(
+            recommendation.conflicts.single().alternatives
+                .map(DocumentConflictAlternative::description)
+                .containsAll(
+                    listOf(
+                        "Retain the interpretation supported by document document-1.",
+                        "Retain the interpretation supported by document document-2.",
+                    ),
+                ),
+        )
     }
 
     @Test

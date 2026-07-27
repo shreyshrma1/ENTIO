@@ -38,6 +38,37 @@ import kotlin.test.assertTrue
 
 class DocumentDraftProposalIntegrationTest {
     @Test
+    fun keepsEveryCompoundRecommendationInOneStagingBatch(): Unit {
+        val firstCompound = (1..18).map { index ->
+            prepared(index).copy(
+                provenance = prepared(index).provenance.copy(recommendationId = "compound-1"),
+            )
+        }
+        val secondCompound = (19..22).map { index ->
+            prepared(index).copy(
+                provenance = prepared(index).provenance.copy(recommendationId = "compound-2"),
+            )
+        }
+
+        val batches = packAtomicDocumentRecommendationGroups(firstCompound + secondCompound)
+
+        assertEquals(listOf(18, 4), batches.map { it.size })
+        assertTrue(batches.all { batch -> batch.map { it.provenance.recommendationId }.distinct().size == 1 })
+        assertEquals(
+            "document-compound-recommendation-limit",
+            assertFailsWith<DocumentIngestionFailure> {
+                packAtomicDocumentRecommendationGroups(
+                    (1..21).map { index ->
+                        prepared(index).copy(
+                            provenance = prepared(index).provenance.copy(recommendationId = "oversized"),
+                        )
+                    },
+                )
+            }.code,
+        )
+    }
+
+    @Test
     fun stagesOneAtomicBatchWithFieldProvenanceAndNoSourceWrite(): Unit {
         val fixture = fixture()
         val service = StagingWorkflowService(fixture.registry)

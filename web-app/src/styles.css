@@ -1132,7 +1132,7 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .document-upload-card > * { min-width: 0; }
 .document-upload-card label, .document-review-fields label, .document-recommendation-card > label { display: grid; gap: 5px; color: var(--text-secondary); font-size: 12px; font-weight: 700; }
 .document-upload-card input, .document-upload-card select, .document-review-fields input, .document-review-fields textarea, .document-recommendation-card select { min-width: 0; padding: 8px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--surface-1); color: var(--text-primary); }
-.document-workspace-grid { display: grid; grid-template-columns: minmax(220px, 290px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.document-workspace-grid { display: grid; width: 100%; min-width: 0; max-width: 100%; grid-template-columns: minmax(220px, 290px) minmax(0, 1fr); gap: 16px; align-items: start; }
 .document-task-list, .document-review-region { min-width: 0; padding: 16px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--surface-1); }
 .document-task-list h2 { margin-top: 0; }
 .document-task-list ul, .document-recommendation-card ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
@@ -1143,20 +1143,43 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .document-task-actions, .document-review-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .document-task-actions button, .document-review-actions button { padding: 6px 9px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-2); }
 .document-status-details { display: block; margin-top: 3px; color: var(--text-muted); }
-.document-review-region { display: grid; gap: 18px; }
-.document-review-summary, .document-recommendation-group { display: grid; gap: 10px; }
+.document-review-region { display: grid; width: 100%; max-width: 100%; gap: 18px; overflow-wrap: anywhere; }
+.document-review-region > *, .document-review-summary > *, .document-recommendation-group > * { min-width: 0; max-width: 100%; }
+.document-review-summary, .document-recommendation-group { display: grid; min-width: 0; max-width: 100%; gap: 10px; }
 .document-review-summary h2, .document-recommendation-group h2 { margin: 0; }
 .document-review-summary article, .document-draft-impact, .document-recommendation-card { padding: 13px; border: 1px solid var(--border-subtle); border-radius: 10px; }
 .document-review-summary article h3, .document-review-summary article p { margin: 0 0 6px; }
 .document-draft-impact { display: grid; gap: 4px; background: var(--surface-2); }
-.document-recommendation-card { display: grid; gap: 10px; }
-.document-recommendation-card > header { display: flex; justify-content: space-between; gap: 16px; }
-.document-recommendation-card h3, .document-recommendation-card p { margin: 0; }
+.document-recommendation-card { display: grid; gap: 14px; padding: 18px; }
+.document-recommendation-card > header { display: flex; min-width: 0; justify-content: space-between; gap: 16px; }
+.document-recommendation-card > header > * { min-width: 0; }
+.document-recommendation-card h3, .document-recommendation-card h4, .document-recommendation-card p { margin: 0; }
+.document-recommendation-card h4 { font-size: 13px; }
+.document-recommendation-badges { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-end; gap: 6px; }
+.document-recommendation-badges span { padding: 3px 8px; border-radius: 999px; background: var(--surface-2); color: var(--text-secondary); font-size: 11px; font-weight: 700; }
+.document-change-description, .document-change-preview, .document-provenance { display: grid; min-width: 0; max-width: 100%; gap: 8px; }
+.document-change-preview { padding: 13px; border: 1px solid var(--primary-100); border-radius: 9px; background: var(--primary-50); }
+.document-change-preview.blocked { border-color: var(--border-default); background: var(--surface-2); }
+.document-change-preview ol { display: grid; gap: 8px; margin: 0; padding-left: 22px; }
+.document-change-preview li { padding-left: 3px; }
+.document-change-preview li strong, .document-change-preview li span, .document-change-preview li small { display: block; }
+.document-change-preview li span { margin-top: 2px; }
+.document-change-preview li small, .document-provenance small { margin-top: 3px; color: var(--text-muted); }
+.document-change-preview [role="note"] { padding: 9px; border-radius: 7px; background: var(--surface-1); }
+.document-provenance > ul { gap: 10px; }
+.document-provenance li { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--border-subtle); border-radius: 8px; }
+.document-provenance li > button { display: flex; min-width: 0; max-width: 100%; justify-content: space-between; gap: 12px; padding: 0; }
+.document-provenance li > button > * { min-width: 0; }
+.document-provenance blockquote { margin: 2px 0; color: var(--text-secondary); }
 .document-recommendation-card dl { display: flex; gap: 20px; margin: 0; }
 .document-recommendation-card dl div { display: grid; gap: 2px; }
 .document-recommendation-card dt { color: var(--text-muted); font-size: 10px; text-transform: uppercase; }
 .document-recommendation-card dd { margin: 0; }
 .document-recommendation-card li button { border: 0; background: transparent; color: var(--primary-700); text-align: left; text-decoration: underline; }
+.document-review-options { border-top: 1px solid var(--border-subtle); padding-top: 10px; }
+.document-review-options summary { cursor: pointer; color: var(--text-secondary); font-size: 12px; font-weight: 700; }
+.document-review-options[open] { display: grid; gap: 10px; }
+.document-review-options[open] summary { margin-bottom: 10px; }
 .document-review-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .document-review-fields label:last-child { grid-column: 1 / -1; }
 .document-conflict { padding: 10px; border-left: 3px solid var(--warning); background: var(--surface-2); }

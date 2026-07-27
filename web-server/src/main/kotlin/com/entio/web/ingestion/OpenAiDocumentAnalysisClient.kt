@@ -1,5 +1,7 @@
 package com.entio.web.ingestion
 
+import com.entio.core.DocumentCandidateCategory
+import com.entio.core.DocumentRecommendationCategory
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.ktor.client.HttpClient
@@ -95,6 +97,8 @@ internal class OpenAiDocumentAnalysisClient(
             }
             val structured = parseStrictResponse(extractOutputText(responseText))
             DocumentAnalysisProviderResult.Completed(structured)
+        } catch (failure: SafeProviderResponseFailure) {
+            DocumentAnalysisProviderResult.Failed(false, failure.code)
         } catch (failure: CancellationException) {
             throw failure
         } catch (_: HttpRequestTimeoutException) {
@@ -125,12 +129,51 @@ internal class OpenAiDocumentAnalysisClient(
             put("additionalProperties", false)
             set<JsonNode>("required", objectMapper.valueToTree(CANDIDATE_FIELDS.sorted()))
             set<JsonNode>("properties", objectMapper.createObjectNode().apply {
-                putObject("category").put("type", "string")
-                putObject("recommendationCategory").put("type", "string")
-                putObject("proposedLabel").put("type", "string").put("maxLength", 500)
+                set<JsonNode>("category", stringEnum(
+                    DocumentCandidateCategory.entries.map { it.name },
+                    "The supported Entio category that best expresses the semantic conclusion.",
+                ))
+                set<JsonNode>("recommendationCategory", stringEnum(
+                    DocumentRecommendationCategory.entries.map { it.name },
+                    "Whether the candidate describes ontology structure or a business fact.",
+                ))
+                putObject("proposedLabel")
+                    .put("type", "string")
+                    .put("maxLength", 500)
+                    .put("description", "A concise human-readable label for the semantic conclusion.")
+                set<JsonNode>("proposedDefinition", nullableString(
+                    2_000,
+                    "A concise proposed ontology definition synthesized from the cited evidence, or null.",
+                ))
+                set<JsonNode>("proposedDomainIri", nullableString(
+                    2_000,
+                    "An existing class IRI from ontologyContext when the semantic conclusion includes a property domain; otherwise null.",
+                ))
+                set<JsonNode>("proposedRangeIri", nullableString(
+                    2_000,
+                    "An existing class IRI or XSD datatype when the semantic conclusion includes a property range; otherwise null.",
+                ))
+                set<JsonNode>("proposedConnectionLabel", nullableString(
+                    500,
+                    "An object-property label when the semantic conclusion includes a connection to a newly proposed Class; otherwise null.",
+                ))
+                set<JsonNode>("proposedConnectionDomainIri", nullableString(
+                    2_000,
+                    "The existing domain Class IRI for proposedConnectionLabel; otherwise null.",
+                ))
+                set<JsonNode>("reasoningSummary", nullableString(
+                    2_000,
+                    "A concise explanation of why this meaning should affect the ontology, or null; do not provide hidden chain-of-thought.",
+                ))
                 putObject("confidence").put("type", "integer").put("minimum", 0).put("maximum", 100)
-                putObject("interpretation").put("type", "string")
-                putObject("evidenceType").put("type", "string")
+                set<JsonNode>("interpretation", stringEnum(
+                    APPROVED_DOCUMENT_INTERPRETATIONS,
+                    "How directly the document supports the candidate.",
+                ))
+                set<JsonNode>("evidenceType", stringEnum(
+                    PROVIDER_DOCUMENT_EVIDENCE_TYPES,
+                    "The permitted document evidence classification.",
+                ))
                 set<JsonNode>("evidence", objectMapper.createObjectNode().apply {
                     put("type", "array")
                     put("minItems", 1)
@@ -140,12 +183,24 @@ internal class OpenAiDocumentAnalysisClient(
                         put("additionalProperties", false)
                         set<JsonNode>("required", objectMapper.valueToTree(EVIDENCE_FIELDS.sorted()))
                         set<JsonNode>("properties", objectMapper.createObjectNode().apply {
-                            EVIDENCE_FIELDS.forEach { field ->
-                                putObject(field).put(
-                                    "type",
-                                    if (field.endsWith("OffsetInBlock")) "integer" else "string",
-                                )
-                            }
+                            putObject("documentId")
+                                .put("type", "string")
+                                .put("description", "Copy the opaque documentId from the selected input block exactly.")
+                            putObject("blockId")
+                                .put("type", "string")
+                                .put("description", "Copy the opaque blockId from the selected input block exactly.")
+                            putObject("startOffsetInBlock")
+                                .put("type", "integer")
+                                .put("minimum", 0)
+                                .put("description", "Zero-based inclusive offset in the exact input block text.")
+                            putObject("endOffsetInBlock")
+                                .put("type", "integer")
+                                .put("minimum", 1)
+                                .put("description", "Exclusive offset in the exact input block text.")
+                            putObject("excerpt")
+                                .put("type", "string")
+                                .put("maxLength", 8_000)
+                                .put("description", "Exact input substring between the supplied offsets, preserving whitespace and punctuation.")
                         })
                     })
                 })
@@ -179,13 +234,42 @@ internal class OpenAiDocumentAnalysisClient(
         }
     }
 
+    private fun stringEnum(values: List<String>, description: String): JsonNode =
+        objectMapper.createObjectNode().apply {
+            put("type", "string")
+            put("description", description)
+            set<JsonNode>("enum", objectMapper.valueToTree(values))
+        }
+
+    private fun nullableString(maxLength: Int, description: String): JsonNode =
+        objectMapper.createObjectNode().apply {
+            putArray("type").add("string").add("null")
+            put("maxLength", maxLength)
+            put("description", description)
+        }
+
     private fun extractOutputText(response: String): String {
         val root = objectMapper.readTree(response)
+        if (root.path("status").asText() == "incomplete") {
+            throw SafeProviderResponseFailure(
+                when (root.path("incomplete_details").path("reason").asText()) {
+                    "max_output_tokens" -> "document-provider-output-token-limit"
+                    "content_filter" -> "document-provider-content-filter"
+                    else -> "document-provider-incomplete-output"
+                },
+            )
+        }
+        val refusal = root.path("output").flatMap { output ->
+            output.path("content").filter { it.path("type").asText() == "refusal" }
+        }
+        if (refusal.isNotEmpty()) {
+            throw SafeProviderResponseFailure("document-provider-refusal")
+        }
         val texts = root.path("output").flatMap { output ->
             output.path("content").filter { it.path("type").asText() == "output_text" }.map { it.path("text").asText() }
         }
         return texts.joinToString("").takeIf(String::isNotBlank)
-            ?: throw IllegalArgumentException("Missing structured provider output.")
+            ?: throw SafeProviderResponseFailure("document-provider-empty-output")
     }
 
     private fun parseStrictResponse(value: String): DocumentAnalysisResponse {
@@ -203,6 +287,12 @@ internal class OpenAiDocumentAnalysisClient(
                     category = candidate.requiredText("category"),
                     recommendationCategory = candidate.requiredText("recommendationCategory"),
                     proposedLabel = candidate.requiredText("proposedLabel"),
+                    proposedDefinition = candidate.optionalText("proposedDefinition"),
+                    proposedDomainIri = candidate.optionalText("proposedDomainIri"),
+                    proposedRangeIri = candidate.optionalText("proposedRangeIri"),
+                    proposedConnectionLabel = candidate.optionalText("proposedConnectionLabel"),
+                    proposedConnectionDomainIri = candidate.optionalText("proposedConnectionDomainIri"),
+                    reasoningSummary = candidate.optionalText("reasoningSummary"),
                     confidence = candidate.path("confidence").takeIf(JsonNode::isIntegralNumber)?.intValue()
                         ?: throw IllegalArgumentException("Invalid confidence."),
                     interpretation = candidate.requiredText("interpretation"),
@@ -231,8 +321,17 @@ internal class OpenAiDocumentAnalysisClient(
         path(name).takeIf(JsonNode::isIntegralNumber)?.intValue()
             ?: throw IllegalArgumentException("Missing required integer.")
 
+    private fun JsonNode.optionalText(name: String): String? {
+        val value = path(name)
+        return when {
+            value.isNull -> null
+            value.isTextual -> value.asText().trim().takeIf(String::isNotBlank)
+            else -> throw IllegalArgumentException("Invalid optional text.")
+        }
+    }
+
     private companion object {
-        const val RESPONSE_SCHEMA_VERSION: String = "phase-11-document-analysis-response-v1"
+        const val RESPONSE_SCHEMA_VERSION: String = "phase-11-document-analysis-response-v4"
         const val MAX_PROVIDER_RESPONSE_CHARACTERS: Int = 1_000_000
         val EVIDENCE_FIELDS: Set<String> =
             setOf("documentId", "blockId", "startOffsetInBlock", "endOffsetInBlock", "excerpt")
@@ -240,6 +339,12 @@ internal class OpenAiDocumentAnalysisClient(
             "category",
             "recommendationCategory",
             "proposedLabel",
+            "proposedDefinition",
+            "proposedDomainIri",
+            "proposedRangeIri",
+            "proposedConnectionLabel",
+            "proposedConnectionDomainIri",
+            "reasoningSummary",
             "confidence",
             "interpretation",
             "evidenceType",
@@ -248,3 +353,7 @@ internal class OpenAiDocumentAnalysisClient(
         )
     }
 }
+
+private class SafeProviderResponseFailure(
+    val code: String,
+) : IllegalArgumentException(code)
