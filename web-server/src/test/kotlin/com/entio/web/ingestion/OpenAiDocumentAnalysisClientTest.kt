@@ -3,6 +3,9 @@ package com.entio.web.ingestion
 import com.entio.core.DocumentAnalysisPipelineVersions
 import com.entio.core.DocumentAssertionClassification
 import com.entio.core.DocumentContentClassification
+import com.entio.core.DocumentConnectedModel
+import com.entio.core.DocumentConnectedModelItem
+import com.entio.core.DocumentConnectedModelItemKind
 import com.entio.core.DocumentDiscovery
 import com.entio.core.DocumentDiscoveryKind
 import com.entio.core.DocumentEvidence
@@ -162,6 +165,48 @@ class OpenAiDocumentAnalysisClientTest {
     }
 
     @Test
+    fun sendsStrictBoundedReconciliationRequestWithoutOntologyOrCompletePriorDocuments(): Unit = runBlocking {
+        var body = ""
+        val engine = MockEngine { request ->
+            body = (request.body as TextContent).text
+            respond(
+                providerEnvelope(validReconciliationOutput()),
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val result = OpenAiDocumentAnalysisClient(engine = engine).use {
+            it.reconcile(
+                "secret-value",
+                "gpt-test-2026",
+                "Never resolve a conflict.",
+                reconciliationRequest(),
+            )
+        }
+
+        val completed = assertIs<DocumentReconciliationProviderResult.Completed>(result)
+        assertEquals("Duplicate", completed.response.records.single().kind)
+        val root = ObjectMapper().readTree(body)
+        val format = root.path("text").path("format")
+        val recordProperties = format.path("schema").path("properties")
+            .path("records").path("items").path("properties")
+        assertEquals("phase_11_5_document_reconciliation", format.path("name").asText())
+        assertEquals(false, format.path("schema").path("additionalProperties").asBoolean())
+        assertTrue(recordProperties.path("kind").path("enum").map { it.asText() }.contains("SupersessionClaim"))
+        assertEquals("boolean", recordProperties.path("humanDecisionRequired").path("type").asText())
+        assertTrue(root.path("tools").isEmpty)
+        assertTrue(!body.contains("secret-value"))
+        val input = root.path("input").asText()
+        assertTrue(input.contains("\"businessArea\":\"Commercial Banking\""))
+        assertTrue(input.contains("\"recordId\":\"prior-record-1\""))
+        assertTrue(input.contains("\"exactExcerpt\":\"Prior policy\""))
+        assertTrue(!input.contains("ontologyContext"))
+        assertTrue(!input.contains("ontologyFingerprint"))
+        assertTrue(!input.contains("targetSourceId"))
+        assertTrue(!input.contains("completeDocument"))
+        assertTrue(!input.contains("providerResponse"))
+    }
+
+    @Test
     fun sendsStrictBoundedRequestWithoutToolsOrSecretInBody(): Unit = runBlocking {
         var body = ""
         val engine = MockEngine { request ->
@@ -289,6 +334,25 @@ class OpenAiDocumentAnalysisClientTest {
         assertEquals(
             "document-provider-malformed-output",
             assertIs<DocumentConnectedModelProviderResult.Failed>(malformedConnected).safeCode,
+        )
+
+        val malformedReconciliationEngine = MockEngine {
+            respond(
+                providerEnvelope(
+                    validReconciliationOutput().replaceFirst(
+                        "\"humanDecisionRequired\":false",
+                        "\"humanDecisionRequired\":false,\"resolution\":\"automatic\"",
+                    ),
+                ),
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val malformedReconciliation = OpenAiDocumentAnalysisClient(engine = malformedReconciliationEngine).use {
+            it.reconcile("secret", "gpt-test", "instruction", reconciliationRequest())
+        }
+        assertEquals(
+            "document-provider-malformed-output",
+            assertIs<DocumentReconciliationProviderResult.Failed>(malformedReconciliation).safeCode,
         )
     }
 
@@ -431,6 +495,96 @@ class OpenAiDocumentAnalysisClientTest {
         reviewOnlyEligible = false,
     )
 
+    private fun reconciliationRequest(): DocumentReconciliationRequest = DocumentReconciliationRequest(
+        taskId = "task-1",
+        discoveries = listOf(
+            DocumentReconciliationDiscoveryInput(
+                id = "discovery-1",
+                documentId = "document-1",
+                kind = "Concept",
+                contentClassification = "BusinessContent",
+                assertionClassification = "ExplicitFact",
+                description = "Payment approval",
+                evidence = listOf(
+                    DocumentReconciliationEvidenceInput(
+                        evidenceId = "evidence-1",
+                        type = "Explicit",
+                        excerpts = listOf("Payment approval"),
+                    ),
+                ),
+                relatedDiscoveryIds = emptyList(),
+            ),
+            DocumentReconciliationDiscoveryInput(
+                id = "discovery-2",
+                documentId = "document-2",
+                kind = "Concept",
+                contentClassification = "BusinessContent",
+                assertionClassification = "ExplicitFact",
+                description = "Payment approval",
+                evidence = listOf(
+                    DocumentReconciliationEvidenceInput(
+                        evidenceId = "evidence-2",
+                        type = "Explicit",
+                        excerpts = listOf("Payment approval"),
+                    ),
+                ),
+                relatedDiscoveryIds = emptyList(),
+            ),
+        ),
+        connectedModel = DocumentConnectedModel(
+            listOf(
+                DocumentConnectedModelItem(
+                    id = "model-1",
+                    kind = DocumentConnectedModelItemKind.Class,
+                    label = "Payment Approval",
+                    rationale = "Both documents describe payment approval.",
+                    discoveryIds = listOf("discovery-1", "discovery-2"),
+                    order = 0,
+                ),
+            ),
+        ),
+        authority = listOf(
+            DocumentReconciliationAuthorityInput(
+                documentId = "document-1",
+                status = "Authoritative",
+                businessArea = "Commercial Banking",
+                jurisdiction = "United States",
+                effectiveDate = "2026-01-01",
+                expirationDate = null,
+                relatedDocumentId = null,
+                language = "en",
+            ),
+            DocumentReconciliationAuthorityInput(
+                documentId = "document-2",
+                status = "Supporting",
+                businessArea = "Commercial Banking",
+                jurisdiction = "United States",
+                effectiveDate = "2026-02-01",
+                expirationDate = null,
+                relatedDocumentId = null,
+                language = "en",
+            ),
+        ),
+        priorAppliedProvenance = listOf(
+            AppliedDocumentProvenanceSummary(
+                recordId = "prior-record-1",
+                documentId = "prior-document-1",
+                safeFilename = "prior-policy.pdf",
+                recommendationId = "prior-recommendation-1",
+                action = "Confirm",
+                confidence = 90,
+                evidence = listOf(
+                    AppliedDocumentEvidenceSummary("prior-evidence-1", 1, "Prior policy"),
+                ),
+                normalizedTypedOperationKey = null,
+                targetEntityIri = null,
+                targetAssertionKey = null,
+                appliedAt = "2025-01-01T00:00:00Z",
+                resultingOntologyFingerprint = "prior-fingerprint",
+            ),
+        ),
+    )
+
     private fun validStructuredOutput(): String =
         """{"schemaVersion":"phase-11-document-analysis-response-v4","candidates":[{"category":"Class","recommendationCategory":"OntologyStructure","proposedLabel":"Customer","proposedDefinition":null,"proposedDomainIri":null,"proposedRangeIri":null,"proposedConnectionLabel":null,"proposedConnectionDomainIri":null,"reasoningSummary":"Customer is material domain meaning supported by the document.","confidence":90,"interpretation":"explicit","evidenceType":"Explicit","evidence":[{"documentId":"document-1","blockId":"block-1","startOffsetInBlock":0,"endOffsetInBlock":8,"excerpt":"Customer"}],"ambiguityFlags":[]}]}"""
 
@@ -441,6 +595,9 @@ class OpenAiDocumentAnalysisClientTest {
         schemaVersion: String = DocumentAnalysisPipelineVersions.CONNECTED_MODEL_RESPONSE,
     ): String =
         """{"schemaVersion":"$schemaVersion","items":[{"providerId":"payment","kind":"Class","label":"Payment","rationale":"Payment is supported by verified discovery.","discoveryIds":["discovery-1"],"references":[],"literalLexicalForm":null,"literalDatatypeIri":null,"literalLanguageTag":null,"order":0,"reviewOnlyEligible":false},{"providerId":"has-payment","kind":"ObjectProperty","label":"has payment","rationale":"has payment is supported by verified discovery.","discoveryIds":["discovery-1"],"references":[],"literalLexicalForm":null,"literalDatatypeIri":null,"literalLanguageTag":null,"order":1,"reviewOnlyEligible":false},{"providerId":"has-payment-domain","kind":"DomainAssignment","label":"has payment domain","rationale":"The domain is supported by verified discovery.","discoveryIds":["discovery-1"],"references":[{"role":"Domain","providerItemId":"payment"},{"role":"Property","providerItemId":"has-payment"}],"literalLexicalForm":null,"literalDatatypeIri":null,"literalLanguageTag":null,"order":2,"reviewOnlyEligible":false}]}"""
+
+    private fun validReconciliationOutput(): String =
+        """{"schemaVersion":"phase-11-5-reconciliation-response-v1","records":[{"providerId":"same-meaning","kind":"Duplicate","participantIds":["discovery-1","discovery-2"],"evidenceIds":["evidence-1","evidence-2"],"priorProvenanceIds":[],"explanation":"Both documents describe the same payment approval meaning.","humanDecisionRequired":false}]}"""
 
     private fun providerEnvelope(output: String): String {
         val mapper = ObjectMapper()

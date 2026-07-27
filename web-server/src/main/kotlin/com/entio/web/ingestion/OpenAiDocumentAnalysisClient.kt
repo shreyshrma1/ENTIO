@@ -8,6 +8,7 @@ import com.entio.core.DocumentConnectedModelItemKind
 import com.entio.core.DocumentConnectedModelReferenceRole
 import com.entio.core.DocumentDiscoveryKind
 import com.entio.core.DocumentIndividualClassification
+import com.entio.core.DocumentReconciliationKind
 import com.entio.core.MAX_DOCUMENT_DISCOVERIES_PER_DOCUMENT
 import com.entio.core.MAX_DOCUMENT_CONNECTED_MODEL_ITEMS
 import com.entio.core.MAX_DOCUMENT_PROVIDER_RESPONSE_CHARACTERS
@@ -56,7 +57,11 @@ internal class OpenAiDocumentAnalysisClient(
     private val configuration: OpenAiDocumentAnalysisConfiguration = OpenAiDocumentAnalysisConfiguration(),
     private val objectMapper: ObjectMapper = ObjectMapper().findAndRegisterModules(),
     engine: HttpClientEngine? = null,
-) : DocumentAnalysisProvider, DocumentDiscoveryProvider, DocumentConnectedModelProvider, AutoCloseable {
+) : DocumentAnalysisProvider,
+    DocumentDiscoveryProvider,
+    DocumentConnectedModelProvider,
+    DocumentReconciliationProvider,
+    AutoCloseable {
     private val client = if (engine == null) {
         HttpClient(CIO) {
             followRedirects = false
@@ -209,6 +214,58 @@ internal class OpenAiDocumentAnalysisClient(
             )
         }
 
+    override suspend fun reconcile(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentReconciliationRequest,
+    ): DocumentReconciliationProviderResult {
+        if (apiKey.isBlank() || selectedModelId.isBlank()) {
+            return DocumentReconciliationProviderResult.Failed(false, "document-provider-authorization")
+        }
+        return try {
+            val response = client.post(configuration.endpoint) {
+                header(HttpHeaders.Authorization, "Bearer ${apiKey.trim()}")
+                accept(ContentType.Application.Json)
+                setBody(
+                    TextContent(
+                        reconciliationRequestBody(selectedModelId, systemInstruction, request),
+                        ContentType.Application.Json,
+                    ),
+                )
+            }
+            if (!response.status.isSuccess()) {
+                return DocumentReconciliationProviderResult.Failed(
+                    retryable = response.status.value == 429 || response.status.value >= 500,
+                    safeCode = when {
+                        response.status.value == 401 || response.status.value == 403 ->
+                            "document-provider-authorization"
+                        response.status.value == 429 -> "document-provider-rate-limited"
+                        response.status.value >= 500 -> "document-provider-unavailable"
+                        else -> "document-provider-request-rejected"
+                    },
+                )
+            }
+            val responseText = response.bodyAsText()
+            if (responseText.length > MAX_DOCUMENT_PROVIDER_RESPONSE_CHARACTERS) {
+                return DocumentReconciliationProviderResult.Failed(false, "document-provider-response-limit")
+            }
+            DocumentReconciliationProviderResult.Completed(
+                parseStrictReconciliationResponse(extractOutputText(responseText)),
+            )
+        } catch (failure: SafeProviderResponseFailure) {
+            DocumentReconciliationProviderResult.Failed(false, failure.code)
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (_: HttpRequestTimeoutException) {
+            DocumentReconciliationProviderResult.Failed(true, "document-provider-timeout")
+        } catch (_: IOException) {
+            DocumentReconciliationProviderResult.Failed(true, "document-provider-unavailable")
+        } catch (_: Exception) {
+            DocumentReconciliationProviderResult.Failed(false, "document-provider-malformed-output")
+        }
+    }
+
     override fun close(): Unit = client.close()
 
     private suspend fun connectedModelCall(
@@ -311,6 +368,78 @@ internal class OpenAiDocumentAnalysisClient(
         root.put("input", objectMapper.writeValueAsString(request))
         root.set<JsonNode>("text", strictConnectedModelTextFormat(responseSchemaVersion, formatName))
         return objectMapper.writeValueAsString(root)
+    }
+
+    private fun reconciliationRequestBody(
+        modelId: String,
+        instruction: String,
+        request: DocumentReconciliationRequest,
+    ): String {
+        val root = objectMapper.createObjectNode()
+        root.put("model", modelId)
+        root.put("store", false)
+        root.putArray("tools")
+        root.put("instructions", instruction)
+        root.put("input", objectMapper.writeValueAsString(request))
+        root.set<JsonNode>("text", strictReconciliationTextFormat())
+        return objectMapper.writeValueAsString(root)
+    }
+
+    private fun strictReconciliationTextFormat(): JsonNode {
+        val record = objectMapper.createObjectNode().apply {
+            put("type", "object")
+            put("additionalProperties", false)
+            set<JsonNode>("required", objectMapper.valueToTree(RECONCILIATION_FIELDS.sorted()))
+            set<JsonNode>("properties", objectMapper.createObjectNode().apply {
+                putObject("providerId")
+                    .put("type", "string")
+                    .put("pattern", "^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
+                set<JsonNode>("kind", stringEnum(
+                    DocumentReconciliationKind.entries.map { it.name },
+                    "The relationship among supplied task or prior-provenance meanings.",
+                ))
+                set<JsonNode>("participantIds", boundedUniqueStringArray(2, 20, 200))
+                set<JsonNode>("evidenceIds", boundedUniqueStringArray(0, 80, 200))
+                set<JsonNode>("priorProvenanceIds", boundedUniqueStringArray(0, 25, 200))
+                putObject("explanation").put("type", "string").put("minLength", 1).put("maxLength", 2_000)
+                putObject("humanDecisionRequired").put("type", "boolean")
+            })
+        }
+        val schema = objectMapper.createObjectNode().apply {
+            put("type", "object")
+            put("additionalProperties", false)
+            set<JsonNode>("required", objectMapper.valueToTree(listOf("schemaVersion", "records")))
+            set<JsonNode>("properties", objectMapper.createObjectNode().apply {
+                putObject("schemaVersion")
+                    .put("type", "string")
+                    .put("const", DocumentAnalysisPipelineVersions.RECONCILIATION_RESPONSE)
+                set<JsonNode>("records", objectMapper.createObjectNode().apply {
+                    put("type", "array")
+                    put("maxItems", 300)
+                    set<JsonNode>("items", record)
+                })
+            })
+        }
+        return objectMapper.createObjectNode().apply {
+            set<JsonNode>("format", objectMapper.createObjectNode().apply {
+                put("type", "json_schema")
+                put("name", "phase_11_5_document_reconciliation")
+                put("strict", true)
+                set<JsonNode>("schema", schema)
+            })
+        }
+    }
+
+    private fun boundedUniqueStringArray(
+        minItems: Int,
+        maxItems: Int,
+        maxLength: Int,
+    ): JsonNode = objectMapper.createObjectNode().apply {
+        put("type", "array")
+        put("minItems", minItems)
+        put("maxItems", maxItems)
+        put("uniqueItems", true)
+        set<JsonNode>("items", objectMapper.createObjectNode().put("type", "string").put("maxLength", maxLength))
     }
 
     private fun strictConnectedModelTextFormat(
@@ -781,6 +910,30 @@ internal class OpenAiDocumentAnalysisClient(
         }
     }
 
+    private fun parseStrictReconciliationResponse(value: String): DocumentReconciliationResponse {
+        val root = objectMapper.readTree(value)
+        require(root.isObject && root.fieldNames().asSequence().toSet() == setOf("schemaVersion", "records"))
+        require(root.path("schemaVersion").asText() == DocumentAnalysisPipelineVersions.RECONCILIATION_RESPONSE)
+        val records = root.path("records")
+        require(records.isArray && records.size() <= 300)
+        return DocumentReconciliationResponse(
+            records = records.map { record ->
+                require(record.isObject && record.fieldNames().asSequence().toSet() == RECONCILIATION_FIELDS)
+                ProviderDocumentReconciliation(
+                    providerId = record.requiredText("providerId"),
+                    kind = record.requiredText("kind"),
+                    participantIds = record.requiredTextArray("participantIds", 2, 20),
+                    evidenceIds = record.requiredTextArray("evidenceIds", 0, 80),
+                    priorProvenanceIds = record.requiredTextArray("priorProvenanceIds", 0, 25),
+                    explanation = record.requiredText("explanation"),
+                    humanDecisionRequired =
+                        record.path("humanDecisionRequired").takeIf(JsonNode::isBoolean)?.booleanValue()
+                            ?: throw IllegalArgumentException("Missing required boolean."),
+                )
+            },
+        )
+    }
+
     private fun JsonNode.requiredText(name: String): String =
         path(name).takeIf(JsonNode::isTextual)?.asText()?.takeIf(String::isNotBlank)
             ?: throw IllegalArgumentException("Missing required text.")
@@ -788,6 +941,19 @@ internal class OpenAiDocumentAnalysisClient(
     private fun JsonNode.requiredInteger(name: String): Int =
         path(name).takeIf(JsonNode::isIntegralNumber)?.intValue()
             ?: throw IllegalArgumentException("Missing required integer.")
+
+    private fun JsonNode.requiredTextArray(
+        name: String,
+        minItems: Int,
+        maxItems: Int,
+    ): List<String> {
+        val values = path(name)
+        require(values.isArray && values.size() in minItems..maxItems)
+        return values.map { value ->
+            value.takeIf(JsonNode::isTextual)?.asText()
+                ?: throw IllegalArgumentException("Invalid required text array.")
+        }
+    }
 
     private fun JsonNode.optionalText(name: String): String? {
         val value = path(name)
@@ -846,6 +1012,15 @@ internal class OpenAiDocumentAnalysisClient(
             "literalLanguageTag",
             "order",
             "reviewOnlyEligible",
+        )
+        val RECONCILIATION_FIELDS: Set<String> = setOf(
+            "providerId",
+            "kind",
+            "participantIds",
+            "evidenceIds",
+            "priorProvenanceIds",
+            "explanation",
+            "humanDecisionRequired",
         )
     }
 }

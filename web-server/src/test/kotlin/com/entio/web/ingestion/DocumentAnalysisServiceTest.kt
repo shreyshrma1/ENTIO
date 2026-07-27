@@ -7,9 +7,16 @@ import com.entio.core.DocumentAnalysisStage as PipelineDocumentAnalysisStage
 import com.entio.core.DocumentAnalysisStageRecord
 import com.entio.core.DocumentAnalysisStageState
 import com.entio.core.DocumentAnalysisWorkKey
+import com.entio.core.AppliedDocumentApplyEvent
+import com.entio.core.AppliedDocumentDecision
+import com.entio.core.AppliedDocumentEvidence
+import com.entio.core.AppliedDocumentIdentity
+import com.entio.core.AppliedDocumentProvenance
 import com.entio.core.DocumentAssertionClassification
 import com.entio.core.DocumentCandidateCategory
 import com.entio.core.DocumentConnectedModelItemKind
+import com.entio.core.DocumentConnectedModel
+import com.entio.core.DocumentConnectedModelItem
 import com.entio.core.DocumentConnectedModelReferenceRole
 import com.entio.core.DocumentContentClassification
 import com.entio.core.DocumentDiscovery
@@ -23,6 +30,9 @@ import com.entio.core.DocumentId
 import com.entio.core.DocumentIndividualClassification
 import com.entio.core.DocumentMediaType
 import com.entio.core.DocumentProcessingStatus
+import com.entio.core.DocumentRecommendationAction
+import com.entio.core.DocumentRecommendationReviewStatus
+import com.entio.core.DocumentReconciliationKind
 import com.entio.core.DocumentTaskId
 import com.entio.core.DocumentTextBlockId
 import com.entio.core.IngestionDocument
@@ -37,9 +47,12 @@ import com.entio.web.ai.models.AiSelectableModelDescriptor
 import com.entio.web.ai.models.AiSettingsCredentialStatus
 import com.entio.web.ai.models.AiUserProviderSettings
 import com.entio.web.ai.models.InMemoryAiUserProviderSettingsStore
+import com.entio.web.contract.InMemoryProjectRegistry
 import com.fasterxml.jackson.databind.ObjectMapper
+import java.nio.file.Files
 import java.time.Clock
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
@@ -1437,6 +1450,233 @@ class DocumentAnalysisServiceTest {
         assertEquals(1, serializedRequests.distinct().size)
     }
 
+    @Test
+    fun reconcilesDuplicateConflictAndContextSpecificMeaningWithoutChoosingAWinner(): Unit = runBlocking {
+        val fixture = fixture()
+        val documentA = extracted("Payment approval requires two reviewers.", "document-1").withAuthority(
+            businessArea = "Commercial Banking",
+            jurisdiction = "United States",
+            effectiveDate = LocalDate.parse("2026-01-01"),
+        )
+        val documentB = extracted("Payment approval requires one reviewer.", "document-2").withAuthority(
+            businessArea = "Consumer Lending",
+            jurisdiction = "Canada",
+            effectiveDate = LocalDate.parse("2026-02-01"),
+        )
+        val discoveryA = connectedDiscovery(
+            "discovery-approval-a",
+            "Payment approval reviewer requirement",
+            DocumentDiscoveryKind.Requirement,
+            documentId = "document-1",
+        )
+        val discoveryB = connectedDiscovery(
+            "discovery-approval-b",
+            "Payment approval reviewer requirement",
+            DocumentDiscoveryKind.Requirement,
+            documentId = "document-2",
+        )
+        val stage = connectedDiscoveryStage(listOf(discoveryA, discoveryB))
+        val connected = connectedResult(
+            connectedModelItem("model-approval-a", 0, "Approval requirement A", discoveryA.id),
+            connectedModelItem("model-approval-b", 1, "Approval requirement B", discoveryB.id),
+        )
+        var calls = 0
+        var serializedRequest = ""
+        val provider = DocumentReconciliationProvider { _, _, instruction, request ->
+            calls += 1
+            serializedRequest = ObjectMapper().findAndRegisterModules().writeValueAsString(request)
+            assertTrue(instruction.contains("Never resolve a conflict"))
+            DocumentReconciliationProviderResult.Completed(
+                DocumentReconciliationResponse(
+                    records = listOf(
+                        reconciliationItem(
+                            "same-meaning",
+                            "Duplicate",
+                            listOf(discoveryA.id, discoveryB.id),
+                            listOf(evidenceId(discoveryA), evidenceId(discoveryB)),
+                            "Both documents describe the same payment-approval subject.",
+                        ),
+                        reconciliationItem(
+                            "conflict",
+                            "Conflict",
+                            listOf("model-approval-a", "model-approval-b"),
+                            listOf(evidenceId(discoveryA), evidenceId(discoveryB)),
+                            "The reviewer counts conflict and require a human decision.",
+                            humanDecisionRequired = true,
+                        ),
+                        reconciliationItem(
+                            "context",
+                            "ContextSpecific",
+                            listOf(discoveryA.id, discoveryB.id),
+                            listOf(evidenceId(discoveryA), evidenceId(discoveryB)),
+                            "The meanings may differ by jurisdiction and business area.",
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        val result = fixture.reconciliationService(provider, provenanceRepository())
+            .reconcile("alice", "project-a", "task-1", listOf(documentB, documentA), stage, connected)
+
+        assertEquals(1, calls)
+        assertEquals(
+            setOf(
+                DocumentReconciliationKind.Duplicate,
+                DocumentReconciliationKind.Conflict,
+                DocumentReconciliationKind.ContextSpecific,
+            ),
+            result.records.map { it.kind }.toSet(),
+        )
+        assertTrue(result.records.single { it.kind == DocumentReconciliationKind.Conflict }.humanDecisionRequired)
+        assertTrue(serializedRequest.contains("\"businessArea\":\"Commercial Banking\""))
+        assertTrue(serializedRequest.contains("\"jurisdiction\":\"Canada\""))
+        assertTrue(serializedRequest.contains("\"effectiveDate\":\"2026-02-01\""))
+        assertTrue(!serializedRequest.contains("ontologyContext"))
+        assertTrue(!serializedRequest.contains("targetSourceId"))
+        assertEquals(DocumentAnalysisPipelineVersions.RECONCILIATION_PROMPT, result.stageRecord.promptVersion)
+    }
+
+    @Test
+    fun acceptsExplicitSupersessionButRejectsANewerDateByItself(): Unit = runBlocking {
+        val fixture = fixture()
+        val oldDocument = extracted("Payment approval policy.", "document-1").withAuthority(
+            effectiveDate = LocalDate.parse("2026-01-01"),
+        )
+        val newDocument = extracted("This policy supersedes the prior payment policy.", "document-2").withAuthority(
+            effectiveDate = LocalDate.parse("2026-02-01"),
+        )
+        val oldDiscovery = connectedDiscovery(
+            "discovery-old-policy",
+            "Payment approval policy",
+            documentId = "document-1",
+        )
+        val explicitDiscovery = connectedDiscovery(
+            "discovery-new-policy",
+            "This policy supersedes the prior payment policy",
+            DocumentDiscoveryKind.Relationship,
+            documentId = "document-2",
+        )
+        val explicitStage = connectedDiscoveryStage(listOf(oldDiscovery, explicitDiscovery))
+        val explicitProvider = DocumentReconciliationProvider { _, _, _, _ ->
+            DocumentReconciliationProviderResult.Completed(
+                DocumentReconciliationResponse(
+                    records = listOf(
+                        reconciliationItem(
+                            "explicit-supersession",
+                            "SupersessionClaim",
+                            listOf(oldDiscovery.id, explicitDiscovery.id),
+                            listOf(evidenceId(explicitDiscovery)),
+                            "The newer document explicitly states that it supersedes the prior policy.",
+                            humanDecisionRequired = true,
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        val explicit = fixture.reconciliationService(explicitProvider, provenanceRepository())
+            .reconcile(
+                "alice",
+                "project-a",
+                "task-1",
+                listOf(oldDocument, newDocument),
+                explicitStage,
+                connectedResult(connectedModelItem("model-policy", 0, "Payment policy", oldDiscovery.id)),
+            )
+
+        assertEquals(DocumentReconciliationKind.SupersessionClaim, explicit.records.single().kind)
+        assertTrue(explicit.records.single().humanDecisionRequired)
+
+        val dateOnlyDiscovery = connectedDiscovery(
+            "discovery-newer-policy",
+            "Payment approval policy",
+            documentId = "document-2",
+        )
+        val dateOnlyStage = connectedDiscoveryStage(listOf(oldDiscovery, dateOnlyDiscovery))
+        val dateOnlyProvider = DocumentReconciliationProvider { _, _, _, _ ->
+            DocumentReconciliationProviderResult.Completed(
+                DocumentReconciliationResponse(
+                    records = listOf(
+                        reconciliationItem(
+                            "date-only-supersession",
+                            "SupersessionClaim",
+                            listOf(oldDiscovery.id, dateOnlyDiscovery.id),
+                            listOf(evidenceId(dateOnlyDiscovery)),
+                            "The second policy has a newer effective date.",
+                            humanDecisionRequired = true,
+                        ),
+                    ),
+                ),
+            )
+        }
+        assertEquals(
+            "document-reconciliation-supersession-unverified",
+            assertFailsWith<DocumentAnalysisFailure> {
+                fixture.reconciliationService(dateOnlyProvider, provenanceRepository())
+                    .reconcile(
+                        "alice",
+                        "project-a",
+                        "task-1",
+                        listOf(oldDocument, newDocument),
+                        dateOnlyStage,
+                        connectedResult(connectedModelItem("model-policy", 0, "Payment policy", oldDiscovery.id)),
+                    )
+            }.code,
+        )
+    }
+
+    @Test
+    fun reconcilesOneDocumentWithAndWithoutProjectScopedPriorProvenance(): Unit = runBlocking {
+        val fixture = fixture()
+        val document = extracted("Payment approval policy.")
+        val discovery = connectedDiscovery("discovery-current", "Payment approval policy")
+        val stage = connectedDiscoveryStage(listOf(discovery))
+        val connected = connectedResult(
+            connectedModelItem("model-current", 0, "Payment approval policy", discovery.id),
+        )
+        var emptyCalls = 0
+        val emptyProvider = DocumentReconciliationProvider { _, _, _, request ->
+            emptyCalls += 1
+            assertTrue(request.priorAppliedProvenance.isEmpty())
+            DocumentReconciliationProviderResult.Completed(DocumentReconciliationResponse(records = emptyList()))
+        }
+        val empty = fixture.reconciliationService(emptyProvider, provenanceRepository())
+            .reconcile("alice", "project-a", "task-1", listOf(document), stage, connected)
+        assertEquals(1, emptyCalls)
+        assertTrue(empty.records.isEmpty())
+
+        val repository = provenanceRepository()
+        repository.save("project-a", listOf(appliedProvenance()))
+        var priorCalls = 0
+        val priorProvider = DocumentReconciliationProvider { _, _, _, request ->
+            priorCalls += 1
+            assertEquals(listOf("prior-record-1"), request.priorAppliedProvenance.map { it.recordId })
+            assertEquals("Prior policy", request.priorAppliedProvenance.single().evidence.single().exactExcerpt)
+            DocumentReconciliationProviderResult.Completed(
+                DocumentReconciliationResponse(
+                    records = listOf(
+                        reconciliationItem(
+                            "prior-support",
+                            "Supports",
+                            listOf("model-current", "prior-record-1"),
+                            listOf(evidenceId(discovery), "prior-evidence-1"),
+                            "The current document supports the previously applied policy meaning.",
+                            priorProvenanceIds = listOf("prior-record-1"),
+                        ),
+                    ),
+                ),
+            )
+        }
+        val withPrior = fixture.reconciliationService(priorProvider, repository)
+            .reconcile("alice", "project-a", "task-1", listOf(document), stage, connected)
+
+        assertEquals(1, priorCalls)
+        assertEquals(DocumentReconciliationKind.Supports, withPrior.records.single().kind)
+        assertEquals(listOf("prior-record-1"), withPrior.records.single().priorProvenanceIds)
+        assertEquals(listOf("prior-record-1"), withPrior.priorProvenance.map { it.recordId })
+    }
+
     private fun fixture(ready: Boolean = true): AnalysisFixture {
         val now = Instant.parse("2026-07-24T12:00:00Z")
         val credentials = InMemoryAiCredentialStore().also { it.save("alice", "openai", "secret-value") }
@@ -1517,6 +1757,19 @@ class DocumentAnalysisServiceTest {
         ): DocumentConnectedModelingService = DocumentConnectedModelingService(
             credentials,
             settings,
+            provider,
+            clock = clock,
+            isCancelled = isCancelled,
+        )
+
+        fun reconciliationService(
+            provider: DocumentReconciliationProvider,
+            provenanceRepository: AppliedDocumentProvenanceRepository,
+            isCancelled: (String) -> Boolean = { false },
+        ): DocumentReconciliationService = DocumentReconciliationService(
+            credentials,
+            settings,
+            provenanceRepository,
             provider,
             clock = clock,
             isCancelled = isCancelled,
@@ -1690,12 +1943,13 @@ class DocumentAnalysisServiceTest {
         description: String,
         kind: DocumentDiscoveryKind = DocumentDiscoveryKind.Concept,
         content: DocumentContentClassification = DocumentContentClassification.BusinessContent,
+        documentId: String = "document-1",
     ): DocumentDiscovery {
         val normalizedDescription = description.trim()
         val evidenceId = DocumentEvidenceId("evidence-$id")
         return DocumentDiscovery(
             id = id,
-            documentId = DocumentId("document-1"),
+            documentId = DocumentId(documentId),
             kind = kind,
             contentClassification = content,
             assertionClassification = DocumentAssertionClassification.ExplicitFact,
@@ -1707,8 +1961,8 @@ class DocumentAnalysisServiceTest {
                     references = listOf(
                         DocumentEvidenceReference(
                             id = evidenceId,
-                            documentId = DocumentId("document-1"),
-                            blockId = DocumentTextBlockId("block-document-1"),
+                            documentId = DocumentId(documentId),
+                            blockId = DocumentTextBlockId("block-$documentId"),
                             pageNumber = 1,
                             startOffsetInBlock = 0,
                             endOffsetInBlock = minOf(normalizedDescription.length, 500),
@@ -1728,19 +1982,21 @@ class DocumentAnalysisServiceTest {
         val startedAt = Instant.parse("2026-07-24T12:00:00Z")
         val finishedAt = Instant.parse("2026-07-24T12:00:01Z")
         return CompletedDocumentDiscoveryStage(
-            documents = listOf(
+            documents = discoveries.groupBy { it.documentId.value }.toSortedMap().entries.mapIndexed { index, entry ->
+                val documentId = entry.key
+                val documentDiscoveries = entry.value.sortedBy(DocumentDiscovery::stableOrderingKey)
                 CompletedDocumentDiscovery(
-                    workKey = DocumentAnalysisWorkKey("a".repeat(64)),
-                    documentId = "document-1",
-                    discoveries = discoveries.sortedBy(DocumentDiscovery::stableOrderingKey),
+                    workKey = DocumentAnalysisWorkKey("abcdef0123"[index].toString().repeat(64)),
+                    documentId = documentId,
+                    discoveries = documentDiscoveries,
                     skipped = emptyList(),
-                    includedBlockIds = listOf("block-document-1"),
+                    includedBlockIds = listOf("block-$documentId"),
                     omittedBlockCount = 0,
                     stageRecord = DocumentAnalysisStageRecord(
-                        recordId = "stage-discovery-document-1",
+                        recordId = "stage-discovery-$documentId",
                         stage = PipelineDocumentAnalysisStage.Discovery,
                         state = DocumentAnalysisStageState.Succeeded,
-                        scopeId = "document-1",
+                        scopeId = documentId,
                         startedAt = startedAt,
                         finishedAt = finishedAt,
                         durationMillis = 1_000,
@@ -1751,10 +2007,130 @@ class DocumentAnalysisServiceTest {
                         inputSha256 = "b".repeat(64),
                         outputSha256 = "c".repeat(64),
                         providerAttemptCount = 1,
-                        completedCount = discoveries.size,
-                        totalCount = discoveries.size,
+                        completedCount = documentDiscoveries.size,
+                        totalCount = documentDiscoveries.size,
                     ),
+                )
+            },
+        )
+    }
+
+    private fun ExtractedDocument.withAuthority(
+        businessArea: String? = null,
+        jurisdiction: String? = null,
+        effectiveDate: LocalDate? = null,
+    ): ExtractedDocument = copy(
+        document = document.copy(
+            authority = DocumentAuthorityMetadata(
+                status = DocumentAuthorityStatus.Authoritative,
+                businessArea = businessArea,
+                jurisdiction = jurisdiction,
+                effectiveDate = effectiveDate,
+            ),
+        ),
+    )
+
+    private fun connectedModelItem(
+        id: String,
+        order: Int,
+        label: String,
+        discoveryId: String,
+    ): DocumentConnectedModelItem = DocumentConnectedModelItem(
+        id = id,
+        kind = DocumentConnectedModelItemKind.Class,
+        label = label,
+        rationale = "$label is supported by verified document meaning.",
+        discoveryIds = listOf(discoveryId),
+        order = order,
+    )
+
+    private fun connectedResult(
+        vararg items: DocumentConnectedModelItem,
+    ): CompletedConnectedDocumentModel = CompletedConnectedDocumentModel(
+        modelId = "gpt-test-2026",
+        model = DocumentConnectedModel(items.toList()),
+        stageRecords = emptyList(),
+        providerCalls = 1,
+        chunkCount = 1,
+        consolidated = false,
+    )
+
+    private fun reconciliationItem(
+        providerId: String,
+        kind: String,
+        participantIds: List<String>,
+        evidenceIds: List<String>,
+        explanation: String,
+        priorProvenanceIds: List<String> = emptyList(),
+        humanDecisionRequired: Boolean = false,
+    ): ProviderDocumentReconciliation = ProviderDocumentReconciliation(
+        providerId = providerId,
+        kind = kind,
+        participantIds = participantIds.sorted(),
+        evidenceIds = evidenceIds.sorted(),
+        priorProvenanceIds = priorProvenanceIds.sorted(),
+        explanation = explanation,
+        humanDecisionRequired = humanDecisionRequired,
+    )
+
+    private fun evidenceId(discovery: DocumentDiscovery): String = discovery.evidence.single().id.value
+
+    private fun provenanceRepository(): AppliedDocumentProvenanceRepository {
+        val allowed = Files.createTempDirectory("entio-reconciliation-projects")
+        val projectA = Files.createDirectory(allowed.resolve("project-a"))
+        val projectB = Files.createDirectory(allowed.resolve("project-b"))
+        val registry = InMemoryProjectRegistry(setOf(allowed)).also {
+            it.register("project-a", "A", projectA)
+            it.register("project-b", "B", projectB)
+        }
+        return AppliedDocumentProvenanceRepository(
+            Files.createTempDirectory("entio-reconciliation-provenance"),
+            registry,
+        )
+    }
+
+    private fun appliedProvenance(): AppliedDocumentProvenance {
+        val documentId = DocumentId("prior-document-1")
+        return AppliedDocumentProvenance(
+            recordId = "prior-record-1",
+            projectId = "project-a",
+            taskId = DocumentTaskId("prior-task-1"),
+            document = AppliedDocumentIdentity(documentId, "d".repeat(64), "prior-policy.txt"),
+            evidence = listOf(
+                AppliedDocumentEvidence(
+                    evidenceId = DocumentEvidenceId("prior-evidence-1"),
+                    documentId = documentId,
+                    pageNumber = 1,
+                    blockId = DocumentTextBlockId("prior-block-1"),
+                    startOffsetInBlock = 0,
+                    endOffsetInBlock = 12,
+                    exactExcerpt = "Prior policy",
+                    extractionMethod = DocumentExtractionMethod.EmbeddedText,
+                    extractorVersion = "pdfbox-test",
+                    confidence = 95,
                 ),
+            ),
+            recommendationId = "prior-recommendation-1",
+            action = DocumentRecommendationAction.Confirm,
+            decision = AppliedDocumentDecision(
+                decisionId = "prior-decision-1",
+                recommendationId = "prior-recommendation-1",
+                actorUserId = "alice",
+                decidedAt = Instant.parse("2026-01-01T00:00:00Z"),
+                status = DocumentRecommendationReviewStatus.Accepted,
+                clarification = null,
+            ),
+            modelId = "gpt-test-2025",
+            promptVersion = "phase-11-document-analysis-v4",
+            confidence = 95,
+            evidenceTypes = listOf(DocumentEvidenceType.Explicit),
+            typedOperation = null,
+            applyEvent = AppliedDocumentApplyEvent(
+                proposalId = null,
+                appliedByUserId = "alice",
+                appliedAt = Instant.parse("2026-01-02T00:00:00Z"),
+                baselineOntologyFingerprint = "before",
+                resultingOntologyFingerprint = "after",
             ),
         )
     }
