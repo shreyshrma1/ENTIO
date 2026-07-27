@@ -1,6 +1,8 @@
 package com.entio.web.ingestion
 
 import com.entio.core.DocumentAnalysisPipelineVersions
+import com.entio.core.DocumentAlignmentAction
+import com.entio.core.DocumentAlignmentRecord
 import com.entio.core.DocumentAssertionClassification
 import com.entio.core.DocumentContentClassification
 import com.entio.core.DocumentConnectedModel
@@ -237,6 +239,39 @@ class OpenAiDocumentAnalysisClientTest {
         assertTrue(root.path("tools").isEmpty)
         assertTrue(!body.contains("secret-value"))
         assertTrue(root.path("input").asText().contains("\"referenceId\":\"context-payment\""))
+    }
+
+    @Test
+    fun sendsSeparateStrictModelingCriticSchemaWithNoExecutionAuthority(): Unit = runBlocking {
+        var body = ""
+        val engine = MockEngine { request ->
+            body = (request.body as TextContent).text
+            respond(
+                providerEnvelope(validModelingCriticOutput()),
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+
+        val result = OpenAiDocumentAnalysisClient(engine = engine).use {
+            it.critique(
+                "secret-value",
+                "gpt-test-2026",
+                "Critique without changing upstream records.",
+                modelingCriticRequest(),
+            )
+        }
+
+        val completed = assertIs<DocumentModelingCriticProviderResult.Completed>(result)
+        assertEquals("Downgrade", completed.response.findings.single().action)
+        val root = ObjectMapper().readTree(body)
+        val format = root.path("text").path("format")
+        val fields = format.path("schema").path("properties").path("findings").path("items").path("properties")
+        assertEquals("phase_11_5_document_modeling_critic", format.path("name").asText())
+        assertTrue(fields.path("action").path("enum").map { it.asText() }.contains("RequestClarification"))
+        assertEquals("integer", fields.path("ontologyFitConfidence").path("type").asText())
+        assertTrue(root.path("tools").isEmpty)
+        assertTrue(!body.contains("secret-value"))
+        assertTrue(root.path("input").asText().contains("\"modelItemId\":\"model-payment\""))
     }
 
     @Test
@@ -657,6 +692,33 @@ class OpenAiDocumentAnalysisClientTest {
         )
     }
 
+    private fun modelingCriticRequest(): DocumentModelingCriticRequest {
+        val alignmentRequest = ontologyAlignmentRequest()
+        return DocumentModelingCriticRequest(
+            taskId = "task-1",
+            discoveries = connectedModelRequest().discoveries,
+            connectedModel = alignmentRequest.connectedModel,
+            reconciliation = emptyList(),
+            alignments = listOf(
+                DocumentAlignmentRecord(
+                    id = "alignment-payment",
+                    modelItemId = "model-payment",
+                    action = DocumentAlignmentAction.Reuse,
+                    advisedTargets = listOf(
+                        alignmentRequest.snapshot.entries.single().semanticRecord().let {
+                            com.entio.core.DocumentAlignmentTarget(it.scope, it.entityIri, it.sourceId)
+                        },
+                    ),
+                    rationale = "The ontology already contains Payment.",
+                    ontologyFitConfidence = 80,
+                    ontologyFingerprint = "ontology-fingerprint",
+                    currentWorkFingerprint = "current-work-fingerprint",
+                ),
+            ),
+            ontologySnapshot = alignmentRequest.snapshot,
+        )
+    }
+
     private fun validStructuredOutput(): String =
         """{"schemaVersion":"phase-11-document-analysis-response-v4","candidates":[{"category":"Class","recommendationCategory":"OntologyStructure","proposedLabel":"Customer","proposedDefinition":null,"proposedDomainIri":null,"proposedRangeIri":null,"proposedConnectionLabel":null,"proposedConnectionDomainIri":null,"reasoningSummary":"Customer is material domain meaning supported by the document.","confidence":90,"interpretation":"explicit","evidenceType":"Explicit","evidence":[{"documentId":"document-1","blockId":"block-1","startOffsetInBlock":0,"endOffsetInBlock":8,"excerpt":"Customer"}],"ambiguityFlags":[]}]}"""
 
@@ -673,6 +735,9 @@ class OpenAiDocumentAnalysisClientTest {
 
     private fun validOntologyAlignmentOutput(): String =
         """{"schemaVersion":"phase-11-5-ontology-alignment-response-v1","records":[{"providerId":"alignment-payment","modelItemId":"model-payment","action":"Reuse","advisedReferenceIds":["context-payment"],"targetSourceId":null,"rationale":"The current ontology already contains Payment.","ontologyFitConfidence":95,"domainRangeRationale":null}]}"""
+
+    private fun validModelingCriticOutput(): String =
+        """{"schemaVersion":"phase-11-5-modeling-critic-response-v1","findings":[{"providerId":"downgrade-payment","targetId":"model-payment","action":"Downgrade","reason":"The ontology fit needs more review.","evidenceConfidence":90,"modelingConfidence":70,"ontologyFitConfidence":70}]}"""
 
     private fun providerEnvelope(output: String): String {
         val mapper = ObjectMapper()

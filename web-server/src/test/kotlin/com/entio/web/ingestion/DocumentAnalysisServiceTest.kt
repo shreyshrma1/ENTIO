@@ -3,6 +3,7 @@ package com.entio.web.ingestion
 import com.entio.core.DocumentAuthorityMetadata
 import com.entio.core.DocumentAuthorityStatus
 import com.entio.core.DocumentAlignmentAction
+import com.entio.core.DocumentAlignmentRecord
 import com.entio.core.DocumentAnalysisPipelineVersions
 import com.entio.core.DocumentAnalysisStage as PipelineDocumentAnalysisStage
 import com.entio.core.DocumentAnalysisStageRecord
@@ -20,6 +21,7 @@ import com.entio.core.DocumentConnectedModel
 import com.entio.core.DocumentConnectedModelItem
 import com.entio.core.DocumentConnectedModelReferenceRole
 import com.entio.core.DocumentContentClassification
+import com.entio.core.DocumentCriticAction
 import com.entio.core.DocumentDiscovery
 import com.entio.core.DocumentDiscoveryKind
 import com.entio.core.DocumentEvidence
@@ -1794,6 +1796,250 @@ class DocumentAnalysisServiceTest {
         )
     }
 
+    @Test
+    fun criticFlagsWeakModelingAndCanOnlyLowerIndependentConfidence(): Unit = runBlocking {
+        val fixture = fixture()
+        val discoveries = listOf(
+            connectedDiscovery(
+                "discovery-status",
+                "Status Approved",
+                DocumentDiscoveryKind.Metadata,
+                DocumentContentClassification.AdministrativeMetadata,
+            ),
+            connectedDiscovery("discovery-property", "Payment approval relationship", DocumentDiscoveryKind.Relationship),
+            connectedDiscovery("discovery-rule", "The initiator cannot approve the payment", DocumentDiscoveryKind.ConditionalRule),
+            connectedDiscovery("discovery-person", "Jordan Lee", DocumentDiscoveryKind.Individual),
+        )
+        val model = DocumentConnectedModel(
+            listOf(
+                DocumentConnectedModelItem(
+                    "model-compliance-status",
+                    DocumentConnectedModelItemKind.Class,
+                    "Compliance Status",
+                    "Status was interpreted as a business concept.",
+                    listOf("discovery-status"),
+                    order = 0,
+                ),
+                DocumentConnectedModelItem(
+                    "model-payment-property",
+                    DocumentConnectedModelItemKind.ObjectProperty,
+                    "has payment approval",
+                    "The relationship was modeled without supporting domain and range concepts.",
+                    listOf("discovery-property"),
+                    order = 1,
+                ),
+                DocumentConnectedModelItem(
+                    "model-separation-rule",
+                    DocumentConnectedModelItemKind.ComplexRule,
+                    "separation of payment duties",
+                    "The conditional rule cannot be flattened into a simple field.",
+                    listOf("discovery-rule"),
+                    references = listOf(
+                        com.entio.core.DocumentConnectedModelReference(
+                            DocumentConnectedModelReferenceRole.Related,
+                            "model-payment-property",
+                        ),
+                    ),
+                    order = 2,
+                    reviewOnlyEligible = true,
+                ),
+                DocumentConnectedModelItem(
+                    "model-jordan-lee",
+                    DocumentConnectedModelItemKind.Individual,
+                    "Jordan Lee",
+                    "The document uses an illustrative named person.",
+                    listOf("discovery-person"),
+                    order = 3,
+                ),
+            ),
+        )
+        val connected = CompletedConnectedDocumentModel(
+            "gpt-test-2026",
+            model,
+            emptyList(),
+            1,
+            1,
+            false,
+        )
+        val reconciliation = CompletedDocumentReconciliation(
+            "gpt-test-2026",
+            emptyList(),
+            emptyList(),
+            successfulStage(PipelineDocumentAnalysisStage.Reconciliation),
+            1,
+        )
+        val alignmentRecords = model.items.map { item ->
+            DocumentAlignmentRecord(
+                id = "alignment-${item.id}",
+                modelItemId = item.id,
+                action = DocumentAlignmentAction.Create,
+                targetSourceId = "simple",
+                rationale = "No compatible current ontology entity was found.",
+                ontologyFitConfidence = 80,
+                ontologyFingerprint = "ontology-fingerprint",
+                currentWorkFingerprint = "current-work-fingerprint",
+            )
+        }.sortedBy(DocumentAlignmentRecord::stableOrderingKey)
+        val alignment = CompletedDocumentOntologyAlignment(
+            "gpt-test-2026",
+            alignmentRecords,
+            DocumentOntologyAlignmentSnapshot(
+                "project-a",
+                "ontology-fingerprint",
+                "current-work-fingerprint",
+                emptyList(),
+                listOf("simple"),
+            ),
+            successfulStage(PipelineDocumentAnalysisStage.OntologyAlignment),
+            1,
+        )
+        val downgradeTarget = alignmentRecords.single { it.modelItemId == "model-payment-property" }.id
+        val provider = DocumentModelingCriticProvider { _, modelId, instruction, request ->
+            assertEquals("gpt-test-2026", modelId)
+            assertTrue(instruction.contains("Compliance Status"))
+            assertTrue(instruction.contains("conditional rules"))
+            assertTrue(instruction.contains("illustrative individuals"))
+            assertTrue(request.discoveries.any {
+                it.contentClassification == DocumentContentClassification.AdministrativeMetadata
+            })
+            DocumentModelingCriticProviderResult.Completed(
+                DocumentModelingCriticResponse(
+                    findings = listOf(
+                        criticFinding(
+                            "reject-metadata",
+                            "model-compliance-status",
+                            "Reject",
+                            "Compliance Status comes only from administrative document status.",
+                        ),
+                        criticFinding(
+                            "revise-domain-range",
+                            "model-payment-property",
+                            "Revise",
+                            "The property lacks justified supporting domain and range concepts.",
+                        ),
+                        criticFinding(
+                            "reject-flat-rule",
+                            "model-separation-rule",
+                            "Reject",
+                            "The conditional separation rule must remain review-only rather than become a field.",
+                        ),
+                        criticFinding(
+                            "clarify-individual",
+                            "model-jordan-lee",
+                            "RequestClarification",
+                            "Jordan Lee is illustrative and must not be treated as a production individual.",
+                        ),
+                        criticFinding(
+                            "downgrade-fit",
+                            downgradeTarget,
+                            "Downgrade",
+                            "The proposed property has weak modeling and ontology fit.",
+                            modeling = 55,
+                            ontologyFit = 60,
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        val completed = fixture.criticService(provider).critique(
+            "alice",
+            "task-1",
+            connectedDiscoveryStage(discoveries),
+            connected,
+            reconciliation,
+            alignment,
+        )
+
+        assertEquals(
+            setOf(
+                DocumentCriticAction.Reject,
+                DocumentCriticAction.Revise,
+                DocumentCriticAction.RequestClarification,
+                DocumentCriticAction.Downgrade,
+            ),
+            completed.findings.map { it.action }.toSet(),
+        )
+        assertEquals(55, completed.confidenceByTarget.getValue(downgradeTarget).overall)
+        assertEquals(80, completed.baselineConfidenceByTarget.getValue(downgradeTarget).overall)
+        assertTrue(completed.findings.single { it.targetId == downgradeTarget }.confidenceDowngrade != null)
+        assertTrue(completed.stageRecord.promptVersion != alignment.stageRecord.promptVersion)
+        assertTrue(completed.stageRecord.responseSchemaVersion != alignment.stageRecord.responseSchemaVersion)
+
+        val unknownProvider = DocumentModelingCriticProvider { _, _, _, _ ->
+            DocumentModelingCriticProviderResult.Completed(
+                DocumentModelingCriticResponse(
+                    findings = listOf(criticFinding("unknown", "missing-target", "Approve", "Unknown target.")),
+                ),
+            )
+        }
+        assertEquals(
+            "document-critic-provider-schema-invalid",
+            assertFailsWith<DocumentAnalysisFailure> {
+                fixture.criticService(unknownProvider).critique(
+                    "alice",
+                    "task-2",
+                    connectedDiscoveryStage(discoveries),
+                    connected,
+                    reconciliation,
+                    alignment,
+                )
+            }.code,
+        )
+
+        val duplicateProvider = DocumentModelingCriticProvider { _, _, _, _ ->
+            DocumentModelingCriticProviderResult.Completed(
+                DocumentModelingCriticResponse(
+                    findings = listOf(
+                        criticFinding("duplicate-1", "model-compliance-status", "Approve", "First duplicate."),
+                        criticFinding("duplicate-2", "model-compliance-status", "Approve", "Second duplicate."),
+                    ),
+                ),
+            )
+        }
+        assertEquals(
+            "document-critic-provider-schema-invalid",
+            assertFailsWith<DocumentAnalysisFailure> {
+                fixture.criticService(duplicateProvider).critique(
+                    "alice",
+                    "task-3",
+                    connectedDiscoveryStage(discoveries),
+                    connected,
+                    reconciliation,
+                    alignment,
+                )
+            }.code,
+        )
+
+        val unboundedProvider = DocumentModelingCriticProvider { _, _, _, _ ->
+            DocumentModelingCriticProviderResult.Completed(
+                DocumentModelingCriticResponse(
+                    findings = (0..600).map { index ->
+                        criticFinding(
+                            "unbounded-$index",
+                            "model-compliance-status",
+                            "Approve",
+                            "Unbounded finding $index.",
+                        )
+                    },
+                ),
+            )
+        }
+        assertEquals(
+            "document-critic-provider-schema-invalid",
+            assertFailsWith<DocumentAnalysisFailure> {
+                fixture.criticService(unboundedProvider).critique(
+                    "alice",
+                    "task-4",
+                    connectedDiscoveryStage(discoveries),
+                    connected,
+                    reconciliation,
+                    alignment,
+                )
+            }.code,
+        )
+    }
+
     private fun fixture(ready: Boolean = true): AnalysisFixture {
         val now = Instant.parse("2026-07-24T12:00:00Z")
         val credentials = InMemoryAiCredentialStore().also { it.save("alice", "openai", "secret-value") }
@@ -1896,6 +2142,17 @@ class DocumentAnalysisServiceTest {
             provider: DocumentOntologyAlignmentProvider,
             isCancelled: (String) -> Boolean = { false },
         ): DocumentOntologyAlignmentService = DocumentOntologyAlignmentService(
+            credentials,
+            settings,
+            provider,
+            clock = clock,
+            isCancelled = isCancelled,
+        )
+
+        fun criticService(
+            provider: DocumentModelingCriticProvider,
+            isCancelled: (String) -> Boolean = { false },
+        ): DocumentModelingCriticService = DocumentModelingCriticService(
             credentials,
             settings,
             provider,
@@ -2101,6 +2358,11 @@ class DocumentAnalysisServiceTest {
                 ),
             ),
             evidenceConfidence = 90,
+            individualClassification = if (kind == DocumentDiscoveryKind.Individual) {
+                DocumentIndividualClassification.Illustrative
+            } else {
+                null
+            },
         )
     }
 
@@ -2219,6 +2481,24 @@ class DocumentAnalysisServiceTest {
             providerAttemptCount = 1,
         )
     }
+
+    private fun criticFinding(
+        providerId: String,
+        targetId: String,
+        action: String,
+        reason: String,
+        evidence: Int = 90,
+        modeling: Int = 100,
+        ontologyFit: Int = 80,
+    ): ProviderDocumentCriticFinding = ProviderDocumentCriticFinding(
+        providerId,
+        targetId,
+        action,
+        reason,
+        evidence,
+        modeling,
+        ontologyFit,
+    )
 
     private fun reconciliationItem(
         providerId: String,

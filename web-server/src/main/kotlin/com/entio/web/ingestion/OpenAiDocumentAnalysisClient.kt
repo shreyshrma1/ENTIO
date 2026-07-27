@@ -7,6 +7,7 @@ import com.entio.core.DocumentAssertionClassification
 import com.entio.core.DocumentContentClassification
 import com.entio.core.DocumentConnectedModelItemKind
 import com.entio.core.DocumentConnectedModelReferenceRole
+import com.entio.core.DocumentCriticAction
 import com.entio.core.DocumentDiscoveryKind
 import com.entio.core.DocumentIndividualClassification
 import com.entio.core.DocumentReconciliationKind
@@ -63,6 +64,7 @@ internal class OpenAiDocumentAnalysisClient(
     DocumentConnectedModelProvider,
     DocumentReconciliationProvider,
     DocumentOntologyAlignmentProvider,
+    DocumentModelingCriticProvider,
     AutoCloseable {
     private val client = if (engine == null) {
         HttpClient(CIO) {
@@ -320,6 +322,58 @@ internal class OpenAiDocumentAnalysisClient(
         }
     }
 
+    override suspend fun critique(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentModelingCriticRequest,
+    ): DocumentModelingCriticProviderResult {
+        if (apiKey.isBlank() || selectedModelId.isBlank()) {
+            return DocumentModelingCriticProviderResult.Failed(false, "document-provider-authorization")
+        }
+        return try {
+            val response = client.post(configuration.endpoint) {
+                header(HttpHeaders.Authorization, "Bearer ${apiKey.trim()}")
+                accept(ContentType.Application.Json)
+                setBody(
+                    TextContent(
+                        modelingCriticRequestBody(selectedModelId, systemInstruction, request),
+                        ContentType.Application.Json,
+                    ),
+                )
+            }
+            if (!response.status.isSuccess()) {
+                return DocumentModelingCriticProviderResult.Failed(
+                    retryable = response.status.value == 429 || response.status.value >= 500,
+                    safeCode = when {
+                        response.status.value == 401 || response.status.value == 403 ->
+                            "document-provider-authorization"
+                        response.status.value == 429 -> "document-provider-rate-limited"
+                        response.status.value >= 500 -> "document-provider-unavailable"
+                        else -> "document-provider-request-rejected"
+                    },
+                )
+            }
+            val responseText = response.bodyAsText()
+            if (responseText.length > MAX_DOCUMENT_PROVIDER_RESPONSE_CHARACTERS) {
+                return DocumentModelingCriticProviderResult.Failed(false, "document-provider-response-limit")
+            }
+            DocumentModelingCriticProviderResult.Completed(
+                parseStrictModelingCriticResponse(extractOutputText(responseText)),
+            )
+        } catch (failure: SafeProviderResponseFailure) {
+            DocumentModelingCriticProviderResult.Failed(false, failure.code)
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (_: HttpRequestTimeoutException) {
+            DocumentModelingCriticProviderResult.Failed(true, "document-provider-timeout")
+        } catch (_: IOException) {
+            DocumentModelingCriticProviderResult.Failed(true, "document-provider-unavailable")
+        } catch (_: Exception) {
+            DocumentModelingCriticProviderResult.Failed(false, "document-provider-malformed-output")
+        }
+    }
+
     override fun close(): Unit = client.close()
 
     private suspend fun connectedModelCall(
@@ -452,6 +506,66 @@ internal class OpenAiDocumentAnalysisClient(
         root.put("input", objectMapper.writeValueAsString(request))
         root.set<JsonNode>("text", strictOntologyAlignmentTextFormat())
         return objectMapper.writeValueAsString(root)
+    }
+
+    private fun modelingCriticRequestBody(
+        modelId: String,
+        instruction: String,
+        request: DocumentModelingCriticRequest,
+    ): String {
+        val root = objectMapper.createObjectNode()
+        root.put("model", modelId)
+        root.put("store", false)
+        root.putArray("tools")
+        root.put("instructions", instruction)
+        root.put("input", objectMapper.writeValueAsString(request))
+        root.set<JsonNode>("text", strictModelingCriticTextFormat())
+        return objectMapper.writeValueAsString(root)
+    }
+
+    private fun strictModelingCriticTextFormat(): JsonNode {
+        val finding = objectMapper.createObjectNode().apply {
+            put("type", "object")
+            put("additionalProperties", false)
+            set<JsonNode>("required", objectMapper.valueToTree(MODELING_CRITIC_FIELDS.sorted()))
+            set<JsonNode>("properties", objectMapper.createObjectNode().apply {
+                putObject("providerId")
+                    .put("type", "string")
+                    .put("pattern", "^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
+                putObject("targetId").put("type", "string").put("minLength", 1).put("maxLength", 200)
+                set<JsonNode>("action", stringEnum(
+                    DocumentCriticAction.entries.map { it.name },
+                    "The advisory modeling-critic action.",
+                ))
+                putObject("reason").put("type", "string").put("minLength", 1).put("maxLength", 2_000)
+                listOf("evidenceConfidence", "modelingConfidence", "ontologyFitConfidence").forEach { name ->
+                    putObject(name).put("type", "integer").put("minimum", 0).put("maximum", 100)
+                }
+            })
+        }
+        val schema = objectMapper.createObjectNode().apply {
+            put("type", "object")
+            put("additionalProperties", false)
+            set<JsonNode>("required", objectMapper.valueToTree(listOf("schemaVersion", "findings")))
+            set<JsonNode>("properties", objectMapper.createObjectNode().apply {
+                putObject("schemaVersion")
+                    .put("type", "string")
+                    .put("const", DocumentAnalysisPipelineVersions.MODELING_CRITIC_RESPONSE)
+                set<JsonNode>("findings", objectMapper.createObjectNode().apply {
+                    put("type", "array")
+                    put("maxItems", 600)
+                    set<JsonNode>("items", finding)
+                })
+            })
+        }
+        return objectMapper.createObjectNode().apply {
+            set<JsonNode>("format", objectMapper.createObjectNode().apply {
+                put("type", "json_schema")
+                put("name", "phase_11_5_document_modeling_critic")
+                put("strict", true)
+                set<JsonNode>("schema", schema)
+            })
+        }
     }
 
     private fun strictOntologyAlignmentTextFormat(): JsonNode {
@@ -1075,6 +1189,28 @@ internal class OpenAiDocumentAnalysisClient(
         )
     }
 
+    private fun parseStrictModelingCriticResponse(value: String): DocumentModelingCriticResponse {
+        val root = objectMapper.readTree(value)
+        require(root.isObject && root.fieldNames().asSequence().toSet() == setOf("schemaVersion", "findings"))
+        require(root.path("schemaVersion").asText() == DocumentAnalysisPipelineVersions.MODELING_CRITIC_RESPONSE)
+        val findings = root.path("findings")
+        require(findings.isArray && findings.size() <= 600)
+        return DocumentModelingCriticResponse(
+            findings = findings.map { finding ->
+                require(finding.isObject && finding.fieldNames().asSequence().toSet() == MODELING_CRITIC_FIELDS)
+                ProviderDocumentCriticFinding(
+                    providerId = finding.requiredText("providerId"),
+                    targetId = finding.requiredText("targetId"),
+                    action = finding.requiredText("action"),
+                    reason = finding.requiredText("reason"),
+                    evidenceConfidence = finding.requiredInteger("evidenceConfidence"),
+                    modelingConfidence = finding.requiredInteger("modelingConfidence"),
+                    ontologyFitConfidence = finding.requiredInteger("ontologyFitConfidence"),
+                )
+            },
+        )
+    }
+
     private fun JsonNode.requiredText(name: String): String =
         path(name).takeIf(JsonNode::isTextual)?.asText()?.takeIf(String::isNotBlank)
             ?: throw IllegalArgumentException("Missing required text.")
@@ -1172,6 +1308,15 @@ internal class OpenAiDocumentAnalysisClient(
             "rationale",
             "ontologyFitConfidence",
             "domainRangeRationale",
+        )
+        val MODELING_CRITIC_FIELDS: Set<String> = setOf(
+            "providerId",
+            "targetId",
+            "action",
+            "reason",
+            "evidenceConfidence",
+            "modelingConfidence",
+            "ontologyFitConfidence",
         )
     }
 }
