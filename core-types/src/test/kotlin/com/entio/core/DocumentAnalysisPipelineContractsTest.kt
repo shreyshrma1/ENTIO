@@ -102,25 +102,124 @@ class DocumentAnalysisPipelineContractsTest {
 
     @Test
     fun `requires connected model references to point to earlier items`(): Unit {
-        val payment = connectedItem(id = "item-1", order = 0)
-        val approval = connectedItem(
-            id = "item-2",
-            order = 1,
+        val payment = connectedItem(id = "item-1", order = 0, label = "Payment")
+        val approvalRecord = connectedItem(id = "item-2", order = 1, label = "Payment Approval Record")
+        val relationship = connectedItem(
+            id = "item-3",
+            order = 2,
+            kind = DocumentConnectedModelItemKind.SubclassRelationship,
+            label = "Payment Approval Record is a Payment",
+            references = listOf(
+                DocumentConnectedModelReference(DocumentConnectedModelReferenceRole.Subclass, approvalRecord.id),
+                DocumentConnectedModelReference(DocumentConnectedModelReferenceRole.Superclass, payment.id),
+            ).sortedBy(DocumentConnectedModelReference::stableOrderingKey),
+        )
+        val property = connectedItem(
+            id = "item-4",
+            order = 3,
             kind = DocumentConnectedModelItemKind.ObjectProperty,
-            referencedItemIds = listOf("item-1"),
+            label = "Has approval record",
+        )
+        val domain = connectedItem(
+            id = "item-5",
+            order = 4,
+            kind = DocumentConnectedModelItemKind.DomainAssignment,
+            label = "Approved amount domain",
+            references = listOf(
+                DocumentConnectedModelReference(DocumentConnectedModelReferenceRole.Property, property.id),
+                DocumentConnectedModelReference(DocumentConnectedModelReferenceRole.Domain, approvalRecord.id),
+            ).sortedBy(DocumentConnectedModelReference::stableOrderingKey),
+        )
+        val range = connectedItem(
+            id = "item-6",
+            order = 5,
+            kind = DocumentConnectedModelItemKind.RangeAssignment,
+            label = "Approved amount range",
+            references = listOf(
+                DocumentConnectedModelReference(DocumentConnectedModelReferenceRole.Property, property.id),
+                DocumentConnectedModelReference(DocumentConnectedModelReferenceRole.Range, payment.id),
+            ).sortedBy(DocumentConnectedModelReference::stableOrderingKey),
+        )
+        val model = DocumentConnectedModel(
+            listOf(payment, approvalRecord, relationship, property, domain, range),
         )
 
-        assertEquals(listOf(payment, approval), DocumentConnectedModel(listOf(payment, approval)).items)
+        assertEquals(listOf(property.id, approvalRecord.id).sorted(), domain.referencedItemIds)
+        assertEquals(6, model.items.size)
         assertFailsWith<IllegalArgumentException> {
-            DocumentConnectedModel(
-                listOf(
-                    payment.copy(referencedItemIds = listOf("item-2")),
-                    approval.copy(referencedItemIds = emptyList()),
+            connectedItem(
+                id = "item-7",
+                order = 6,
+                kind = DocumentConnectedModelItemKind.DomainAssignment,
+                references = listOf(
+                    DocumentConnectedModelReference(DocumentConnectedModelReferenceRole.Property, property.id),
                 ),
             )
         }
         assertFailsWith<IllegalArgumentException> {
-            connectedItem(kind = DocumentConnectedModelItemKind.ComplexRule).copy(reviewOnlyEligible = false)
+            DocumentConnectedModel(
+                listOf(
+                    payment,
+                    connectedItem(
+                        id = "item-2",
+                        order = 1,
+                        kind = DocumentConnectedModelItemKind.SubclassRelationship,
+                        references = listOf(
+                            DocumentConnectedModelReference(
+                                DocumentConnectedModelReferenceRole.Subclass,
+                                "item-3",
+                            ),
+                            DocumentConnectedModelReference(
+                                DocumentConnectedModelReferenceRole.Superclass,
+                                "item-1",
+                            ),
+                        ).sortedBy(DocumentConnectedModelReference::stableOrderingKey),
+                    ),
+                ),
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            connectedItem(
+                id = "item-2",
+                order = 1,
+                kind = DocumentConnectedModelItemKind.ComplexRule,
+                references = listOf(
+                    DocumentConnectedModelReference(DocumentConnectedModelReferenceRole.Related, payment.id),
+                ),
+            ).copy(reviewOnlyEligible = false)
+        }
+    }
+
+    @Test
+    fun `requires literal values only for datatype assertions`(): Unit {
+        val payment = connectedItem(id = "item-1", order = 0)
+        val property = connectedItem(
+            id = "item-2",
+            order = 1,
+            kind = DocumentConnectedModelItemKind.DatatypeProperty,
+        )
+        val assertion = connectedItem(
+            id = "item-3",
+            order = 2,
+            kind = DocumentConnectedModelItemKind.DatatypeValueAssertion,
+            references = listOf(
+                DocumentConnectedModelReference(DocumentConnectedModelReferenceRole.Subject, payment.id),
+                DocumentConnectedModelReference(DocumentConnectedModelReferenceRole.Predicate, property.id),
+            ).sortedBy(DocumentConnectedModelReference::stableOrderingKey),
+            literalValue = RdfLiteral("1000"),
+        )
+
+        assertEquals("1000", assertion.literalValue?.lexicalForm)
+        assertFailsWith<IllegalArgumentException> {
+            connectedItem(
+                id = "item-3",
+                order = 2,
+                kind = DocumentConnectedModelItemKind.DatatypeValueAssertion,
+                references = assertion.references,
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            payment.copy(literalValue = RdfLiteral("not allowed"))
         }
     }
 
@@ -422,14 +521,17 @@ class DocumentAnalysisPipelineContractsTest {
         id: String = "item-1",
         order: Int = 0,
         kind: DocumentConnectedModelItemKind = DocumentConnectedModelItemKind.Class,
-        referencedItemIds: List<String> = emptyList(),
+        label: String = "Payment",
+        references: List<DocumentConnectedModelReference> = emptyList(),
+        literalValue: RdfLiteral? = null,
     ): DocumentConnectedModelItem = DocumentConnectedModelItem(
         id = id,
         kind = kind,
-        label = "Payment",
+        label = label,
         rationale = "The discovery defines a payment concept.",
         discoveryIds = listOf("discovery-1"),
-        referencedItemIds = referencedItemIds,
+        references = references,
+        literalValue = literalValue,
         order = order,
         reviewOnlyEligible = kind == DocumentConnectedModelItemKind.ComplexRule,
     )

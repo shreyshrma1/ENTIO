@@ -278,13 +278,44 @@ public enum class DocumentConnectedModelItemKind {
     ComplexRule,
 }
 
+public enum class DocumentConnectedModelReferenceRole {
+    Subclass,
+    Superclass,
+    Property,
+    Domain,
+    Range,
+    Subject,
+    Predicate,
+    Object,
+    Individual,
+    Type,
+    Shape,
+    TargetClass,
+    Path,
+    ConstraintTarget,
+    Related,
+}
+
+public data class DocumentConnectedModelReference(
+    public val role: DocumentConnectedModelReferenceRole,
+    public val itemId: String,
+) {
+    init {
+        requireOpaqueDocumentId(itemId, "Connected model referenced item ID")
+    }
+
+    public val stableOrderingKey: String
+        get() = "${role.ordinal.toString().padStart(2, '0')}:$itemId"
+}
+
 public data class DocumentConnectedModelItem(
     public val id: String,
     public val kind: DocumentConnectedModelItemKind,
     public val label: String,
     public val rationale: String,
     public val discoveryIds: List<String>,
-    public val referencedItemIds: List<String> = emptyList(),
+    public val references: List<DocumentConnectedModelReference> = emptyList(),
+    public val literalValue: RdfLiteral? = null,
     public val order: Int,
     public val reviewOnlyEligible: Boolean = false,
 ) {
@@ -296,13 +327,67 @@ public data class DocumentConnectedModelItem(
             "Connected model discovery references must be sorted, unique, and nonempty."
         }
         discoveryIds.forEach { requireOpaqueDocumentId(it, "Connected model discovery ID") }
-        require(referencedItemIds == referencedItemIds.distinct().sorted() && id !in referencedItemIds) {
+        require(
+            references == references.distinct().sortedBy(DocumentConnectedModelReference::stableOrderingKey) &&
+                references.none { it.itemId == id },
+        ) {
             "Connected model item references must be sorted, unique, and non-self-referential."
         }
-        referencedItemIds.forEach { requireOpaqueDocumentId(it, "Connected model item reference") }
         require(order >= 0) { "Connected model item order must not be negative." }
         require(kind != DocumentConnectedModelItemKind.ComplexRule || reviewOnlyEligible) {
             "A complex connected-model rule must remain eligible for review-only handling."
+        }
+        require((kind == DocumentConnectedModelItemKind.DatatypeValueAssertion) == (literalValue != null)) {
+            "Only a datatype-value assertion requires a literal value."
+        }
+        requireReferenceRoles()
+    }
+
+    public val referencedItemIds: List<String>
+        get() = references.map(DocumentConnectedModelReference::itemId).distinct().sorted()
+
+    private fun requireReferenceRoles(): Unit {
+        val roles = references.map(DocumentConnectedModelReference::role)
+        val expectedRoles = when (kind) {
+            DocumentConnectedModelItemKind.SubclassRelationship ->
+                listOf(DocumentConnectedModelReferenceRole.Subclass, DocumentConnectedModelReferenceRole.Superclass)
+            DocumentConnectedModelItemKind.DomainAssignment ->
+                listOf(DocumentConnectedModelReferenceRole.Property, DocumentConnectedModelReferenceRole.Domain)
+            DocumentConnectedModelItemKind.RangeAssignment ->
+                listOf(DocumentConnectedModelReferenceRole.Property, DocumentConnectedModelReferenceRole.Range)
+            DocumentConnectedModelItemKind.TypeAssertion ->
+                listOf(DocumentConnectedModelReferenceRole.Individual, DocumentConnectedModelReferenceRole.Type)
+            DocumentConnectedModelItemKind.ObjectPropertyAssertion ->
+                listOf(
+                    DocumentConnectedModelReferenceRole.Subject,
+                    DocumentConnectedModelReferenceRole.Predicate,
+                    DocumentConnectedModelReferenceRole.Object,
+                )
+            DocumentConnectedModelItemKind.DatatypeValueAssertion ->
+                listOf(DocumentConnectedModelReferenceRole.Subject, DocumentConnectedModelReferenceRole.Predicate)
+            DocumentConnectedModelItemKind.NodeShape ->
+                listOf(DocumentConnectedModelReferenceRole.TargetClass)
+            DocumentConnectedModelItemKind.PropertyShape ->
+                listOf(DocumentConnectedModelReferenceRole.Shape, DocumentConnectedModelReferenceRole.Path)
+            DocumentConnectedModelItemKind.Constraint ->
+                listOf(DocumentConnectedModelReferenceRole.ConstraintTarget)
+            DocumentConnectedModelItemKind.Class,
+            DocumentConnectedModelItemKind.ObjectProperty,
+            DocumentConnectedModelItemKind.DatatypeProperty,
+            DocumentConnectedModelItemKind.AnnotationProperty,
+            DocumentConnectedModelItemKind.Individual,
+            -> emptyList()
+            DocumentConnectedModelItemKind.ComplexRule -> null
+        }
+        if (expectedRoles == null) {
+            require(references.isNotEmpty() && roles.all { it == DocumentConnectedModelReferenceRole.Related }) {
+                "A complex rule requires one or more related model items."
+            }
+        } else {
+            require(roles.sortedBy(DocumentConnectedModelReferenceRole::ordinal) ==
+                expectedRoles.sortedBy(DocumentConnectedModelReferenceRole::ordinal)) {
+                "Connected model reference roles are incompatible with the item kind."
+            }
         }
     }
 }

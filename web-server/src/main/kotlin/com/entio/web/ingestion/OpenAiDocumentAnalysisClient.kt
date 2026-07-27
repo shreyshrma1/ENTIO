@@ -4,9 +4,12 @@ import com.entio.core.DocumentCandidateCategory
 import com.entio.core.DocumentAnalysisPipelineVersions
 import com.entio.core.DocumentAssertionClassification
 import com.entio.core.DocumentContentClassification
+import com.entio.core.DocumentConnectedModelItemKind
+import com.entio.core.DocumentConnectedModelReferenceRole
 import com.entio.core.DocumentDiscoveryKind
 import com.entio.core.DocumentIndividualClassification
 import com.entio.core.MAX_DOCUMENT_DISCOVERIES_PER_DOCUMENT
+import com.entio.core.MAX_DOCUMENT_CONNECTED_MODEL_ITEMS
 import com.entio.core.MAX_DOCUMENT_PROVIDER_RESPONSE_CHARACTERS
 import com.entio.core.DocumentRecommendationCategory
 import com.fasterxml.jackson.databind.JsonNode
@@ -53,7 +56,7 @@ internal class OpenAiDocumentAnalysisClient(
     private val configuration: OpenAiDocumentAnalysisConfiguration = OpenAiDocumentAnalysisConfiguration(),
     private val objectMapper: ObjectMapper = ObjectMapper().findAndRegisterModules(),
     engine: HttpClientEngine? = null,
-) : DocumentAnalysisProvider, DocumentDiscoveryProvider, AutoCloseable {
+) : DocumentAnalysisProvider, DocumentDiscoveryProvider, DocumentConnectedModelProvider, AutoCloseable {
     private val client = if (engine == null) {
         HttpClient(CIO) {
             followRedirects = false
@@ -168,7 +171,104 @@ internal class OpenAiDocumentAnalysisClient(
         }
     }
 
+    override suspend fun model(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentConnectedModelRequest,
+    ): DocumentConnectedModelProviderResult =
+        connectedModelCall(
+            apiKey = apiKey,
+            selectedModelId = selectedModelId,
+            systemInstruction = systemInstruction,
+            request = request,
+            responseSchemaVersion = DocumentAnalysisPipelineVersions.CONNECTED_MODEL_RESPONSE,
+            formatName = "phase_11_5_connected_document_model",
+        ) { response ->
+            DocumentConnectedModelProviderResult.CompletedModel(
+                DocumentConnectedModelResponse(items = response),
+            )
+        }
+
+    override suspend fun consolidate(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentModelConsolidationRequest,
+    ): DocumentConnectedModelProviderResult =
+        connectedModelCall(
+            apiKey = apiKey,
+            selectedModelId = selectedModelId,
+            systemInstruction = systemInstruction,
+            request = request,
+            responseSchemaVersion = DocumentAnalysisPipelineVersions.MODEL_CONSOLIDATION_RESPONSE,
+            formatName = "phase_11_5_document_model_consolidation",
+        ) { response ->
+            DocumentConnectedModelProviderResult.CompletedConsolidation(
+                DocumentModelConsolidationResponse(items = response),
+            )
+        }
+
     override fun close(): Unit = client.close()
+
+    private suspend fun connectedModelCall(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: Any,
+        responseSchemaVersion: String,
+        formatName: String,
+        completed: (List<ProviderConnectedModelItem>) -> DocumentConnectedModelProviderResult,
+    ): DocumentConnectedModelProviderResult {
+        if (apiKey.isBlank() || selectedModelId.isBlank()) {
+            return DocumentConnectedModelProviderResult.Failed(false, "document-provider-authorization")
+        }
+        return try {
+            val response = client.post(configuration.endpoint) {
+                header(HttpHeaders.Authorization, "Bearer ${apiKey.trim()}")
+                accept(ContentType.Application.Json)
+                setBody(
+                    TextContent(
+                        connectedModelRequestBody(
+                            selectedModelId,
+                            systemInstruction,
+                            request,
+                            responseSchemaVersion,
+                            formatName,
+                        ),
+                        ContentType.Application.Json,
+                    ),
+                )
+            }
+            if (!response.status.isSuccess()) {
+                return DocumentConnectedModelProviderResult.Failed(
+                    retryable = response.status.value == 429 || response.status.value >= 500,
+                    safeCode = when {
+                        response.status.value == 401 || response.status.value == 403 ->
+                            "document-provider-authorization"
+                        response.status.value == 429 -> "document-provider-rate-limited"
+                        response.status.value >= 500 -> "document-provider-unavailable"
+                        else -> "document-provider-request-rejected"
+                    },
+                )
+            }
+            val responseText = response.bodyAsText()
+            if (responseText.length > MAX_DOCUMENT_PROVIDER_RESPONSE_CHARACTERS) {
+                return DocumentConnectedModelProviderResult.Failed(false, "document-provider-response-limit")
+            }
+            completed(parseStrictConnectedModelResponse(extractOutputText(responseText), responseSchemaVersion))
+        } catch (failure: SafeProviderResponseFailure) {
+            DocumentConnectedModelProviderResult.Failed(false, failure.code)
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (_: HttpRequestTimeoutException) {
+            DocumentConnectedModelProviderResult.Failed(true, "document-provider-timeout")
+        } catch (_: IOException) {
+            DocumentConnectedModelProviderResult.Failed(true, "document-provider-unavailable")
+        } catch (_: Exception) {
+            DocumentConnectedModelProviderResult.Failed(false, "document-provider-malformed-output")
+        }
+    }
 
     private fun requestBody(modelId: String, instruction: String, request: DocumentAnalysisRequest): String {
         val root = objectMapper.createObjectNode()
@@ -194,6 +294,108 @@ internal class OpenAiDocumentAnalysisClient(
         root.put("input", objectMapper.writeValueAsString(request))
         root.set<JsonNode>("text", strictDiscoveryTextFormat())
         return objectMapper.writeValueAsString(root)
+    }
+
+    private fun connectedModelRequestBody(
+        modelId: String,
+        instruction: String,
+        request: Any,
+        responseSchemaVersion: String,
+        formatName: String,
+    ): String {
+        val root = objectMapper.createObjectNode()
+        root.put("model", modelId)
+        root.put("store", false)
+        root.putArray("tools")
+        root.put("instructions", instruction)
+        root.put("input", objectMapper.writeValueAsString(request))
+        root.set<JsonNode>("text", strictConnectedModelTextFormat(responseSchemaVersion, formatName))
+        return objectMapper.writeValueAsString(root)
+    }
+
+    private fun strictConnectedModelTextFormat(
+        responseSchemaVersion: String,
+        formatName: String,
+    ): JsonNode {
+        val reference = objectMapper.createObjectNode().apply {
+            put("type", "object")
+            put("additionalProperties", false)
+            set<JsonNode>("required", objectMapper.valueToTree(CONNECTED_MODEL_REFERENCE_FIELDS.sorted()))
+            set<JsonNode>("properties", objectMapper.createObjectNode().apply {
+                set<JsonNode>("role", stringEnum(
+                    DocumentConnectedModelReferenceRole.entries.map { it.name },
+                    "The semantic role of this dependency.",
+                ))
+                putObject("providerItemId")
+                    .put("type", "string")
+                    .put("pattern", "^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
+            })
+        }
+        val item = objectMapper.createObjectNode().apply {
+            put("type", "object")
+            put("additionalProperties", false)
+            set<JsonNode>("required", objectMapper.valueToTree(CONNECTED_MODEL_FIELDS.sorted()))
+            set<JsonNode>("properties", objectMapper.createObjectNode().apply {
+                putObject("providerId")
+                    .put("type", "string")
+                    .put("pattern", "^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
+                set<JsonNode>("kind", stringEnum(
+                    DocumentConnectedModelItemKind.entries.map { it.name },
+                    "The local connected-model item kind.",
+                ))
+                putObject("label").put("type", "string").put("minLength", 1).put("maxLength", 500)
+                putObject("rationale").put("type", "string").put("minLength", 1).put("maxLength", 2_000)
+                set<JsonNode>("discoveryIds", objectMapper.createObjectNode().apply {
+                    put("type", "array")
+                    put("minItems", 1)
+                    put("maxItems", 2_000)
+                    put("uniqueItems", true)
+                    set<JsonNode>("items", objectMapper.createObjectNode().put("type", "string").put("maxLength", 200))
+                })
+                set<JsonNode>("references", objectMapper.createObjectNode().apply {
+                    put("type", "array")
+                    put("maxItems", 20)
+                    put("uniqueItems", true)
+                    set<JsonNode>("items", reference)
+                })
+                set<JsonNode>("literalLexicalForm", nullableString(
+                    8_000,
+                    "The literal lexical form for a DatatypeValueAssertion, otherwise null.",
+                ))
+                set<JsonNode>("literalDatatypeIri", nullableString(
+                    2_000,
+                    "The literal datatype IRI when present, otherwise null.",
+                ))
+                set<JsonNode>("literalLanguageTag", nullableString(
+                    100,
+                    "The literal language tag when present, otherwise null.",
+                ))
+                putObject("order").put("type", "integer").put("minimum", 0)
+                putObject("reviewOnlyEligible").put("type", "boolean")
+            })
+        }
+        val schema = objectMapper.createObjectNode().apply {
+            put("type", "object")
+            put("additionalProperties", false)
+            set<JsonNode>("required", objectMapper.valueToTree(listOf("schemaVersion", "items")))
+            set<JsonNode>("properties", objectMapper.createObjectNode().apply {
+                putObject("schemaVersion").put("type", "string").put("const", responseSchemaVersion)
+                set<JsonNode>("items", objectMapper.createObjectNode().apply {
+                    put("type", "array")
+                    put("minItems", 1)
+                    put("maxItems", MAX_DOCUMENT_CONNECTED_MODEL_ITEMS)
+                    set<JsonNode>("items", item)
+                })
+            })
+        }
+        return objectMapper.createObjectNode().apply {
+            set<JsonNode>("format", objectMapper.createObjectNode().apply {
+                put("type", "json_schema")
+                put("name", formatName)
+                put("strict", true)
+                set<JsonNode>("schema", schema)
+            })
+        }
     }
 
     private fun strictDiscoveryTextFormat(): JsonNode {
@@ -535,6 +737,50 @@ internal class OpenAiDocumentAnalysisClient(
         )
     }
 
+    private fun parseStrictConnectedModelResponse(
+        value: String,
+        responseSchemaVersion: String,
+    ): List<ProviderConnectedModelItem> {
+        val root = objectMapper.readTree(value)
+        require(root.isObject && root.fieldNames().asSequence().toSet() == setOf("schemaVersion", "items"))
+        require(root.path("schemaVersion").asText() == responseSchemaVersion)
+        val items = root.path("items")
+        require(items.isArray && items.size() in 1..MAX_DOCUMENT_CONNECTED_MODEL_ITEMS)
+        return items.map { item ->
+            require(item.isObject && item.fieldNames().asSequence().toSet() == CONNECTED_MODEL_FIELDS)
+            val discoveryIds = item.path("discoveryIds")
+            require(discoveryIds.isArray && discoveryIds.size() in 1..2_000)
+            val references = item.path("references")
+            require(references.isArray && references.size() <= 20)
+            ProviderConnectedModelItem(
+                providerId = item.requiredText("providerId"),
+                kind = item.requiredText("kind"),
+                label = item.requiredText("label"),
+                rationale = item.requiredText("rationale"),
+                discoveryIds = discoveryIds.map { discovery ->
+                    discovery.takeIf(JsonNode::isTextual)?.asText()
+                        ?: throw IllegalArgumentException("Invalid discovery identity.")
+                },
+                references = references.map { reference ->
+                    require(
+                        reference.isObject &&
+                            reference.fieldNames().asSequence().toSet() == CONNECTED_MODEL_REFERENCE_FIELDS,
+                    )
+                    ProviderConnectedModelReference(
+                        role = reference.requiredText("role"),
+                        providerItemId = reference.requiredText("providerItemId"),
+                    )
+                },
+                literalLexicalForm = item.optionalText("literalLexicalForm"),
+                literalDatatypeIri = item.optionalText("literalDatatypeIri"),
+                literalLanguageTag = item.optionalText("literalLanguageTag"),
+                order = item.requiredInteger("order"),
+                reviewOnlyEligible = item.path("reviewOnlyEligible").takeIf(JsonNode::isBoolean)?.booleanValue()
+                    ?: throw IllegalArgumentException("Missing required boolean."),
+            )
+        }
+    }
+
     private fun JsonNode.requiredText(name: String): String =
         path(name).takeIf(JsonNode::isTextual)?.asText()?.takeIf(String::isNotBlank)
             ?: throw IllegalArgumentException("Missing required text.")
@@ -583,6 +829,23 @@ internal class OpenAiDocumentAnalysisClient(
             "relatedProviderIds",
             "evidenceConfidence",
             "individualClassification",
+        )
+        val CONNECTED_MODEL_REFERENCE_FIELDS: Set<String> = setOf(
+            "role",
+            "providerItemId",
+        )
+        val CONNECTED_MODEL_FIELDS: Set<String> = setOf(
+            "providerId",
+            "kind",
+            "label",
+            "rationale",
+            "discoveryIds",
+            "references",
+            "literalLexicalForm",
+            "literalDatatypeIri",
+            "literalLanguageTag",
+            "order",
+            "reviewOnlyEligible",
         )
     }
 }
