@@ -19,6 +19,8 @@ The assistant does not have arbitrary tools, shell or filesystem access, direct 
 
 Phase 11 is implemented. It extends this existing assistant and provider foundation with a separate bounded document-ingestion workflow and evidence-grounded recommendations. It does not replace the conversational assistant.
 
+Phase 11.5 is the current active planning phase. It plans to replace Phase 11's single-stage document-analysis contract with bounded discovery, connected modeling, reconciliation, ontology alignment, critic, and final-planning stages. This multi-stage path is not implemented yet, so the ownership and routes below describe the current Phase 11 product.
+
 ## Active Server Ownership
 
 | Concern | Entry points | Boundary |
@@ -94,7 +96,7 @@ DELETE /api/v1/projects/{projectId}/document-ingestion/tasks/{taskId}
 - Staging does not approve or apply a proposal.
 - Existing authorization, human review, validation, semantic diff, reasoning, SHACL, atomic apply, reload, and rollback boundaries remain authoritative.
 
-## Active Phase 11 Document Extension
+## Implemented Phase 11 Document Extension
 
 The implemented extension:
 
@@ -109,6 +111,31 @@ The implemented extension:
 
 Uploads, extracted text, OCR images, incomplete task state, and review workspaces are temporary. Applied-change provenance is the only durable Phase 11 record, is authorized by project, and is stored separately from ontology sources. The feature supports English PDF, DOCX, TXT, and Markdown; it does not add production document/task storage, handwritten OCR, broader formats, external indexing, autonomous tools, or a direct apply path.
 
+## Active Phase 11.5 Planning Boundary
+
+Phase 11.5 plans:
+
+```text
+verified extracted text
+→ per-document discovery
+→ connected domain modeling and consolidation
+→ document and prior-evidence reconciliation
+→ current-ontology alignment
+→ separate modeling critique
+→ connected atomic change-set planning
+→ Kotlin verification
+→ grouped human review
+→ existing typed private-draft and proposal workflow
+```
+
+The plan keeps the current credential, model-selection, upload, extraction, evidence, authorization, staging, proposal, apply, reload, rollback, and durable applied-provenance boundaries. It adds no automatic approval, direct write path, unrestricted agent loop, raw RDF fallback, or silent fallback to the Phase 11 analysis path after activation.
+
+The active planning documents are:
+
+- `docs/architecture/phase-11.5-scope.md`;
+- `docs/specs/0021-phase-11.5-multi-stage-ai-modeling-and-connected-ontology-change-sets.md`;
+- `docs/execplans/0021-phase-11.5-multi-stage-ai-modeling-and-connected-ontology-change-sets.md`.
+
 ## Historical Records
 
-The Phase 7, Phase 7.5, and Phase 8 specs, ExecPlans, decisions, and summaries remain historical delivery records. They provide context for earlier designs but do not override the current source tree, this subsystem map, or the approved Phase 11 boundaries.
+The Phase 7, Phase 7.5, and Phase 8 specs, ExecPlans, decisions, and summaries remain historical delivery records. They provide context for earlier designs but do not override the current source tree, this subsystem map, the implemented Phase 11 boundaries, or the active Phase 11.5 planning documents.

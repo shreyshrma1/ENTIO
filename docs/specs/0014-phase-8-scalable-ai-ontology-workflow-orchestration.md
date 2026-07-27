@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft for review in the active Phase 8 stage. This document specifies Phase 8 behavior but does not authorize implementation. It is derived from `docs/architecture/phase-8-scope.md` and preserves the completed Phase 1 through Phase 7.5 contracts.
+Historical Phase 8 planning record. This document does not describe the current active phase or override the implemented source and current architecture documentation. It is derived from `docs/architecture/phase-8-scope.md` and preserves the completed Phase 1 through Phase 7.5 contracts.
 
 ## Problem
 

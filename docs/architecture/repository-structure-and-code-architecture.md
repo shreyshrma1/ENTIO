@@ -12,6 +12,8 @@ CLI                         ┘
 
 The Kotlin engine owns ontology meaning and validation. The server and CLI expose engine behavior. The React and VS Code clients present it to users but do not decide RDF, OWL, or SHACL semantics.
 
+The implemented repository baseline is complete through Phase 11. Phase 11.5 is the current active planning phase; its multi-stage document-analysis pipeline is not implemented yet.
+
 ## Top-level layout
 
 | Path | Purpose |
@@ -79,9 +81,12 @@ More exactly:
 | Read-only ontology map | `semantic-engine/OntologyGraphService` → `web-server/OntologyGraphWebService` → `web-app/src/workbench/ontology-map/` |
 | Provider credentials and model selection | `web-server/ai/`, `AiModelWebBoundary`; UI in `AiCredentialSettings` |
 | Native ontology assistant | `web-server/ai/AiProposalService`, `OpenAiProposalClient`; routes in `Application.kt`; UI in `AiProposalPanel` and `ProjectWorkspace` |
+| Document ingestion | Phase 11 implementation in `core-types/Document*`, `semantic-engine/Document*`, `web-server/ingestion/`, and `web-app/src/workbench/document-ingestion/`; Phase 11.5 multi-stage redesign is the active planning boundary |
 | VS Code workbench | `vscode-extension/`; semantic calls go through `engineCli.ts` to `cli/` |
 
 The native ontology assistant is active. `web-server` registers project-scoped AI proposal routes backed by the OpenAI Responses API, and `web-app` exposes conversations, history, status, review-only proposals, edit removal, staging, rejection, and cancellation. Credentials, model settings, conversations, and runs remain in-memory development state. The assistant has no arbitrary tools, direct source-write path, approval authority, or automatic apply path.
+
+Phase 11 document ingestion is also active. Phase 11.5 plans to replace only its analysis contract with separate bounded stages and connected atomic recommendations; it does not change the repository's module direction or create another apply path.
 
 ## Typical call paths
 

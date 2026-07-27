@@ -6,7 +6,7 @@
 
 ## Status
 
-Approved. Phase 9 is the current active phase. Its behavior is not implemented until the approved specification and ExecPlan are completed and verified.
+Implemented and verified. Phase 9 is retained as a completed historical delivery boundary.
 
 ## Purpose
 
