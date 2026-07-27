@@ -6,7 +6,11 @@
 
 ## Status
 
-Active planning phase. Draft for review.
+Approved for implementation on 2026-07-27.
+
+The required contract, migration, prompt, limit, and benchmark audit is recorded in
+`docs/decisions/phase-11.5-slice-0-contract-audit.md`. Production implementation
+begins with ExecPlan Slice 1 only after Slice 0 is verified and merged.
 
 ## Purpose
 
