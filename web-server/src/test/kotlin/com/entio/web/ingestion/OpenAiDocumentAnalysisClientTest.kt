@@ -1,10 +1,12 @@
 package com.entio.web.ingestion
 
 import com.entio.core.DocumentAnalysisPipelineVersions
+import com.entio.core.DocumentAnalysisWorkKey
 import com.entio.core.DocumentAlignmentAction
 import com.entio.core.DocumentAlignmentRecord
 import com.entio.core.DocumentAssertionClassification
 import com.entio.core.DocumentContentClassification
+import com.entio.core.DocumentConfidenceDimensions
 import com.entio.core.DocumentConnectedModel
 import com.entio.core.DocumentConnectedModelItem
 import com.entio.core.DocumentConnectedModelItemKind
@@ -272,6 +274,38 @@ class OpenAiDocumentAnalysisClientTest {
         assertTrue(root.path("tools").isEmpty)
         assertTrue(!body.contains("secret-value"))
         assertTrue(root.path("input").asText().contains("\"modelItemId\":\"model-payment\""))
+    }
+
+    @Test
+    fun sendsStrictFinalPlanSchemaAndParsesTemporaryReferencesWithoutFinalIris(): Unit = runBlocking {
+        var body = ""
+        val engine = MockEngine { request ->
+            body = (request.body as TextContent).text
+            respond(
+                providerEnvelope(validFinalPlanningOutput()),
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+
+        val result = OpenAiDocumentAnalysisClient(engine = engine).use {
+            it.plan(
+                "secret-value",
+                "gpt-test-2026",
+                "Use temporary references and never supply final IRIs.",
+                finalPlanningRequest(),
+            )
+        }
+
+        val completed = assertIs<DocumentFinalPlanningProviderResult.Completed>(result)
+        assertEquals("new:class:PaymentPolicy", completed.response.plan.recommendations.single()
+            .operations.single().declaration?.value)
+        val root = ObjectMapper().readTree(body)
+        val format = root.path("text").path("format")
+        assertEquals("phase_11_5_document_final_plan", format.path("name").asText())
+        assertEquals(false, format.path("schema").path("additionalProperties").asBoolean())
+        assertTrue(root.path("tools").isEmpty)
+        assertTrue(!body.contains("secret-value"))
+        assertTrue(!format.toString().contains("finalIri"))
     }
 
     @Test
@@ -719,6 +753,23 @@ class OpenAiDocumentAnalysisClientTest {
         )
     }
 
+    private fun finalPlanningRequest(): DocumentFinalPlanningRequest {
+        val criticRequest = modelingCriticRequest()
+        return DocumentFinalPlanningRequest(
+            taskId = "task-1",
+            workKey = DocumentAnalysisWorkKey("a".repeat(64)),
+            discoveries = criticRequest.discoveries,
+            connectedModel = criticRequest.connectedModel,
+            reconciliation = criticRequest.reconciliation,
+            alignments = criticRequest.alignments,
+            criticFindings = emptyList(),
+            confidenceByTarget = sortedMapOf(
+                "model-payment" to DocumentConfidenceDimensions(90, 85, 80),
+            ),
+            ontologySnapshot = criticRequest.ontologySnapshot,
+        )
+    }
+
     private fun validStructuredOutput(): String =
         """{"schemaVersion":"phase-11-document-analysis-response-v4","candidates":[{"category":"Class","recommendationCategory":"OntologyStructure","proposedLabel":"Customer","proposedDefinition":null,"proposedDomainIri":null,"proposedRangeIri":null,"proposedConnectionLabel":null,"proposedConnectionDomainIri":null,"reasoningSummary":"Customer is material domain meaning supported by the document.","confidence":90,"interpretation":"explicit","evidenceType":"Explicit","evidence":[{"documentId":"document-1","blockId":"block-1","startOffsetInBlock":0,"endOffsetInBlock":8,"excerpt":"Customer"}],"ambiguityFlags":[]}]}"""
 
@@ -738,6 +789,9 @@ class OpenAiDocumentAnalysisClientTest {
 
     private fun validModelingCriticOutput(): String =
         """{"schemaVersion":"phase-11-5-modeling-critic-response-v1","findings":[{"providerId":"downgrade-payment","targetId":"model-payment","action":"Downgrade","reason":"The ontology fit needs more review.","evidenceConfidence":90,"modelingConfidence":70,"ontologyFitConfidence":70}]}"""
+
+    private fun validFinalPlanningOutput(): String =
+        """{"schemaVersion":"phase-11-5-final-plan-response-v1","plan":{"workKey":"${"a".repeat(64)}","verifiedDiscoveryIds":["discovery-1"],"criticFindingIds":[],"recommendations":[{"id":"recommendation-1","title":"Create payment policy","description":"Create the supported payment policy concept.","discoveryIds":["discovery-1"],"evidenceIds":["evidence-1"],"operations":[{"id":"create-policy","kind":"CreateClass","order":0,"declaration":"new:class:PaymentPolicy","operands":[{"kind":"SourceId","value":"simple","datatypeIri":null,"language":null}],"dependsOnOperationIds":[],"expandedTypedEditCount":1,"optionalLeaf":false}],"reviewOnlyFindings":[],"criticDispositions":[],"evidenceConfidence":90,"modelingConfidence":85,"ontologyFitConfidence":80,"status":"Executable","blockers":[],"individualReviewGates":[]}],"coverage":[{"discoveryId":"discovery-1","kind":"ExecutableRecommendation","recommendationId":"recommendation-1","relatedDiscoveryId":null,"rationale":null}]}}"""
 
     private fun providerEnvelope(output: String): String {
         val mapper = ObjectMapper()
