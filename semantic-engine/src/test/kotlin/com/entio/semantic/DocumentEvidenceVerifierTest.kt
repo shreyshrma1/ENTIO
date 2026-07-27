@@ -2,6 +2,7 @@ package com.entio.semantic
 
 import com.entio.core.DocumentExtractionMethod
 import com.entio.core.DocumentId
+import com.entio.core.DocumentPageGeometry
 import com.entio.core.DocumentTextBlockId
 import com.entio.core.LocatedDocumentTextBlock
 import kotlin.test.Test
@@ -102,6 +103,29 @@ class DocumentEvidenceVerifierTest {
             val claim = UnverifiedDocumentEvidence("document-1", "block-1", 0, 8, "Customer")
             DocumentEvidenceVerifier().verify(listOf(block), listOf(claim, claim))
         }
+    }
+
+    @Test
+    fun preservesServerHeldLocationExtractionAndOcrMetadata(): Unit {
+        val ocrBlock = block.copy(
+            pageNumber = 3,
+            sectionHeading = "Approval Controls",
+            extractionMethod = DocumentExtractionMethod.Ocr,
+            extractorVersion = "tesseract-5.5.2",
+            ocrConfidence = 87,
+            pageImageId = "page-image-3",
+            pageGeometry = DocumentPageGeometry(1_200, 1_600),
+        )
+
+        val reference = DocumentEvidenceVerifier().verify(
+            listOf(ocrBlock),
+            listOf(UnverifiedDocumentEvidence("document-1", "block-1", 0, 8, "Customer")),
+        ).single()
+
+        assertEquals(3, reference.pageNumber)
+        assertEquals("Approval Controls", reference.sectionHeading)
+        assertEquals(DocumentExtractionMethod.Ocr, reference.extractionMethod)
+        assertEquals(87, reference.ocrConfidence)
     }
 
     private fun verify(claim: UnverifiedDocumentEvidence): Unit {

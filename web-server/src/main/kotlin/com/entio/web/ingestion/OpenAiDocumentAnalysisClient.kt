@@ -1,6 +1,13 @@
 package com.entio.web.ingestion
 
 import com.entio.core.DocumentCandidateCategory
+import com.entio.core.DocumentAnalysisPipelineVersions
+import com.entio.core.DocumentAssertionClassification
+import com.entio.core.DocumentContentClassification
+import com.entio.core.DocumentDiscoveryKind
+import com.entio.core.DocumentIndividualClassification
+import com.entio.core.MAX_DOCUMENT_DISCOVERIES_PER_DOCUMENT
+import com.entio.core.MAX_DOCUMENT_PROVIDER_RESPONSE_CHARACTERS
 import com.entio.core.DocumentRecommendationCategory
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
@@ -46,7 +53,7 @@ internal class OpenAiDocumentAnalysisClient(
     private val configuration: OpenAiDocumentAnalysisConfiguration = OpenAiDocumentAnalysisConfiguration(),
     private val objectMapper: ObjectMapper = ObjectMapper().findAndRegisterModules(),
     engine: HttpClientEngine? = null,
-) : DocumentAnalysisProvider, AutoCloseable {
+) : DocumentAnalysisProvider, DocumentDiscoveryProvider, AutoCloseable {
     private val client = if (engine == null) {
         HttpClient(CIO) {
             followRedirects = false
@@ -110,6 +117,57 @@ internal class OpenAiDocumentAnalysisClient(
         }
     }
 
+    override suspend fun discover(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentDiscoveryRequest,
+    ): DocumentDiscoveryProviderResult {
+        if (apiKey.isBlank() || selectedModelId.isBlank()) {
+            return DocumentDiscoveryProviderResult.Failed(false, "document-provider-authorization")
+        }
+        return try {
+            val response = client.post(configuration.endpoint) {
+                header(HttpHeaders.Authorization, "Bearer ${apiKey.trim()}")
+                accept(ContentType.Application.Json)
+                setBody(
+                    TextContent(
+                        discoveryRequestBody(selectedModelId, systemInstruction, request),
+                        ContentType.Application.Json,
+                    ),
+                )
+            }
+            if (!response.status.isSuccess()) {
+                return DocumentDiscoveryProviderResult.Failed(
+                    retryable = response.status.value == 429 || response.status.value >= 500,
+                    safeCode = when {
+                        response.status.value == 401 || response.status.value == 403 ->
+                            "document-provider-authorization"
+                        response.status.value == 429 -> "document-provider-rate-limited"
+                        response.status.value >= 500 -> "document-provider-unavailable"
+                        else -> "document-provider-request-rejected"
+                    },
+                )
+            }
+            val responseText = response.bodyAsText()
+            if (responseText.length > MAX_DOCUMENT_PROVIDER_RESPONSE_CHARACTERS) {
+                return DocumentDiscoveryProviderResult.Failed(false, "document-provider-response-limit")
+            }
+            val structured = parseStrictDiscoveryResponse(extractOutputText(responseText))
+            DocumentDiscoveryProviderResult.Completed(structured)
+        } catch (failure: SafeProviderResponseFailure) {
+            DocumentDiscoveryProviderResult.Failed(false, failure.code)
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (_: HttpRequestTimeoutException) {
+            DocumentDiscoveryProviderResult.Failed(true, "document-provider-timeout")
+        } catch (_: IOException) {
+            DocumentDiscoveryProviderResult.Failed(true, "document-provider-unavailable")
+        } catch (_: Exception) {
+            DocumentDiscoveryProviderResult.Failed(false, "document-provider-malformed-output")
+        }
+    }
+
     override fun close(): Unit = client.close()
 
     private fun requestBody(modelId: String, instruction: String, request: DocumentAnalysisRequest): String {
@@ -121,6 +179,118 @@ internal class OpenAiDocumentAnalysisClient(
         root.put("input", objectMapper.writeValueAsString(request))
         root.set<JsonNode>("text", strictTextFormat())
         return objectMapper.writeValueAsString(root)
+    }
+
+    private fun discoveryRequestBody(
+        modelId: String,
+        instruction: String,
+        request: DocumentDiscoveryRequest,
+    ): String {
+        val root = objectMapper.createObjectNode()
+        root.put("model", modelId)
+        root.put("store", false)
+        root.putArray("tools")
+        root.put("instructions", instruction)
+        root.put("input", objectMapper.writeValueAsString(request))
+        root.set<JsonNode>("text", strictDiscoveryTextFormat())
+        return objectMapper.writeValueAsString(root)
+    }
+
+    private fun strictDiscoveryTextFormat(): JsonNode {
+        val evidence = objectMapper.createObjectNode().apply {
+            put("type", "array")
+            put("minItems", 1)
+            put("maxItems", 8)
+            set<JsonNode>("items", objectMapper.createObjectNode().apply {
+                put("type", "object")
+                put("additionalProperties", false)
+                set<JsonNode>("required", objectMapper.valueToTree(EVIDENCE_FIELDS.sorted()))
+                set<JsonNode>("properties", objectMapper.createObjectNode().apply {
+                    putObject("documentId")
+                        .put("type", "string")
+                        .put("maxLength", 200)
+                    putObject("blockId")
+                        .put("type", "string")
+                        .put("maxLength", 200)
+                    putObject("startOffsetInBlock")
+                        .put("type", "integer")
+                        .put("minimum", 0)
+                    putObject("endOffsetInBlock")
+                        .put("type", "integer")
+                        .put("minimum", 1)
+                    putObject("excerpt")
+                        .put("type", "string")
+                        .put("minLength", 1)
+                        .put("maxLength", 500)
+                })
+            })
+        }
+        val discovery = objectMapper.createObjectNode().apply {
+            put("type", "object")
+            put("additionalProperties", false)
+            set<JsonNode>("required", objectMapper.valueToTree(DISCOVERY_FIELDS.sorted()))
+            set<JsonNode>("properties", objectMapper.createObjectNode().apply {
+                putObject("providerId")
+                    .put("type", "string")
+                    .put("pattern", "^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
+                set<JsonNode>("kind", stringEnum(
+                    DocumentDiscoveryKind.entries.map { it.name },
+                    "The kind of meaning found in the document.",
+                ))
+                set<JsonNode>("contentClassification", stringEnum(
+                    DocumentContentClassification.entries.map { it.name },
+                    "Whether the item is business content or document-control metadata.",
+                ))
+                set<JsonNode>("assertionClassification", stringEnum(
+                    DocumentAssertionClassification.entries.map { it.name },
+                    "How directly the document supports the item.",
+                ))
+                putObject("description")
+                    .put("type", "string")
+                    .put("minLength", 1)
+                    .put("maxLength", 2_000)
+                set<JsonNode>("evidence", evidence)
+                set<JsonNode>("relatedProviderIds", objectMapper.createObjectNode().apply {
+                    put("type", "array")
+                    put("maxItems", MAX_DOCUMENT_DISCOVERIES_PER_DOCUMENT)
+                    put("uniqueItems", true)
+                    set<JsonNode>("items", objectMapper.createObjectNode()
+                        .put("type", "string")
+                        .put("maxLength", 200))
+                })
+                putObject("evidenceConfidence")
+                    .put("type", "integer")
+                    .put("minimum", 0)
+                    .put("maximum", 100)
+                set<JsonNode>("individualClassification", nullableEnum(
+                    DocumentIndividualClassification.entries.map { it.name },
+                    "Required for an Individual discovery and null for every other kind.",
+                ))
+            })
+        }
+        val schema = objectMapper.createObjectNode().apply {
+            put("type", "object")
+            put("additionalProperties", false)
+            set<JsonNode>("required", objectMapper.valueToTree(listOf("schemaVersion", "discoveries")))
+            set<JsonNode>("properties", objectMapper.createObjectNode().apply {
+                putObject("schemaVersion")
+                    .put("type", "string")
+                    .put("const", DocumentAnalysisPipelineVersions.DISCOVERY_RESPONSE)
+                set<JsonNode>("discoveries", objectMapper.createObjectNode().apply {
+                    put("type", "array")
+                    put("maxItems", MAX_DOCUMENT_DISCOVERIES_PER_DOCUMENT)
+                    set<JsonNode>("items", discovery)
+                })
+            })
+        }
+        return objectMapper.createObjectNode().apply {
+            set<JsonNode>("format", objectMapper.createObjectNode().apply {
+                put("type", "json_schema")
+                put("name", "phase_11_5_document_discovery")
+                put("strict", true)
+                set<JsonNode>("schema", schema)
+            })
+        }
     }
 
     private fun strictTextFormat(): JsonNode {
@@ -248,6 +418,16 @@ internal class OpenAiDocumentAnalysisClient(
             put("description", description)
         }
 
+    private fun nullableEnum(values: List<String>, description: String): JsonNode =
+        objectMapper.createObjectNode().apply {
+            putArray("type").add("string").add("null")
+            put("description", description)
+            set<JsonNode>("enum", objectMapper.createArrayNode().apply {
+                values.forEach(::add)
+                addNull()
+            })
+        }
+
     private fun extractOutputText(response: String): String {
         val root = objectMapper.readTree(response)
         if (root.path("status").asText() == "incomplete") {
@@ -313,6 +493,48 @@ internal class OpenAiDocumentAnalysisClient(
         )
     }
 
+    private fun parseStrictDiscoveryResponse(value: String): DocumentDiscoveryResponse {
+        val root = objectMapper.readTree(value)
+        require(root.isObject && root.fieldNames().asSequence().toSet() == setOf("schemaVersion", "discoveries"))
+        require(root.path("schemaVersion").asText() == DocumentAnalysisPipelineVersions.DISCOVERY_RESPONSE)
+        val discoveries = root.path("discoveries")
+        require(discoveries.isArray && discoveries.size() <= MAX_DOCUMENT_DISCOVERIES_PER_DOCUMENT)
+        return DocumentDiscoveryResponse(
+            discoveries = discoveries.map { discovery ->
+                require(discovery.isObject && discovery.fieldNames().asSequence().toSet() == DISCOVERY_FIELDS)
+                val evidence = discovery.path("evidence")
+                require(evidence.isArray && evidence.size() in 1..8)
+                val related = discovery.path("relatedProviderIds")
+                require(related.isArray && related.size() <= MAX_DOCUMENT_DISCOVERIES_PER_DOCUMENT)
+                ProviderDocumentDiscovery(
+                    providerId = discovery.requiredText("providerId"),
+                    kind = discovery.requiredText("kind"),
+                    contentClassification = discovery.requiredText("contentClassification"),
+                    assertionClassification = discovery.requiredText("assertionClassification"),
+                    description = discovery.requiredText("description"),
+                    evidence = evidence.map { claim ->
+                        require(claim.isObject && claim.fieldNames().asSequence().toSet() == EVIDENCE_FIELDS)
+                        ProviderEvidenceClaim(
+                            documentId = claim.requiredText("documentId"),
+                            blockId = claim.requiredText("blockId"),
+                            startOffsetInBlock = claim.requiredInteger("startOffsetInBlock"),
+                            endOffsetInBlock = claim.requiredInteger("endOffsetInBlock"),
+                            excerpt = claim.requiredText("excerpt"),
+                        )
+                    },
+                    relatedProviderIds = related.map { item ->
+                        item.takeIf(JsonNode::isTextual)?.asText()
+                            ?: throw IllegalArgumentException("Invalid related discovery identity.")
+                    },
+                    evidenceConfidence =
+                        discovery.path("evidenceConfidence").takeIf(JsonNode::isIntegralNumber)?.intValue()
+                            ?: throw IllegalArgumentException("Invalid evidence confidence."),
+                    individualClassification = discovery.optionalText("individualClassification"),
+                )
+            },
+        )
+    }
+
     private fun JsonNode.requiredText(name: String): String =
         path(name).takeIf(JsonNode::isTextual)?.asText()?.takeIf(String::isNotBlank)
             ?: throw IllegalArgumentException("Missing required text.")
@@ -350,6 +572,17 @@ internal class OpenAiDocumentAnalysisClient(
             "evidenceType",
             "evidence",
             "ambiguityFlags",
+        )
+        val DISCOVERY_FIELDS: Set<String> = setOf(
+            "providerId",
+            "kind",
+            "contentClassification",
+            "assertionClassification",
+            "description",
+            "evidence",
+            "relatedProviderIds",
+            "evidenceConfidence",
+            "individualClassification",
         )
     }
 }
