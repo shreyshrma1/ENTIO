@@ -2,19 +2,36 @@ package com.entio.web.ingestion
 
 import com.entio.core.DocumentCandidateCategory
 import com.entio.core.DocumentAlignmentAction
+import com.entio.core.DocumentAnalysisWorkKey
 import com.entio.core.DocumentAnalysisPipelineVersions
 import com.entio.core.DocumentAssertionClassification
 import com.entio.core.DocumentContentClassification
 import com.entio.core.DocumentConnectedModelItemKind
 import com.entio.core.DocumentConnectedModelReferenceRole
 import com.entio.core.DocumentCriticAction
+import com.entio.core.DocumentCriticDisposition
+import com.entio.core.DocumentCriticDispositionKind
+import com.entio.core.DocumentCoverageDisposition
+import com.entio.core.DocumentCoverageDispositionKind
 import com.entio.core.DocumentDiscoveryKind
+import com.entio.core.DocumentEvidenceId
+import com.entio.core.DocumentFinalPlan
+import com.entio.core.DocumentFinalRecommendation
+import com.entio.core.DocumentFinalRecommendationStatus
+import com.entio.core.DocumentIndividualReviewGate
 import com.entio.core.DocumentIndividualClassification
+import com.entio.core.DocumentPlanOperand
+import com.entio.core.DocumentPlanOperation
+import com.entio.core.DocumentPlanOperationKind
+import com.entio.core.DocumentReviewOnlyFinding
+import com.entio.core.DocumentTemporaryReference
 import com.entio.core.DocumentReconciliationKind
 import com.entio.core.MAX_DOCUMENT_DISCOVERIES_PER_DOCUMENT
 import com.entio.core.MAX_DOCUMENT_CONNECTED_MODEL_ITEMS
 import com.entio.core.MAX_DOCUMENT_PROVIDER_RESPONSE_CHARACTERS
 import com.entio.core.DocumentRecommendationCategory
+import com.entio.core.Iri
+import com.entio.core.RdfLiteral
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.ktor.client.HttpClient
@@ -65,6 +82,7 @@ internal class OpenAiDocumentAnalysisClient(
     DocumentReconciliationProvider,
     DocumentOntologyAlignmentProvider,
     DocumentModelingCriticProvider,
+    DocumentFinalPlanningProvider,
     AutoCloseable {
     private val client = if (engine == null) {
         HttpClient(CIO) {
@@ -374,6 +392,58 @@ internal class OpenAiDocumentAnalysisClient(
         }
     }
 
+    override suspend fun plan(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentFinalPlanningRequest,
+    ): DocumentFinalPlanningProviderResult {
+        if (apiKey.isBlank() || selectedModelId.isBlank()) {
+            return DocumentFinalPlanningProviderResult.Failed(false, "document-provider-authorization")
+        }
+        return try {
+            val response = client.post(configuration.endpoint) {
+                header(HttpHeaders.Authorization, "Bearer ${apiKey.trim()}")
+                accept(ContentType.Application.Json)
+                setBody(
+                    TextContent(
+                        finalPlanningRequestBody(selectedModelId, systemInstruction, request),
+                        ContentType.Application.Json,
+                    ),
+                )
+            }
+            if (!response.status.isSuccess()) {
+                return DocumentFinalPlanningProviderResult.Failed(
+                    retryable = response.status.value == 429 || response.status.value >= 500,
+                    safeCode = when {
+                        response.status.value == 401 || response.status.value == 403 ->
+                            "document-provider-authorization"
+                        response.status.value == 429 -> "document-provider-rate-limited"
+                        response.status.value >= 500 -> "document-provider-unavailable"
+                        else -> "document-provider-request-rejected"
+                    },
+                )
+            }
+            val responseText = response.bodyAsText()
+            if (responseText.length > MAX_DOCUMENT_PROVIDER_RESPONSE_CHARACTERS) {
+                return DocumentFinalPlanningProviderResult.Failed(false, "document-provider-response-limit")
+            }
+            DocumentFinalPlanningProviderResult.Completed(
+                parseStrictFinalPlanningResponse(extractOutputText(responseText)),
+            )
+        } catch (failure: SafeProviderResponseFailure) {
+            DocumentFinalPlanningProviderResult.Failed(false, failure.code)
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (_: HttpRequestTimeoutException) {
+            DocumentFinalPlanningProviderResult.Failed(true, "document-provider-timeout")
+        } catch (_: IOException) {
+            DocumentFinalPlanningProviderResult.Failed(true, "document-provider-unavailable")
+        } catch (_: Exception) {
+            DocumentFinalPlanningProviderResult.Failed(false, "document-provider-malformed-output")
+        }
+    }
+
     override fun close(): Unit = client.close()
 
     private suspend fun connectedModelCall(
@@ -521,6 +591,178 @@ internal class OpenAiDocumentAnalysisClient(
         root.put("input", objectMapper.writeValueAsString(request))
         root.set<JsonNode>("text", strictModelingCriticTextFormat())
         return objectMapper.writeValueAsString(root)
+    }
+
+    private fun finalPlanningRequestBody(
+        modelId: String,
+        instruction: String,
+        request: DocumentFinalPlanningRequest,
+    ): String {
+        val root = objectMapper.createObjectNode()
+        root.put("model", modelId)
+        root.put("store", false)
+        root.putArray("tools")
+        root.put("instructions", instruction)
+        root.put("input", objectMapper.writeValueAsString(request))
+        root.set<JsonNode>("text", strictFinalPlanningTextFormat())
+        return objectMapper.writeValueAsString(root)
+    }
+
+    private fun strictFinalPlanningTextFormat(): JsonNode {
+        fun objectSchema(required: List<String>, properties: JsonNode): JsonNode =
+            objectMapper.createObjectNode().apply {
+                put("type", "object")
+                put("additionalProperties", false)
+                set<JsonNode>("required", objectMapper.valueToTree(required.sorted()))
+                set<JsonNode>("properties", properties)
+            }
+        fun stringArray(maxItems: Int): JsonNode = boundedUniqueStringArray(0, maxItems, 500)
+        val operand = objectSchema(
+            FINAL_OPERAND_FIELDS.toList(),
+            objectMapper.createObjectNode().apply {
+                set<JsonNode>("kind", stringEnum(FINAL_OPERAND_KINDS, "Typed operand kind."))
+                putObject("value").put("type", "string").put("minLength", 1).put("maxLength", 2_000)
+                set<JsonNode>("datatypeIri", nullableString(2_000, "Literal datatype IRI."))
+                set<JsonNode>("language", nullableString(100, "Literal language tag."))
+            },
+        )
+        val operation = objectSchema(
+            FINAL_OPERATION_FIELDS.toList(),
+            objectMapper.createObjectNode().apply {
+                putObject("id").put("type", "string").put("minLength", 1).put("maxLength", 200)
+                set<JsonNode>("kind", stringEnum(DocumentPlanOperationKind.entries.map { it.name }, "Typed operation."))
+                putObject("order").put("type", "integer").put("minimum", 0).put("maximum", 99)
+                set<JsonNode>("declaration", nullableString(500, "Temporary new:<kind>:<localName> reference."))
+                set<JsonNode>("operands", objectMapper.createObjectNode().apply {
+                    put("type", "array")
+                    put("maxItems", 20)
+                    set<JsonNode>("items", operand)
+                })
+                set<JsonNode>("dependsOnOperationIds", stringArray(20))
+                putObject("expandedTypedEditCount").put("type", "integer").put("minimum", 1).put("maximum", 20)
+                putObject("optionalLeaf").put("type", "boolean")
+            },
+        )
+        val reviewOnly = objectSchema(
+            FINAL_REVIEW_ONLY_FIELDS.toList(),
+            objectMapper.createObjectNode().apply {
+                putObject("id").put("type", "string").put("minLength", 1).put("maxLength", 200)
+                putObject("summary").put("type", "string").put("minLength", 1).put("maxLength", 1_000)
+                putObject("reason").put("type", "string").put("minLength", 1).put("maxLength", 2_000)
+                set<JsonNode>("discoveryIds", stringArray(100))
+                set<JsonNode>("evidenceIds", stringArray(8))
+                set<JsonNode>("relatedOperationIds", stringArray(20))
+            },
+        )
+        val criticDisposition = objectSchema(
+            FINAL_CRITIC_DISPOSITION_FIELDS.toList(),
+            objectMapper.createObjectNode().apply {
+                putObject("findingId").put("type", "string").put("minLength", 1).put("maxLength", 200)
+                set<JsonNode>(
+                    "kind",
+                    stringEnum(DocumentCriticDispositionKind.entries.map { it.name }, "Final critic disposition."),
+                )
+                set<JsonNode>("rationale", nullableString(2_000, "Required rejection rationale."))
+            },
+        )
+        val individualGate = objectSchema(
+            FINAL_INDIVIDUAL_GATE_FIELDS.toList(),
+            objectMapper.createObjectNode().apply {
+                putObject("operationId").put("type", "string").put("minLength", 1).put("maxLength", 200)
+                set<JsonNode>(
+                    "classification",
+                    stringEnum(DocumentIndividualClassification.entries.map { it.name }, "Individual classification."),
+                )
+                putObject("creationConfirmed").put("type", "boolean")
+                putObject("productionClassificationConfirmed").put("type", "boolean")
+            },
+        )
+        val recommendation = objectSchema(
+            FINAL_RECOMMENDATION_FIELDS.toList(),
+            objectMapper.createObjectNode().apply {
+                putObject("id").put("type", "string").put("minLength", 1).put("maxLength", 200)
+                putObject("title").put("type", "string").put("minLength", 1).put("maxLength", 500)
+                putObject("description").put("type", "string").put("minLength", 1).put("maxLength", 2_000)
+                set<JsonNode>("discoveryIds", stringArray(100))
+                set<JsonNode>("evidenceIds", stringArray(8))
+                set<JsonNode>("operations", objectMapper.createObjectNode().apply {
+                    put("type", "array")
+                    put("maxItems", 20)
+                    set<JsonNode>("items", operation)
+                })
+                set<JsonNode>("reviewOnlyFindings", objectMapper.createObjectNode().apply {
+                    put("type", "array")
+                    put("maxItems", 20)
+                    set<JsonNode>("items", reviewOnly)
+                })
+                set<JsonNode>("criticDispositions", objectMapper.createObjectNode().apply {
+                    put("type", "array")
+                    put("maxItems", 600)
+                    set<JsonNode>("items", criticDisposition)
+                })
+                listOf("evidenceConfidence", "modelingConfidence", "ontologyFitConfidence").forEach { field ->
+                    putObject(field).put("type", "integer").put("minimum", 0).put("maximum", 100)
+                }
+                set<JsonNode>(
+                    "status",
+                    stringEnum(DocumentFinalRecommendationStatus.entries.map { it.name }, "Recommendation status."),
+                )
+                set<JsonNode>("blockers", stringArray(20))
+                set<JsonNode>("individualReviewGates", objectMapper.createObjectNode().apply {
+                    put("type", "array")
+                    put("maxItems", 20)
+                    set<JsonNode>("items", individualGate)
+                })
+            },
+        )
+        val coverage = objectSchema(
+            FINAL_COVERAGE_FIELDS.toList(),
+            objectMapper.createObjectNode().apply {
+                putObject("discoveryId").put("type", "string").put("minLength", 1).put("maxLength", 200)
+                set<JsonNode>(
+                    "kind",
+                    stringEnum(DocumentCoverageDispositionKind.entries.map { it.name }, "Discovery disposition."),
+                )
+                set<JsonNode>("recommendationId", nullableString(200, "Related recommendation ID."))
+                set<JsonNode>("relatedDiscoveryId", nullableString(200, "Merged discovery ID."))
+                set<JsonNode>("rationale", nullableString(2_000, "Required rejection rationale."))
+            },
+        )
+        val plan = objectSchema(
+            FINAL_PLAN_FIELDS.toList(),
+            objectMapper.createObjectNode().apply {
+                putObject("workKey").put("type", "string").put("pattern", "^[a-f0-9]{64}$")
+                set<JsonNode>("verifiedDiscoveryIds", stringArray(500))
+                set<JsonNode>("criticFindingIds", stringArray(600))
+                set<JsonNode>("recommendations", objectMapper.createObjectNode().apply {
+                    put("type", "array")
+                    put("maxItems", 100)
+                    set<JsonNode>("items", recommendation)
+                })
+                set<JsonNode>("coverage", objectMapper.createObjectNode().apply {
+                    put("type", "array")
+                    put("maxItems", 500)
+                    set<JsonNode>("items", coverage)
+                })
+            },
+        )
+        val schema = objectSchema(
+            listOf("schemaVersion", "plan"),
+            objectMapper.createObjectNode().apply {
+                putObject("schemaVersion")
+                    .put("type", "string")
+                    .put("const", DocumentAnalysisPipelineVersions.FINAL_PLAN_RESPONSE)
+                set<JsonNode>("plan", plan)
+            },
+        )
+        return objectMapper.createObjectNode().apply {
+            set<JsonNode>("format", objectMapper.createObjectNode().apply {
+                put("type", "json_schema")
+                put("name", "phase_11_5_document_final_plan")
+                put("strict", true)
+                set<JsonNode>("schema", schema)
+            })
+        }
     }
 
     private fun strictModelingCriticTextFormat(): JsonNode {
@@ -1211,6 +1453,131 @@ internal class OpenAiDocumentAnalysisClient(
         )
     }
 
+    private fun parseStrictFinalPlanningResponse(value: String): DocumentFinalPlanningResponse {
+        val root = objectMapper.readTree(value)
+        require(root.isObject && root.fieldNames().asSequence().toSet() == setOf("schemaVersion", "plan"))
+        require(root.requiredText("schemaVersion") == DocumentAnalysisPipelineVersions.FINAL_PLAN_RESPONSE)
+        val planNode = root.path("plan")
+        require(planNode.isObject && planNode.fieldNames().asSequence().toSet() == FINAL_PLAN_FIELDS)
+        val recommendations = planNode.path("recommendations")
+        val coverage = planNode.path("coverage")
+        require(recommendations.isArray && recommendations.size() <= 100)
+        require(coverage.isArray)
+        val plan = DocumentFinalPlan(
+            workKey = DocumentAnalysisWorkKey(planNode.requiredText("workKey")),
+            verifiedDiscoveryIds = planNode.requiredTextArray("verifiedDiscoveryIds", 1, 500).sorted(),
+            criticFindingIds = planNode.requiredTextArray("criticFindingIds", 0, 600).sorted(),
+            recommendations = recommendations.map(::parseFinalRecommendation)
+                .sortedBy(DocumentFinalRecommendation::stableOrderingKey),
+            coverage = coverage.map { node ->
+                require(node.isObject && node.fieldNames().asSequence().toSet() == FINAL_COVERAGE_FIELDS)
+                DocumentCoverageDisposition(
+                    discoveryId = node.requiredText("discoveryId"),
+                    kind = DocumentCoverageDispositionKind.valueOf(node.requiredText("kind")),
+                    recommendationId = node.optionalText("recommendationId"),
+                    relatedDiscoveryId = node.optionalText("relatedDiscoveryId"),
+                    rationale = node.optionalText("rationale"),
+                )
+            }.sortedBy(DocumentCoverageDisposition::stableOrderingKey),
+        )
+        return DocumentFinalPlanningResponse(plan = plan)
+    }
+
+    private fun parseFinalRecommendation(node: JsonNode): DocumentFinalRecommendation {
+        require(node.isObject && node.fieldNames().asSequence().toSet() == FINAL_RECOMMENDATION_FIELDS)
+        val operations = node.path("operations")
+        val reviewOnly = node.path("reviewOnlyFindings")
+        val dispositions = node.path("criticDispositions")
+        val individualGates = node.path("individualReviewGates")
+        require(operations.isArray && operations.size() <= 20)
+        require(reviewOnly.isArray && reviewOnly.size() <= 20)
+        require(dispositions.isArray && dispositions.size() <= 600)
+        require(individualGates.isArray && individualGates.size() <= 20)
+        return DocumentFinalRecommendation(
+            id = node.requiredText("id"),
+            title = node.requiredText("title"),
+            description = node.requiredText("description"),
+            discoveryIds = node.requiredTextArray("discoveryIds", 1, 100).sorted(),
+            evidenceIds = node.requiredTextArray("evidenceIds", 1, 8).map(::DocumentEvidenceId).sortedBy(DocumentEvidenceId::value),
+            operations = operations.map(::parseFinalOperation).sortedBy(DocumentPlanOperation::order),
+            reviewOnlyFindings = reviewOnly.map { finding ->
+                require(finding.isObject && finding.fieldNames().asSequence().toSet() == FINAL_REVIEW_ONLY_FIELDS)
+                DocumentReviewOnlyFinding(
+                    id = finding.requiredText("id"),
+                    summary = finding.requiredText("summary"),
+                    reason = finding.requiredText("reason"),
+                    discoveryIds = finding.requiredTextArray("discoveryIds", 1, 100).sorted(),
+                    evidenceIds = finding.requiredTextArray("evidenceIds", 1, 8)
+                        .map(::DocumentEvidenceId)
+                        .sortedBy(DocumentEvidenceId::value),
+                    relatedOperationIds = finding.requiredTextArray("relatedOperationIds", 0, 20).sorted(),
+                )
+            },
+            criticDispositions = dispositions.map { disposition ->
+                require(
+                    disposition.isObject &&
+                        disposition.fieldNames().asSequence().toSet() == FINAL_CRITIC_DISPOSITION_FIELDS,
+                )
+                DocumentCriticDisposition(
+                    findingId = disposition.requiredText("findingId"),
+                    kind = DocumentCriticDispositionKind.valueOf(disposition.requiredText("kind")),
+                    rationale = disposition.optionalText("rationale"),
+                )
+            }.sortedBy(DocumentCriticDisposition::stableOrderingKey),
+            confidence = com.entio.core.DocumentConfidenceDimensions(
+                evidence = node.requiredInteger("evidenceConfidence"),
+                modeling = node.requiredInteger("modelingConfidence"),
+                ontologyFit = node.requiredInteger("ontologyFitConfidence"),
+            ),
+            status = DocumentFinalRecommendationStatus.valueOf(node.requiredText("status")),
+            blockers = node.requiredTextArray("blockers", 0, 20).sorted(),
+            individualReviewGates = individualGates.map { gate ->
+                require(gate.isObject && gate.fieldNames().asSequence().toSet() == FINAL_INDIVIDUAL_GATE_FIELDS)
+                DocumentIndividualReviewGate(
+                    operationId = gate.requiredText("operationId"),
+                    classification = DocumentIndividualClassification.valueOf(gate.requiredText("classification")),
+                    creationConfirmed = gate.path("creationConfirmed").booleanValue(),
+                    productionClassificationConfirmed = gate.path("productionClassificationConfirmed").booleanValue(),
+                )
+            }.sortedBy(DocumentIndividualReviewGate::operationId),
+        )
+    }
+
+    private fun parseFinalOperation(node: JsonNode): DocumentPlanOperation {
+        require(node.isObject && node.fieldNames().asSequence().toSet() == FINAL_OPERATION_FIELDS)
+        val operands = node.path("operands")
+        require(operands.isArray && operands.size() <= 20)
+        return DocumentPlanOperation(
+            id = node.requiredText("id"),
+            kind = DocumentPlanOperationKind.valueOf(node.requiredText("kind")),
+            order = node.requiredInteger("order"),
+            declaration = node.optionalText("declaration")?.let(::DocumentTemporaryReference),
+            operands = operands.map { operand ->
+                require(operand.isObject && operand.fieldNames().asSequence().toSet() == FINAL_OPERAND_FIELDS)
+                val text = operand.requiredText("value")
+                when (operand.requiredText("kind")) {
+                    "ExistingEntity" -> DocumentPlanOperand.ExistingEntity(Iri(text))
+                    "TemporaryEntity" -> DocumentPlanOperand.TemporaryEntity(DocumentTemporaryReference(text))
+                    "LiteralValue" -> DocumentPlanOperand.LiteralValue(
+                        RdfLiteral(
+                            lexicalForm = text,
+                            datatypeIri = operand.optionalText("datatypeIri")?.let(::Iri),
+                            languageTag = operand.optionalText("language"),
+                        ),
+                    )
+                    "TextValue" -> DocumentPlanOperand.TextValue(text)
+                    "IntegerValue" -> DocumentPlanOperand.IntegerValue(text.toInt())
+                    "DecimalValue" -> DocumentPlanOperand.DecimalValue(text)
+                    "SourceId" -> DocumentPlanOperand.SourceId(text)
+                    else -> throw IllegalArgumentException("Unsupported final-plan operand kind.")
+                }
+            },
+            dependsOnOperationIds = node.requiredTextArray("dependsOnOperationIds", 0, 20).sorted(),
+            expandedTypedEditCount = node.requiredInteger("expandedTypedEditCount"),
+            optionalLeaf = node.path("optionalLeaf").booleanValue(),
+        )
+    }
+
     private fun JsonNode.requiredText(name: String): String =
         path(name).takeIf(JsonNode::isTextual)?.asText()?.takeIf(String::isNotBlank)
             ?: throw IllegalArgumentException("Missing required text.")
@@ -1318,6 +1685,56 @@ internal class OpenAiDocumentAnalysisClient(
             "modelingConfidence",
             "ontologyFitConfidence",
         )
+        val FINAL_PLAN_FIELDS: Set<String> = setOf(
+            "workKey",
+            "verifiedDiscoveryIds",
+            "criticFindingIds",
+            "recommendations",
+            "coverage",
+        )
+        val FINAL_RECOMMENDATION_FIELDS: Set<String> = setOf(
+            "id",
+            "title",
+            "description",
+            "discoveryIds",
+            "evidenceIds",
+            "operations",
+            "reviewOnlyFindings",
+            "criticDispositions",
+            "evidenceConfidence",
+            "modelingConfidence",
+            "ontologyFitConfidence",
+            "status",
+            "blockers",
+            "individualReviewGates",
+        )
+        val FINAL_OPERATION_FIELDS: Set<String> = setOf(
+            "id",
+            "kind",
+            "order",
+            "declaration",
+            "operands",
+            "dependsOnOperationIds",
+            "expandedTypedEditCount",
+            "optionalLeaf",
+        )
+        val FINAL_OPERAND_FIELDS: Set<String> = setOf("kind", "value", "datatypeIri", "language")
+        val FINAL_OPERAND_KINDS: List<String> = listOf(
+            "ExistingEntity",
+            "TemporaryEntity",
+            "LiteralValue",
+            "TextValue",
+            "IntegerValue",
+            "DecimalValue",
+            "SourceId",
+        )
+        val FINAL_REVIEW_ONLY_FIELDS: Set<String> =
+            setOf("id", "summary", "reason", "discoveryIds", "evidenceIds", "relatedOperationIds")
+        val FINAL_CRITIC_DISPOSITION_FIELDS: Set<String> = setOf("findingId", "kind", "rationale")
+        val FINAL_INDIVIDUAL_GATE_FIELDS: Set<String> =
+            setOf("operationId", "classification", "creationConfirmed", "productionClassificationConfirmed")
+        val FINAL_COVERAGE_FIELDS: Set<String> =
+            setOf("discoveryId", "kind", "recommendationId", "relatedDiscoveryId", "rationale")
     }
 }
 
