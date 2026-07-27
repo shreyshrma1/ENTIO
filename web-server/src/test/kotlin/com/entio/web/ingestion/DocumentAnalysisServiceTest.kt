@@ -3,13 +3,21 @@ package com.entio.web.ingestion
 import com.entio.core.DocumentAuthorityMetadata
 import com.entio.core.DocumentAuthorityStatus
 import com.entio.core.DocumentAnalysisPipelineVersions
+import com.entio.core.DocumentAnalysisStage as PipelineDocumentAnalysisStage
+import com.entio.core.DocumentAnalysisStageRecord
 import com.entio.core.DocumentAnalysisStageState
+import com.entio.core.DocumentAnalysisWorkKey
 import com.entio.core.DocumentAssertionClassification
 import com.entio.core.DocumentCandidateCategory
+import com.entio.core.DocumentConnectedModelItemKind
+import com.entio.core.DocumentConnectedModelReferenceRole
 import com.entio.core.DocumentContentClassification
 import com.entio.core.DocumentDiscovery
 import com.entio.core.DocumentDiscoveryKind
 import com.entio.core.DocumentEvidence
+import com.entio.core.DocumentEvidenceId
+import com.entio.core.DocumentEvidenceReference
+import com.entio.core.DocumentEvidenceType
 import com.entio.core.DocumentExtractionMethod
 import com.entio.core.DocumentId
 import com.entio.core.DocumentIndividualClassification
@@ -1112,6 +1120,323 @@ class DocumentAnalysisServiceTest {
         assertEquals(MAX_DOCUMENT_PROVIDER_ATTEMPTS, calls)
     }
 
+    @Test
+    fun buildsOneOntologyBlindConnectedPaymentModelWithTraceableDependencies(): Unit = runBlocking {
+        val fixture = fixture()
+        val discoveries = listOf(
+            connectedDiscovery("discovery-payment", "Payment"),
+            connectedDiscovery("discovery-approval", "Payment Approval Record"),
+            connectedDiscovery("discovery-relationship", "A payment has an approval record", DocumentDiscoveryKind.Relationship),
+            connectedDiscovery("discovery-aggregation", "Aggregate related payments before approval", DocumentDiscoveryKind.ConditionalRule),
+            connectedDiscovery("discovery-separation", "The initiator cannot approve the payment", DocumentDiscoveryKind.ConditionalRule),
+            connectedDiscovery(
+                "discovery-effective-date",
+                "Document effective date",
+                DocumentDiscoveryKind.Metadata,
+                DocumentContentClassification.AdministrativeMetadata,
+            ),
+        )
+        var serializedRequest = ""
+        var suppliedInstruction = ""
+        val provider = connectedProvider(
+            onModel = { _, instruction, request ->
+                suppliedInstruction = instruction
+                serializedRequest = ObjectMapper().findAndRegisterModules().writeValueAsString(request)
+                val ids = request.discoveries.associateBy(DocumentDiscovery::description)
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(
+                            connectedItem("payment", 0, "Class", "Payment", ids.getValue("Payment").id),
+                            connectedItem(
+                                "approval",
+                                1,
+                                "Class",
+                                "Payment Approval Record",
+                                ids.getValue("Payment Approval Record").id,
+                            ),
+                            connectedItem(
+                                "has-approval",
+                                2,
+                                "ObjectProperty",
+                                "has approval record",
+                                ids.getValue("A payment has an approval record").id,
+                            ),
+                            connectedItem(
+                                "has-approval-domain",
+                                3,
+                                "DomainAssignment",
+                                "has approval record domain",
+                                ids.getValue("A payment has an approval record").id,
+                                references = listOf(
+                                    ProviderConnectedModelReference("Domain", "payment"),
+                                    ProviderConnectedModelReference("Property", "has-approval"),
+                                ),
+                            ),
+                            connectedItem(
+                                "has-approval-range",
+                                4,
+                                "RangeAssignment",
+                                "has approval record range",
+                                ids.getValue("A payment has an approval record").id,
+                                references = listOf(
+                                    ProviderConnectedModelReference("Property", "has-approval"),
+                                    ProviderConnectedModelReference("Range", "approval"),
+                                ),
+                            ),
+                            connectedItem(
+                                "aggregation",
+                                5,
+                                "ComplexRule",
+                                "Aggregate related payments",
+                                ids.getValue("Aggregate related payments before approval").id,
+                                references = listOf(
+                                    ProviderConnectedModelReference("Related", "payment"),
+                                ),
+                                reviewOnly = true,
+                            ),
+                            connectedItem(
+                                "separation",
+                                6,
+                                "ComplexRule",
+                                "Separate payment initiation and approval",
+                                ids.getValue("The initiator cannot approve the payment").id,
+                                references = listOf(
+                                    ProviderConnectedModelReference("Related", "approval"),
+                                ),
+                                reviewOnly = true,
+                            ),
+                        ),
+                    ),
+                )
+            },
+        )
+
+        val result = fixture.connectedModelService(provider)
+            .model("alice", "task-1", connectedDiscoveryStage(discoveries))
+
+        assertEquals(7, result.model.items.size)
+        assertEquals(
+            listOf("Payment", "Payment Approval Record", "has approval record"),
+            result.model.items.take(3).map { it.label },
+        )
+        val domain = result.model.items.single { it.kind == DocumentConnectedModelItemKind.DomainAssignment }
+        val range = result.model.items.single { it.kind == DocumentConnectedModelItemKind.RangeAssignment }
+        assertEquals(
+            setOf(DocumentConnectedModelReferenceRole.Domain, DocumentConnectedModelReferenceRole.Property),
+            domain.references.map { it.role }.toSet(),
+        )
+        assertEquals(
+            setOf(DocumentConnectedModelReferenceRole.Property, DocumentConnectedModelReferenceRole.Range),
+            range.references.map { it.role }.toSet(),
+        )
+        assertEquals(
+            setOf("Aggregate related payments", "Separate payment initiation and approval"),
+            result.model.items.filter { it.kind == DocumentConnectedModelItemKind.ComplexRule }
+                .map { it.label }
+                .toSet(),
+        )
+        assertTrue(result.model.items.all { it.discoveryIds.isNotEmpty() })
+        assertTrue(result.model.items.none { "effective date" in it.label.lowercase() })
+        assertTrue(!serializedRequest.contains("ontologyContext"))
+        assertTrue(!serializedRequest.contains("ontologyFingerprint"))
+        assertTrue(!serializedRequest.contains("writableSourceIds"))
+        assertTrue(!serializedRequest.contains("targetSource"))
+        assertTrue(!serializedRequest.contains("http://"))
+        assertTrue(suppliedInstruction.contains("without receiving, guessing, or targeting the current ontology"))
+        assertEquals(1, result.providerCalls)
+        assertEquals(DocumentAnalysisPipelineVersions.CONNECTED_MODEL_PROMPT, result.stageRecords.single().promptVersion)
+    }
+
+    @Test
+    fun chunksEveryVerifiedDiscoveryAndBlocksBeforeCallsWhenBudgetIsInsufficient(): Unit = runBlocking {
+        val fixture = fixture()
+        val discoveries = (0 until 60).map { index ->
+            connectedDiscovery(
+                id = "discovery-${index.toString().padStart(3, '0')}",
+                description = "Business concept $index ${"meaning ".repeat(210)}",
+            )
+        }
+        val modeledDiscoveryIds = mutableListOf<String>()
+        var consolidationCalls = 0
+        val provider = connectedProvider(
+            onModel = { _, _, request ->
+                modeledDiscoveryIds += request.discoveries.map(DocumentDiscovery::id)
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(
+                            connectedItem(
+                                providerId = "chunk-${request.chunkIndex}",
+                                order = 0,
+                                kind = "Class",
+                                label = "Chunk ${request.chunkIndex}",
+                                discoveryId = request.discoveries.first().id,
+                            ),
+                        ),
+                    ),
+                )
+            },
+            onConsolidate = { _, _, request ->
+                consolidationCalls += 1
+                DocumentConnectedModelProviderResult.CompletedConsolidation(
+                    DocumentModelConsolidationResponse(
+                        items = request.chunkModels.mapIndexed { index, chunk ->
+                            connectedItem(
+                                providerId = "consolidated-$index",
+                                order = index,
+                                kind = "Class",
+                                label = "Consolidated $index",
+                                discoveryId = chunk.items.single().discoveryIds.single(),
+                            )
+                        },
+                    ),
+                )
+            },
+        )
+        val stage = connectedDiscoveryStage(discoveries)
+        val insufficientProvider = connectedProvider(
+            onModel = { _, _, _ -> error("Budget validation must happen before a provider call.") },
+        )
+
+        assertEquals(
+            "document-connected-model-call-budget-incomplete",
+            assertFailsWith<DocumentAnalysisFailure> {
+                fixture.connectedModelService(insufficientProvider)
+                    .model("alice", "task-1", stage, remainingLogicalCallBudget = 6)
+            }.code,
+        )
+        val result = fixture.connectedModelService(provider)
+            .model("alice", "task-1", stage)
+
+        assertTrue(result.chunkCount > 1)
+        assertTrue(result.consolidated)
+        assertEquals(1, consolidationCalls)
+        assertEquals(discoveries.map(DocumentDiscovery::id).sorted(), modeledDiscoveryIds.sorted())
+        assertEquals(result.chunkCount + 1, result.stageRecords.size)
+    }
+
+    @Test
+    fun rejectsMetadataPromotionAndInvalidModelLocalReferenceGraphs(): Unit = runBlocking {
+        val fixture = fixture()
+        val business = connectedDiscovery("discovery-business", "Payment")
+        val metadata = connectedDiscovery(
+            "discovery-metadata",
+            "Effective date",
+            DocumentDiscoveryKind.Metadata,
+            DocumentContentClassification.AdministrativeMetadata,
+        )
+
+        suspend fun failure(
+            items: List<ProviderConnectedModelItem>,
+            discoveries: List<DocumentDiscovery> = listOf(business),
+        ): String {
+            val provider = connectedProvider(
+                onModel = { _, _, _ ->
+                    DocumentConnectedModelProviderResult.CompletedModel(
+                        DocumentConnectedModelResponse(items = items),
+                    )
+                },
+            )
+            return assertFailsWith<DocumentAnalysisFailure> {
+                fixture.connectedModelService(provider)
+                    .model("alice", "task-${items.size}-${discoveries.size}", connectedDiscoveryStage(discoveries))
+            }.code
+        }
+
+        assertEquals(
+            "document-connected-model-provider-schema-invalid",
+            failure(listOf(connectedItem("metadata", 0, "Class", "Effective Date", metadata.id)), listOf(metadata)),
+        )
+        val declaration = connectedItem("payment", 0, "Class", "Payment", business.id)
+        assertEquals(
+            "document-connected-model-provider-schema-invalid",
+            failure(
+                listOf(
+                    declaration,
+                    connectedItem(
+                        "missing",
+                        1,
+                        "ComplexRule",
+                        "Missing reference",
+                        business.id,
+                        listOf(ProviderConnectedModelReference("Related", "not-present")),
+                        reviewOnly = true,
+                    ),
+                ),
+            ),
+        )
+        assertEquals(
+            "document-connected-model-provider-schema-invalid",
+            failure(listOf(declaration, declaration.copy(order = 1))),
+        )
+        assertEquals(
+            "document-connected-model-provider-schema-invalid",
+            failure(
+                listOf(
+                    connectedItem(
+                        "cycle-a",
+                        0,
+                        "ComplexRule",
+                        "Cycle A",
+                        business.id,
+                        listOf(ProviderConnectedModelReference("Related", "cycle-b")),
+                        reviewOnly = true,
+                    ),
+                    connectedItem(
+                        "cycle-b",
+                        1,
+                        "ComplexRule",
+                        "Cycle B",
+                        business.id,
+                        listOf(ProviderConnectedModelReference("Related", "cycle-a")),
+                        reviewOnly = true,
+                    ),
+                ),
+            ),
+        )
+        val declarations = (0..20).map { index ->
+            connectedItem("support-$index", index, "Class", "Support $index", business.id)
+        }
+        assertEquals(
+            "document-connected-model-provider-schema-invalid",
+            failure(
+                declarations + connectedItem(
+                    "excessive",
+                    declarations.size,
+                    "ComplexRule",
+                    "Excessive references",
+                    business.id,
+                    references = declarations.map {
+                        ProviderConnectedModelReference("Related", it.providerId)
+                    },
+                    reviewOnly = true,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun retriesOneConnectedModelLogicalCallAtMostOnceWithFrozenInput(): Unit = runBlocking {
+        val fixture = fixture()
+        val discovery = connectedDiscovery("discovery-payment", "Payment")
+        val serializedRequests = mutableListOf<String>()
+        val provider = connectedProvider(
+            onModel = { _, _, request ->
+                serializedRequests += ObjectMapper().findAndRegisterModules().writeValueAsString(request)
+                DocumentConnectedModelProviderResult.Failed(true, "document-provider-timeout")
+            },
+        )
+
+        assertEquals(
+            "document-provider-timeout",
+            assertFailsWith<DocumentAnalysisFailure> {
+                fixture.connectedModelService(provider)
+                    .model("alice", "task-1", connectedDiscoveryStage(listOf(discovery)))
+            }.code,
+        )
+        assertEquals(2, serializedRequests.size)
+        assertEquals(1, serializedRequests.distinct().size)
+    }
+
     private fun fixture(ready: Boolean = true): AnalysisFixture {
         val now = Instant.parse("2026-07-24T12:00:00Z")
         val credentials = InMemoryAiCredentialStore().also { it.save("alice", "openai", "secret-value") }
@@ -1179,6 +1504,17 @@ class DocumentAnalysisServiceTest {
             provider: DocumentDiscoveryProvider,
             isCancelled: (String) -> Boolean = { false },
         ): DocumentDiscoveryService = DocumentDiscoveryService(
+            credentials,
+            settings,
+            provider,
+            clock = clock,
+            isCancelled = isCancelled,
+        )
+
+        fun connectedModelService(
+            provider: DocumentConnectedModelProvider,
+            isCancelled: (String) -> Boolean = { false },
+        ): DocumentConnectedModelingService = DocumentConnectedModelingService(
             credentials,
             settings,
             provider,
@@ -1287,6 +1623,139 @@ class DocumentAnalysisServiceTest {
             relatedProviderIds = emptyList(),
             evidenceConfidence = 90,
             individualClassification = individual,
+        )
+    }
+
+    private fun connectedProvider(
+        onModel: suspend (
+            selectedModelId: String,
+            systemInstruction: String,
+            request: DocumentConnectedModelRequest,
+        ) -> DocumentConnectedModelProviderResult,
+        onConsolidate: suspend (
+            selectedModelId: String,
+            systemInstruction: String,
+            request: DocumentModelConsolidationRequest,
+        ) -> DocumentConnectedModelProviderResult = { _, _, _ ->
+            error("Consolidation was not expected.")
+        },
+    ): DocumentConnectedModelProvider = object : DocumentConnectedModelProvider {
+        override suspend fun model(
+            apiKey: String,
+            selectedModelId: String,
+            systemInstruction: String,
+            request: DocumentConnectedModelRequest,
+        ): DocumentConnectedModelProviderResult {
+            assertEquals("secret-value", apiKey)
+            return onModel(selectedModelId, systemInstruction, request)
+        }
+
+        override suspend fun consolidate(
+            apiKey: String,
+            selectedModelId: String,
+            systemInstruction: String,
+            request: DocumentModelConsolidationRequest,
+        ): DocumentConnectedModelProviderResult {
+            assertEquals("secret-value", apiKey)
+            return onConsolidate(selectedModelId, systemInstruction, request)
+        }
+    }
+
+    private fun connectedItem(
+        providerId: String,
+        order: Int,
+        kind: String,
+        label: String,
+        discoveryId: String,
+        references: List<ProviderConnectedModelReference> = emptyList(),
+        reviewOnly: Boolean = false,
+    ): ProviderConnectedModelItem = ProviderConnectedModelItem(
+        providerId = providerId,
+        kind = kind,
+        label = label,
+        rationale = "$label is supported by verified document meaning.",
+        discoveryIds = listOf(discoveryId),
+        references = references.sortedWith(
+            compareBy(ProviderConnectedModelReference::role, ProviderConnectedModelReference::providerItemId),
+        ),
+        literalLexicalForm = null,
+        literalDatatypeIri = null,
+        literalLanguageTag = null,
+        order = order,
+        reviewOnlyEligible = reviewOnly,
+    )
+
+    private fun connectedDiscovery(
+        id: String,
+        description: String,
+        kind: DocumentDiscoveryKind = DocumentDiscoveryKind.Concept,
+        content: DocumentContentClassification = DocumentContentClassification.BusinessContent,
+    ): DocumentDiscovery {
+        val normalizedDescription = description.trim()
+        val evidenceId = DocumentEvidenceId("evidence-$id")
+        return DocumentDiscovery(
+            id = id,
+            documentId = DocumentId("document-1"),
+            kind = kind,
+            contentClassification = content,
+            assertionClassification = DocumentAssertionClassification.ExplicitFact,
+            description = normalizedDescription,
+            evidence = listOf(
+                DocumentEvidence(
+                    id = evidenceId,
+                    type = DocumentEvidenceType.Explicit,
+                    references = listOf(
+                        DocumentEvidenceReference(
+                            id = evidenceId,
+                            documentId = DocumentId("document-1"),
+                            blockId = DocumentTextBlockId("block-document-1"),
+                            pageNumber = 1,
+                            startOffsetInBlock = 0,
+                            endOffsetInBlock = minOf(normalizedDescription.length, 500),
+                            exactExcerpt = normalizedDescription.take(500),
+                            extractionMethod = DocumentExtractionMethod.Text,
+                        ),
+                    ),
+                ),
+            ),
+            evidenceConfidence = 90,
+        )
+    }
+
+    private fun connectedDiscoveryStage(
+        discoveries: List<DocumentDiscovery>,
+    ): CompletedDocumentDiscoveryStage {
+        val startedAt = Instant.parse("2026-07-24T12:00:00Z")
+        val finishedAt = Instant.parse("2026-07-24T12:00:01Z")
+        return CompletedDocumentDiscoveryStage(
+            documents = listOf(
+                CompletedDocumentDiscovery(
+                    workKey = DocumentAnalysisWorkKey("a".repeat(64)),
+                    documentId = "document-1",
+                    discoveries = discoveries.sortedBy(DocumentDiscovery::stableOrderingKey),
+                    skipped = emptyList(),
+                    includedBlockIds = listOf("block-document-1"),
+                    omittedBlockCount = 0,
+                    stageRecord = DocumentAnalysisStageRecord(
+                        recordId = "stage-discovery-document-1",
+                        stage = PipelineDocumentAnalysisStage.Discovery,
+                        state = DocumentAnalysisStageState.Succeeded,
+                        scopeId = "document-1",
+                        startedAt = startedAt,
+                        finishedAt = finishedAt,
+                        durationMillis = 1_000,
+                        selectedModelId = "gpt-test-2026",
+                        promptVersion = DocumentAnalysisPipelineVersions.DISCOVERY_PROMPT,
+                        requestSchemaVersion = DocumentAnalysisPipelineVersions.DISCOVERY_REQUEST,
+                        responseSchemaVersion = DocumentAnalysisPipelineVersions.DISCOVERY_RESPONSE,
+                        inputSha256 = "b".repeat(64),
+                        outputSha256 = "c".repeat(64),
+                        providerAttemptCount = 1,
+                        completedCount = discoveries.size,
+                        totalCount = discoveries.size,
+                    ),
+                ),
+            ),
         )
     }
 

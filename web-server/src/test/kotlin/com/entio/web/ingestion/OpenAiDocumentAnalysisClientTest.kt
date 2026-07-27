@@ -1,5 +1,17 @@
 package com.entio.web.ingestion
 
+import com.entio.core.DocumentAnalysisPipelineVersions
+import com.entio.core.DocumentAssertionClassification
+import com.entio.core.DocumentContentClassification
+import com.entio.core.DocumentDiscovery
+import com.entio.core.DocumentDiscoveryKind
+import com.entio.core.DocumentEvidence
+import com.entio.core.DocumentEvidenceId
+import com.entio.core.DocumentEvidenceReference
+import com.entio.core.DocumentEvidenceType
+import com.entio.core.DocumentExtractionMethod
+import com.entio.core.DocumentId
+import com.entio.core.DocumentTextBlockId
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -63,6 +75,90 @@ class OpenAiDocumentAnalysisClientTest {
         assertTrue(!input.contains("writableSourceIds"))
         assertTrue(!input.contains("proposedDomainIri"))
         assertTrue(!input.contains("targetSourceId"))
+    }
+
+    @Test
+    fun sendsStrictOntologyBlindConnectedModelRequestWithTypedLocalReferences(): Unit = runBlocking {
+        var body = ""
+        val engine = MockEngine { request ->
+            body = (request.body as TextContent).text
+            respond(
+                providerEnvelope(validConnectedModelOutput()),
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val client = OpenAiDocumentAnalysisClient(engine = engine)
+
+        val result = client.use {
+            it.model(
+                "secret-value",
+                "gpt-test-2026",
+                "Build a connected local model without ontology context.",
+                connectedModelRequest(),
+            )
+        }
+
+        val completed = assertIs<DocumentConnectedModelProviderResult.CompletedModel>(result)
+        assertEquals(3, completed.response.items.size)
+        assertEquals("DomainAssignment", completed.response.items.last().kind)
+        val root = ObjectMapper().readTree(body)
+        val format = root.path("text").path("format")
+        val itemProperties = format.path("schema").path("properties").path("items").path("items").path("properties")
+        assertEquals("phase_11_5_connected_document_model", format.path("name").asText())
+        assertEquals(false, format.path("schema").path("additionalProperties").asBoolean())
+        assertTrue(itemProperties.path("kind").path("enum").map { it.asText() }.contains("ComplexRule"))
+        assertTrue(
+            itemProperties.path("references").path("items").path("properties")
+                .path("role").path("enum").map { it.asText() }.contains("Domain"),
+        )
+        assertEquals(
+            listOf("string", "null"),
+            itemProperties.path("literalLexicalForm").path("type").map { it.asText() },
+        )
+        assertTrue(root.path("tools").isEmpty)
+        assertTrue(!body.contains("secret-value"))
+        val input = root.path("input").asText()
+        assertTrue(input.contains("Payment"))
+        assertTrue(!input.contains("ontologyContext"))
+        assertTrue(!input.contains("ontologyFingerprint"))
+        assertTrue(!input.contains("writableSourceIds"))
+        assertTrue(!input.contains("targetSourceId"))
+        assertTrue(!input.contains("https://example.com/entio/simple"))
+    }
+
+    @Test
+    fun sendsOneSeparateStrictConsolidationSchemaForChunkModels(): Unit = runBlocking {
+        var body = ""
+        val engine = MockEngine { request ->
+            body = (request.body as TextContent).text
+            respond(
+                providerEnvelope(
+                    validConnectedModelOutput(DocumentAnalysisPipelineVersions.MODEL_CONSOLIDATION_RESPONSE),
+                ),
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val item = providerConnectedItem("payment", 0, "Class", emptyList())
+        val request = DocumentModelConsolidationRequest(
+            taskId = "task-1",
+            chunkModels = listOf(
+                DocumentConnectedModelResponse(items = listOf(item)),
+                DocumentConnectedModelResponse(items = listOf(item.copy(providerId = "payment-2"))),
+            ),
+        )
+        val result = OpenAiDocumentAnalysisClient(engine = engine).use {
+            it.consolidate("secret-value", "gpt-test-2026", "Consolidate every chunk.", request)
+        }
+
+        assertIs<DocumentConnectedModelProviderResult.CompletedConsolidation>(result)
+        val root = ObjectMapper().readTree(body)
+        val format = root.path("text").path("format")
+        assertEquals("phase_11_5_document_model_consolidation", format.path("name").asText())
+        assertEquals(
+            DocumentAnalysisPipelineVersions.MODEL_CONSOLIDATION_RESPONSE,
+            format.path("schema").path("properties").path("schemaVersion").path("const").asText(),
+        )
+        assertTrue(root.path("input").asText().contains(DocumentAnalysisPipelineVersions.MODEL_CONSOLIDATION_REQUEST))
     }
 
     @Test
@@ -175,6 +271,25 @@ class OpenAiDocumentAnalysisClientTest {
             "document-provider-malformed-output",
             assertIs<DocumentDiscoveryProviderResult.Failed>(malformedDiscovery).safeCode,
         )
+
+        val malformedConnectedEngine = MockEngine {
+            respond(
+                providerEnvelope(
+                    validConnectedModelOutput().replaceFirst(
+                        "\"reviewOnlyEligible\":false",
+                        "\"reviewOnlyEligible\":false,\"unexpected\":\"value\"",
+                    ),
+                ),
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val malformedConnected = OpenAiDocumentAnalysisClient(engine = malformedConnectedEngine).use {
+            it.model("secret", "gpt-test", "instruction", connectedModelRequest())
+        }
+        assertEquals(
+            "document-provider-malformed-output",
+            assertIs<DocumentConnectedModelProviderResult.Failed>(malformedConnected).safeCode,
+        )
     }
 
     @Test
@@ -259,11 +374,73 @@ class OpenAiDocumentAnalysisClientTest {
         omittedBlockCount = 0,
     )
 
+    private fun connectedModelRequest(): DocumentConnectedModelRequest {
+        val evidenceId = DocumentEvidenceId("evidence-1")
+        return DocumentConnectedModelRequest(
+            taskId = "task-1",
+            chunkIndex = 0,
+            chunkCount = 1,
+            discoveries = listOf(
+                DocumentDiscovery(
+                    id = "discovery-1",
+                    documentId = DocumentId("document-1"),
+                    kind = DocumentDiscoveryKind.Concept,
+                    contentClassification = DocumentContentClassification.BusinessContent,
+                    assertionClassification = DocumentAssertionClassification.ExplicitFact,
+                    description = "Payment",
+                    evidence = listOf(
+                        DocumentEvidence(
+                            id = evidenceId,
+                            type = DocumentEvidenceType.Explicit,
+                            references = listOf(
+                                DocumentEvidenceReference(
+                                    id = evidenceId,
+                                    documentId = DocumentId("document-1"),
+                                    blockId = DocumentTextBlockId("block-1"),
+                                    pageNumber = 1,
+                                    startOffsetInBlock = 0,
+                                    endOffsetInBlock = 7,
+                                    exactExcerpt = "Payment",
+                                    extractionMethod = DocumentExtractionMethod.EmbeddedText,
+                                ),
+                            ),
+                        ),
+                    ),
+                    evidenceConfidence = 90,
+                ),
+            ),
+        )
+    }
+
+    private fun providerConnectedItem(
+        providerId: String,
+        order: Int,
+        kind: String,
+        references: List<ProviderConnectedModelReference>,
+    ): ProviderConnectedModelItem = ProviderConnectedModelItem(
+        providerId = providerId,
+        kind = kind,
+        label = providerId,
+        rationale = "$providerId is supported by verified discovery.",
+        discoveryIds = listOf("discovery-1"),
+        references = references,
+        literalLexicalForm = null,
+        literalDatatypeIri = null,
+        literalLanguageTag = null,
+        order = order,
+        reviewOnlyEligible = false,
+    )
+
     private fun validStructuredOutput(): String =
         """{"schemaVersion":"phase-11-document-analysis-response-v4","candidates":[{"category":"Class","recommendationCategory":"OntologyStructure","proposedLabel":"Customer","proposedDefinition":null,"proposedDomainIri":null,"proposedRangeIri":null,"proposedConnectionLabel":null,"proposedConnectionDomainIri":null,"reasoningSummary":"Customer is material domain meaning supported by the document.","confidence":90,"interpretation":"explicit","evidenceType":"Explicit","evidence":[{"documentId":"document-1","blockId":"block-1","startOffsetInBlock":0,"endOffsetInBlock":8,"excerpt":"Customer"}],"ambiguityFlags":[]}]}"""
 
     private fun validDiscoveryOutput(): String =
         """{"schemaVersion":"phase-11-5-document-discovery-response-v1","discoveries":[{"providerId":"discovery-1","kind":"Concept","contentClassification":"BusinessContent","assertionClassification":"ExplicitFact","description":"Customer","evidence":[{"documentId":"document-1","blockId":"block-1","startOffsetInBlock":48,"endOffsetInBlock":56,"excerpt":"Customer"}],"relatedProviderIds":[],"evidenceConfidence":90,"individualClassification":null}]}"""
+
+    private fun validConnectedModelOutput(
+        schemaVersion: String = DocumentAnalysisPipelineVersions.CONNECTED_MODEL_RESPONSE,
+    ): String =
+        """{"schemaVersion":"$schemaVersion","items":[{"providerId":"payment","kind":"Class","label":"Payment","rationale":"Payment is supported by verified discovery.","discoveryIds":["discovery-1"],"references":[],"literalLexicalForm":null,"literalDatatypeIri":null,"literalLanguageTag":null,"order":0,"reviewOnlyEligible":false},{"providerId":"has-payment","kind":"ObjectProperty","label":"has payment","rationale":"has payment is supported by verified discovery.","discoveryIds":["discovery-1"],"references":[],"literalLexicalForm":null,"literalDatatypeIri":null,"literalLanguageTag":null,"order":1,"reviewOnlyEligible":false},{"providerId":"has-payment-domain","kind":"DomainAssignment","label":"has payment domain","rationale":"The domain is supported by verified discovery.","discoveryIds":["discovery-1"],"references":[{"role":"Domain","providerItemId":"payment"},{"role":"Property","providerItemId":"has-payment"}],"literalLexicalForm":null,"literalDatatypeIri":null,"literalLanguageTag":null,"order":2,"reviewOnlyEligible":false}]}"""
 
     private fun providerEnvelope(output: String): String {
         val mapper = ObjectMapper()
