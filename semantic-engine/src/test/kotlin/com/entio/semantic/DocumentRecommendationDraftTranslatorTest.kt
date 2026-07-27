@@ -21,6 +21,11 @@ import com.entio.core.ExternalProposalIntent
 import com.entio.core.Iri
 import com.entio.core.RdfLiteral
 import com.entio.core.SemanticEditRequest
+import com.entio.core.CreateClassEdit
+import com.entio.core.CreateDatatypePropertyEdit
+import com.entio.core.CreateObjectPropertyEdit
+import com.entio.core.SetPropertyDomainEdit
+import com.entio.core.SetPropertyRangeEdit
 import com.entio.core.TypedShaclEdit
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -133,6 +138,74 @@ class DocumentRecommendationDraftTranslatorTest {
     }
 
     @Test
+    fun expandsAPropertyCreationIntoOrderedTypedOperations(): Unit {
+        val definition = literal("Account closure means the date an account is closed after all adjustments.")
+        val recommendation = recommendation(DocumentCandidateCategory.DatatypeProperty).copy(
+            proposedLabel = "account closure date",
+            proposedDefinition = definition,
+            proposedDomainIri = CLASS,
+            proposedRangeIri = RANGE,
+        )
+
+        val result = assertIs<DocumentDraftTranslationResult.Prepared>(
+            translator.translateSafely(
+                recommendation,
+                context(targetIri = PROPERTY).copy(domainIri = CLASS, rangeIri = RANGE),
+            ),
+        )
+
+        assertEquals(4, result.operations.size)
+        assertIs<CreateDatatypePropertyEdit>(
+            assertIs<DocumentDraftOperation.Ontology>(result.operations[0].operation).edit,
+        )
+        assertIs<SetPropertyDomainEdit>(
+            assertIs<DocumentDraftOperation.Ontology>(result.operations[1].operation).edit,
+        )
+        assertIs<SetPropertyRangeEdit>(
+            assertIs<DocumentDraftOperation.Ontology>(result.operations[2].operation).edit,
+        )
+        assertIs<SemanticEditRequest.AddDefinition>(
+            assertIs<DocumentDraftOperation.Semantic>(result.operations[3].operation).edit,
+        )
+    }
+
+    @Test
+    fun expandsANewConceptAndItsConnectionIntoOneOrderedRecommendation(): Unit {
+        val definition = literal("Account closure means the date the loan is closed after all adjustments.")
+        val recommendation = recommendation(DocumentCandidateCategory.Class).copy(
+            proposedLabel = "Account closure",
+            proposedDefinition = definition,
+            proposedConnectionLabel = "has account closure",
+            proposedConnectionDomainIri = CLASS,
+        )
+
+        val result = assertIs<DocumentDraftTranslationResult.Prepared>(
+            translator.translateSafely(
+                recommendation,
+                context(targetIri = RANGE).copy(
+                    connectionPropertyIri = CONNECTION_PROPERTY,
+                    connectionDomainIri = CLASS,
+                ),
+            ),
+        )
+
+        assertEquals(5, result.operations.size)
+        assertIs<CreateClassEdit>(assertIs<DocumentDraftOperation.Ontology>(result.operations[0].operation).edit)
+        assertIs<SemanticEditRequest.AddDefinition>(
+            assertIs<DocumentDraftOperation.Semantic>(result.operations[1].operation).edit,
+        )
+        assertIs<CreateObjectPropertyEdit>(
+            assertIs<DocumentDraftOperation.Ontology>(result.operations[2].operation).edit,
+        )
+        assertIs<SetPropertyDomainEdit>(
+            assertIs<DocumentDraftOperation.Ontology>(result.operations[3].operation).edit,
+        )
+        assertIs<SetPropertyRangeEdit>(
+            assertIs<DocumentDraftOperation.Ontology>(result.operations[4].operation).edit,
+        )
+    }
+
+    @Test
     fun preservesConfirmAsProvenanceOnlyAndBlocksUnsafeInputs(): Unit {
         val confirm = recommendation(DocumentCandidateCategory.Class, DocumentRecommendationAction.Confirm)
         val confirmed = assertIs<DocumentDraftTranslationResult.Prepared>(
@@ -181,7 +254,7 @@ class DocumentRecommendationDraftTranslatorTest {
 
     private fun recommendation(
         type: DocumentCandidateCategory,
-        action: DocumentRecommendationAction = DocumentRecommendationAction.Extend,
+        action: DocumentRecommendationAction = DocumentRecommendationAction.CreateLocal,
         confidence: Int = 90,
         matches: List<DocumentMatchCandidate> = emptyList(),
         selected: DocumentMatchCandidate? = null,
@@ -274,6 +347,7 @@ class DocumentRecommendationDraftTranslatorTest {
         val CLASS = Iri("https://example.com/Customer")
         val SUPERCLASS = Iri("https://example.com/Party")
         val PROPERTY = Iri("https://example.com/customerId")
+        val CONNECTION_PROPERTY = Iri("https://example.com/hasAccountClosure")
         val RANGE = Iri("http://www.w3.org/2001/XMLSchema#string")
         val SUBJECT = Iri("https://example.com/customer-1")
         val OBJECT = Iri("https://example.com/account-1")

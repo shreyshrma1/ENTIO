@@ -104,13 +104,14 @@ public class DocumentOntologyMatcher {
             )
             .take(MAX_MATCHES)
             .toList()
+        val targetMatches = matches.filter { it.scope != DocumentMatchScope.SameTask }
         val exactOperationMatches = if (candidateOperation == null) {
             emptyList()
         } else {
-            matches.filter { it.normalizedTypedOperationKey == candidateOperation }
+            targetMatches.filter { it.normalizedTypedOperationKey == candidateOperation }
         }
-        val bestScore = matches.firstOrNull()?.score
-        val equallyBest = matches.filter { it.score == bestScore }
+        val bestScore = targetMatches.firstOrNull()?.score
+        val equallyBest = targetMatches.filter { it.score == bestScore }
         val ambiguity = if (equallyBest.map { it.entityIri }.distinct().size >= 2) {
             listOf(
                 DocumentAmbiguity(
@@ -122,11 +123,15 @@ public class DocumentOntologyMatcher {
         } else {
             emptyList()
         }
-        val explicitDirective = directive(candidate, authority)
         val selected = when {
             ambiguity.isNotEmpty() -> null
             exactOperationMatches.isNotEmpty() -> exactOperationMatches.first()
-            else -> matches.firstOrNull { it.score >= REUSE_SCORE }
+            else -> targetMatches.firstOrNull { it.score >= REUSE_SCORE }
+        }
+        val requestedDirective = directive(candidate, authority)
+        val explicitDirective = when {
+            requestedDirective in actionsRequiringExistingTarget && selected == null -> null
+            else -> requestedDirective
         }
         val action = when {
             explicitDirective != null -> explicitDirective
@@ -136,6 +141,8 @@ public class DocumentOntologyMatcher {
             selected?.scope in setOf(DocumentMatchScope.Imported, DocumentMatchScope.CuratedFibo) ->
                 DocumentRecommendationAction.ReuseImportedOrFibo
             selected != null -> DocumentRecommendationAction.Extend
+            candidate.category == DocumentCandidateCategory.Ambiguity ->
+                DocumentRecommendationAction.InsufficientEvidence
             candidate.confidence < 60 -> DocumentRecommendationAction.InsufficientEvidence
             else -> DocumentRecommendationAction.CreateLocal
         }
@@ -169,9 +176,14 @@ public class DocumentOntologyMatcher {
             proposedLabel = candidate.proposedLabel,
             proposedValue = candidate.proposedValue,
             proposedDefinition = candidate.proposedDefinition,
+            proposedDomainIri = candidate.proposedDomainIri,
+            proposedRangeIri = candidate.proposedRangeIri,
+            proposedConnectionLabel = candidate.proposedConnectionLabel,
+            proposedConnectionDomainIri = candidate.proposedConnectionDomainIri,
+            analysisRationale = candidate.analysisRationale,
             action = action,
             confidence = candidate.confidence,
-            rationale = rationale(action, authority, selected),
+            rationale = candidate.analysisRationale ?: rationale(action, authority, selected),
             evidence = candidate.evidence,
             matches = matches,
             selectedMatch = selected,
@@ -281,10 +293,33 @@ public class DocumentOntologyMatcher {
                 affectedEntityIris = listOf(match.entityIri),
             )
         }.toMutableList()
-        if (alternatives.size < 2) {
+        val evidenceAlternatives = candidate.evidence
+            .flatMap { evidence ->
+                evidence.references.map { reference -> reference.documentId to evidence.id }
+            }
+            .groupBy({ it.first }, { it.second })
+            .toSortedMap(compareBy { it.value })
+            .map { (documentId, documentEvidenceIds) ->
+                DocumentConflictAlternative(
+                    id = "alternative-${stableId(candidate.identity.value, "document", documentId.value)}",
+                    description = "Retain the interpretation supported by document ${documentId.value}.",
+                    evidenceIds = documentEvidenceIds.distinct().sortedBy { it.value },
+                )
+            }
+        evidenceAlternatives.forEach { alternative ->
+            if (alternatives.size < 2) alternatives += alternative
+        }
+        if (alternatives.isEmpty()) {
             alternatives += DocumentConflictAlternative(
                 id = "alternative-${stableId(candidate.identity.value, "document")}",
                 description = "Retain the document interpretation as a separate reviewed alternative.",
+                evidenceIds = evidenceIds,
+            )
+        }
+        if (alternatives.size < 2) {
+            alternatives += DocumentConflictAlternative(
+                id = "alternative-${stableId(candidate.identity.value, "defer")}",
+                description = "Defer ontology changes until a reviewer supplies or selects another interpretation.",
                 evidenceIds = evidenceIds,
             )
         }
@@ -376,6 +411,10 @@ public class DocumentOntologyMatcher {
             DocumentRecommendationAction.ReuseImportedOrFibo,
             DocumentRecommendationAction.InsufficientEvidence,
             DocumentRecommendationAction.Unsupported,
+        )
+        val actionsRequiringExistingTarget: Set<DocumentRecommendationAction> = setOf(
+            DocumentRecommendationAction.Extend,
+            DocumentRecommendationAction.Revise,
         )
     }
 }

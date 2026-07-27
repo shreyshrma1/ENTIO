@@ -108,7 +108,11 @@ export default function DocumentIngestionWorkspace({ projectId }: { projectId: s
         </section>
         <section className="document-review-region" aria-label="Document recommendation review">
           {selectedTask
-            ? <DocumentReview projectId={projectId} taskId={selectedTask.taskId} />
+            ? <DocumentReview
+                projectId={projectId}
+                taskId={selectedTask.taskId}
+                ready={selectedTask.status === "awaiting-review"}
+              />
             : <p>Select a task to review its results.</p>}
         </section>
       </div>
@@ -146,8 +150,8 @@ function statusStageLabel(stage: string): string {
   return stage.replaceAll("-", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-function DocumentReview({ projectId, taskId }: { projectId: string; taskId: string }) {
-  const review = useDocumentReview(projectId, taskId);
+function DocumentReview({ projectId, taskId, ready }: { projectId: string; taskId: string; ready: boolean }) {
+  const review = useDocumentReview(projectId, taskId, ready);
   const decision = useDocumentReviewDecision(projectId, taskId);
   const draft = useBuildDocumentDraft(projectId, taskId);
   const [evidenceId, setEvidenceId] = useState<string | null>(null);
@@ -159,8 +163,12 @@ function DocumentReview({ projectId, taskId }: { projectId: string; taskId: stri
     if (evidence.data) evidenceHeading.current?.focus();
   }, [evidence.data]);
 
-  if (review.isPending) return <p role="status">Preparing the review workspace...</p>;
-  if (review.isError) return <p role="alert">Review results are not ready. The task may still be processing or may be stale.</p>;
+  if (!ready) return <p role="status">Review results will appear when document analysis is complete.</p>;
+  if (review.isPending) return <p role="status">Loading the review workspace...</p>;
+  if (review.isError) return <div role="alert">
+    <p>The review workspace could not be loaded.</p>
+    <button className="button" type="button" onClick={() => review.refetch()}>Retry loading results</button>
+  </div>;
   if (!workspace) return null;
   const submit = (
     recommendationId: string,
@@ -211,8 +219,12 @@ function DocumentReview({ projectId, taskId }: { projectId: string; taskId: stri
           <RecommendationCard
             key={item.id}
             recommendation={item}
+            documents={workspace.documents}
             duplicateOptions={workspace.recommendations.items.filter((candidate) =>
-              candidate.id !== item.id && candidate.category === item.category && candidate.type === item.type)}
+              candidate.id !== item.id &&
+              candidate.category === item.category &&
+              candidate.type === item.type &&
+              normalizeLabel(candidate.proposedLabel) === normalizeLabel(item.proposedLabel))}
             onEvidence={setEvidenceId}
             onDecision={(request) => submit(item.id, request)}
             busy={decision.isPending}
@@ -230,8 +242,9 @@ function DocumentReview({ projectId, taskId }: { projectId: string; taskId: stri
   </>;
 }
 
-function RecommendationCard({ recommendation, duplicateOptions, onEvidence, onDecision, busy }: {
+function RecommendationCard({ recommendation, documents, duplicateOptions, onEvidence, onDecision, busy }: {
   recommendation: WebDocumentReviewRecommendation;
+  documents: Array<{ documentId: string; safeFilename: string }>;
   duplicateOptions: WebDocumentReviewRecommendation[];
   onEvidence: (id: string) => void;
   onDecision: (decision: Omit<WebDocumentReviewDecision, "expectedWorkKey" | "expectedGraphFingerprint">) => void;
@@ -241,44 +254,112 @@ function RecommendationCard({ recommendation, duplicateOptions, onEvidence, onDe
   const [clarification, setClarification] = useState(recommendation.clarification ?? "");
   const [targetSourceId, setTargetSourceId] = useState(recommendation.targetSourceId ?? "");
   const [duplicateId, setDuplicateId] = useState("");
+  const changePreview = recommendation.changePreview ?? {
+    draftable: false,
+    summary: "No exact ontology change is available for this recommendation.",
+    operations: [],
+    blockingReason: "Reload the review workspace to retrieve an exact change preview.",
+  };
+  const clarificationRequired = recommendation.mandatoryClarificationReasons.length > 0;
   return <article className="document-recommendation-card">
-    <header><div><span>{recommendation.type}</span><h3>{recommendation.proposedLabel ?? recommendation.action}</h3></div><strong>{recommendation.confidenceBand} confidence · {recommendation.confidence}%</strong></header>
-    <p>{recommendation.rationale}</p>
-    <dl><div><dt>Recommendation</dt><dd>{recommendation.action}</dd></div><div><dt>Status</dt><dd>{recommendation.reviewStatus}</dd></div></dl>
-    {recommendation.evidence.length ? <div><strong>Evidence</strong><ul>{recommendation.evidence.map((item) => <li key={item.evidenceId}>
-      <button type="button" onClick={() => onEvidence(item.evidenceId)} aria-label={`Open ${item.evidenceType} evidence`}>
-        {item.excerpt ?? item.priorRecordId} · {item.extractionMethod ?? "Entio record"}{item.ocrConfidence != null ? ` · OCR ${item.ocrConfidence}%` : ""}
-      </button>
-    </li>)}</ul></div> : null}
-    {recommendation.matches.length ? <label>Ontology match
-      <select value={recommendation.selectedMatchIri ?? ""} onChange={(event) => onDecision({ action: "rematch", selectedMatchIri: event.target.value })}>
-        <option value="" disabled>Choose a match</option>
-        {recommendation.matches.map((match) => <option key={`${match.scope}:${match.entityIri}`} value={match.entityIri}>{match.preferredLabel ?? match.entityIri} · {match.scope} · {match.score}%</option>)}
-      </select>
-    </label> : null}
-    {recommendation.conflicts.map((conflict) => <div className="document-conflict" key={conflict.id}><strong>Conflict requires review</strong><ul>{conflict.alternatives.map((alternative) => <li key={alternative}>{alternative}</li>)}</ul></div>)}
+    <header>
+      <div><span>{humanize(recommendation.type)}</span><h3>{recommendation.proposedLabel ?? humanize(recommendation.action)}</h3></div>
+      <div className="document-recommendation-badges">
+        <span>{humanize(recommendation.reviewStatus)}</span>
+        <span>{recommendation.confidence}% confidence</span>
+      </div>
+    </header>
+
+    <section className="document-change-description">
+      <h4>Why Entio suggests this</h4>
+      <p>{recommendation.description ?? recommendation.rationale}</p>
+    </section>
+
+    <section className={`document-change-preview ${changePreview.draftable ? "" : "blocked"}`} aria-label="Exact proposed changes">
+      <h4>Exact changes</h4>
+      <p>{changePreview.summary}</p>
+      {changePreview.operations.length ? <ol>{changePreview.operations.map((operation, index) =>
+        <li key={`${operation.operation}-${index}`}>
+          <strong>{operation.operation}</strong>
+          <span>{operation.description}</span>
+          {operation.targetSourceId ? <small>Ontology source: {operation.targetSourceId}</small> : null}
+        </li>)}</ol> : null}
+      {changePreview.blockingReason ? <p role="note"><strong>Cannot be approved:</strong> {changePreview.blockingReason}</p> : null}
+    </section>
+
+    {recommendation.evidence.length ? <section className="document-provenance">
+      <h4>Source and provenance</h4>
+      <ul>{recommendation.evidence.map((item) => {
+        const document = documents.find((candidate) => candidate.documentId === item.documentId);
+        return <li key={item.evidenceId}>
+          <button type="button" onClick={() => onEvidence(item.evidenceId)} aria-label={`Open ${item.evidenceType} evidence`}>
+            <strong>{document?.safeFilename ?? item.priorRecordId ?? "Prior Entio record"}</strong>
+            <span>{item.pageNumber ? `Page ${item.pageNumber} · ` : ""}{humanize(item.evidenceType)}</span>
+          </button>
+          {item.excerpt ? <blockquote>{shortExcerpt(item.excerpt)}</blockquote> : null}
+          <small>{humanize(item.extractionMethod ?? "Entio record")}{item.ocrConfidence != null ? ` · OCR ${item.ocrConfidence}%` : ""}</small>
+        </li>;
+      })}</ul>
+      {recommendation.priorWorkflowProvenance.length ? <p>Earlier Entio records: {recommendation.priorWorkflowProvenance.join(", ")}</p> : null}
+    </section> : null}
+
+    {recommendation.conflicts.map((conflict) => <div className="document-conflict" key={conflict.id}><strong>Conflicting evidence needs a decision</strong><ul>{conflict.alternatives.map((alternative) => <li key={alternative}>{alternative}</li>)}</ul></div>)}
     {recommendation.mandatoryClarificationReasons.length ? <div role="note"><strong>Clarification required</strong><ul>{recommendation.mandatoryClarificationReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></div> : null}
-    {recommendation.priorWorkflowProvenance.length ? <p>Prior workflow evidence: {recommendation.priorWorkflowProvenance.join(", ")}</p> : null}
-    <div className="document-review-fields">
-      <label>Supported label edit<input value={label} maxLength={500} onChange={(event) => setLabel(event.target.value)} /></label>
-      <label>Target ontology source<input value={targetSourceId} maxLength={200} onChange={(event) => setTargetSourceId(event.target.value)} /></label>
-      <label>Clarification<textarea value={clarification} maxLength={2000} onChange={(event) => setClarification(event.target.value)} /></label>
-      {duplicateOptions.length ? <label>Duplicate recommendation
-        <select value={duplicateId} onChange={(event) => setDuplicateId(event.target.value)}>
-          <option value="">Choose a duplicate</option>
-          {duplicateOptions.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.proposedLabel ?? candidate.id}</option>)}
-        </select>
-      </label> : null}
-    </div>
+
     <div className="document-review-actions">
-      <button type="button" disabled={busy} onClick={() => onDecision({ action: "accept", clarification })}>Accept</button>
+      {changePreview.draftable ? <button className="button primary" type="button" disabled={busy || (clarificationRequired && !clarification.trim())} onClick={() => onDecision({ action: "accept", clarification })}>Approve for proposal</button> : null}
       <button type="button" disabled={busy} onClick={() => onDecision({ action: "reject" })}>Reject</button>
-      <button type="button" disabled={busy || !clarification.trim()} onClick={() => onDecision({ action: "clarify", clarification })}>Needs clarification</button>
-      <button type="button" disabled={busy || !label.trim()} onClick={() => onDecision({ action: "edit", proposedLabel: label, targetSourceId, clarification })}>Save edits</button>
-      <button type="button" disabled={busy || !clarification.trim() || recommendation.reconsiderationCount >= 3} onClick={() => onDecision({ action: "reconsider", clarification })}>Reconsider</button>
-      {duplicateOptions.length ? <button type="button" disabled={busy || !duplicateId} onClick={() => onDecision({ action: "merge", mergedRecommendationIds: [duplicateId] })}>Merge duplicate</button> : null}
     </div>
+
+    <details className="document-review-options">
+      <summary>Review options and technical details</summary>
+      <div className="document-review-fields">
+        <label>Proposed label<input value={label} maxLength={500} onChange={(event) => setLabel(event.target.value)} /></label>
+        <label>Ontology source<input value={targetSourceId} maxLength={200} onChange={(event) => setTargetSourceId(event.target.value)} /></label>
+        {recommendation.matches.length ? <label>Matched ontology item
+          <select value={recommendation.selectedMatchIri ?? ""} onChange={(event) => onDecision({ action: "rematch", selectedMatchIri: event.target.value })}>
+            <option value="" disabled>Choose a match</option>
+            {recommendation.matches.map((match) => <option key={`${match.scope}:${match.entityIri}`} value={match.entityIri}>{match.preferredLabel ?? match.entityIri} · {humanize(match.scope)} · {match.score}%</option>)}
+          </select>
+        </label> : null}
+        <label>Reviewer note<textarea value={clarification} maxLength={2000} onChange={(event) => setClarification(event.target.value)} /></label>
+        {duplicateOptions.length ? <label>Same-label duplicate
+          <select value={duplicateId} onChange={(event) => setDuplicateId(event.target.value)}>
+            <option value="">Choose a duplicate</option>
+            {duplicateOptions.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.proposedLabel ?? candidate.id}</option>)}
+          </select>
+        </label> : null}
+      </div>
+      <dl>
+        <div><dt>Recommendation</dt><dd>{humanize(recommendation.action)}</dd></div>
+        <div><dt>Model</dt><dd>{recommendation.modelId ?? "Deterministic Entio analysis"}</dd></div>
+        <div><dt>Prompt</dt><dd>{recommendation.promptVersion ?? "Not applicable"}</dd></div>
+      </dl>
+      <p>{recommendation.rationale}</p>
+      <div className="document-review-actions">
+        <button type="button" disabled={busy || !label.trim()} onClick={() => onDecision({ action: "edit", proposedLabel: label, targetSourceId, clarification })}>Save review edits</button>
+        <button type="button" disabled={busy || !clarification.trim()} onClick={() => onDecision({ action: "clarify", clarification })}>Mark as needing clarification</button>
+        <button type="button" disabled={busy || !clarification.trim() || recommendation.reconsiderationCount >= 3} onClick={() => onDecision({ action: "reconsider", clarification })}>Ask Entio to reconsider</button>
+        {duplicateOptions.length ? <button type="button" disabled={busy || !duplicateId} onClick={() => onDecision({ action: "merge", mergedRecommendationIds: [duplicateId] })}>Merge same-label duplicate</button> : null}
+      </div>
+    </details>
   </article>;
+}
+
+function humanize(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function shortExcerpt(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 280 ? `${normalized.slice(0, 277)}…` : normalized;
+}
+
+function normalizeLabel(value: string | null): string {
+  return (value ?? "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
 }
 
 function EvidenceDialog({ loading, failed, evidence, headingRef, onClose }: {

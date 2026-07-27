@@ -21,7 +21,9 @@ import com.entio.core.DocumentTextBlockId
 import com.entio.core.IngestionDocument
 import com.entio.core.Iri
 import com.entio.core.LocatedDocumentTextBlock
+import com.entio.core.RdfLiteral
 import com.entio.web.contract.WebPageRequest
+import com.entio.semantic.DocumentDraftTranslationContext
 import com.fasterxml.jackson.databind.ObjectMapper
 import java.time.Clock
 import java.time.Instant
@@ -41,6 +43,8 @@ class DocumentReviewWorkspaceTest {
         assertEquals(1, firstPage.recommendations.items.size)
         assertEquals(2, firstPage.recommendations.total)
         assertEquals(1, firstPage.recommendations.nextOffset)
+        assertTrue(firstPage.recommendations.items.single().changePreview.draftable)
+        assertEquals("Add definition", firstPage.recommendations.items.single().changePreview.operations.single().operation)
         assertTrue(firstPage.draftImpact.readOnly)
         assertFailsWith<DocumentIngestionFailure> {
             store.read("project-a", "task-1", "bob", WebPageRequest())
@@ -210,6 +214,7 @@ class DocumentReviewWorkspaceTest {
                 type = DocumentCandidateCategory.Class,
                 category = DocumentRecommendationCategory.OntologyStructure,
                 proposedLabel = "Customer $index",
+                proposedDefinition = RdfLiteral("A customer described by the reviewed policy."),
                 action = DocumentRecommendationAction.Extend,
                 confidence = 90,
                 rationale = "The source explicitly describes a customer concept.",
@@ -254,6 +259,12 @@ class DocumentReviewWorkspaceTest {
                 ),
                 recommendations = recommendations,
                 priorWorkflowProvenance = mapOf("recommendation-1" to listOf("applied-record-1")),
+                draftContexts = recommendations.associate { recommendation ->
+                    recommendation.id to DocumentDraftTranslationContext(
+                        targetSourceId = "ontology",
+                        targetIri = match.entityIri,
+                    )
+                },
             ),
         )
         return store

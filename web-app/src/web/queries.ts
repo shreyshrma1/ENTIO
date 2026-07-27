@@ -143,11 +143,11 @@ export function useDeleteDocumentTask(projectId: string) {
   });
 }
 
-export function useDocumentReview(projectId: string, taskId: string | null) {
+export function useDocumentReview(projectId: string, taskId: string | null, ready: boolean = true) {
   return useQuery({
     queryKey: queryKeys.documentReview(projectId, taskId ?? ""),
     queryFn: () => loadDocumentReview(projectId, taskId!),
-    enabled: Boolean(projectId && taskId),
+    enabled: Boolean(projectId && taskId && ready),
   });
 }
 

@@ -296,8 +296,8 @@ public class DocumentIngestionWebService(
         val (schemaOperations, factOperations) = editOperations.partition {
             it.provenance.recommendationId in schemaRecommendationIds
         }
-        val orderedBatches = schemaOperations.chunked(com.entio.core.MAX_DOCUMENT_DRAFT_BATCH_SIZE) +
-            factOperations.chunked(com.entio.core.MAX_DOCUMENT_DRAFT_BATCH_SIZE)
+        val orderedBatches = packAtomicDocumentRecommendationGroups(schemaOperations) +
+            packAtomicDocumentRecommendationGroups(factOperations)
         if (orderedBatches.size > MAX_DOCUMENT_DRAFT_BATCHES) {
             throw DocumentIngestionFailure(
                 "document-draft-batch-count-limit",
@@ -414,6 +414,30 @@ public data class DocumentDraftBuildResponse(
     val stagedEditCount: Int,
     val confirmCount: Int,
 )
+
+internal fun packAtomicDocumentRecommendationGroups(
+    items: List<PreparedDocumentStagingItem>,
+): List<List<PreparedDocumentStagingItem>> {
+    val batches = mutableListOf<List<PreparedDocumentStagingItem>>()
+    var current = mutableListOf<PreparedDocumentStagingItem>()
+    items.groupBy { it.provenance.recommendationId }.values.forEach { group ->
+        if (group.size > com.entio.core.MAX_DOCUMENT_DRAFT_BATCH_SIZE) {
+            throw DocumentIngestionFailure(
+                "document-compound-recommendation-limit",
+                "One compound recommendation exceeds the approved atomic batch size.",
+            )
+        }
+        if (current.isNotEmpty() &&
+            current.size + group.size > com.entio.core.MAX_DOCUMENT_DRAFT_BATCH_SIZE
+        ) {
+            batches += current
+            current = mutableListOf()
+        }
+        current += group
+    }
+    if (current.isNotEmpty()) batches += current
+    return batches
+}
 
 private fun DocumentDraftOperation.editType(): String = when (this) {
     is DocumentDraftOperation.Ontology -> edit::class.simpleName.orEmpty().removeSuffix("Edit").toKebabCase()

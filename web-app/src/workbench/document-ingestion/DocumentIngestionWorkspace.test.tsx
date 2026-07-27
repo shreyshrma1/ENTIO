@@ -1,10 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { WebDocumentReviewRecommendation, WebDocumentReviewWorkspace } from "../../web/projectApi";
 import DocumentIngestionWorkspace from "./DocumentIngestionWorkspace";
 
 describe("document ingestion review workspace", () => {
-  beforeEach(() => vi.restoreAllMocks());
+  beforeEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
 
   it("renders untrusted content as text and exposes evidence and review labels accessibly", async () => {
     const decisions: unknown[] = [];
@@ -37,7 +41,10 @@ describe("document ingestion review workspace", () => {
     expect(screen.getByText("<script>alert('unsafe')</script> https://unsafe.example")).toBeInTheDocument();
     expect(document.querySelector("script")).toBeNull();
     expect(screen.queryByRole("link", { name: /unsafe/ })).not.toBeInTheDocument();
-    expect(screen.getByText("High confidence · 92%")).toBeInTheDocument();
+    expect(screen.getByText("92% confidence")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Exact proposed changes" })).toHaveTextContent("Create class");
+    expect(screen.getByRole("region", { name: "Exact proposed changes" })).toHaveTextContent("https://example.com/Customer");
+    expect(screen.getAllByText("policy.txt")).toHaveLength(2);
     expect(screen.getByText(/OCR 87%/)).toBeInTheDocument();
     expect(screen.getByRole("note")).toHaveTextContent("Choose the applicable source");
     expect(screen.getByLabelText("Read-only draft impact")).toHaveTextContent("Read only");
@@ -56,8 +63,9 @@ describe("document ingestion review workspace", () => {
     expect(within(dialog).getByRole("heading", { name: "Evidence" })).toHaveFocus();
     fireEvent.click(within(dialog).getByRole("button", { name: "Close evidence viewer" }));
 
-    fireEvent.change(screen.getByLabelText("Clarification"), { target: { value: "Use the authoritative definition." } });
-    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    fireEvent.click(screen.getByText("Review options and technical details"));
+    fireEvent.change(screen.getByLabelText("Reviewer note"), { target: { value: "Use the authoritative definition." } });
+    fireEvent.click(screen.getByRole("button", { name: "Approve for proposal" }));
     await waitFor(() => expect(decisions).toHaveLength(1));
     expect(decisions[0]).toMatchObject({
       action: "accept",
@@ -88,18 +96,92 @@ describe("document ingestion review workspace", () => {
 
     renderWorkspace();
     expect(await screen.findByRole("heading", { name: "Business facts" })).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Ontology match"), { target: { value: "https://example.com/Customer" } });
-    fireEvent.change(screen.getByLabelText("Supported label edit"), { target: { value: "Customer record" } });
-    fireEvent.change(screen.getByLabelText("Target ontology source"), { target: { value: "ontology" } });
-    fireEvent.change(screen.getByLabelText("Clarification"), { target: { value: "Confirmed by policy owner." } });
-    expect(screen.getByRole("button", { name: "Accept" })).not.toHaveAttribute("tabindex", "-1");
-    fireEvent.click(screen.getByRole("button", { name: "Save edits" }));
-    fireEvent.click(screen.getByRole("button", { name: "Reconsider" }));
+    fireEvent.click(screen.getByText("Review options and technical details"));
+    fireEvent.change(screen.getByLabelText("Matched ontology item"), { target: { value: "https://example.com/Customer" } });
+    fireEvent.change(screen.getByLabelText("Proposed label"), { target: { value: "Customer record" } });
+    fireEvent.change(screen.getByLabelText("Ontology source"), { target: { value: "ontology" } });
+    fireEvent.change(screen.getByLabelText("Reviewer note"), { target: { value: "Confirmed by policy owner." } });
+    expect(screen.getByRole("button", { name: "Approve for proposal" })).not.toHaveAttribute("tabindex", "-1");
+    fireEvent.click(screen.getByRole("button", { name: "Save review edits" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask Entio to reconsider" }));
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(requests.some((request) => request.path.endsWith("/cancel"))).toBe(true));
     expect(requests.some((request) => request.method === "DELETE")).toBe(true);
+  });
+
+  it("does not offer approval when the server cannot produce an exact change", async () => {
+    const blocked = workspace("Pending");
+    blocked.recommendations.items[0] = {
+      ...blocked.recommendations.items[0],
+      type: "Ambiguity",
+      proposedLabel: "Account closure definition",
+      description: "Entio found possible meaning, but it cannot safely map that meaning to a supported change.",
+      changePreview: {
+        draftable: false,
+        summary: "No ontology change can be created from this recommendation.",
+        operations: [],
+        blockingReason: "This recommendation remains review-only.",
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/review")) return json(blocked);
+      if (path.includes("/document-ingestion/tasks")) return json(tasks);
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    renderWorkspace();
+
+    const preview = await screen.findByRole("region", { name: "Exact proposed changes" });
+    expect(preview).toHaveTextContent("No ontology change can be created");
+    expect(preview).toHaveTextContent("This recommendation remains review-only");
+    expect(screen.queryByRole("button", { name: "Approve for proposal" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
+  });
+
+  it("waits for the task to become reviewable before requesting its review workspace", async () => {
+    let taskReady = false;
+    let reviewRequests = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/review")) {
+        if (path.includes("/task-processing/review")) reviewRequests += 1;
+        return json(workspace("Pending"));
+      }
+      if (path.includes("/document-ingestion/tasks")) {
+        if (!taskReady) {
+          return json({
+            ...tasks,
+            items: [{
+              ...tasks.items[0],
+              taskId: "task-processing",
+              status: "analyzing",
+              progress: {
+                stage: "analyzing",
+                completedDocuments: 1,
+                totalDocuments: 1,
+                percent: 60,
+                message: "Analyzing verified document text.",
+              },
+            }],
+          });
+        }
+        return json({
+          ...tasks,
+          items: [{ ...tasks.items[0], taskId: "task-processing" }],
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    renderWorkspace();
+
+    expect(await screen.findByText("Review results will appear when document analysis is complete.")).toBeInTheDocument();
+    expect(reviewRequests).toBe(0);
+    taskReady = true;
+    await waitFor(() => expect(reviewRequests).toBe(1), { timeout: 2_000 });
   });
 });
 
@@ -137,7 +219,7 @@ const tasks = {
   nextOffset: null,
 };
 
-function workspace(status: string) {
+function workspace(status: WebDocumentReviewRecommendation["reviewStatus"]): WebDocumentReviewWorkspace {
   return {
     apiVersion: "v1",
     taskId: "task-1",
@@ -153,6 +235,17 @@ function workspace(status: string) {
         type: "Class",
         action: "Extend",
         proposedLabel: "Customer",
+        description: "The document adds information about “Customer” to a selected ontology item.",
+        changePreview: {
+          draftable: true,
+          summary: "1 exact change will be added to the proposal.",
+          operations: [{
+            operation: "Create class",
+            description: "Create https://example.com/Customer with label “Customer”.",
+            targetSourceId: "ontology",
+          }],
+          blockingReason: null,
+        },
         confidence: 92,
         confidenceBand: "High",
         rationale: "The document explicitly defines the concept.",
@@ -166,6 +259,8 @@ function workspace(status: string) {
         targetSourceId: "ontology",
         reconsiderationCount: 0,
         priorWorkflowProvenance: ["applied-record-1"],
+        modelId: "gpt-4o",
+        promptVersion: "document-analysis-v2",
       }],
       offset: 0,
       limit: 100,
