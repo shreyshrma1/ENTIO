@@ -1,10 +1,13 @@
 package com.entio.semantic
 
 import com.entio.core.DocumentAmbiguity
+import com.entio.core.DocumentAlignmentTarget
 import com.entio.core.DocumentAuthorityMetadata
 import com.entio.core.DocumentAuthorityStatus
 import com.entio.core.DocumentCandidate
 import com.entio.core.DocumentCandidateCategory
+import com.entio.core.DocumentConnectedModelItem
+import com.entio.core.DocumentConnectedModelItemKind
 import com.entio.core.DocumentConflict
 import com.entio.core.DocumentConflictAlternative
 import com.entio.core.DocumentEvidence
@@ -72,6 +75,30 @@ public class DocumentOntologyMatcher {
         return DocumentMatchingResult(input.exactWorkKey, recommendations).also {
             completed[input.exactWorkKey] = it
         }
+    }
+
+    /**
+     * Resolves provider-advised targets only when they still exist in the bounded
+     * Entio context and are a plausible semantic match for the modeled item.
+     */
+    public fun resolveAlignmentTargets(
+        item: DocumentConnectedModelItem,
+        advisedRecords: List<DocumentSemanticRecord>,
+        availableRecords: List<DocumentSemanticRecord>,
+        curatedFiboSourceIds: Set<String> = emptySet(),
+    ): List<DocumentAlignmentTarget> {
+        val available = availableRecords.associateBy { Triple(it.scope, it.entityIri, it.sourceId) }
+        return advisedRecords.map { advised ->
+            val canonical = available[Triple(advised.scope, advised.entityIri, advised.sourceId)]
+                ?: throw IllegalArgumentException("Document alignment target is stale or outside the bounded context.")
+            require(canonical.scope != DocumentMatchScope.CuratedFibo || canonical.sourceId in curatedFiboSourceIds) {
+                "Document alignment target is not in the approved pinned FIBO scope."
+            }
+            require(isPlausibleAlignment(item, canonical)) {
+                "Document alignment target is not a plausible semantic match for the modeled item."
+            }
+            DocumentAlignmentTarget(canonical.scope, canonical.entityIri, canonical.sourceId)
+        }.distinct().sortedBy(DocumentAlignmentTarget::stableOrderingKey)
     }
 
     private fun recommend(candidate: DocumentCandidate, input: DocumentMatchingInput): DocumentRecommendation {
@@ -364,6 +391,36 @@ public class DocumentOntologyMatcher {
 
     private fun normalize(value: String): String = value.trim().lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
 
+    private fun isPlausibleAlignment(
+        item: DocumentConnectedModelItem,
+        record: DocumentSemanticRecord,
+    ): Boolean {
+        val expectedCategory = when (item.kind) {
+            DocumentConnectedModelItemKind.Class -> DocumentCandidateCategory.Class
+            DocumentConnectedModelItemKind.ObjectProperty -> DocumentCandidateCategory.ObjectProperty
+            DocumentConnectedModelItemKind.DatatypeProperty -> DocumentCandidateCategory.DatatypeProperty
+            DocumentConnectedModelItemKind.AnnotationProperty -> DocumentCandidateCategory.AnnotationValue
+            DocumentConnectedModelItemKind.Individual -> DocumentCandidateCategory.Individual
+            DocumentConnectedModelItemKind.SubclassRelationship -> DocumentCandidateCategory.SuperclassRelationship
+            DocumentConnectedModelItemKind.DomainAssignment -> DocumentCandidateCategory.Domain
+            DocumentConnectedModelItemKind.RangeAssignment -> DocumentCandidateCategory.Range
+            DocumentConnectedModelItemKind.TypeAssertion -> DocumentCandidateCategory.TypeAssertion
+            DocumentConnectedModelItemKind.ObjectPropertyAssertion -> DocumentCandidateCategory.ObjectPropertyAssertion
+            DocumentConnectedModelItemKind.DatatypeValueAssertion -> DocumentCandidateCategory.DatatypeValue
+            DocumentConnectedModelItemKind.NodeShape,
+            DocumentConnectedModelItemKind.PropertyShape,
+            DocumentConnectedModelItemKind.Constraint,
+            -> DocumentCandidateCategory.ShaclConstraint
+            DocumentConnectedModelItemKind.ComplexRule -> null
+        }
+        if (expectedCategory == null) return false
+        if (record.category != null && record.category != expectedCategory) return false
+        val itemLabel = normalize(item.label)
+        val recordLabels = (listOfNotNull(record.preferredLabel) + record.aliases).map(::normalize)
+        if (itemLabel in recordLabels) return true
+        return tokenOverlap(itemLabel, recordLabels) >= ALIGNMENT_MATCH_SCORE
+    }
+
     private fun tokenOverlap(candidate: String, labels: List<String>): Int {
         val left = candidate.split(' ').filter(String::isNotBlank).toSet()
         if (left.isEmpty()) return 0
@@ -397,6 +454,7 @@ public class DocumentOntologyMatcher {
     private companion object {
         const val MAX_MATCHES: Int = 20
         const val REUSE_SCORE: Int = 77
+        const val ALIGNMENT_MATCH_SCORE: Int = 50
         val confirmScopes: Set<DocumentMatchScope> = setOf(
             DocumentMatchScope.AppliedLocal,
             DocumentMatchScope.PrivateDraft,

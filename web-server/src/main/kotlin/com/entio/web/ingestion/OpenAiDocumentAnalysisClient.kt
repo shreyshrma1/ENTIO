@@ -1,6 +1,7 @@
 package com.entio.web.ingestion
 
 import com.entio.core.DocumentCandidateCategory
+import com.entio.core.DocumentAlignmentAction
 import com.entio.core.DocumentAnalysisPipelineVersions
 import com.entio.core.DocumentAssertionClassification
 import com.entio.core.DocumentContentClassification
@@ -61,6 +62,7 @@ internal class OpenAiDocumentAnalysisClient(
     DocumentDiscoveryProvider,
     DocumentConnectedModelProvider,
     DocumentReconciliationProvider,
+    DocumentOntologyAlignmentProvider,
     AutoCloseable {
     private val client = if (engine == null) {
         HttpClient(CIO) {
@@ -266,6 +268,58 @@ internal class OpenAiDocumentAnalysisClient(
         }
     }
 
+    override suspend fun align(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentOntologyAlignmentRequest,
+    ): DocumentOntologyAlignmentProviderResult {
+        if (apiKey.isBlank() || selectedModelId.isBlank()) {
+            return DocumentOntologyAlignmentProviderResult.Failed(false, "document-provider-authorization")
+        }
+        return try {
+            val response = client.post(configuration.endpoint) {
+                header(HttpHeaders.Authorization, "Bearer ${apiKey.trim()}")
+                accept(ContentType.Application.Json)
+                setBody(
+                    TextContent(
+                        ontologyAlignmentRequestBody(selectedModelId, systemInstruction, request),
+                        ContentType.Application.Json,
+                    ),
+                )
+            }
+            if (!response.status.isSuccess()) {
+                return DocumentOntologyAlignmentProviderResult.Failed(
+                    retryable = response.status.value == 429 || response.status.value >= 500,
+                    safeCode = when {
+                        response.status.value == 401 || response.status.value == 403 ->
+                            "document-provider-authorization"
+                        response.status.value == 429 -> "document-provider-rate-limited"
+                        response.status.value >= 500 -> "document-provider-unavailable"
+                        else -> "document-provider-request-rejected"
+                    },
+                )
+            }
+            val responseText = response.bodyAsText()
+            if (responseText.length > MAX_DOCUMENT_PROVIDER_RESPONSE_CHARACTERS) {
+                return DocumentOntologyAlignmentProviderResult.Failed(false, "document-provider-response-limit")
+            }
+            DocumentOntologyAlignmentProviderResult.Completed(
+                parseStrictOntologyAlignmentResponse(extractOutputText(responseText)),
+            )
+        } catch (failure: SafeProviderResponseFailure) {
+            DocumentOntologyAlignmentProviderResult.Failed(false, failure.code)
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (_: HttpRequestTimeoutException) {
+            DocumentOntologyAlignmentProviderResult.Failed(true, "document-provider-timeout")
+        } catch (_: IOException) {
+            DocumentOntologyAlignmentProviderResult.Failed(true, "document-provider-unavailable")
+        } catch (_: Exception) {
+            DocumentOntologyAlignmentProviderResult.Failed(false, "document-provider-malformed-output")
+        }
+    }
+
     override fun close(): Unit = client.close()
 
     private suspend fun connectedModelCall(
@@ -383,6 +437,70 @@ internal class OpenAiDocumentAnalysisClient(
         root.put("input", objectMapper.writeValueAsString(request))
         root.set<JsonNode>("text", strictReconciliationTextFormat())
         return objectMapper.writeValueAsString(root)
+    }
+
+    private fun ontologyAlignmentRequestBody(
+        modelId: String,
+        instruction: String,
+        request: DocumentOntologyAlignmentRequest,
+    ): String {
+        val root = objectMapper.createObjectNode()
+        root.put("model", modelId)
+        root.put("store", false)
+        root.putArray("tools")
+        root.put("instructions", instruction)
+        root.put("input", objectMapper.writeValueAsString(request))
+        root.set<JsonNode>("text", strictOntologyAlignmentTextFormat())
+        return objectMapper.writeValueAsString(root)
+    }
+
+    private fun strictOntologyAlignmentTextFormat(): JsonNode {
+        val record = objectMapper.createObjectNode().apply {
+            put("type", "object")
+            put("additionalProperties", false)
+            set<JsonNode>("required", objectMapper.valueToTree(ONTOLOGY_ALIGNMENT_FIELDS.sorted()))
+            set<JsonNode>("properties", objectMapper.createObjectNode().apply {
+                putObject("providerId")
+                    .put("type", "string")
+                    .put("pattern", "^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
+                putObject("modelItemId").put("type", "string").put("maxLength", 200)
+                set<JsonNode>("action", stringEnum(
+                    DocumentAlignmentAction.entries.map { it.name },
+                    "The advisory ontology-alignment action.",
+                ))
+                set<JsonNode>("advisedReferenceIds", boundedUniqueStringArray(0, 20, 200))
+                set<JsonNode>("targetSourceId", nullableString(200, "A supplied writable ontology source ID."))
+                putObject("rationale").put("type", "string").put("minLength", 1).put("maxLength", 2_000)
+                putObject("ontologyFitConfidence").put("type", "integer").put("minimum", 0).put("maximum", 100)
+                set<JsonNode>(
+                    "domainRangeRationale",
+                    nullableString(2_000, "Required rationale for domain and range assignment items."),
+                )
+            })
+        }
+        val schema = objectMapper.createObjectNode().apply {
+            put("type", "object")
+            put("additionalProperties", false)
+            set<JsonNode>("required", objectMapper.valueToTree(listOf("schemaVersion", "records")))
+            set<JsonNode>("properties", objectMapper.createObjectNode().apply {
+                putObject("schemaVersion")
+                    .put("type", "string")
+                    .put("const", DocumentAnalysisPipelineVersions.ONTOLOGY_ALIGNMENT_RESPONSE)
+                set<JsonNode>("records", objectMapper.createObjectNode().apply {
+                    put("type", "array")
+                    put("maxItems", 300)
+                    set<JsonNode>("items", record)
+                })
+            })
+        }
+        return objectMapper.createObjectNode().apply {
+            set<JsonNode>("format", objectMapper.createObjectNode().apply {
+                put("type", "json_schema")
+                put("name", "phase_11_5_document_ontology_alignment")
+                put("strict", true)
+                set<JsonNode>("schema", schema)
+            })
+        }
     }
 
     private fun strictReconciliationTextFormat(): JsonNode {
@@ -934,6 +1052,29 @@ internal class OpenAiDocumentAnalysisClient(
         )
     }
 
+    private fun parseStrictOntologyAlignmentResponse(value: String): DocumentOntologyAlignmentResponse {
+        val root = objectMapper.readTree(value)
+        require(root.isObject && root.fieldNames().asSequence().toSet() == setOf("schemaVersion", "records"))
+        require(root.path("schemaVersion").asText() == DocumentAnalysisPipelineVersions.ONTOLOGY_ALIGNMENT_RESPONSE)
+        val records = root.path("records")
+        require(records.isArray && records.size() <= 300)
+        return DocumentOntologyAlignmentResponse(
+            records = records.map { record ->
+                require(record.isObject && record.fieldNames().asSequence().toSet() == ONTOLOGY_ALIGNMENT_FIELDS)
+                ProviderDocumentOntologyAlignment(
+                    providerId = record.requiredText("providerId"),
+                    modelItemId = record.requiredText("modelItemId"),
+                    action = record.requiredText("action"),
+                    advisedReferenceIds = record.requiredTextArray("advisedReferenceIds", 0, 20),
+                    targetSourceId = record.optionalText("targetSourceId"),
+                    rationale = record.requiredText("rationale"),
+                    ontologyFitConfidence = record.requiredInteger("ontologyFitConfidence"),
+                    domainRangeRationale = record.optionalText("domainRangeRationale"),
+                )
+            },
+        )
+    }
+
     private fun JsonNode.requiredText(name: String): String =
         path(name).takeIf(JsonNode::isTextual)?.asText()?.takeIf(String::isNotBlank)
             ?: throw IllegalArgumentException("Missing required text.")
@@ -1021,6 +1162,16 @@ internal class OpenAiDocumentAnalysisClient(
             "priorProvenanceIds",
             "explanation",
             "humanDecisionRequired",
+        )
+        val ONTOLOGY_ALIGNMENT_FIELDS: Set<String> = setOf(
+            "providerId",
+            "modelItemId",
+            "action",
+            "advisedReferenceIds",
+            "targetSourceId",
+            "rationale",
+            "ontologyFitConfidence",
+            "domainRangeRationale",
         )
     }
 }

@@ -2,6 +2,7 @@ package com.entio.web.ingestion
 
 import com.entio.core.DocumentAuthorityMetadata
 import com.entio.core.DocumentAuthorityStatus
+import com.entio.core.DocumentAlignmentAction
 import com.entio.core.DocumentAnalysisPipelineVersions
 import com.entio.core.DocumentAnalysisStage as PipelineDocumentAnalysisStage
 import com.entio.core.DocumentAnalysisStageRecord
@@ -29,6 +30,7 @@ import com.entio.core.DocumentExtractionMethod
 import com.entio.core.DocumentId
 import com.entio.core.DocumentIndividualClassification
 import com.entio.core.DocumentMediaType
+import com.entio.core.DocumentMatchScope
 import com.entio.core.DocumentProcessingStatus
 import com.entio.core.DocumentRecommendationAction
 import com.entio.core.DocumentRecommendationReviewStatus
@@ -1677,6 +1679,121 @@ class DocumentAnalysisServiceTest {
         assertEquals(listOf("prior-record-1"), withPrior.priorProvenance.map { it.recordId })
     }
 
+    @Test
+    fun alignsEveryModelItemOnceAndRejectsUnrelatedOrStaleProviderMatches(): Unit = runBlocking {
+        val fixture = fixture()
+        val payment = connectedModelItem("model-payment", 0, "Payment", "discovery-payment")
+        val connected = connectedResult(payment)
+        val reconciliation = CompletedDocumentReconciliation(
+            modelId = "gpt-test-2026",
+            records = emptyList(),
+            priorProvenance = emptyList(),
+            stageRecord = successfulStage(PipelineDocumentAnalysisStage.Reconciliation),
+            providerCalls = 1,
+        )
+        val paymentContext = alignmentContext(
+            "context-payment",
+            "https://example.com/entio/simple#Payment",
+            "Payment",
+            DocumentMatchScope.AppliedLocal,
+        )
+        val accountContext = alignmentContext(
+            "context-account",
+            ACCOUNT_IRI,
+            "Account",
+            DocumentMatchScope.AppliedLocal,
+        )
+        val snapshot = DocumentOntologyAlignmentSnapshot(
+            projectId = "project-a",
+            ontologyFingerprint = "ontology-fingerprint",
+            currentWorkFingerprint = "current-work-fingerprint",
+            entries = listOf(accountContext, paymentContext).sortedBy { it.referenceId },
+            writableSourceIds = listOf("simple"),
+        )
+        var calls = 0
+        val provider = DocumentOntologyAlignmentProvider { _, _, instruction, request ->
+            calls += 1
+            assertTrue(instruction.contains("Do not force a missing concept"))
+            assertEquals("project-a", request.snapshot.projectId)
+            DocumentOntologyAlignmentProviderResult.Completed(
+                DocumentOntologyAlignmentResponse(
+                    records = listOf(
+                        ProviderDocumentOntologyAlignment(
+                            providerId = "alignment-payment",
+                            modelItemId = payment.id,
+                            action = "Reuse",
+                            advisedReferenceIds = listOf(paymentContext.referenceId),
+                            targetSourceId = null,
+                            rationale = "The current ontology already contains the same Payment concept.",
+                            ontologyFitConfidence = 96,
+                            domainRangeRationale = null,
+                        ),
+                    ),
+                ),
+            )
+        }
+        val completed = fixture.alignmentService(provider)
+            .align("alice", "task-1", "project-a", connected, reconciliation, snapshot)
+
+        assertEquals(1, calls)
+        assertEquals(DocumentAlignmentAction.Reuse, completed.records.single().action)
+        assertEquals(paymentContext.entityIri, completed.records.single().advisedTargets.single().entityIri.value)
+        assertEquals("ontology-fingerprint", completed.records.single().ontologyFingerprint)
+        assertEquals("current-work-fingerprint", completed.records.single().currentWorkFingerprint)
+
+        val unrelatedProvider = DocumentOntologyAlignmentProvider { _, _, _, _ ->
+            DocumentOntologyAlignmentProviderResult.Completed(
+                DocumentOntologyAlignmentResponse(
+                    records = listOf(
+                        ProviderDocumentOntologyAlignment(
+                            "bad-match",
+                            payment.id,
+                            "Reuse",
+                            listOf(accountContext.referenceId),
+                            null,
+                            "Account is available.",
+                            70,
+                            null,
+                        ),
+                    ),
+                ),
+            )
+        }
+        assertEquals(
+            "document-alignment-target-unresolved",
+            assertFailsWith<DocumentAnalysisFailure> {
+                fixture.alignmentService(unrelatedProvider)
+                    .align("alice", "task-2", "project-a", connected, reconciliation, snapshot)
+            }.code,
+        )
+
+        val staleProvider = DocumentOntologyAlignmentProvider { _, _, _, _ ->
+            DocumentOntologyAlignmentProviderResult.Completed(
+                DocumentOntologyAlignmentResponse(
+                    records = listOf(
+                        ProviderDocumentOntologyAlignment(
+                            "stale-match",
+                            payment.id,
+                            "Reuse",
+                            listOf("context-not-in-snapshot"),
+                            null,
+                            "Use an unavailable match.",
+                            70,
+                            null,
+                        ),
+                    ),
+                ),
+            )
+        }
+        assertEquals(
+            "document-alignment-provider-schema-invalid",
+            assertFailsWith<DocumentAnalysisFailure> {
+                fixture.alignmentService(staleProvider)
+                    .align("alice", "task-3", "project-a", connected, reconciliation, snapshot)
+            }.code,
+        )
+    }
+
     private fun fixture(ready: Boolean = true): AnalysisFixture {
         val now = Instant.parse("2026-07-24T12:00:00Z")
         val credentials = InMemoryAiCredentialStore().also { it.save("alice", "openai", "secret-value") }
@@ -1770,6 +1887,17 @@ class DocumentAnalysisServiceTest {
             credentials,
             settings,
             provenanceRepository,
+            provider,
+            clock = clock,
+            isCancelled = isCancelled,
+        )
+
+        fun alignmentService(
+            provider: DocumentOntologyAlignmentProvider,
+            isCancelled: (String) -> Boolean = { false },
+        ): DocumentOntologyAlignmentService = DocumentOntologyAlignmentService(
+            credentials,
+            settings,
             provider,
             clock = clock,
             isCancelled = isCancelled,
@@ -2054,6 +2182,43 @@ class DocumentAnalysisServiceTest {
         chunkCount = 1,
         consolidated = false,
     )
+
+    private fun alignmentContext(
+        referenceId: String,
+        iri: String,
+        label: String,
+        scope: DocumentMatchScope,
+        sourceId: String = "simple",
+    ): DocumentOntologyAlignmentContextEntry = DocumentOntologyAlignmentContextEntry(
+        referenceId = referenceId,
+        projectId = "project-a",
+        scope = scope.name,
+        entityIri = iri,
+        sourceId = sourceId,
+        preferredLabel = label,
+        category = DocumentCandidateCategory.Class.name,
+        writable = scope == DocumentMatchScope.AppliedLocal,
+    )
+
+    private fun successfulStage(stage: PipelineDocumentAnalysisStage): DocumentAnalysisStageRecord {
+        val startedAt = Instant.parse("2026-07-24T12:00:00Z")
+        return DocumentAnalysisStageRecord(
+            recordId = "stage-${stage.name.lowercase()}",
+            stage = stage,
+            state = DocumentAnalysisStageState.Succeeded,
+            scopeId = "task-1",
+            startedAt = startedAt,
+            finishedAt = startedAt.plusSeconds(1),
+            durationMillis = 1_000,
+            selectedModelId = "gpt-test-2026",
+            promptVersion = DocumentAnalysisPipelineVersions.RECONCILIATION_PROMPT,
+            requestSchemaVersion = DocumentAnalysisPipelineVersions.RECONCILIATION_REQUEST,
+            responseSchemaVersion = DocumentAnalysisPipelineVersions.RECONCILIATION_RESPONSE,
+            inputSha256 = "a".repeat(64),
+            outputSha256 = "b".repeat(64),
+            providerAttemptCount = 1,
+        )
+    }
 
     private fun reconciliationItem(
         providerId: String,
