@@ -43,11 +43,66 @@ class AppliedDocumentProvenanceRepositoryTest {
         assertEquals(listOf(record), restarted.list("project-a"))
         assertTrue(restarted.list("project-b").isEmpty())
         assertFailsWith<IllegalArgumentException> { restarted.list("unknown") }
+        assertEquals(
+            listOf(
+                AppliedDocumentProvenanceSummary(
+                    recordId = "record-1",
+                    documentId = "document-1",
+                    safeFilename = "policy.txt",
+                    recommendationId = "recommendation-1",
+                    action = "Confirm",
+                    confidence = 100,
+                    evidence = listOf(
+                        AppliedDocumentEvidenceSummary("evidence-1", null, "Policy"),
+                    ),
+                    normalizedTypedOperationKey = null,
+                    targetEntityIri = null,
+                    targetAssertionKey = null,
+                    appliedAt = "2026-01-01T00:00:00Z",
+                    resultingOntologyFingerprint = "before",
+                ),
+            ),
+            restarted.summaries("project-a"),
+        )
+        assertTrue(restarted.summaries("project-b").isEmpty())
+        assertFailsWith<IllegalArgumentException> { restarted.summaries("unknown") }
 
         DocumentTemporaryStorage(temporaryRoot).close()
         assertEquals(listOf(record), restarted.list("project-a"))
         assertFalse(root.startsWith(projectA))
         assertFalse(projectA.startsWith(root))
+    }
+
+    @Test
+    fun reconciliationSummariesAreBoundedToRecentRecordsAndDeterministicallyOrdered(): Unit {
+        val allowed = Files.createTempDirectory("entio-provenance-summary-allowed")
+        val project = Files.createDirectory(allowed.resolve("project"))
+        val registry = InMemoryProjectRegistry(setOf(allowed)).also {
+            it.register("project-a", "A", project)
+        }
+        val repository = AppliedDocumentProvenanceRepository(
+            Files.createTempDirectory("entio-provenance-summary-store"),
+            registry,
+        )
+        val records = listOf(
+            provenance().copy(
+                recordId = "record-c",
+                applyEvent = provenance().applyEvent.copy(appliedAt = Instant.parse("2026-01-03T00:00:00Z")),
+            ),
+            provenance().copy(
+                recordId = "record-a",
+                applyEvent = provenance().applyEvent.copy(appliedAt = Instant.parse("2026-01-01T00:00:00Z")),
+            ),
+            provenance().copy(
+                recordId = "record-b",
+                applyEvent = provenance().applyEvent.copy(appliedAt = Instant.parse("2026-01-02T00:00:00Z")),
+            ),
+        )
+        repository.save("project-a", records)
+
+        assertEquals(listOf("record-b", "record-c"), repository.summaries("project-a", limit = 2).map { it.recordId })
+        assertTrue(repository.summaries("project-a", limit = 0).isEmpty())
+        assertFailsWith<IllegalArgumentException> { repository.summaries("project-a", limit = 26) }
     }
 
     @Test

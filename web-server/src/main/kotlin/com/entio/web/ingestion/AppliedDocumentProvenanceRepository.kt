@@ -36,6 +36,27 @@ private data class PendingDocumentProvenanceSnapshot(
     val event: PendingDocumentProvenance,
 )
 
+internal data class AppliedDocumentEvidenceSummary(
+    val evidenceId: String,
+    val pageNumber: Int?,
+    val exactExcerpt: String,
+)
+
+internal data class AppliedDocumentProvenanceSummary(
+    val recordId: String,
+    val documentId: String,
+    val safeFilename: String,
+    val recommendationId: String,
+    val action: String,
+    val confidence: Int,
+    val evidence: List<AppliedDocumentEvidenceSummary>,
+    val normalizedTypedOperationKey: String?,
+    val targetEntityIri: String?,
+    val targetAssertionKey: String?,
+    val appliedAt: String,
+    val resultingOntologyFingerprint: String,
+)
+
 /** Minimal durable workflow provenance store kept separate from ontology sources. */
 public class AppliedDocumentProvenanceRepository(
     root: Path,
@@ -53,6 +74,46 @@ public class AppliedDocumentProvenanceRepository(
     public fun list(projectId: String): List<AppliedDocumentProvenance> {
         val directory = projectDirectory(projectId, create = false) ?: return emptyList()
         return readSnapshot(directory).records
+    }
+
+    @Synchronized
+    internal fun summaries(
+        projectId: String,
+        limit: Int = MAX_RECONCILIATION_PROVENANCE_SUMMARIES,
+    ): List<AppliedDocumentProvenanceSummary> {
+        require(limit in 0..MAX_RECONCILIATION_PROVENANCE_SUMMARIES)
+        if (limit == 0) return emptyList()
+        return list(projectId)
+            .sortedWith(
+                compareByDescending<AppliedDocumentProvenance> { it.applyEvent.appliedAt }
+                    .thenBy(AppliedDocumentProvenance::recordId),
+            )
+            .take(limit)
+            .map { record ->
+                AppliedDocumentProvenanceSummary(
+                    recordId = record.recordId,
+                    documentId = record.document.documentId.value,
+                    safeFilename = record.document.safeFilename,
+                    recommendationId = record.recommendationId,
+                    action = record.action.name,
+                    confidence = record.confidence,
+                    evidence = record.evidence
+                        .sortedBy { it.evidenceId.value }
+                        .map { evidence ->
+                            AppliedDocumentEvidenceSummary(
+                                evidenceId = evidence.evidenceId.value,
+                                pageNumber = evidence.pageNumber,
+                                exactExcerpt = evidence.exactExcerpt,
+                            )
+                        },
+                    normalizedTypedOperationKey = record.typedOperation?.normalizedTypedOperationKey,
+                    targetEntityIri = record.typedOperation?.targetEntityIri?.value,
+                    targetAssertionKey = record.typedOperation?.targetAssertionKey,
+                    appliedAt = record.applyEvent.appliedAt.toString(),
+                    resultingOntologyFingerprint = record.applyEvent.resultingOntologyFingerprint,
+                )
+            }
+            .sortedBy(AppliedDocumentProvenanceSummary::recordId)
     }
 
     @Synchronized
@@ -246,6 +307,7 @@ public class AppliedDocumentProvenanceRepository(
     private companion object {
         const val MAX_PROVENANCE_RECORDS: Int = 100_000
         const val MAX_PROVENANCE_BYTES: Int = 512 * 1024 * 1024
+        const val MAX_RECONCILIATION_PROVENANCE_SUMMARIES: Int = 25
         const val ROOT_MARKER: String = ".entio-provenance-root-v1"
         const val ROOT_MARKER_CONTENT: String = "entio-document-provenance-root-v1\n"
         const val PROJECT_MARKER: String = ".entio-project-id-v1"
