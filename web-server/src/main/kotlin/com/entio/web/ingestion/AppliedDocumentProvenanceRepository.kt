@@ -16,7 +16,8 @@ import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.PosixFilePermission
 import java.security.MessageDigest
 
-private const val PROVENANCE_SCHEMA_VERSION: Int = 1
+private const val PROVENANCE_SCHEMA_VERSION: Int = 2
+private const val LEGACY_PROVENANCE_SCHEMA_VERSION: Int = 1
 
 public data class PendingDocumentProvenance(
     val projectId: String,
@@ -29,6 +30,7 @@ public data class PendingDocumentProvenance(
 private data class DocumentProvenanceSnapshot(
     val schemaVersion: Int = PROVENANCE_SCHEMA_VERSION,
     val records: List<AppliedDocumentProvenance> = emptyList(),
+    val pipelineMetadata: List<AppliedDocumentPipelineMetadata> = emptyList(),
 )
 
 private data class PendingDocumentProvenanceSnapshot(
@@ -56,6 +58,25 @@ internal data class AppliedDocumentProvenanceSummary(
     val appliedAt: String,
     val resultingOntologyFingerprint: String,
 )
+
+internal data class AppliedDocumentPipelineMetadata(
+    val recommendationId: String,
+    val workKey: String,
+    val modelId: String,
+    val promptVersions: List<String>,
+    val stageOutputHashes: List<String>,
+) {
+    init {
+        require(recommendationId.isNotBlank())
+        require(Regex("[a-f0-9]{64}").matches(workKey))
+        require(modelId.isNotBlank())
+        require(promptVersions.isNotEmpty() && promptVersions == promptVersions.distinct().sorted())
+        require(stageOutputHashes.isNotEmpty() &&
+            stageOutputHashes.all { Regex("[a-f0-9]{64}").matches(it) } &&
+            stageOutputHashes == stageOutputHashes.distinct().sorted()
+        )
+    }
+}
 
 /** Minimal durable workflow provenance store kept separate from ontology sources. */
 public class AppliedDocumentProvenanceRepository(
@@ -120,13 +141,37 @@ public class AppliedDocumentProvenanceRepository(
     public fun save(projectId: String, records: List<AppliedDocumentProvenance>): List<AppliedDocumentProvenance> {
         require(records.all { it.projectId == projectId }) { "Applied provenance project IDs must match the repository scope." }
         val directory = projectDirectory(projectId, create = true)!!
-        val current = readSnapshot(directory).records
-        val merged = (current + records)
+        val current = readSnapshot(directory)
+        val merged = (current.records + records)
             .associateBy(AppliedDocumentProvenance::recordId)
             .values
             .sortedBy(AppliedDocumentProvenance::recordId)
-        writeSnapshot(directory, DocumentProvenanceSnapshot(records = merged))
+        writeSnapshot(
+            directory,
+            DocumentProvenanceSnapshot(records = merged, pipelineMetadata = current.pipelineMetadata),
+        )
         return merged
+    }
+
+    @Synchronized
+    internal fun savePipelineMetadata(
+        projectId: String,
+        metadata: List<AppliedDocumentPipelineMetadata>,
+    ): List<AppliedDocumentPipelineMetadata> {
+        val directory = projectDirectory(projectId, create = true)!!
+        val current = readSnapshot(directory)
+        val merged = (current.pipelineMetadata + metadata)
+            .associateBy(AppliedDocumentPipelineMetadata::recommendationId)
+            .values
+            .sortedBy(AppliedDocumentPipelineMetadata::recommendationId)
+        writeSnapshot(directory, DocumentProvenanceSnapshot(records = current.records, pipelineMetadata = merged))
+        return merged
+    }
+
+    @Synchronized
+    internal fun pipelineMetadata(projectId: String): List<AppliedDocumentPipelineMetadata> {
+        val directory = projectDirectory(projectId, create = false) ?: return emptyList()
+        return readSnapshot(directory).pipelineMetadata
     }
 
     @Synchronized
@@ -228,7 +273,7 @@ public class AppliedDocumentProvenanceRepository(
         requireSafeRegularFile(path)
         val snapshot = runCatching { objectMapper.readValue<DocumentProvenanceSnapshot>(Files.readAllBytes(path)) }
             .getOrElse { throw DocumentIngestionFailure("provenance-read-failed", "Document provenance could not be read safely.") }
-        if (snapshot.schemaVersion != PROVENANCE_SCHEMA_VERSION) {
+        if (snapshot.schemaVersion !in setOf(LEGACY_PROVENANCE_SCHEMA_VERSION, PROVENANCE_SCHEMA_VERSION)) {
             throw DocumentIngestionFailure("provenance-migration-required", "Document provenance uses an unsupported schema version.")
         }
         return snapshot
@@ -240,7 +285,7 @@ public class AppliedDocumentProvenanceRepository(
         requireSafeRegularFile(path)
         val snapshot = runCatching { objectMapper.readValue<PendingDocumentProvenanceSnapshot>(Files.readAllBytes(path)) }
             .getOrElse { throw DocumentIngestionFailure("provenance-read-failed", "Pending document provenance could not be read safely.") }
-        if (snapshot.schemaVersion != PROVENANCE_SCHEMA_VERSION) {
+        if (snapshot.schemaVersion !in setOf(LEGACY_PROVENANCE_SCHEMA_VERSION, PROVENANCE_SCHEMA_VERSION)) {
             throw DocumentIngestionFailure("provenance-migration-required", "Pending provenance uses an unsupported schema version.")
         }
         return snapshot.event

@@ -1,8 +1,14 @@
 package com.entio.web.ingestion
 
+import com.entio.core.DocumentAnalysisPipelineVersions
+import com.entio.core.DocumentAnalysisStage
+import com.entio.core.DocumentAnalysisStageRecord
+import com.entio.core.DocumentAnalysisStageState
+import com.entio.core.DocumentAnalysisWorkKey
 import com.entio.core.DocumentCandidateCategory
 import com.entio.core.DocumentMatchScope
 import com.entio.core.DocumentProcessingStatus
+import com.entio.core.DocumentTemporaryReferenceKind
 import com.entio.core.EntioProject
 import com.entio.core.EntioResult
 import com.entio.core.Iri
@@ -10,10 +16,7 @@ import com.entio.core.LocalityStatus
 import com.entio.core.OntologyEntityDescriptor
 import com.entio.core.SemanticDescriptorKind
 import com.entio.core.ShaclGraphRole
-import com.entio.core.SymbolKind
-import com.entio.semantic.DeterministicIriGenerator
-import com.entio.semantic.DocumentDraftTranslationContext
-import com.entio.semantic.DocumentMatchingInput
+import com.entio.semantic.DocumentPlanVerificationContext
 import com.entio.semantic.DocumentOntologyMatcher
 import com.entio.semantic.DocumentSemanticRecord
 import com.entio.semantic.ProjectLoader
@@ -24,6 +27,7 @@ import com.entio.web.contract.ProjectRegistry
 import com.entio.web.webGraphFingerprint
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.time.Instant
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,6 +35,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 /** Connects the bounded Phase 11 services into one task-owned production workflow. */
 internal class DocumentIngestionOrchestrator(
@@ -41,41 +46,62 @@ internal class DocumentIngestionOrchestrator(
     private val provenance: AppliedDocumentProvenanceRepository,
     credentials: AiCredentialStore,
     settings: AiUserProviderSettingsStore,
-    private val provider: DocumentAnalysisProvider,
+    provider: DocumentAnalysisProvider,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val projectLoader: ProjectLoader = ProjectLoader(),
     private val descriptions: SemanticDescriptionService = SemanticDescriptionService(),
     private val matcher: DocumentOntologyMatcher = DocumentOntologyMatcher(),
-    private val iriGenerator: DeterministicIriGenerator = DeterministicIriGenerator(),
 ) : AutoCloseable {
     private val jobs: MutableMap<String, Job> = linkedMapOf()
-    private val analysis = DocumentAnalysisService(
+    private val processingInputs: MutableMap<String, DocumentIngestionProcessingInput> = linkedMapOf()
+    private val boundedProvider = BudgetedDocumentPipelineProvider(
+        provider as? DocumentPipelineProvider
+            ?: throw IllegalArgumentException("Document ingestion requires the Phase 11.5 pipeline provider."),
+    )
+    private val discovery = DocumentDiscoveryService(
         credentials,
         settings,
-        provider,
+        boundedProvider,
         clock = configuration.clock,
-        isCancelled = { taskId ->
-            val input = synchronized(processingInputs) { processingInputs[taskId] }
-            input == null || tasks.isCancelled(input.taskId, input.projectId, input.ownerUserId)
-        },
-        onProgress = { progress ->
-            val input = synchronized(processingInputs) {
-                processingInputs[progress.taskId]
-            }
-            if (input != null && !tasks.isCancelled(input.taskId, input.projectId, input.ownerUserId)) {
-                tasks.transition(
-                    input.taskId,
-                    input.projectId,
-                    input.ownerUserId,
-                    DocumentProcessingStatus.Analyzing,
-                    progress.completedDocuments,
-                    progress.percent,
-                    progress.message,
-                )
-            }
-        },
+        isCancelled = ::isCancelled,
     )
-    private val processingInputs: MutableMap<String, DocumentIngestionProcessingInput> = linkedMapOf()
+    private val modeling = DocumentConnectedModelingService(
+        credentials,
+        settings,
+        boundedProvider,
+        clock = configuration.clock,
+        isCancelled = ::isCancelled,
+    )
+    private val reconciliation = DocumentReconciliationService(
+        credentials,
+        settings,
+        provenance,
+        boundedProvider,
+        clock = configuration.clock,
+        isCancelled = ::isCancelled,
+    )
+    private val alignment = DocumentOntologyAlignmentService(
+        credentials,
+        settings,
+        boundedProvider,
+        matcher,
+        clock = configuration.clock,
+        isCancelled = ::isCancelled,
+    )
+    private val critic = DocumentModelingCriticService(
+        credentials,
+        settings,
+        boundedProvider,
+        clock = configuration.clock,
+        isCancelled = ::isCancelled,
+    )
+    private val finalPlanning = DocumentFinalPlanningService(
+        credentials,
+        settings,
+        boundedProvider,
+        clock = configuration.clock,
+        isCancelled = ::isCancelled,
+    )
 
     @Synchronized
     fun start(taskId: String, projectId: String, userId: String): Unit {
@@ -100,7 +126,7 @@ internal class DocumentIngestionOrchestrator(
 
     override fun close(): Unit {
         scope.cancel()
-        (provider as? AutoCloseable)?.close()
+        boundedProvider.close()
     }
 
     private suspend fun process(input: DocumentIngestionProcessingInput): Unit {
@@ -108,7 +134,9 @@ internal class DocumentIngestionOrchestrator(
             processingInputs[input.taskId.value] = input
         }
         try {
-            processCurrent(input)
+            withTimeout(configuration.analysisTaskTimeout.toMillis()) {
+                processCurrent(input)
+            }
         } finally {
             synchronized(processingInputs) {
                 processingInputs.remove(input.taskId.value)
@@ -136,7 +164,12 @@ internal class DocumentIngestionOrchestrator(
             }
         }
         val project = loadProject(input.projectId)
-        val graphFingerprint = webGraphFingerprint(project.graph)
+        val ontologyFingerprint = webGraphFingerprint(project.graph)
+        val currentWorkFingerprint = ontologyFingerprint
+        require(input.documents.size + REQUIRED_POST_DISCOVERY_LOGICAL_CALLS <=
+            com.entio.core.MAX_DOCUMENT_PLANNED_LOGICAL_CALLS) {
+            "The complete analysis cannot fit the approved logical-call budget."
+        }
         tasks.transition(
             input.taskId,
             input.projectId,
@@ -144,7 +177,7 @@ internal class DocumentIngestionOrchestrator(
             DocumentProcessingStatus.Analyzing,
             input.documents.size,
             40,
-            "Analyzing verified document text with the selected model.",
+            "Discovering evidence-grounded meaning in each document.",
         )
         checkCancellation(input)
         val writableSourceIds = project.resolvedSources
@@ -152,154 +185,226 @@ internal class DocumentIngestionOrchestrator(
             .map { it.id }
             .distinct()
             .sorted()
-        val completed = analysis.analyze(
+        val discoveryResult = discovery.discoverAll(
             input.ownerUserId,
-            DocumentAnalysisWork(
-                taskId = input.taskId.value,
-                ontologyFingerprint = graphFingerprint,
-                ontologyContext = ontologyContext(project, extracted),
-                writableSourceIds = writableSourceIds,
-                documents = extracted,
-                authorityMetadataKey = authorityKey(input),
-            ),
+            input.taskId.value,
+            extracted,
         )
-        tasks.transition(
-            input.taskId,
-            input.projectId,
-            input.ownerUserId,
-            DocumentProcessingStatus.Matching,
-            input.documents.size,
-            75,
-            "Matching verified candidates against current ontology records.",
-        )
+        discoveryResult.documents.forEach { recordStage(input, it.stageRecord) }
+        announce(input, 50, "Verified discovery is complete for ${extracted.size} document(s).")
         checkCancellation(input)
-        val semanticRecords = semanticRecords(project) + provenanceRecords(input.projectId)
-        val targetSourceId = writableSourceIds.firstOrNull()
-        val matched = matcher.match(
-            DocumentMatchingInput(
-                exactWorkKey = completed.exactWorkKey,
-                candidates = completed.candidates,
-                records = semanticRecords,
-                authorityByDocumentId = input.documents.associate {
-                    it.document.id.value to it.document.authority
-                },
-                targetSourceId = targetSourceId,
-                modelId = completed.modelId,
-                promptVersion = completed.promptVersion,
-            ),
-        )
-        tasks.transition(
-            input.taskId,
-            input.projectId,
+        var remainingLogicalCalls = com.entio.core.MAX_DOCUMENT_PLANNED_LOGICAL_CALLS - input.documents.size
+        announce(input, 52, "Building a connected model from verified discoveries.")
+        val connected = modeling.model(
             input.ownerUserId,
-            DocumentProcessingStatus.PreparingRecommendations,
-            input.documents.size,
-            90,
-            "Preparing evidence-linked recommendations for review.",
+            input.taskId.value,
+            discoveryResult,
+            remainingLogicalCalls,
         )
+        connected.stageRecords.forEach { recordStage(input, it) }
+        remainingLogicalCalls -= connected.stageRecords.size
         checkCancellation(input)
-        val reviewTask = tasks.find(input.taskId, input.projectId, input.ownerUserId).let { task ->
-            task.copy(
-                status = "awaiting-review",
-                documents = task.documents.map { it.copy(status = "awaiting-review") },
-                progress = task.progress.copy(
-                    stage = "awaiting-review",
-                    percent = 100,
-                    message = "Evidence-linked recommendations are ready for review.",
-                ),
-            )
+        announce(input, 60, "Comparing meaning across documents and prior applied provenance.")
+        val reconciled = reconciliation.reconcile(
+            input.ownerUserId,
+            input.projectId,
+            input.taskId.value,
+            extracted,
+            discoveryResult,
+            connected,
+            remainingLogicalCalls,
+        )
+        recordStage(input, reconciled.stageRecord)
+        remainingLogicalCalls -= 1
+        checkCancellation(input)
+        announce(input, 68, "Aligning the connected model with the current ontology and work in progress.")
+        val snapshot = alignmentSnapshot(
+            input.projectId,
+            project,
+            ontologyFingerprint,
+            currentWorkFingerprint,
+            writableSourceIds,
+        )
+        val aligned = alignment.align(
+            input.ownerUserId,
+            input.taskId.value,
+            input.projectId,
+            connected,
+            reconciled,
+            snapshot,
+        )
+        recordStage(input, aligned.stageRecord)
+        remainingLogicalCalls -= 1
+        checkCancellation(input)
+        announce(input, 76, "Critiquing modeling quality and confidence.")
+        val critiqued = critic.critique(
+            input.ownerUserId,
+            input.taskId.value,
+            discoveryResult,
+            connected,
+            reconciled,
+            aligned,
+        )
+        recordStage(input, critiqued.stageRecord)
+        remainingLogicalCalls -= 1
+        checkCancellation(input)
+        require(remainingLogicalCalls >= 1) {
+            "The final plan cannot fit the approved logical-call budget."
         }
-        reviews.install(
-            DocumentReviewWorkspaceInput(
-                task = reviewTask,
-                exactWorkKey = completed.exactWorkKey,
-                graphFingerprint = graphFingerprint,
-                extractedDocuments = extracted,
-                summaries = completed.summaries,
-                recommendations = matched.recommendations,
-                priorWorkflowProvenance = matched.recommendations.associate { recommendation ->
-                    recommendation.id to recommendation.matches
-                        .filter { it.scope == DocumentMatchScope.DurableProvenance }
-                        .map { it.sourceId }
-                        .distinct()
-                        .sorted()
-                },
-                draftContexts = matched.recommendations.associate { recommendation ->
-                    recommendation.id to draftContext(recommendation, project, targetSourceId, graphFingerprint)
-                },
+        announce(input, 84, "Preparing grouped recommendations and exact change sets.")
+        val workKey = workKey(input, ontologyFingerprint)
+        val finalResult = finalPlanning.plan(
+            input.ownerUserId,
+            input.taskId.value,
+            workKey,
+            discoveryResult,
+            connected,
+            reconciled,
+            aligned,
+            critiqued,
+            DocumentPlanVerificationContext(
+                expectedOntologyFingerprint = ontologyFingerprint,
+                currentOntologyFingerprint = webGraphFingerprint(loadProject(input.projectId).graph),
+                expectedCurrentWorkFingerprint = currentWorkFingerprint,
+                currentWorkFingerprint = currentWorkFingerprint,
+                writableSourceIds = writableSourceIds.toSet(),
+                existingEntityKinds = existingEntityKinds(project),
+                iriNamespace = project.config.iriNamespace?.namespace?.value
+                    ?: project.symbols.firstOrNull { it.sourceId in writableSourceIds }?.iri?.value
+                        ?.substringBeforeLast('#')
+                    ?: throw DocumentAnalysisFailure(
+                        "document-iri-namespace-missing",
+                        "A writable ontology namespace is required for final planning.",
+                    ),
             ),
         )
-        tasks.transition(
+        recordStage(input, finalResult.stageRecord)
+        checkCancellation(input)
+        val verificationStarted = Instant.now(configuration.clock)
+        recordStage(
+            input,
+            DocumentAnalysisStageRecord(
+                recordId = "stage-verification-${workKey.sha256.take(24)}",
+                stage = DocumentAnalysisStage.DeterministicVerification,
+                state = DocumentAnalysisStageState.Succeeded,
+                scopeId = input.taskId.value,
+                startedAt = verificationStarted,
+                finishedAt = Instant.now(configuration.clock),
+                durationMillis = 0,
+                inputSha256 = finalResult.stageRecord.outputSha256,
+                outputSha256 = hash(finalResult.verifiedPlan.plan),
+                completedCount = finalResult.verifiedPlan.plan.recommendations.size,
+                totalCount = finalResult.verifiedPlan.plan.recommendations.size,
+            ),
+        )
+        val reviewTask = tasks.transition(
             input.taskId,
             input.projectId,
             input.ownerUserId,
             DocumentProcessingStatus.AwaitingReview,
             input.documents.size,
             100,
-            "Evidence-linked recommendations are ready for review.",
+            "Grouped evidence-linked recommendations are ready for review.",
+        )
+        reviews.installVerifiedPlan(reviewTask, workKey.sha256, finalResult.verifiedPlan)
+    }
+
+    private fun announce(
+        input: DocumentIngestionProcessingInput,
+        percent: Int,
+        message: String,
+    ): Unit {
+        checkCancellation(input)
+        tasks.transition(
+            input.taskId,
+            input.projectId,
+            input.ownerUserId,
+            DocumentProcessingStatus.Analyzing,
+            input.documents.size,
+            percent,
+            message,
         )
     }
 
-    private fun draftContext(
-        recommendation: com.entio.core.DocumentRecommendation,
+    private fun recordStage(
+        input: DocumentIngestionProcessingInput,
+        record: DocumentAnalysisStageRecord,
+    ): Unit {
+        checkCancellation(input)
+        tasks.recordAnalysisStage(input.taskId, input.projectId, input.ownerUserId, record)
+    }
+
+    private fun alignmentSnapshot(
+        projectId: String,
         project: EntioProject,
-        targetSourceId: String?,
-        graphFingerprint: String,
-    ): DocumentDraftTranslationContext {
-        val selected = recommendation.selectedMatch?.entityIri
-        val generated = if (selected == null && targetSourceId != null) {
-            val kind = when (recommendation.type) {
-                DocumentCandidateCategory.Class -> SymbolKind.Class
-                DocumentCandidateCategory.ObjectProperty,
-                DocumentCandidateCategory.DatatypeProperty,
-                -> SymbolKind.Property
-                DocumentCandidateCategory.Individual -> SymbolKind.Individual
-                else -> null
-            }
-            kind?.let {
-                when (val result = iriGenerator.generate(
-                    recommendation.proposedLabel.orEmpty(),
-                    it,
-                    project.config.iriNamespace,
-                    project.symbols,
-                )) {
-                    is EntioResult.Success -> result.value.iri
-                    is EntioResult.Failure -> null
-                }
-            }
-        } else {
-            null
-        }
-        val connectionLabel = recommendation.proposedConnectionLabel
-        val connectionProperty = if (
-            recommendation.action == com.entio.core.DocumentRecommendationAction.CreateLocal &&
-            recommendation.type == DocumentCandidateCategory.Class &&
-            connectionLabel != null
-        ) {
-            when (val result = iriGenerator.generate(
-                connectionLabel,
-                SymbolKind.Property,
-                project.config.iriNamespace,
-                project.symbols,
-            )) {
-                is EntioResult.Success -> result.value.iri
-                is EntioResult.Failure -> null
-            }
-        } else {
-            null
-        }
-        return DocumentDraftTranslationContext(
-            targetSourceId = recommendation.targetSourceId ?: targetSourceId,
-            targetIri = selected ?: generated,
-            domainIri = recommendation.proposedDomainIri,
-            rangeIri = recommendation.proposedRangeIri,
-            connectionPropertyIri = connectionProperty,
-            connectionDomainIri = recommendation.proposedConnectionDomainIri,
-            graphCurrent = webGraphFingerprint(project.graph) == graphFingerprint,
-            evidenceCurrent = true,
-            modelAndPromptCurrent = true,
-            duplicateOperation = recommendation.action == com.entio.core.DocumentRecommendationAction.ReuseLocal,
+        ontologyFingerprint: String,
+        currentWorkFingerprint: String,
+        writableSourceIds: List<String>,
+    ): DocumentOntologyAlignmentSnapshot {
+        val records = (semanticRecords(project) + provenanceRecords(projectId))
+            .sortedWith(compareBy({ it.scope.name }, { it.sourceId }, { it.entityIri.value }))
+            .take(MAX_ALIGNMENT_ENTRIES)
+        return DocumentOntologyAlignmentSnapshot(
+            projectId = projectId,
+            ontologyFingerprint = ontologyFingerprint,
+            currentWorkFingerprint = currentWorkFingerprint,
+            entries = records.map { record ->
+                DocumentOntologyAlignmentContextEntry(
+                    referenceId = "context-${hash(record).take(24)}",
+                    projectId = projectId,
+                    scope = record.scope.name,
+                    entityIri = record.entityIri.value,
+                    sourceId = record.sourceId,
+                    preferredLabel = record.preferredLabel,
+                    aliases = record.aliases,
+                    category = record.category?.name,
+                    writable = record.sourceId in writableSourceIds,
+                )
+            }.sortedBy(DocumentOntologyAlignmentContextEntry::referenceId),
+            writableSourceIds = writableSourceIds,
         )
+    }
+
+    private fun existingEntityKinds(project: EntioProject): Map<Iri, DocumentTemporaryReferenceKind> =
+        descriptions.describeAll(project).mapNotNull { descriptor ->
+            val iri = descriptor.common.entity as? Iri ?: return@mapNotNull null
+            val kind = when (descriptor.common.kind) {
+                SemanticDescriptorKind.Class -> DocumentTemporaryReferenceKind.Class
+                SemanticDescriptorKind.ObjectProperty -> DocumentTemporaryReferenceKind.ObjectProperty
+                SemanticDescriptorKind.DatatypeProperty -> DocumentTemporaryReferenceKind.DatatypeProperty
+                SemanticDescriptorKind.AnnotationProperty -> DocumentTemporaryReferenceKind.AnnotationProperty
+                SemanticDescriptorKind.Individual -> DocumentTemporaryReferenceKind.Individual
+            }
+            iri to kind
+        }.toMap()
+
+    private fun workKey(
+        input: DocumentIngestionProcessingInput,
+        ontologyFingerprint: String,
+    ): DocumentAnalysisWorkKey = DocumentAnalysisWorkKey(
+        hash(
+            listOf(
+                input.projectId,
+                ontologyFingerprint,
+                authorityKey(input),
+                DocumentAnalysisPipelineVersions.DISCOVERY_PROMPT,
+                DocumentAnalysisPipelineVersions.CONNECTED_MODEL_PROMPT,
+                DocumentAnalysisPipelineVersions.RECONCILIATION_PROMPT,
+                DocumentAnalysisPipelineVersions.ONTOLOGY_ALIGNMENT_PROMPT,
+                DocumentAnalysisPipelineVersions.MODELING_CRITIC_PROMPT,
+                DocumentAnalysisPipelineVersions.FINAL_PLAN_PROMPT,
+            ) + input.documents.sortedBy { it.document.id.value }.map { it.document.checksumSha256 },
+        ),
+    )
+
+    private fun hash(value: Any): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(value.toString().toByteArray(StandardCharsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+
+    private fun isCancelled(taskId: String): Boolean {
+        val input = synchronized(processingInputs) { processingInputs[taskId] } ?: return true
+        return tasks.isCancelled(input.taskId, input.projectId, input.ownerUserId)
     }
 
     private fun semanticRecords(project: EntioProject): List<DocumentSemanticRecord> =
@@ -547,6 +652,8 @@ internal class DocumentIngestionOrchestrator(
         const val MAX_ONTOLOGY_CONTEXT_CHARACTERS: Int = 40_000
         const val MAX_ONTOLOGY_CONTEXT_TEXT: Int = 500
         const val MAX_ONTOLOGY_CONTEXT_TOKENS: Int = 5_000
+        const val MAX_ALIGNMENT_ENTRIES: Int = 20_000
+        const val REQUIRED_POST_DISCOVERY_LOGICAL_CALLS: Int = 5
         val ONTOLOGY_CONTEXT_STOP_WORDS: Set<String> = setOf(
             "and",
             "are",
@@ -558,5 +665,146 @@ internal class DocumentIngestionOrchestrator(
             "this",
             "with",
         )
+    }
+}
+
+/**
+ * Applies one task-wide provider-attempt budget across all pipeline services.
+ * A repeated request hash is the only request eligible for a bounded retry.
+ */
+private class BudgetedDocumentPipelineProvider(
+    private val delegate: DocumentPipelineProvider,
+) : DocumentPipelineProvider, AutoCloseable {
+    private val attemptsByTask: MutableMap<String, Int> = linkedMapOf()
+    private val retriesByTask: MutableMap<String, Int> = linkedMapOf()
+    private val requestCountsByTask: MutableMap<String, MutableMap<String, Int>> = linkedMapOf()
+
+    override suspend fun analyze(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentAnalysisRequest,
+    ): DocumentAnalysisProviderResult =
+        throw DocumentAnalysisFailure(
+            "document-legacy-analysis-disabled",
+            "The legacy single-stage document analysis path is disabled.",
+        )
+
+    override suspend fun discover(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentDiscoveryRequest,
+    ): DocumentDiscoveryProviderResult {
+        reserve(request.taskId, "discovery", request)
+        return delegate.discover(apiKey, selectedModelId, systemInstruction, request)
+    }
+
+    override suspend fun model(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentConnectedModelRequest,
+    ): DocumentConnectedModelProviderResult {
+        reserve(request.taskId, "model", request)
+        return delegate.model(apiKey, selectedModelId, systemInstruction, request)
+    }
+
+    override suspend fun consolidate(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentModelConsolidationRequest,
+    ): DocumentConnectedModelProviderResult {
+        reserve(request.taskId, "consolidate", request)
+        return delegate.consolidate(apiKey, selectedModelId, systemInstruction, request)
+    }
+
+    override suspend fun reconcile(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentReconciliationRequest,
+    ): DocumentReconciliationProviderResult {
+        reserve(request.taskId, "reconcile", request)
+        return delegate.reconcile(apiKey, selectedModelId, systemInstruction, request)
+    }
+
+    override suspend fun align(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentOntologyAlignmentRequest,
+    ): DocumentOntologyAlignmentProviderResult {
+        reserve(request.taskId, "align", request)
+        return delegate.align(apiKey, selectedModelId, systemInstruction, request)
+    }
+
+    override suspend fun critique(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentModelingCriticRequest,
+    ): DocumentModelingCriticProviderResult {
+        reserve(request.taskId, "critic", request)
+        return delegate.critique(apiKey, selectedModelId, systemInstruction, request)
+    }
+
+    override suspend fun plan(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentFinalPlanningRequest,
+    ): DocumentFinalPlanningProviderResult {
+        reserve(request.taskId, "final", request)
+        return delegate.plan(apiKey, selectedModelId, systemInstruction, request)
+    }
+
+    @Synchronized
+    private fun reserve(
+        taskId: String,
+        stage: String,
+        request: Any,
+    ): Unit {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest("$stage|$request".toByteArray(StandardCharsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        val requests = requestCountsByTask.getOrPut(taskId) { linkedMapOf() }
+        val prior = requests[digest] ?: 0
+        if (prior >= 2) {
+            throw DocumentAnalysisFailure(
+                "document-provider-retry-limit",
+                "A logical model call may be retried only once with exact input.",
+            )
+        }
+        if (prior == 0 && requests.size >= com.entio.core.MAX_DOCUMENT_PLANNED_LOGICAL_CALLS) {
+            throw DocumentAnalysisFailure(
+                "document-provider-call-limit",
+                "The planned logical-call limit was reached.",
+            )
+        }
+        if (prior == 1) {
+            val retries = (retriesByTask[taskId] ?: 0) + 1
+            if (retries > com.entio.core.MAX_DOCUMENT_AUTOMATIC_RETRY_ATTEMPTS) {
+                throw DocumentAnalysisFailure(
+                    "document-provider-retry-limit",
+                    "The task retry reserve was exhausted.",
+                )
+            }
+            retriesByTask[taskId] = retries
+        }
+        val attempts = (attemptsByTask[taskId] ?: 0) + 1
+        if (attempts > com.entio.core.MAX_DOCUMENT_PROVIDER_ATTEMPTS) {
+            throw DocumentAnalysisFailure(
+                "document-provider-attempt-limit",
+                "The provider attempt limit was reached.",
+            )
+        }
+        attemptsByTask[taskId] = attempts
+        requests[digest] = prior + 1
+    }
+
+    override fun close(): Unit {
+        (delegate as? AutoCloseable)?.close()
     }
 }

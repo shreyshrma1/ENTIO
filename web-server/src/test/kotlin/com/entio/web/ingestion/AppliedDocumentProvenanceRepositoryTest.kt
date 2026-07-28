@@ -37,10 +37,19 @@ class AppliedDocumentProvenanceRepositoryTest {
         val temporaryRoot = Files.createTempDirectory("entio-provenance-temporary")
         val repository = AppliedDocumentProvenanceRepository(root, registry)
         val record = provenance()
+        val pipelineMetadata = AppliedDocumentPipelineMetadata(
+            recommendationId = "recommendation-1",
+            workKey = "a".repeat(64),
+            modelId = "gpt-test",
+            promptVersions = listOf("phase-11-5-final-plan-v1"),
+            stageOutputHashes = listOf("b".repeat(64)),
+        )
 
         repository.save("project-a", listOf(record))
+        repository.savePipelineMetadata("project-a", listOf(pipelineMetadata))
         val restarted = AppliedDocumentProvenanceRepository(root, registry)
         assertEquals(listOf(record), restarted.list("project-a"))
+        assertEquals(listOf(pipelineMetadata), restarted.pipelineMetadata("project-a"))
         assertTrue(restarted.list("project-b").isEmpty())
         assertFailsWith<IllegalArgumentException> { restarted.list("unknown") }
         assertEquals(

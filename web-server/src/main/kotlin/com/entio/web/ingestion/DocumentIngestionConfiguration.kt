@@ -2,6 +2,8 @@ package com.entio.web.ingestion
 
 import com.entio.core.MAX_INGESTION_DOCUMENT_BYTES
 import com.entio.core.MAX_INGESTION_DOCUMENTS_PER_TASK
+import com.entio.core.MAX_DOCUMENT_ANALYSIS_WALL_TIME_SECONDS
+import com.entio.core.MAX_DOCUMENT_PROVIDER_TIMEOUT_SECONDS
 import java.nio.file.Path
 import java.time.Clock
 import java.time.Duration
@@ -19,6 +21,8 @@ public data class DocumentIngestionConfiguration(
     val maximumOcrPagesPerDocument: Int = 200,
     val maximumRenderedImageBytesPerTask: Long = 512L * 1024L * 1024L,
     val ocrDocumentTimeout: Duration = Duration.ofMinutes(10),
+    val providerCallTimeout: Duration = Duration.ofSeconds(MAX_DOCUMENT_PROVIDER_TIMEOUT_SECONDS),
+    val analysisTaskTimeout: Duration = Duration.ofSeconds(MAX_DOCUMENT_ANALYSIS_WALL_TIME_SECONDS),
     val tesseract: TesseractConfiguration? = null,
     val clock: Clock = Clock.systemUTC(),
     val idFactory: () -> String = { UUID.randomUUID().toString() },
@@ -46,6 +50,12 @@ public data class DocumentIngestionConfiguration(
         require(!ocrDocumentTimeout.isNegative && !ocrDocumentTimeout.isZero &&
             ocrDocumentTimeout <= Duration.ofMinutes(10)
         ) { "OCR timeout exceeds the approved bound." }
+        require(!providerCallTimeout.isNegative && !providerCallTimeout.isZero &&
+            providerCallTimeout <= Duration.ofSeconds(MAX_DOCUMENT_PROVIDER_TIMEOUT_SECONDS)
+        ) { "Provider timeout exceeds the approved bound." }
+        require(!analysisTaskTimeout.isNegative && !analysisTaskTimeout.isZero &&
+            analysisTaskTimeout <= Duration.ofSeconds(MAX_DOCUMENT_ANALYSIS_WALL_TIME_SECONDS)
+        ) { "Analysis task timeout exceeds the approved bound." }
     }
 }
 

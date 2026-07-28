@@ -1,6 +1,16 @@
 package com.entio.web.ingestion
 
-import com.entio.core.DocumentCandidateCategory
+import com.entio.core.DocumentAnalysisStage
+import com.entio.core.DocumentConfidenceDimensions
+import com.entio.core.DocumentCoverageDisposition
+import com.entio.core.DocumentCoverageDispositionKind
+import com.entio.core.DocumentFinalPlan
+import com.entio.core.DocumentFinalRecommendation
+import com.entio.core.DocumentFinalRecommendationStatus
+import com.entio.core.DocumentPlanOperand
+import com.entio.core.DocumentPlanOperation
+import com.entio.core.DocumentPlanOperationKind
+import com.entio.core.DocumentTemporaryReference
 import com.entio.web.ai.InMemoryAiCredentialStore
 import com.entio.web.ai.models.AiModelCompatibilityState
 import com.entio.web.ai.models.AiModelDiscoveryStatus
@@ -11,7 +21,6 @@ import com.entio.web.ai.models.AiSettingsCredentialStatus
 import com.entio.web.ai.models.AiUserProviderSettings
 import com.entio.web.ai.models.InMemoryAiUserProviderSettingsStore
 import com.entio.web.contract.InMemoryProjectRegistry
-import com.entio.web.contract.WebPageRequest
 import java.io.ByteArrayInputStream
 import java.nio.file.Files
 import java.time.Clock
@@ -46,14 +55,24 @@ class DocumentIngestionOrchestratorTest {
         val task = fixture.manager.find(taskId, "simple", "alice")
         assertEquals("awaiting-review", task.status)
         assertEquals(100, task.progress.percent)
-        assertTrue(task.updates.any { it.message.contains("Waiting for the selected model to analyze document 1 of 1") })
-        assertTrue(task.updates.any { it.message.contains("verifying its evidence") })
-        assertTrue(task.updates.any { it.message.contains("evidence-grounded candidates") })
-        val review = fixture.reviews.read("simple", taskId.value, "alice", WebPageRequest())
-        val recommendation = review.recommendations.items.single()
-        assertEquals("Supplier", recommendation.proposedLabel)
-        assertEquals("CreateLocal", recommendation.action)
-        assertEquals("simple", recommendation.targetSourceId)
+        assertTrue(task.updates.any { it.message.contains("Discovering evidence-grounded meaning") })
+        assertTrue(task.updates.any { it.message.contains("connected model") })
+        assertTrue(task.updates.any { it.message.contains("Critiquing modeling quality") })
+        assertEquals(
+            listOf(
+                DocumentAnalysisStage.Discovery,
+                DocumentAnalysisStage.ConnectedModeling,
+                DocumentAnalysisStage.Reconciliation,
+                DocumentAnalysisStage.OntologyAlignment,
+                DocumentAnalysisStage.ModelingCritic,
+                DocumentAnalysisStage.FinalPlanning,
+                DocumentAnalysisStage.DeterministicVerification,
+            ),
+            task.analysisStages.map { it.stage },
+        )
+        val recommendation = fixture.reviews.verifiedPlan("simple", taskId.value, "alice")
+            .plan.recommendations.single()
+        assertEquals("Create Supplier", recommendation.title)
         assertEquals(before.toList(), Files.readAllBytes(fixture.source).toList())
         assertTrue(directory.path.toFile().exists())
         fixture.close()
@@ -79,23 +98,41 @@ class DocumentIngestionOrchestratorTest {
         fixture.orchestrator.start(taskId.value, "simple", "alice")
         fixture.orchestrator.await(taskId.value)
 
-        val recommendation = fixture.reviews
-            .read("simple", taskId.value, "alice", WebPageRequest())
-            .recommendations
-            .items
-            .single()
-        assertEquals("Account closure", recommendation.proposedLabel)
-        assertTrue(recommendation.changePreview.draftable)
+        val recommendation = fixture.reviews.verifiedPlan("simple", taskId.value, "alice")
+            .plan.recommendations.single()
+        assertEquals("Create Account closure", recommendation.title)
         assertEquals(
-            listOf(
-                "Create class",
-                "Add definition",
-                "Create relationship",
-                "Set relationship source",
-                "Set relationship target",
-            ),
-            recommendation.changePreview.operations.map { it.operation },
+            "new:class:AccountClosure",
+            recommendation.operations.single().declaration?.value,
         )
+        fixture.close()
+    }
+
+    @Test
+    fun completesTenDocumentPipelineWithinThePinnedLogicalCallBudget(): Unit = runBlocking {
+        val fixture = fixture(readyModel = true)
+        val taskId = fixture.manager.begin("simple", "alice", 10)
+        val directory = fixture.manager.directory(taskId, "simple", "alice")
+        repeat(10) { index ->
+            val upload = fixture.intake.accept(
+                taskId,
+                directory,
+                "simple",
+                "alice",
+                metadata(index + 1),
+                ByteArrayInputStream("Supplier $index policy defines approved suppliers.".toByteArray()),
+            )
+            fixture.manager.addDocument(taskId, "simple", "alice", upload)
+        }
+        fixture.manager.completeIntake(taskId, "simple", "alice")
+
+        fixture.orchestrator.start(taskId.value, "simple", "alice")
+        fixture.orchestrator.await(taskId.value)
+
+        val task = fixture.manager.find(taskId, "simple", "alice")
+        assertEquals("awaiting-review", task.status)
+        assertEquals(10, task.analysisStages.count { it.stage == DocumentAnalysisStage.Discovery })
+        assertEquals(10, fixture.reviews.verifiedPlan("simple", taskId.value, "alice").plan.recommendations.size)
         fixture.close()
     }
 
@@ -121,7 +158,7 @@ class DocumentIngestionOrchestratorTest {
         val task = fixture.manager.find(taskId, "simple", "alice")
         assertEquals("blocked-for-model", task.status)
         assertTrue(task.progress.message.contains("selected model"))
-        assertTrue(task.documents.single().safeFilename == "policy.txt")
+        assertTrue(task.documents.single().safeFilename == "policy-1.txt")
         assertTrue(directory.path.toFile().exists())
         fixture.close()
     }
@@ -195,49 +232,22 @@ class DocumentIngestionOrchestratorTest {
             it.register("simple", "Simple", project)
         }
         val temporary = Files.createTempDirectory("entio-orchestration-temporary")
+        var nextId = 0
         val configuration = DocumentIngestionConfiguration(
             temporaryRoot = temporary,
             provenanceRoot = Files.createTempDirectory("entio-orchestration-provenance"),
             clock = Clock.fixed(now, ZoneOffset.UTC),
-            idFactory = sequenceOf("one", "two", "three").iterator()::next,
+            idFactory = { "id-${nextId++}" },
         )
         val storage = DocumentTemporaryStorage(temporary)
         val manager = DocumentIngestionTaskManager(configuration, storage)
         val reviews = DocumentReviewWorkspaceStore(configuration.clock)
         val credentials = InMemoryAiCredentialStore().also { it.save("alice", "openai", "secret") }
         val settings = settings(now, readyModel)
-        val provider = DocumentAnalysisProvider { _, _, _, request ->
-            if (providerFailure != null) return@DocumentAnalysisProvider providerFailure
-            val block = request.blocks.single()
-            val proposedLabel = if (compoundConcept) "Account closure" else "Supplier"
-            val excerpt = if (compoundConcept) block.text else "Supplier"
-            DocumentAnalysisProviderResult.Completed(
-                DocumentAnalysisResponse(
-                    candidates = listOf(
-                        ProviderDocumentCandidate(
-                            category = DocumentCandidateCategory.Class.name,
-                            recommendationCategory = "OntologyStructure",
-                            proposedLabel = proposedLabel,
-                            confidence = 95,
-                            interpretation = "explicit",
-                            evidenceType = "Explicit",
-                            evidence = listOf(
-                                ProviderEvidenceClaim(
-                                    block.documentId,
-                                    block.blockId,
-                                    0,
-                                    excerpt.length,
-                                    excerpt,
-                                ),
-                            ),
-                            proposedDefinition = excerpt.takeIf { compoundConcept },
-                            proposedConnectionLabel = "has account closure".takeIf { compoundConcept },
-                            proposedConnectionDomainIri = "https://example.com/simple#Account".takeIf { compoundConcept },
-                        ),
-                    ),
-                ),
-            )
-        }
+        val provider = TestPipelineProvider(
+            compoundConcept = compoundConcept,
+            discoveryFailureCode = providerFailure?.safeCode,
+        )
         val provenance = AppliedDocumentProvenanceRepository(configuration.provenanceRoot, registry)
         val orchestrator = DocumentIngestionOrchestrator(
             manager,
@@ -250,6 +260,187 @@ class DocumentIngestionOrchestratorTest {
             provider,
         )
         return Fixture(manager, reviews, DocumentIntakeService(configuration, storage), orchestrator, source)
+    }
+
+    private class TestPipelineProvider(
+        private val compoundConcept: Boolean,
+        private val discoveryFailureCode: String?,
+    ) : DocumentPipelineProvider {
+        override suspend fun analyze(
+            apiKey: String,
+            selectedModelId: String,
+            systemInstruction: String,
+            request: DocumentAnalysisRequest,
+        ): DocumentAnalysisProviderResult =
+            DocumentAnalysisProviderResult.Failed(false, "document-legacy-analysis-disabled")
+
+        override suspend fun discover(
+            apiKey: String,
+            selectedModelId: String,
+            systemInstruction: String,
+            request: DocumentDiscoveryRequest,
+        ): DocumentDiscoveryProviderResult {
+            discoveryFailureCode?.let { return DocumentDiscoveryProviderResult.Failed(false, it) }
+            val block = request.blocks.single()
+            val description = if (compoundConcept) "Account closure" else "Supplier"
+            val excerpt = if (compoundConcept) block.text else "Supplier"
+            return DocumentDiscoveryProviderResult.Completed(
+                DocumentDiscoveryResponse(
+                    discoveries = listOf(
+                        ProviderDocumentDiscovery(
+                            providerId = "discovery-${request.documentId}",
+                            kind = "Concept",
+                            contentClassification = "BusinessContent",
+                            assertionClassification = "ExplicitFact",
+                            description = description,
+                            evidence = listOf(
+                                ProviderEvidenceClaim(
+                                    block.documentId,
+                                    block.blockId,
+                                    0,
+                                    excerpt.length,
+                                    excerpt,
+                                ),
+                            ),
+                            relatedProviderIds = emptyList(),
+                            evidenceConfidence = 95,
+                            individualClassification = null,
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        override suspend fun model(
+            apiKey: String,
+            selectedModelId: String,
+            systemInstruction: String,
+            request: DocumentConnectedModelRequest,
+        ): DocumentConnectedModelProviderResult =
+            DocumentConnectedModelProviderResult.CompletedModel(
+                DocumentConnectedModelResponse(
+                    items = listOf(
+                        ProviderConnectedModelItem(
+                            providerId = "model-concept",
+                            kind = "Class",
+                            label = if (compoundConcept) "Account closure" else "Supplier",
+                            rationale = "The verified discovery describes a business concept.",
+                            discoveryIds = request.discoveries.map { it.id }.sorted(),
+                            references = emptyList(),
+                            literalLexicalForm = null,
+                            literalDatatypeIri = null,
+                            literalLanguageTag = null,
+                            order = 0,
+                            reviewOnlyEligible = false,
+                        ),
+                    ),
+                ),
+            )
+
+        override suspend fun consolidate(
+            apiKey: String,
+            selectedModelId: String,
+            systemInstruction: String,
+            request: DocumentModelConsolidationRequest,
+        ): DocumentConnectedModelProviderResult =
+            DocumentConnectedModelProviderResult.CompletedConsolidation(
+                DocumentModelConsolidationResponse(items = request.chunkModels.first().items),
+            )
+
+        override suspend fun reconcile(
+            apiKey: String,
+            selectedModelId: String,
+            systemInstruction: String,
+            request: DocumentReconciliationRequest,
+        ): DocumentReconciliationProviderResult =
+            DocumentReconciliationProviderResult.Completed(DocumentReconciliationResponse(records = emptyList()))
+
+        override suspend fun align(
+            apiKey: String,
+            selectedModelId: String,
+            systemInstruction: String,
+            request: DocumentOntologyAlignmentRequest,
+        ): DocumentOntologyAlignmentProviderResult =
+            DocumentOntologyAlignmentProviderResult.Completed(
+                DocumentOntologyAlignmentResponse(
+                    records = request.connectedModel.items.map { item ->
+                        ProviderDocumentOntologyAlignment(
+                            providerId = "alignment-${item.order}",
+                            modelItemId = item.id,
+                            action = "Create",
+                            advisedReferenceIds = emptyList(),
+                            targetSourceId = request.snapshot.writableSourceIds.first(),
+                            rationale = "No supplied ontology entity represents this concept.",
+                            ontologyFitConfidence = 90,
+                            domainRangeRationale = null,
+                        )
+                    },
+                ),
+            )
+
+        override suspend fun critique(
+            apiKey: String,
+            selectedModelId: String,
+            systemInstruction: String,
+            request: DocumentModelingCriticRequest,
+        ): DocumentModelingCriticProviderResult =
+            DocumentModelingCriticProviderResult.Completed(DocumentModelingCriticResponse(findings = emptyList()))
+
+        override suspend fun plan(
+            apiKey: String,
+            selectedModelId: String,
+            systemInstruction: String,
+            request: DocumentFinalPlanningRequest,
+        ): DocumentFinalPlanningProviderResult {
+            val discoveryIds = request.discoveries.map { it.id }.sorted()
+            val label = if (compoundConcept) "Account closure" else "Supplier"
+            val recommendations = request.discoveries.sortedBy { it.id }.mapIndexed { index, discovery ->
+                val localName = when {
+                    compoundConcept -> "AccountClosure"
+                    request.discoveries.size == 1 -> "Supplier"
+                    else -> "Supplier${index + 1}"
+                }
+                DocumentFinalRecommendation(
+                    id = "recommendation-${index + 1}",
+                    title = "Create $label",
+                    description = "Create the evidence-grounded business concept.",
+                    discoveryIds = listOf(discovery.id),
+                    evidenceIds = discovery.evidence.map { it.id }.sortedBy { it.value },
+                    operations = listOf(
+                        DocumentPlanOperation(
+                            id = "create-concept-${index + 1}",
+                            kind = DocumentPlanOperationKind.CreateClass,
+                            order = 0,
+                            declaration = DocumentTemporaryReference("new:class:$localName"),
+                            operands = listOf(
+                                DocumentPlanOperand.SourceId(request.ontologySnapshot.writableSourceIds.first()),
+                            ),
+                            expandedTypedEditCount = 1,
+                        ),
+                    ),
+                    confidence = DocumentConfidenceDimensions(95, 90, 90),
+                    status = DocumentFinalRecommendationStatus.Executable,
+                )
+            }.sortedBy(DocumentFinalRecommendation::stableOrderingKey)
+            val recommendationByDiscovery = recommendations.associateBy { it.discoveryIds.single() }
+            return DocumentFinalPlanningProviderResult.Completed(
+                DocumentFinalPlanningResponse(
+                    plan = DocumentFinalPlan(
+                        workKey = request.workKey,
+                        verifiedDiscoveryIds = discoveryIds,
+                        criticFindingIds = emptyList(),
+                        recommendations = recommendations,
+                        coverage = discoveryIds.map { discoveryId ->
+                            DocumentCoverageDisposition(
+                                discoveryId,
+                                DocumentCoverageDispositionKind.ExecutableRecommendation,
+                                recommendationId = recommendationByDiscovery.getValue(discoveryId).id,
+                            )
+                        },
+                    ),
+                ),
+            )
+        }
     }
 
     private fun settings(now: Instant, ready: Boolean): InMemoryAiUserProviderSettingsStore =
@@ -297,9 +488,9 @@ class DocumentIngestionOrchestratorTest {
             )
         }
 
-    private fun metadata(): DocumentUploadMetadata = DocumentUploadMetadata(
-        clientDocumentId = "client-1",
-        filename = "policy.txt",
+    private fun metadata(index: Int = 1): DocumentUploadMetadata = DocumentUploadMetadata(
+        clientDocumentId = "client-$index",
+        filename = "policy-$index.txt",
         declaredMediaType = "text/plain",
         language = "en",
         authorityStatus = "Authoritative",
