@@ -282,9 +282,9 @@ public class DocumentChangeSetPlanVerifier {
             "MaxCount",
             "Datatype",
             "Class",
-            "In",
-            "HasValue",
             "MinInclusive",
+            "MaxInclusive",
+            "Pattern",
         )
     }
 }

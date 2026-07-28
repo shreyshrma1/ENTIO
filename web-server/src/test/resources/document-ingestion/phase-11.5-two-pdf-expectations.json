@@ -1,0 +1,56 @@
+{
+  "documents": [
+    "consumer-lending-servicing-compliance-standard.pdf",
+    "commercial-account-and-payment-authorization-policy.pdf"
+  ],
+  "requiredMeanings": [
+    {
+      "id": "payment",
+      "aliases": ["Payment", "Outgoing Payment", "Payment Instruction"],
+      "requiredTerms": ["payment", "account", "destination", "approval"]
+    },
+    {
+      "id": "payment-approval-record",
+      "aliases": ["Payment Approval Record", "Payment Review Record", "Payment Decision Record"],
+      "requiredTerms": ["payment", "approval", "reviewer", "decision"]
+    },
+    {
+      "id": "high-value-payment-approval",
+      "aliases": ["High-Value Payment Approval", "Separate Approval for High-Value Payment"],
+      "requiredTerms": ["25,000", "separate", "approval"]
+    },
+    {
+      "id": "consumer-loan-servicing-control",
+      "aliases": ["Consumer Loan Servicing Control", "Loan Servicing Control", "Servicing Control"],
+      "requiredTerms": ["servicing", "control", "evidence"]
+    },
+    {
+      "id": "payment-suspense-control",
+      "aliases": ["Payment-to-Loan Validation", "Payment Suspense Investigation"],
+      "requiredTerms": ["payment", "loan", "suspense", "investigation"]
+    }
+  ],
+  "requiredIllustrativeIndividuals": [
+    "Harbor Point Dental Group LLC",
+    "Harbor Point Operating Account",
+    "Elena Ruiz",
+    "Summit Medical Supply",
+    "INV-44719",
+    "Marcus Lee",
+    "Priya Nair"
+  ],
+  "prohibitedExecutablePatterns": [
+    "Compliance Status",
+    "Customer has servicing compliance Loan",
+    "Account approves Invoice",
+    "Elena Ruiz owns Harbor Point Operating Account",
+    "linked payment aggregation as datatype property",
+    "separation of duties as datatype property"
+  ],
+  "requiredReviewOnlyMeanings": [
+    "linked-payment aggregation",
+    "separation of initiation and final approval",
+    "temporal sequencing",
+    "conditional service applicability"
+  ]
+}

@@ -53,7 +53,10 @@ import com.entio.web.ai.models.AiUserProviderSettings
 import com.entio.web.ai.models.InMemoryAiUserProviderSettingsStore
 import com.entio.web.contract.InMemoryProjectRegistry
 import com.fasterxml.jackson.databind.ObjectMapper
+import org.apache.pdfbox.Loader
+import org.apache.pdfbox.text.PDFTextStripper
 import java.nio.file.Files
+import java.nio.file.Path
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
@@ -66,6 +69,49 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
 class DocumentAnalysisServiceTest {
+    @Test
+    fun permanentTwoPdfBenchmarkManifestMatchesEvidenceAndOntologyBoundaries(): Unit {
+        val mapper = ObjectMapper().findAndRegisterModules()
+        val manifest = javaClass.getResourceAsStream(
+            "/document-ingestion/phase-11.5-two-pdf-expectations.json",
+        )!!.use(mapper::readTree)
+        val project = Path.of("../examples/simple-ontology").toAbsolutePath().normalize()
+        val documentNames = manifest["documents"].map { it.asText() }
+        assertEquals(
+            listOf(
+                "consumer-lending-servicing-compliance-standard.pdf",
+                "commercial-account-and-payment-authorization-policy.pdf",
+            ),
+            documentNames,
+        )
+        val extracted = documentNames.joinToString("\n") { name ->
+            Loader.loadPDF(project.resolve("documents").resolve(name).toFile()).use {
+                PDFTextStripper().getText(it)
+            }
+        }.lowercase()
+        manifest["requiredMeanings"].forEach { meaning ->
+            meaning["requiredTerms"].forEach { term ->
+                assertTrue(
+                    extracted.contains(term.asText().lowercase()),
+                    "${meaning["id"].asText()} is missing benchmark term ${term.asText()}",
+                )
+            }
+            assertTrue(meaning["aliases"].size() >= 1)
+        }
+        manifest["requiredIllustrativeIndividuals"].forEach { individual ->
+            assertTrue(extracted.contains(individual.asText().lowercase()))
+        }
+        assertEquals(4, manifest["requiredReviewOnlyMeanings"].size())
+
+        val ontology = Files.readString(project.resolve("ontology/simple.ttl")).lowercase()
+        assertTrue(!ontology.contains("compliance status"))
+        assertTrue(!ontology.contains("has servicing compliance"))
+
+        val logicalCalls = listOf(1, 2, 10).associateWith { documentCount -> documentCount + 5 }
+        assertEquals(mapOf(1 to 6, 2 to 7, 10 to 15), logicalCalls)
+        assertTrue(logicalCalls.values.all { it <= com.entio.core.MAX_DOCUMENT_PLANNED_LOGICAL_CALLS })
+    }
+
     @Test
     fun acceptsAnEvidenceGroundedConnectionFromANewConceptToAnExistingClass(): Unit = runBlocking {
         val fixture = fixture()
