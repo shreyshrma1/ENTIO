@@ -1,16 +1,16 @@
 # Agent Guidance For Entio
 
-This repository contains the implemented Entio foundation through Phase 11. Phase 11 was implemented and verified on 2026-07-24. Phase 11.5 is the current active planning phase and is not yet implemented. Phases 1 through 8 are retained as historical delivery records, and the repository is no longer documentation-only.
+This repository contains the implemented Entio foundation through Phase 11.5. Phase 11 was implemented and verified on 2026-07-24. Phase 11.5 is the current active phase and was implemented and verified on 2026-07-27. Phases 1 through 8 are retained as historical delivery records, and the repository is no longer documentation-only.
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
-Phases 1 through 8 are preserved as historical delivery records. Phase 9 is complete and adds bounded, read-only interactive ontology graph visualization. Phase 10's inferred-materialization delivery remains historical; the current Reasoning workspace exposes bounded read-only asserted and inferred fact browsers. Phase 10.5 is complete and adds optional, read-only applied and proposal inferred-fact overlays to Explore and the ontology map. The current product also includes a native OpenAI-backed ontology assistant with project-scoped conversations, ontology-aware answers, review-only edit proposals, deterministic validation, and staging into the existing human-review workflow. Phase 11 extends that active AI foundation with bounded document ingestion, evidence-grounded analysis, cross-workflow provenance, and human-reviewed typed drafts. Active Phase 11.5 planning redesigns only the document-analysis portion as a bounded multi-stage modeling pipeline with connected atomic recommendations, deterministic verification, and the same human-review boundary. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
+Phases 1 through 8 are preserved as historical delivery records. Phase 9 is complete and adds bounded, read-only interactive ontology graph visualization. Phase 10's inferred-materialization delivery remains historical; the current Reasoning workspace exposes bounded read-only asserted and inferred fact browsers. Phase 10.5 is complete and adds optional, read-only applied and proposal inferred-fact overlays to Explore and the ontology map. The current product also includes a native OpenAI-backed ontology assistant with project-scoped conversations, ontology-aware answers, review-only edit proposals, deterministic validation, and staging into the existing human-review workflow. Phase 11 extends that active AI foundation with bounded document ingestion, evidence-grounded analysis, cross-workflow provenance, and human-reviewed typed drafts. Phase 11.5 replaces only the document-analysis portion with a bounded multi-stage modeling pipeline, connected atomic recommendations, deterministic verification, and the same human-review boundary. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
 
 ## Product Context
 
 Entio helps teams build clean, trustworthy knowledge graphs from enterprise information.
 
-The system is ontology-first, meaning AI work must operate within approved concepts, relationships, and constraints instead of freely inventing graph structure. The active native assistant can answer ontology questions and prepare structured review-only edits, but it cannot directly approve, apply, write source files, or execute arbitrary tools. Phase 11 adds a narrow document-analysis path whose evidence-linked recommendations remain drafts until deterministic checks and human review succeed. Phase 11.5 is the active planning boundary for improving that analysis path; it does not authorize automatic approval, raw RDF, or a second apply workflow.
+The system is ontology-first, meaning AI work must operate within approved concepts, relationships, and constraints instead of freely inventing graph structure. The active native assistant can answer ontology questions and prepare structured review-only edits, but it cannot directly approve, apply, write source files, or execute arbitrary tools. Phase 11 adds a narrow document-analysis path whose evidence-linked recommendations remain drafts until deterministic checks and human review succeed. Phase 11.5 improves that analysis path without authorizing automatic approval, raw RDF, or a second apply workflow.
 
 ## Current Rule For Agents
 
@@ -22,7 +22,7 @@ If a task seems to require later-phase infrastructure, stop and explain why befo
 
 ## Current Scope
 
-The implemented Entio foundation is complete through Phase 11. The current codebase supports:
+The implemented Entio foundation is complete through Phase 11.5. The current codebase supports:
 
 - Loading an Entio project.
 - Parsing small Turtle/RDF ontology files with existing libraries.
@@ -53,6 +53,13 @@ The implemented Entio foundation is complete through Phase 11. The current codeb
 - Presenting evidence-linked confirm, extend, revise, split, merge, conflict, and supersede recommendations for human review.
 - Converting accepted recommendations only into supported typed draft batches that use the existing proposal, approval, atomic apply, reload, and rollback workflow.
 - Retaining project-authorized provenance for successfully applied document-derived changes without storing it in ontology source files.
+- Discovering document meaning separately from ontology alignment, with one bounded ontology-blind call per document.
+- Building a connected document model before comparing it with the current ontology.
+- Reconciling document meaning with other documents and retained applied provenance.
+- Aligning connected model items with local, imported, current-work, prior-provenance, and pinned FIBO scopes.
+- Critiquing modeling choices in a separate bounded pass and calculating evidence, modeling, ontology-fit, and weakest-value overall confidence.
+- Planning dependency-ordered atomic recommendation groups with Kotlin-verified temporary references and supported typed operations.
+- Presenting grouped exact changes, evidence, critique, confidence, review-only findings, and individual-creation gates for human review.
 
 Current implementation notes:
 
@@ -173,13 +180,13 @@ Phase 11 is complete and summarized in `docs/phase-summaries/phase-11-summary.md
 
 Phase 11 adds bounded PDF, DOCX, TXT, and Markdown ingestion in the web workbench. Documents and provider output remain untrusted. Kotlin owns evidence verification, semantic matching, duplicate prevention, cross-workflow comparison, and typed-edit conversion; Ktor owns authorized temporary task orchestration and narrowly scoped durable provenance for successfully applied document-derived changes; React owns upload, progress, evidence, and recommendation review. The CLI and VS Code extension do not expose document-ingestion commands.
 
-Phase 11.5 is the current active planning phase. Its planning documents are:
+Phase 11.5 is complete and summarized in `docs/phase-summaries/phase-11.5-summary.md`. Its approved and implemented planning documents are:
 
 - `docs/architecture/phase-11.5-scope.md`
 - `docs/specs/0021-phase-11.5-multi-stage-ai-modeling-and-connected-ontology-change-sets.md`
 - `docs/execplans/0021-phase-11.5-multi-stage-ai-modeling-and-connected-ontology-change-sets.md`
 
-Phase 11.5 is not implemented yet. It plans to replace Phase 11's single-stage document-analysis contract with separate discovery, connected modeling, reconciliation, ontology alignment, critic, and final-planning calls. Connected recommendations will remain bounded, deterministically verified by Kotlin, and subject to the existing private-draft, proposal, human-approval, apply, reload, and rollback workflow. The updated ExecPlan is authoritative for delivery order, limits, migration, and slice boundaries.
+Phase 11.5 replaces Phase 11's single-stage document-analysis contract with separate discovery, connected modeling, reconciliation, ontology alignment, critic, and final-planning calls. Connected recommendations remain bounded, deterministically verified by Kotlin, and subject to the existing private-draft, proposal, human-approval, apply, reload, and rollback workflow. Phase 11 remains the ingestion, extraction, evidence, authorization, and applied-provenance foundation.
 
 ## Software Architecture Rules
 
@@ -257,7 +264,7 @@ Do not report a feature complete unless tests were added or updated and the veri
 
 Do not add later-phase infrastructure unless explicitly requested.
 
-The VS Code extension, deterministic FIBO catalog, Ktor web server, and React web application are already implemented and should be extended only through approved specs and ExecPlans. The implemented document-ingestion boundary remains authorized by the approved Phase 11 scope and ExecPlan. Phase 11.5 implementation must not begin until its active scope, aligned spec, ExecPlan, and Slice 0 audit are approved. Still-deferred infrastructure includes entity-resolution agents, Stardog integration, unrestricted autonomous agents, production document/task persistence beyond Phase 11's narrow applied-change provenance, production identity/tenancy, additional ontology catalogs, and unbounded external indexing.
+The VS Code extension, deterministic FIBO catalog, Ktor web server, and React web application are already implemented and should be extended only through approved specs and ExecPlans. The implemented document-ingestion boundary is authorized by the approved Phase 11 and Phase 11.5 planning documents. Still-deferred infrastructure includes entity-resolution agents, Stardog integration, unrestricted autonomous agents, production document/task persistence beyond Phase 11's narrow applied-change provenance, production identity/tenancy, additional ontology catalogs, and unbounded external indexing.
 
 ### 10. Document important architecture decisions
 

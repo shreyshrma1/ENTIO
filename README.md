@@ -18,11 +18,11 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository contains the implemented Entio foundation through Phase 11. Phase 11, AI-Powered Document Ingestion and Ontology Evolution, was implemented and verified on 2026-07-24. Phase 11.5, Multi-Stage AI Modeling and Connected Ontology Change Sets, is the current active planning phase and is not yet implemented.
+This repository contains the implemented Entio foundation through Phase 11.5. Phase 11, AI-Powered Document Ingestion and Ontology Evolution, was implemented and verified on 2026-07-24. Phase 11.5, Multi-Stage AI Modeling and Connected Ontology Change Sets, is the current active phase and was implemented and verified on 2026-07-27.
 
 The current product includes a native OpenAI-backed ontology assistant. Users can hold project-scoped conversations, ask ontology questions, generate structured review-only edits, inspect validation results, remove edits, and stage valid proposals into the existing human-review workflow. Assistant runs remain in memory, the UI polls for status, and the assistant cannot execute arbitrary tools, approve or apply changes, or write ontology sources directly. Phase 11 extends this active foundation with bounded, evidence-grounded document analysis.
 
-Phase 11.5 plans to replace only the document-ingestion analysis contract with separate discovery, connected modeling, reconciliation, ontology alignment, critic, and final-planning stages. The implemented Phase 11 workflow remains the current product behavior until the Phase 11.5 plan is approved, implemented, and verified.
+Phase 11.5 replaces only the document-ingestion analysis contract with separate discovery, connected modeling, reconciliation, ontology alignment, critic, and final-planning stages. Phase 11 remains the upload, extraction, evidence, authorization, review, proposal, apply, rollback, and applied-provenance foundation.
 
 Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because the core work is ontology loading, RDF/Turtle parsing, deterministic validation, semantic diffing, and CLI behavior.
 
@@ -239,7 +239,7 @@ Phase 2 should not include:
 
 ## Current Active Phase
 
-Phase 11.5 is the active planning phase. It plans this bounded document-analysis sequence:
+Phase 11.5 is implemented and is the current active phase. New document-ingestion tasks use this bounded analysis sequence:
 
 ```text
 verified extracted text
@@ -254,20 +254,7 @@ verified extracted text
 → existing typed private-draft and proposal workflow
 ```
 
-Phase 11 remains the last implemented and verified baseline. Its current PDF, DOCX, TXT, and Markdown workflow is:
-
-```text
-safe upload
-→ located text extraction
-→ bounded AI candidate analysis
-→ Kotlin evidence verification and ontology matching
-→ document comparison and recommendations
-→ human review
-→ typed private-draft batches
-→ existing validation and proposal workflow
-```
-
-Phase 11 preserves these boundaries:
+Phase 11 remains the foundation and preserves these boundaries:
 
 - documents and provider output are untrusted;
 - AI recommendations cannot approve, apply, write raw RDF, or bypass typed operations;
@@ -277,7 +264,7 @@ Phase 11 preserves these boundaries:
 
 Phases 7, 7.5, and 8 remain historical delivery records, but the current codebase includes the bounded native ontology assistant described above. Phase 11 extends that assistant and provider foundation only with the implemented document-ingestion workflow described by its scope, spec, ExecPlan, and phase summary.
 
-Phase 11.5 does not add automatic approval, raw RDF, unrestricted agents, a second apply path, or new CLI and VS Code ingestion surfaces. Its planning documents remain drafts for review, and its updated ExecPlan is authoritative for delivery order and limits.
+Phase 11.5 does not add automatic approval, raw RDF, unrestricted agents, a second apply path, or new CLI and VS Code ingestion surfaces. Complex rules that current typed operations cannot express remain visible and review-only.
 
 ## Technical Principle
 
@@ -345,3 +332,4 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 11 Implementation Summary](docs/phase-summaries/phase-11-summary.md)
 - [Phase 11.5 Spec](docs/specs/0021-phase-11.5-multi-stage-ai-modeling-and-connected-ontology-change-sets.md)
 - [Phase 11.5 ExecPlan](docs/execplans/0021-phase-11.5-multi-stage-ai-modeling-and-connected-ontology-change-sets.md)
+- [Phase 11.5 Implementation Summary](docs/phase-summaries/phase-11.5-summary.md)
