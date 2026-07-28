@@ -195,6 +195,7 @@ private data class StoredVerifiedPlan(
     val projectId: String,
     val ownerUserId: String,
     val workKey: String,
+    val graphFingerprint: String,
     val plan: DocumentVerifiedFinalPlan,
     val taskDocuments: List<DocumentIngestionDocumentSnapshot>,
     val blocks: Map<String, LocatedDocumentTextBlock>,
@@ -205,6 +206,7 @@ private data class StoredVerifiedPlan(
 
 internal data class VerifiedDocumentReviewPlan(
     val workKey: String,
+    val graphFingerprint: String,
     val plan: DocumentVerifiedFinalPlan,
     val taskDocuments: List<DocumentIngestionDocumentSnapshot>,
     val blocks: Map<String, LocatedDocumentTextBlock>,
@@ -223,11 +225,13 @@ internal class DocumentReviewWorkspaceStore(
     fun installVerifiedPlan(
         task: DocumentIngestionTaskSnapshot,
         workKey: String,
+        graphFingerprint: String,
         plan: DocumentVerifiedFinalPlan,
         extractedDocuments: List<ExtractedDocument>,
         discoveries: List<DocumentDiscovery>,
     ): Unit {
         require(plan.plan.workKey.sha256 == workKey)
+        require(graphFingerprint.isNotBlank())
         val blocks = extractedDocuments.flatMap(ExtractedDocument::blocks).associateBy { it.id.value }
         val evidence = discoveries
             .flatMap(DocumentDiscovery::evidence)
@@ -240,6 +244,7 @@ internal class DocumentReviewWorkspaceStore(
             projectId = task.projectId,
             ownerUserId = task.ownerUserId,
             workKey = workKey,
+            graphFingerprint = graphFingerprint,
             plan = plan,
             taskDocuments = task.documents,
             blocks = blocks,
@@ -277,6 +282,7 @@ internal class DocumentReviewWorkspaceStore(
             )
         return VerifiedDocumentReviewPlan(
             workKey = stored.workKey,
+            graphFingerprint = stored.graphFingerprint,
             plan = stored.plan,
             taskDocuments = stored.taskDocuments,
             blocks = stored.blocks,

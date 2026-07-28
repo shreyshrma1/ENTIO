@@ -309,6 +309,7 @@ internal class DocumentIngestionOrchestrator(
         reviews.installVerifiedPlan(
             reviewTask,
             workKey.sha256,
+            ontologyFingerprint,
             finalResult.verifiedPlan,
             extracted,
             discoveryResult.discoveries,
