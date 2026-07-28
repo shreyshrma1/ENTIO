@@ -114,6 +114,12 @@ public data class PreparedDocumentStagingItem(
     val provenance: DocumentDraftProvenance,
 )
 
+internal data class ConnectedDocumentStagingSnapshot(
+    val graphFingerprint: String,
+    val writableSourceIds: Set<String>,
+    val normalizedDocumentOperationKeys: Set<String>,
+)
+
 private data class PreparedStageRequest(
     val request: WebStageChangeRequest,
     val resolvedCandidates: List<EntityCandidate>,
@@ -170,6 +176,20 @@ public class StagingWorkflowService(
 
     @Synchronized
     public fun snapshot(projectId: String): WebStagingResponse = response(projectId, session(projectId))
+
+    @Synchronized
+    internal fun connectedDocumentSnapshot(projectId: String): ConnectedDocumentStagingSnapshot {
+        val project = load(projectId)
+        return ConnectedDocumentStagingSnapshot(
+            graphFingerprint = webGraphFingerprint(project.graph),
+            writableSourceIds = project.resolvedSources
+                .filter { com.entio.core.ShaclGraphRole.Ontology in it.roles }
+                .mapTo(linkedSetOf()) { it.id },
+            normalizedDocumentOperationKeys = session(projectId).entries
+                .mapNotNull { it.staged.documentDraftProvenance?.normalizedTypedOperationKey }
+                .toSet(),
+        )
+    }
 
     @Synchronized
     internal fun materializationStagedIds(projectId: String): Map<com.entio.core.SemanticFactKey, String> =
