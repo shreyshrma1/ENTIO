@@ -170,12 +170,12 @@ class DocumentIngestionOrchestratorTest {
     }
 
     @Test
-    fun reportsSafeSpecificProviderFailureWithoutExposingProviderPayloads(): Unit = runBlocking {
+    fun reportsSafeSpecificSchemaFailureWithoutExposingProviderPayloads(): Unit = runBlocking {
         val fixture = fixture(
             readyModel = true,
             providerFailure = DocumentAnalysisProviderResult.Failed(
                 retryable = false,
-                safeCode = "document-provider-request-rejected",
+                safeCode = "document-provider-request-schema-invalid",
             ),
         )
         val taskId = fixture.manager.begin("simple", "alice", 1)
@@ -196,8 +196,12 @@ class DocumentIngestionOrchestratorTest {
 
         val task = fixture.manager.find(taskId, "simple", "alice")
         assertEquals("failed", task.status)
-        assertEquals("The model provider rejected Entio's document-analysis request.", task.progress.message)
-        assertTrue(task.updates.last().message.contains("rejected"))
+        assertEquals(
+            "The model provider rejected Entio's structured response schema " +
+                "(document-provider-request-schema-invalid).",
+            task.progress.message,
+        )
+        assertTrue(task.updates.last().message.contains("structured response schema"))
         assertTrue(directory.path.toFile().exists().not())
         fixture.close()
     }

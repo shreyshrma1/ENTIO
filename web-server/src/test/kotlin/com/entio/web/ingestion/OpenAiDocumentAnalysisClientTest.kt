@@ -19,6 +19,7 @@ import com.entio.core.DocumentEvidenceType
 import com.entio.core.DocumentExtractionMethod
 import com.entio.core.DocumentId
 import com.entio.core.DocumentTextBlockId
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -60,6 +61,7 @@ class OpenAiDocumentAnalysisClientTest {
         assertEquals("Customer", completed.response.discoveries.single().description)
         val root = ObjectMapper().readTree(body)
         val format = root.path("text").path("format")
+        assertOpenAiCompatibleStrictSchema(format)
         val discoveryProperties = format.path("schema").path("properties")
             .path("discoveries").path("items").path("properties")
         assertEquals("phase_11_5_document_discovery", format.path("name").asText())
@@ -110,6 +112,7 @@ class OpenAiDocumentAnalysisClientTest {
         assertEquals("DomainAssignment", completed.response.items.last().kind)
         val root = ObjectMapper().readTree(body)
         val format = root.path("text").path("format")
+        assertOpenAiCompatibleStrictSchema(format)
         val itemProperties = format.path("schema").path("properties").path("items").path("items").path("properties")
         assertEquals("phase_11_5_connected_document_model", format.path("name").asText())
         assertEquals(false, format.path("schema").path("additionalProperties").asBoolean())
@@ -160,6 +163,7 @@ class OpenAiDocumentAnalysisClientTest {
         assertIs<DocumentConnectedModelProviderResult.CompletedConsolidation>(result)
         val root = ObjectMapper().readTree(body)
         val format = root.path("text").path("format")
+        assertOpenAiCompatibleStrictSchema(format)
         assertEquals("phase_11_5_document_model_consolidation", format.path("name").asText())
         assertEquals(
             DocumentAnalysisPipelineVersions.MODEL_CONSOLIDATION_RESPONSE,
@@ -191,6 +195,7 @@ class OpenAiDocumentAnalysisClientTest {
         assertEquals("Duplicate", completed.response.records.single().kind)
         val root = ObjectMapper().readTree(body)
         val format = root.path("text").path("format")
+        assertOpenAiCompatibleStrictSchema(format)
         val recordProperties = format.path("schema").path("properties")
             .path("records").path("items").path("properties")
         assertEquals("phase_11_5_document_reconciliation", format.path("name").asText())
@@ -234,6 +239,7 @@ class OpenAiDocumentAnalysisClientTest {
         assertEquals("Reuse", completed.response.records.single().action)
         val root = ObjectMapper().readTree(body)
         val format = root.path("text").path("format")
+        assertOpenAiCompatibleStrictSchema(format)
         val fields = format.path("schema").path("properties").path("records").path("items").path("properties")
         assertEquals("phase_11_5_document_ontology_alignment", format.path("name").asText())
         assertEquals(false, format.path("schema").path("additionalProperties").asBoolean())
@@ -267,6 +273,7 @@ class OpenAiDocumentAnalysisClientTest {
         assertEquals("Downgrade", completed.response.findings.single().action)
         val root = ObjectMapper().readTree(body)
         val format = root.path("text").path("format")
+        assertOpenAiCompatibleStrictSchema(format)
         val fields = format.path("schema").path("properties").path("findings").path("items").path("properties")
         assertEquals("phase_11_5_document_modeling_critic", format.path("name").asText())
         assertTrue(fields.path("action").path("enum").map { it.asText() }.contains("RequestClarification"))
@@ -301,6 +308,7 @@ class OpenAiDocumentAnalysisClientTest {
             .operations.single().declaration?.value)
         val root = ObjectMapper().readTree(body)
         val format = root.path("text").path("format")
+        assertOpenAiCompatibleStrictSchema(format)
         assertEquals("phase_11_5_document_final_plan", format.path("name").asText())
         assertEquals(false, format.path("schema").path("additionalProperties").asBoolean())
         assertTrue(root.path("tools").isEmpty)
@@ -400,6 +408,30 @@ class OpenAiDocumentAnalysisClientTest {
         }
         assertTrue(assertIs<DocumentAnalysisProviderResult.Failed>(rate).retryable)
 
+        val schemaRejectionEngine = MockEngine {
+            respond(
+                """
+                {
+                  "error": {
+                    "message": "Provider diagnostic must not be returned to the user.",
+                    "type": "invalid_request_error",
+                    "param": "text.format.schema",
+                    "code": "invalid_json_schema"
+                  }
+                }
+                """.trimIndent(),
+                HttpStatusCode.BadRequest,
+                headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val schemaRejection = OpenAiDocumentAnalysisClient(engine = schemaRejectionEngine).use {
+            it.discover("secret", "gpt-test", "instruction", discoveryRequest())
+        }
+        assertEquals(
+            "document-provider-request-schema-invalid",
+            assertIs<DocumentDiscoveryProviderResult.Failed>(schemaRejection).safeCode,
+        )
+
         val malformedDiscoveryEngine = MockEngine {
             respond(
                 providerEnvelope(
@@ -493,6 +525,12 @@ class OpenAiDocumentAnalysisClientTest {
             "document-provider-empty-output",
             failureCode("""{"status":"completed","output":[]}"""),
         )
+    }
+
+    private fun assertOpenAiCompatibleStrictSchema(format: JsonNode): Unit {
+        assertEquals("json_schema", format.path("type").asText())
+        assertTrue(format.path("strict").asBoolean())
+        assertTrue(!format.path("schema").toString().contains("\"uniqueItems\""))
     }
 
     private fun request(): DocumentAnalysisRequest = DocumentAnalysisRequest(

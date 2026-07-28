@@ -615,6 +615,12 @@ internal class DocumentIngestionOrchestrator(
             "Model analysis timed out after bounded retries."
         "document-provider-request-rejected" ->
             "The model provider rejected Entio's document-analysis request."
+        "document-provider-request-schema-invalid" ->
+            "The model provider rejected Entio's structured response schema " +
+                "(document-provider-request-schema-invalid)."
+        "document-provider-model-not-found" ->
+            "The selected model is no longer available from the provider " +
+                "(document-provider-model-not-found)."
         "document-provider-response-limit" ->
             "The model response exceeded Entio's safe analysis limit."
         "document-provider-incomplete-output" ->

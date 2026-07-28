@@ -43,6 +43,7 @@ import io.ktor.client.request.accept
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -112,14 +113,10 @@ internal class OpenAiDocumentAnalysisClient(
                 setBody(TextContent(requestBody(selectedModelId, systemInstruction, request), ContentType.Application.Json))
             }
             if (!response.status.isSuccess()) {
+                val failure = classifyHttpFailure(response)
                 return DocumentAnalysisProviderResult.Failed(
-                    retryable = response.status.value == 429 || response.status.value >= 500,
-                    safeCode = when {
-                        response.status.value == 401 || response.status.value == 403 -> "document-provider-authorization"
-                        response.status.value == 429 -> "document-provider-rate-limited"
-                        response.status.value >= 500 -> "document-provider-unavailable"
-                        else -> "document-provider-request-rejected"
-                    },
+                    retryable = failure.retryable,
+                    safeCode = failure.safeCode,
                 )
             }
             val responseText = response.bodyAsText()
@@ -162,15 +159,10 @@ internal class OpenAiDocumentAnalysisClient(
                 )
             }
             if (!response.status.isSuccess()) {
+                val failure = classifyHttpFailure(response)
                 return DocumentDiscoveryProviderResult.Failed(
-                    retryable = response.status.value == 429 || response.status.value >= 500,
-                    safeCode = when {
-                        response.status.value == 401 || response.status.value == 403 ->
-                            "document-provider-authorization"
-                        response.status.value == 429 -> "document-provider-rate-limited"
-                        response.status.value >= 500 -> "document-provider-unavailable"
-                        else -> "document-provider-request-rejected"
-                    },
+                    retryable = failure.retryable,
+                    safeCode = failure.safeCode,
                 )
             }
             val responseText = response.bodyAsText()
@@ -251,15 +243,10 @@ internal class OpenAiDocumentAnalysisClient(
                 )
             }
             if (!response.status.isSuccess()) {
+                val failure = classifyHttpFailure(response)
                 return DocumentReconciliationProviderResult.Failed(
-                    retryable = response.status.value == 429 || response.status.value >= 500,
-                    safeCode = when {
-                        response.status.value == 401 || response.status.value == 403 ->
-                            "document-provider-authorization"
-                        response.status.value == 429 -> "document-provider-rate-limited"
-                        response.status.value >= 500 -> "document-provider-unavailable"
-                        else -> "document-provider-request-rejected"
-                    },
+                    retryable = failure.retryable,
+                    safeCode = failure.safeCode,
                 )
             }
             val responseText = response.bodyAsText()
@@ -303,15 +290,10 @@ internal class OpenAiDocumentAnalysisClient(
                 )
             }
             if (!response.status.isSuccess()) {
+                val failure = classifyHttpFailure(response)
                 return DocumentOntologyAlignmentProviderResult.Failed(
-                    retryable = response.status.value == 429 || response.status.value >= 500,
-                    safeCode = when {
-                        response.status.value == 401 || response.status.value == 403 ->
-                            "document-provider-authorization"
-                        response.status.value == 429 -> "document-provider-rate-limited"
-                        response.status.value >= 500 -> "document-provider-unavailable"
-                        else -> "document-provider-request-rejected"
-                    },
+                    retryable = failure.retryable,
+                    safeCode = failure.safeCode,
                 )
             }
             val responseText = response.bodyAsText()
@@ -355,15 +337,10 @@ internal class OpenAiDocumentAnalysisClient(
                 )
             }
             if (!response.status.isSuccess()) {
+                val failure = classifyHttpFailure(response)
                 return DocumentModelingCriticProviderResult.Failed(
-                    retryable = response.status.value == 429 || response.status.value >= 500,
-                    safeCode = when {
-                        response.status.value == 401 || response.status.value == 403 ->
-                            "document-provider-authorization"
-                        response.status.value == 429 -> "document-provider-rate-limited"
-                        response.status.value >= 500 -> "document-provider-unavailable"
-                        else -> "document-provider-request-rejected"
-                    },
+                    retryable = failure.retryable,
+                    safeCode = failure.safeCode,
                 )
             }
             val responseText = response.bodyAsText()
@@ -407,15 +384,10 @@ internal class OpenAiDocumentAnalysisClient(
                 )
             }
             if (!response.status.isSuccess()) {
+                val failure = classifyHttpFailure(response)
                 return DocumentFinalPlanningProviderResult.Failed(
-                    retryable = response.status.value == 429 || response.status.value >= 500,
-                    safeCode = when {
-                        response.status.value == 401 || response.status.value == 403 ->
-                            "document-provider-authorization"
-                        response.status.value == 429 -> "document-provider-rate-limited"
-                        response.status.value >= 500 -> "document-provider-unavailable"
-                        else -> "document-provider-request-rejected"
-                    },
+                    retryable = failure.retryable,
+                    safeCode = failure.safeCode,
                 )
             }
             val responseText = response.bodyAsText()
@@ -439,6 +411,36 @@ internal class OpenAiDocumentAnalysisClient(
     }
 
     override fun close(): Unit = client.close()
+
+    private suspend fun classifyHttpFailure(response: HttpResponse): SafeHttpFailure {
+        val status = response.status.value
+        val providerError = if (status in 400..499) {
+            runCatching {
+                response.bodyAsText()
+                    .takeIf { it.length <= MAX_PROVIDER_ERROR_CHARACTERS }
+                    ?.let(objectMapper::readTree)
+                    ?.path("error")
+            }.getOrNull()
+        } else {
+            null
+        }
+        val providerCode = providerError?.path("code")?.takeIf(JsonNode::isTextual)?.asText()
+        val providerParameter = providerError?.path("param")?.takeIf(JsonNode::isTextual)?.asText()
+        val safeCode = when {
+            status == 401 || status == 403 -> "document-provider-authorization"
+            status == 429 -> "document-provider-rate-limited"
+            status >= 500 -> "document-provider-unavailable"
+            providerCode == "invalid_json_schema" ||
+                providerParameter in OPENAI_SCHEMA_PARAMETERS ->
+                "document-provider-request-schema-invalid"
+            providerCode == "model_not_found" -> "document-provider-model-not-found"
+            else -> "document-provider-request-rejected"
+        }
+        return SafeHttpFailure(
+            retryable = status == 429 || status >= 500,
+            safeCode = safeCode,
+        )
+    }
 
     private suspend fun connectedModelCall(
         apiKey: String,
@@ -470,15 +472,10 @@ internal class OpenAiDocumentAnalysisClient(
                 )
             }
             if (!response.status.isSuccess()) {
+                val failure = classifyHttpFailure(response)
                 return DocumentConnectedModelProviderResult.Failed(
-                    retryable = response.status.value == 429 || response.status.value >= 500,
-                    safeCode = when {
-                        response.status.value == 401 || response.status.value == 403 ->
-                            "document-provider-authorization"
-                        response.status.value == 429 -> "document-provider-rate-limited"
-                        response.status.value >= 500 -> "document-provider-unavailable"
-                        else -> "document-provider-request-rejected"
-                    },
+                    retryable = failure.retryable,
+                    safeCode = failure.safeCode,
                 )
             }
             val responseText = response.bodyAsText()
@@ -906,7 +903,6 @@ internal class OpenAiDocumentAnalysisClient(
         put("type", "array")
         put("minItems", minItems)
         put("maxItems", maxItems)
-        put("uniqueItems", true)
         set<JsonNode>("items", objectMapper.createObjectNode().put("type", "string").put("maxLength", maxLength))
     }
 
@@ -946,13 +942,11 @@ internal class OpenAiDocumentAnalysisClient(
                     put("type", "array")
                     put("minItems", 1)
                     put("maxItems", 2_000)
-                    put("uniqueItems", true)
                     set<JsonNode>("items", objectMapper.createObjectNode().put("type", "string").put("maxLength", 200))
                 })
                 set<JsonNode>("references", objectMapper.createObjectNode().apply {
                     put("type", "array")
                     put("maxItems", 20)
-                    put("uniqueItems", true)
                     set<JsonNode>("items", reference)
                 })
                 set<JsonNode>("literalLexicalForm", nullableString(
@@ -1052,7 +1046,6 @@ internal class OpenAiDocumentAnalysisClient(
                 set<JsonNode>("relatedProviderIds", objectMapper.createObjectNode().apply {
                     put("type", "array")
                     put("maxItems", MAX_DOCUMENT_DISCOVERIES_PER_DOCUMENT)
-                    put("uniqueItems", true)
                     set<JsonNode>("items", objectMapper.createObjectNode()
                         .put("type", "string")
                         .put("maxLength", 200))
@@ -1605,6 +1598,13 @@ internal class OpenAiDocumentAnalysisClient(
     private companion object {
         const val RESPONSE_SCHEMA_VERSION: String = "phase-11-document-analysis-response-v4"
         const val MAX_PROVIDER_RESPONSE_CHARACTERS: Int = 1_000_000
+        const val MAX_PROVIDER_ERROR_CHARACTERS: Int = 64_000
+        val OPENAI_SCHEMA_PARAMETERS: Set<String> = setOf(
+            "response_format",
+            "response_format.json_schema.schema",
+            "text.format",
+            "text.format.schema",
+        )
         val EVIDENCE_FIELDS: Set<String> =
             setOf("documentId", "blockId", "startOffsetInBlock", "endOffsetInBlock", "excerpt")
         val CANDIDATE_FIELDS: Set<String> = setOf(
@@ -1731,6 +1731,11 @@ internal class OpenAiDocumentAnalysisClient(
             setOf("discoveryId", "kind", "recommendationId", "relatedDiscoveryId", "rationale")
     }
 }
+
+private data class SafeHttpFailure(
+    val retryable: Boolean,
+    val safeCode: String,
+)
 
 private class SafeProviderResponseFailure(
     val code: String,
