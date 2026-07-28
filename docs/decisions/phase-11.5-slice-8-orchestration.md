@@ -36,7 +36,17 @@ Intermediate discoveries, models, reconciliation, alignments, critic findings, f
 
 ## Applied Provenance Compatibility
 
-The applied-provenance snapshot adds optional Phase 11.5 pipeline metadata: work key, model ID, prompt versions, and stage output hashes. Existing version-one records remain readable, and saving existing applied records preserves any new pipeline metadata. No ontology source stores this provenance.
+The applied-provenance snapshot adds optional Phase 11.5 pipeline metadata:
+work key, model ID, prompt versions, stage input and output hashes, confidence
+dimensions, critic and coverage dispositions, related review-only findings, and
+individual confirmation records. The temporary review store retains the
+verified evidence groups, located text blocks, document identities, and stage
+records needed to construct that provenance only after a successful approved
+apply.
+
+Existing version-one records remain readable with empty Phase 11.5 fields, and
+saving existing applied records preserves new pipeline metadata. No ontology
+source stores this provenance.
 
 ## Verification
 

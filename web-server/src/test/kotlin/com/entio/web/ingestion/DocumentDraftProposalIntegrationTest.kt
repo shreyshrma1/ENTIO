@@ -1,7 +1,16 @@
 package com.entio.web.ingestion
 
 import com.entio.core.CreateClassEdit
+import com.entio.core.DocumentAnalysisPipelineVersions
+import com.entio.core.DocumentAnalysisStage
+import com.entio.core.DocumentAnalysisStageRecord
+import com.entio.core.DocumentAnalysisStageState
 import com.entio.core.DocumentCandidateCategory
+import com.entio.core.DocumentConfidenceDimensions
+import com.entio.core.DocumentCoverageDisposition
+import com.entio.core.DocumentCoverageDispositionKind
+import com.entio.core.DocumentCriticDisposition
+import com.entio.core.DocumentCriticDispositionKind
 import com.entio.core.DocumentDraftProvenance
 import com.entio.core.DocumentEvidence
 import com.entio.core.DocumentEvidenceId
@@ -9,6 +18,13 @@ import com.entio.core.DocumentEvidenceReference
 import com.entio.core.DocumentEvidenceType
 import com.entio.core.DocumentExtractionMethod
 import com.entio.core.DocumentId
+import com.entio.core.DocumentFinalRecommendation
+import com.entio.core.DocumentFinalRecommendationStatus
+import com.entio.core.DocumentGroupedDecisionKind
+import com.entio.core.DocumentGroupedRecommendationDecision
+import com.entio.core.DocumentPlanOperand
+import com.entio.core.DocumentPlanOperation
+import com.entio.core.DocumentPlanOperationKind
 import com.entio.core.DocumentRecommendation
 import com.entio.core.DocumentRecommendationAction
 import com.entio.core.DocumentRecommendationCategory
@@ -16,6 +32,7 @@ import com.entio.core.DocumentRecommendationReviewStatus
 import com.entio.core.DocumentReviewDecision
 import com.entio.core.DocumentTaskId
 import com.entio.core.DocumentTextBlockId
+import com.entio.core.DocumentReviewOnlyFinding
 import com.entio.core.Iri
 import com.entio.core.LocatedDocumentTextBlock
 import com.entio.core.RdfLiteral
@@ -141,6 +158,116 @@ class DocumentDraftProposalIntegrationTest {
         assertEquals("Customer", record.evidence.single().exactExcerpt)
         assertFalse(Files.readString(fixture.source).contains("recommendation-1"))
         assertFalse(Files.readString(fixture.source).contains("document-1"))
+    }
+
+    @Test
+    fun connectedApplyRetainsVerifiedPipelineAndReviewOnlyProvenance(): Unit {
+        val fixture = fixture()
+        val repository = AppliedDocumentProvenanceRepository(
+            Files.createTempDirectory("entio-connected-applied-provenance"),
+            fixture.registry,
+        )
+        val coordinator = DocumentApplyProvenanceCoordinator(repository)
+        val service = StagingWorkflowService(fixture.registry)
+        service.installDocumentApplyHooks(coordinator)
+        val legacy = candidate()
+        val recommendation = DocumentFinalRecommendation(
+            id = "recommendation-1",
+            title = "Create a connected customer concept",
+            description = "Create the verified concept while retaining a related policy rule for review.",
+            discoveryIds = listOf("discovery-1"),
+            evidenceIds = listOf(DocumentEvidenceId("evidence-group")),
+            operations = listOf(
+                DocumentPlanOperation(
+                    id = "operation-1",
+                    kind = DocumentPlanOperationKind.CreateClass,
+                    order = 0,
+                    declaration = com.entio.core.DocumentTemporaryReference("new:class:DocumentClass1"),
+                    operands = listOf(DocumentPlanOperand.SourceId("simple")),
+                    expandedTypedEditCount = 1,
+                ),
+            ),
+            reviewOnlyFindings = listOf(
+                DocumentReviewOnlyFinding(
+                    id = "review-only-1",
+                    summary = "Manual aggregation review",
+                    reason = "Aggregation cannot be represented by the supported typed edits.",
+                    discoveryIds = listOf("discovery-1"),
+                    evidenceIds = listOf(DocumentEvidenceId("evidence-group")),
+                    relatedOperationIds = listOf("operation-1"),
+                ),
+            ),
+            criticDispositions = listOf(
+                DocumentCriticDisposition("critic-1", DocumentCriticDispositionKind.AcceptedAndIncorporated),
+            ),
+            confidence = DocumentConfidenceDimensions(95, 90, 85),
+            status = DocumentFinalRecommendationStatus.Mixed,
+        )
+        val decidedAt = Instant.parse("2026-01-01T00:00:00Z")
+        coordinator.registerConnected(
+            "simple",
+            listOf(
+                ConnectedDocumentProvenanceCandidate(
+                    taskId = "task-1",
+                    recommendation = recommendation,
+                    decision = DocumentGroupedRecommendationDecision(
+                        decisionId = "decision-1",
+                        recommendationId = recommendation.id,
+                        actorUserId = "alice",
+                        decidedAt = decidedAt,
+                        kind = DocumentGroupedDecisionKind.Accepted,
+                    ),
+                    documents = legacy.documents,
+                    blocks = legacy.blocks,
+                    evidence = legacy.recommendation.evidence.associateBy { it.id.value },
+                    workKey = "a".repeat(64),
+                    modelId = "gpt-test",
+                    analysisStages = listOf(
+                        DocumentAnalysisStageRecord(
+                            recordId = "stage-final-1",
+                            stage = DocumentAnalysisStage.FinalPlanning,
+                            state = DocumentAnalysisStageState.Succeeded,
+                            scopeId = "task-1",
+                            startedAt = decidedAt,
+                            finishedAt = decidedAt,
+                            durationMillis = 0,
+                            selectedModelId = "gpt-test",
+                            promptVersion = DocumentAnalysisPipelineVersions.FINAL_PLAN_PROMPT,
+                            requestSchemaVersion = DocumentAnalysisPipelineVersions.FINAL_PLAN_REQUEST,
+                            responseSchemaVersion = DocumentAnalysisPipelineVersions.FINAL_PLAN_RESPONSE,
+                            inputSha256 = "b".repeat(64),
+                            outputSha256 = "c".repeat(64),
+                            providerAttemptCount = 1,
+                            completedCount = 1,
+                            totalCount = 1,
+                        ),
+                    ),
+                    coverage = listOf(
+                        DocumentCoverageDisposition(
+                            discoveryId = "discovery-1",
+                            kind = DocumentCoverageDispositionKind.ExecutableRecommendation,
+                            recommendationId = recommendation.id,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val before = fixture.source.readBytes()
+        service.stageDocumentBatch("simple", "alice", "task-1", "connected-batch", listOf(prepared(1)))
+        service.preview("simple", "alice")
+        service.approve("simple", "reviewer")
+
+        assertEquals(before.toList(), fixture.source.readBytes().toList())
+        assertEquals("APPLIED", service.apply("simple", "reviewer").status)
+        val applied = repository.list("simple").single()
+        assertEquals(null, applied.action)
+        assertEquals("a".repeat(64), applied.analysisWorkKey)
+        assertEquals(DocumentConfidenceDimensions(95, 90, 85), applied.confidenceDimensions)
+        assertEquals(listOf("critic-1"), applied.criticDispositionIds)
+        assertEquals(listOf("discovery-1"), applied.coverageDispositionIds)
+        assertEquals(listOf("review-only-1"), applied.relatedReviewOnlyFindings.map { it.findingId })
+        assertEquals(listOf("b".repeat(64)), applied.stageInputHashes)
+        assertEquals(listOf("c".repeat(64)), applied.stageOutputHashes)
     }
 
     @Test

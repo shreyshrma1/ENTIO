@@ -306,7 +306,13 @@ internal class DocumentIngestionOrchestrator(
             100,
             "Grouped evidence-linked recommendations are ready for review.",
         )
-        reviews.installVerifiedPlan(reviewTask, workKey.sha256, finalResult.verifiedPlan)
+        reviews.installVerifiedPlan(
+            reviewTask,
+            workKey.sha256,
+            finalResult.verifiedPlan,
+            extracted,
+            discoveryResult.discoveries,
+        )
     }
 
     private fun announce(

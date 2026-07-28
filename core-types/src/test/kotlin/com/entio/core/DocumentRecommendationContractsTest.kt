@@ -130,6 +130,44 @@ class DocumentRecommendationContractsTest {
     }
 
     @Test
+    fun `requires complete connected pipeline provenance when a work key is present`(): Unit {
+        val typed = AppliedDocumentTypedOperation(
+            stagedItemId = "stage-1",
+            targetSourceId = "simple",
+            normalizedTypedOperationKey = "create-class",
+            targetEntityIri = Iri("https://example.com/Borrower"),
+        )
+        val connected = appliedProvenance(
+            action = DocumentRecommendationAction.CreateLocal,
+            typedOperation = typed,
+            proposalId = "proposal-1",
+        ).copy(
+            action = null,
+            analysisWorkKey = "a".repeat(64),
+            promptVersions = listOf(DocumentAnalysisPipelineVersions.FINAL_PLAN_PROMPT),
+            stageInputHashes = listOf("b".repeat(64)),
+            stageOutputHashes = listOf("c".repeat(64)),
+            confidenceDimensions = DocumentConfidenceDimensions(95, 90, 85),
+            criticDispositionIds = listOf("critic-1"),
+            coverageDispositionIds = listOf("discovery-1"),
+            relatedReviewOnlyFindings = listOf(
+                AppliedDocumentReviewOnlyFinding(
+                    "review-only-1",
+                    "Aggregation rule",
+                    "The supported edit contract cannot represent aggregation.",
+                    listOf(evidenceId),
+                ),
+            ),
+        )
+
+        assertNull(connected.action)
+        assertEquals(85, connected.confidenceDimensions?.overall)
+        assertFailsWith<IllegalArgumentException> {
+            connected.copy(stageInputHashes = emptyList())
+        }
+    }
+
+    @Test
     fun `links every summary highlight to evidence and recommendations`(): Unit {
         val highlight = DocumentSummaryHighlight(
             id = "highlight-1",

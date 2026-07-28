@@ -1,6 +1,9 @@
 package com.entio.web.ingestion
 
 import com.entio.core.DocumentEvidenceReference
+import com.entio.core.DocumentEvidence
+import com.entio.core.DocumentAnalysisStageRecord
+import com.entio.core.DocumentDiscovery
 import com.entio.core.DocumentRecommendation
 import com.entio.core.DocumentRecommendationReviewStatus
 import com.entio.core.LocatedDocumentTextBlock
@@ -193,7 +196,20 @@ private data class StoredVerifiedPlan(
     val ownerUserId: String,
     val workKey: String,
     val plan: DocumentVerifiedFinalPlan,
+    val taskDocuments: List<DocumentIngestionDocumentSnapshot>,
+    val blocks: Map<String, LocatedDocumentTextBlock>,
+    val evidence: Map<String, DocumentEvidence>,
+    val analysisStages: List<DocumentAnalysisStageRecord>,
     val installedAt: Instant,
+)
+
+internal data class VerifiedDocumentReviewPlan(
+    val workKey: String,
+    val plan: DocumentVerifiedFinalPlan,
+    val taskDocuments: List<DocumentIngestionDocumentSnapshot>,
+    val blocks: Map<String, LocatedDocumentTextBlock>,
+    val evidence: Map<String, DocumentEvidence>,
+    val analysisStages: List<DocumentAnalysisStageRecord>,
 )
 
 internal class DocumentReviewWorkspaceStore(
@@ -208,13 +224,27 @@ internal class DocumentReviewWorkspaceStore(
         task: DocumentIngestionTaskSnapshot,
         workKey: String,
         plan: DocumentVerifiedFinalPlan,
+        extractedDocuments: List<ExtractedDocument>,
+        discoveries: List<DocumentDiscovery>,
     ): Unit {
         require(plan.plan.workKey.sha256 == workKey)
+        val blocks = extractedDocuments.flatMap(ExtractedDocument::blocks).associateBy { it.id.value }
+        val evidence = discoveries
+            .flatMap(DocumentDiscovery::evidence)
+            .associateBy { it.id.value }
+        require(plan.plan.recommendations.flatMap { it.evidenceIds }.all { it.value in evidence })
+        require(evidence.values.flatMap(DocumentEvidence::references).all { reference ->
+            blocks[reference.blockId.value]?.documentId == reference.documentId
+        })
         verifiedPlans[task.taskId] = StoredVerifiedPlan(
             projectId = task.projectId,
             ownerUserId = task.ownerUserId,
             workKey = workKey,
             plan = plan,
+            taskDocuments = task.documents,
+            blocks = blocks,
+            evidence = evidence,
+            analysisStages = task.analysisStages,
             installedAt = Instant.now(clock),
         )
     }
@@ -232,6 +262,28 @@ internal class DocumentReviewWorkspaceStore(
                 "document-review-not-ready",
                 "Verified document recommendations are not ready.",
             )
+
+    @Synchronized
+    fun verifiedReviewPlan(
+        projectId: String,
+        taskId: String,
+        userId: String,
+    ): VerifiedDocumentReviewPlan {
+        val stored = verifiedPlans[taskId]
+            ?.takeIf { it.projectId == projectId && it.ownerUserId == userId }
+            ?: throw DocumentIngestionFailure(
+                "document-review-not-ready",
+                "Verified document recommendations are not ready.",
+            )
+        return VerifiedDocumentReviewPlan(
+            workKey = stored.workKey,
+            plan = stored.plan,
+            taskDocuments = stored.taskDocuments,
+            blocks = stored.blocks,
+            evidence = stored.evidence,
+            analysisStages = stored.analysisStages,
+        )
+    }
 
     @Synchronized
     fun install(input: DocumentReviewWorkspaceInput): Unit {
@@ -399,6 +451,7 @@ internal class DocumentReviewWorkspaceStore(
     @Synchronized
     fun remove(taskId: String): Unit {
         workspaces.remove(taskId)
+        verifiedPlans.remove(taskId)
     }
 
     @Synchronized
