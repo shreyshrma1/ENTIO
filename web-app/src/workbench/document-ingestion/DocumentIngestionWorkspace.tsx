@@ -142,6 +142,18 @@ function DocumentStatusDialog({ task, onClose }: { task: WebDocumentIngestionTas
       </div>)}
       <div ref={end} />
     </div>
+    {task.analysisStages?.length ? <section className="document-stage-timeline" aria-label="Analysis stage timeline">
+      <h3>Analysis stages</h3>
+      <ol>{task.analysisStages.map((stage) => <li key={stage.recordId}>
+        <strong>{humanize(stage.stage)}</strong>
+        <span>{humanize(stage.state)}</span>
+        <small>
+          {stage.durationMillis != null ? `${(stage.durationMillis / 1000).toFixed(1)} seconds` : "Waiting"}
+          {stage.providerAttemptCount > 1 ? ` · ${stage.providerAttemptCount} attempts` : ""}
+          {stage.safeCode ? ` · ${humanize(stage.safeCode)}` : ""}
+        </small>
+      </li>)}</ol>
+    </section> : null}
     <button className="button" type="button" onClick={onClose}>Close</button>
   </section></div>;
 }
@@ -265,7 +277,7 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
     <header>
       <div><span>{humanize(recommendation.type)}</span><h3>{recommendation.proposedLabel ?? humanize(recommendation.action)}</h3></div>
       <div className="document-recommendation-badges">
-        <span>{humanize(recommendation.reviewStatus)}</span>
+        <span>{humanize(recommendation.connectedStatus ?? recommendation.reviewStatus)}</span>
         <span>{recommendation.confidence}% confidence</span>
       </div>
     </header>
@@ -282,10 +294,55 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
         <li key={`${operation.operation}-${index}`}>
           <strong>{operation.operation}</strong>
           <span>{operation.description}</span>
+          {operation.dependsOnOperationIds?.length ? <small>Depends on: {operation.dependsOnOperationIds.join(", ")}</small> : null}
           {operation.targetSourceId ? <small>Ontology source: {operation.targetSourceId}</small> : null}
+          {operation.optionalLeaf ? <button
+            type="button"
+            disabled={busy}
+            aria-label={`Exclude optional change ${operation.operation}`}
+            onClick={() => onDecision({ action: "exclude-optional", operationIds: [operation.operationId!] })}
+          >Exclude optional change</button> : null}
         </li>)}</ol> : null}
       {changePreview.blockingReason ? <p role="note"><strong>Cannot be approved:</strong> {changePreview.blockingReason}</p> : null}
     </section>
+
+    {recommendation.confidenceDimensions ? <section className="document-confidence" aria-label="Confidence details">
+      <h4>Confidence</h4>
+      <dl>
+        <div><dt>Evidence</dt><dd>{recommendation.confidenceDimensions.evidence}%</dd></div>
+        <div><dt>Modeling</dt><dd>{recommendation.confidenceDimensions.modeling}%</dd></div>
+        <div><dt>Ontology fit</dt><dd>{recommendation.confidenceDimensions.ontologyFit}%</dd></div>
+      </dl>
+    </section> : null}
+
+    {recommendation.reviewOnlyFindings?.length ? <section className="document-review-only" aria-label="Review-only findings">
+      <h4>Review-only findings</h4>
+      <p>These findings are important context, but Entio cannot safely turn them into supported typed edits.</p>
+      <ul>{recommendation.reviewOnlyFindings.map((finding) => <li key={finding.id}>
+        <strong>{finding.summary}</strong><span>{finding.reason}</span>
+      </li>)}</ul>
+    </section> : null}
+
+    {recommendation.criticDispositions?.length ? <details className="document-critique">
+      <summary>Modeling critique</summary>
+      <ul>{recommendation.criticDispositions.map((item) => <li key={item.findingId}>
+        <strong>{humanize(item.disposition)}</strong>
+        <span>{item.rationale ?? `Critic finding ${item.findingId}`}</span>
+      </li>)}</ul>
+    </details> : null}
+
+    {recommendation.individualReviewGates?.length ? <section className="document-individual-gates" aria-label="Individual confirmations">
+      <h4>Proposed individuals</h4>
+      <p>Confirm that each named example should become an ontology individual. Illustrative examples should normally remain unconfirmed.</p>
+      {recommendation.individualReviewGates.map((gate) => <div key={gate.operationId}>
+        <span>{gate.operationId} · {humanize(gate.classification)}</span>
+        <button type="button" disabled={busy || gate.creationConfirmed} onClick={() => onDecision({
+          action: "confirm-individual",
+          operationId: gate.operationId,
+          confirmProductionClassification: gate.classification !== "Production",
+        })}>{gate.creationConfirmed ? "Confirmed" : "Confirm individual"}</button>
+      </div>)}
+    </section> : null}
 
     {recommendation.evidence.length ? <section className="document-provenance">
       <h4>Source and provenance</h4>
@@ -313,7 +370,7 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
 
     <details className="document-review-options">
       <summary>Review options and technical details</summary>
-      <div className="document-review-fields">
+      {!recommendation.connectedStatus ? <div className="document-review-fields">
         <label>Proposed label<input value={label} maxLength={500} onChange={(event) => setLabel(event.target.value)} /></label>
         <label>Ontology source<input value={targetSourceId} maxLength={200} onChange={(event) => setTargetSourceId(event.target.value)} /></label>
         {recommendation.matches.length ? <label>Matched ontology item
@@ -329,7 +386,7 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
             {duplicateOptions.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.proposedLabel ?? candidate.id}</option>)}
           </select>
         </label> : null}
-      </div>
+      </div> : <label>Reviewer note<textarea value={clarification} maxLength={2000} onChange={(event) => setClarification(event.target.value)} /></label>}
       <dl>
         <div><dt>Recommendation</dt><dd>{humanize(recommendation.action)}</dd></div>
         <div><dt>Model</dt><dd>{recommendation.modelId ?? "Deterministic Entio analysis"}</dd></div>
@@ -337,9 +394,10 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
       </dl>
       <p>{recommendation.rationale}</p>
       <div className="document-review-actions">
-        <button type="button" disabled={busy || !label.trim()} onClick={() => onDecision({ action: "edit", proposedLabel: label, targetSourceId, clarification })}>Save review edits</button>
+        {!recommendation.connectedStatus ? <button type="button" disabled={busy || !label.trim()} onClick={() => onDecision({ action: "edit", proposedLabel: label, targetSourceId, clarification })}>Save review edits</button> : null}
         <button type="button" disabled={busy || !clarification.trim()} onClick={() => onDecision({ action: "clarify", clarification })}>Mark as needing clarification</button>
         <button type="button" disabled={busy || !clarification.trim() || recommendation.reconsiderationCount >= 3} onClick={() => onDecision({ action: "reconsider", clarification })}>Ask Entio to reconsider</button>
+        {recommendation.connectedStatus ? <button type="button" disabled={busy || !clarification.trim()} onClick={() => onDecision({ action: "split", clarification })}>Request a safe split</button> : null}
         {duplicateOptions.length ? <button type="button" disabled={busy || !duplicateId} onClick={() => onDecision({ action: "merge", mergedRecommendationIds: [duplicateId] })}>Merge same-label duplicate</button> : null}
       </div>
     </details>

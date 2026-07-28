@@ -168,6 +168,9 @@ public class DocumentIngestionWebService(
     ): DocumentReviewWorkspaceResponse {
         requireProject(projectId)
         tasks.find(DocumentTaskId(taskId), projectId, userId)
+        if (runCatching { reviews.verifiedPlan(projectId, taskId, userId) }.isSuccess) {
+            return reviews.readVerified(projectId, taskId, userId, page)
+        }
         return reviews.read(projectId, taskId, userId, page)
     }
 
@@ -179,6 +182,9 @@ public class DocumentIngestionWebService(
     ): DocumentEvidenceViewResponse {
         requireProject(projectId)
         tasks.find(DocumentTaskId(taskId), projectId, userId)
+        if (runCatching { reviews.verifiedPlan(projectId, taskId, userId) }.isSuccess) {
+            return reviews.verifiedEvidence(projectId, taskId, userId, evidenceId)
+        }
         return reviews.evidence(projectId, taskId, userId, evidenceId)
     }
 
@@ -192,6 +198,85 @@ public class DocumentIngestionWebService(
     ): DocumentReviewWorkspaceResponse {
         requireProject(projectId)
         tasks.find(DocumentTaskId(taskId), projectId, userId)
+        if (runCatching { reviews.verifiedPlan(projectId, taskId, userId) }.isSuccess) {
+            when (request.action) {
+                "accept" -> reviews.acceptVerified(
+                    projectId,
+                    taskId,
+                    recommendationId,
+                    userId,
+                    request.expectedWorkKey,
+                    request.expectedGraphFingerprint,
+                    request.clarification,
+                )
+                "reject" -> reviews.rejectVerified(
+                    projectId,
+                    taskId,
+                    recommendationId,
+                    userId,
+                    request.expectedWorkKey,
+                    request.expectedGraphFingerprint,
+                    request.clarification,
+                )
+                "confirm-individual" -> reviews.confirmVerifiedIndividual(
+                    projectId,
+                    taskId,
+                    recommendationId,
+                    request.operationId ?: throw DocumentIngestionFailure(
+                        "document-individual-gate-not-found",
+                        "Choose the proposed individual to confirm.",
+                    ),
+                    userId,
+                    request.expectedWorkKey,
+                    request.expectedGraphFingerprint,
+                    request.confirmProductionClassification,
+                )
+                "exclude-optional" -> reviews.excludeVerifiedOptionalLeaves(
+                    projectId,
+                    taskId,
+                    recommendationId,
+                    request.operationIds.toSet(),
+                    userId,
+                    request.expectedWorkKey,
+                    request.expectedGraphFingerprint,
+                )
+                "clarify" -> reviews.requestVerifiedReview(
+                    projectId,
+                    taskId,
+                    recommendationId,
+                    userId,
+                    request.expectedWorkKey,
+                    request.expectedGraphFingerprint,
+                    com.entio.core.DocumentGroupedDecisionKind.NeedsClarification,
+                    request.clarification,
+                )
+                "reconsider" -> reviews.requestVerifiedReview(
+                    projectId,
+                    taskId,
+                    recommendationId,
+                    userId,
+                    request.expectedWorkKey,
+                    request.expectedGraphFingerprint,
+                    com.entio.core.DocumentGroupedDecisionKind.ReconsiderationRequested,
+                    request.clarification,
+                )
+                "split" -> reviews.requestVerifiedReview(
+                    projectId,
+                    taskId,
+                    recommendationId,
+                    userId,
+                    request.expectedWorkKey,
+                    request.expectedGraphFingerprint,
+                    com.entio.core.DocumentGroupedDecisionKind.SplitRequested,
+                    request.clarification,
+                )
+                else -> throw DocumentIngestionFailure(
+                    "document-review-action-unsupported",
+                    "That review action is not supported for connected recommendations.",
+                )
+            }
+            return reviews.readVerified(projectId, taskId, userId, page)
+        }
         return reviews.decide(projectId, taskId, recommendationId, userId, request, page)
     }
 
