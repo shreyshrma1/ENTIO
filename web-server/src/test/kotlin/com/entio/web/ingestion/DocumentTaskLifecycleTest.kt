@@ -2,11 +2,16 @@ package com.entio.web.ingestion
 
 import com.entio.core.DocumentAuthorityMetadata
 import com.entio.core.DocumentAuthorityStatus
+import com.entio.core.DocumentAnalysisStage
+import com.entio.core.DocumentAnalysisStageRecord
+import com.entio.core.DocumentAnalysisStageState
 import com.entio.core.DocumentId
 import com.entio.core.DocumentMediaType
 import com.entio.core.DocumentProcessingStatus
 import com.entio.core.DocumentTaskId
 import com.entio.core.IngestionDocument
+import com.entio.web.configureWebJson
+import com.fasterxml.jackson.databind.ObjectMapper
 import java.nio.file.Files
 import java.time.Instant
 import kotlin.io.path.exists
@@ -104,6 +109,53 @@ class DocumentTaskLifecycleTest {
         assertEquals(14, snapshot.updates.first().order)
         assertEquals(63, snapshot.updates.last().order)
         assertEquals("Analysis update 60.", snapshot.updates.last().message)
+        manager.close()
+    }
+
+    @Test
+    fun serializesCompletedAnalysisStageTimestampsAsIsoText(): Unit {
+        val root = Files.createTempDirectory("entio-task-stage-json")
+        val storage = DocumentTemporaryStorage(root)
+        val manager = DocumentIngestionTaskManager(
+            DocumentIngestionConfiguration(
+                temporaryRoot = root,
+                provenanceRoot = Files.createTempDirectory("entio-task-stage-json-provenance"),
+                idFactory = { "stage-json" },
+            ),
+            storage,
+        )
+        val task = manager.begin("project-a", "alice", 1)
+        val directory = manager.directory(task, "project-a", "alice")
+        manager.addDocument(task, "project-a", "alice", upload(task, directory, "e".repeat(64)))
+        manager.completeIntake(task, "project-a", "alice")
+        val snapshot = manager.recordAnalysisStage(
+            task,
+            "project-a",
+            "alice",
+            DocumentAnalysisStageRecord(
+                recordId = "stage-discovery-document-1",
+                stage = DocumentAnalysisStage.Discovery,
+                state = DocumentAnalysisStageState.Succeeded,
+                scopeId = "document-1",
+                startedAt = Instant.parse("2026-07-28T14:27:10Z"),
+                finishedAt = Instant.parse("2026-07-28T14:27:12Z"),
+                durationMillis = 2_000,
+                selectedModelId = "gpt-test",
+                promptVersion = "document-discovery-v1",
+                requestSchemaVersion = "discovery-request-v1",
+                responseSchemaVersion = "discovery-response-v1",
+                inputSha256 = "a".repeat(64),
+                outputSha256 = "b".repeat(64),
+                providerAttemptCount = 1,
+                completedCount = 1,
+                totalCount = 1,
+            ),
+        )
+
+        val json = ObjectMapper().configureWebJson().writeValueAsString(snapshot)
+
+        assertTrue(json.contains(""""startedAt":"2026-07-28T14:27:10Z""""))
+        assertTrue(json.contains(""""finishedAt":"2026-07-28T14:27:12Z""""))
         manager.close()
     }
 

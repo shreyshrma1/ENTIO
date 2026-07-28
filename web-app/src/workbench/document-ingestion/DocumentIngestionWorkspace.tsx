@@ -116,12 +116,30 @@ export default function DocumentIngestionWorkspace({ projectId }: { projectId: s
             : <p>Select a task to review its results.</p>}
         </section>
       </div>
-      {statusTask ? <DocumentStatusDialog task={statusTask} onClose={() => setStatusTaskId(null)} /> : null}
+      {statusTask ? <DocumentStatusDialog
+        task={statusTask}
+        refreshFailed={tasks.isError}
+        refreshing={tasks.isFetching}
+        onRetry={() => void tasks.refetch()}
+        onClose={() => setStatusTaskId(null)}
+      /> : null}
     </div>
   );
 }
 
-function DocumentStatusDialog({ task, onClose }: { task: WebDocumentIngestionTask; onClose: () => void }) {
+function DocumentStatusDialog({
+  task,
+  refreshFailed,
+  refreshing,
+  onRetry,
+  onClose,
+}: {
+  task: WebDocumentIngestionTask;
+  refreshFailed: boolean;
+  refreshing: boolean;
+  onRetry: () => void;
+  onClose: () => void;
+}) {
   const end = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -131,6 +149,12 @@ function DocumentStatusDialog({ task, onClose }: { task: WebDocumentIngestionTas
   return <div className="ai-modal-backdrop"><section className="ai-modal" role="dialog" aria-modal="true" aria-labelledby="document-status-title">
     <header><h2 id="document-status-title">Ingestion Status Updates</h2><button className="icon-button" type="button" aria-label="Close ingestion status updates" onClick={onClose}>×</button></header>
     <p>{task.documents.map((document) => document.safeFilename).join(", ") || "Pending upload"}</p>
+    {refreshFailed ? <div className="workflow-error" role="alert">
+      <p>Live status updates could not be refreshed. The updates below may be out of date.</p>
+      <button className="button" type="button" onClick={onRetry} disabled={refreshing}>
+        {refreshing ? "Retrying..." : "Retry status updates"}
+      </button>
+    </div> : null}
     <div className="ai-status-list">
       {task.updates.map((update) => <div className="ai-status-item" key={update.order}>
         <strong>{update.order}</strong>

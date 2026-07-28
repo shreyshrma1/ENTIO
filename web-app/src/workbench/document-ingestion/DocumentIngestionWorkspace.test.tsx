@@ -81,6 +81,44 @@ describe("document ingestion review workspace", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("1 typed edit added to the shared proposal.");
   });
 
+  it("warns that visible status is stale when live task polling fails", async () => {
+    let taskRequests = 0;
+    const activeTasks = {
+      ...tasks,
+      items: [{
+        ...tasks.items[0],
+        status: "analyzing",
+        progress: {
+          stage: "analyzing",
+          completedDocuments: 1,
+          totalDocuments: 1,
+          percent: 40,
+          message: "Discovering evidence-grounded meaning in each document.",
+        },
+      }],
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/document-ingestion/tasks")) {
+        taskRequests += 1;
+        if (taskRequests === 1) return json(activeTasks);
+        return new Response("", { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    renderWorkspace();
+
+    expect(await screen.findByText("Discovering evidence-grounded meaning in each document.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Status Updates" }));
+    const dialog = screen.getByRole("dialog", { name: "Ingestion Status Updates" });
+    expect(await within(dialog).findByRole("alert", {}, { timeout: 2_000 })).toHaveTextContent(
+      "Live status updates could not be refreshed. The updates below may be out of date.",
+    );
+    expect(within(dialog).getByRole("button", { name: "Retry status updates" })).toBeInTheDocument();
+    expect(taskRequests).toBeGreaterThanOrEqual(2);
+  });
+
   it("supports keyboard-reachable task, match, edit, reconsider, cancel, and delete controls", async () => {
     const requests: Array<{ path: string; method: string }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

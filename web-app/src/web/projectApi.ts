@@ -205,6 +205,8 @@ export interface WebDocumentAnalysisStage {
   stage: string;
   state: string;
   scopeId: string;
+  startedAt: string | null;
+  finishedAt: string | null;
   durationMillis: number | null;
   providerAttemptCount: number;
   completedCount: number;
