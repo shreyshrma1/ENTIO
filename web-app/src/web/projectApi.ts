@@ -197,6 +197,19 @@ export interface WebDocumentIngestionTask {
   documents: WebDocumentIngestionDocument[];
   progress: WebDocumentIngestionProgress;
   updates: WebDocumentIngestionStatusUpdate[];
+  analysisStages?: WebDocumentAnalysisStage[];
+}
+
+export interface WebDocumentAnalysisStage {
+  recordId: string;
+  stage: string;
+  state: string;
+  scopeId: string;
+  durationMillis: number | null;
+  providerAttemptCount: number;
+  completedCount: number;
+  totalCount: number;
+  safeCode: string | null;
 }
 
 export interface WebDocumentEvidenceSummary {
@@ -220,13 +233,20 @@ export interface WebDocumentReviewRecommendation {
   changePreview: {
     draftable: boolean;
     summary: string;
-    operations: Array<{ operation: string; description: string; targetSourceId: string | null }>;
+    operations: Array<{
+      operation: string;
+      description: string;
+      targetSourceId: string | null;
+      operationId?: string | null;
+      dependsOnOperationIds?: string[];
+      optionalLeaf?: boolean;
+    }>;
     blockingReason: string | null;
   };
   confidence: number;
   confidenceBand: "High" | "Medium" | "Low";
   rationale: string;
-  reviewStatus: "Pending" | "Accepted" | "Rejected" | "NeedsClarification" | "Drafted";
+  reviewStatus: "Pending" | "Accepted" | "Rejected" | "NeedsClarification" | "ReconsiderationRequested" | "SplitRequested" | "Drafted";
   evidence: WebDocumentEvidenceSummary[];
   matches: Array<{ scope: string; entityIri: string; sourceId: string; preferredLabel: string | null; score: number; reason: string }>;
   selectedMatchIri: string | null;
@@ -238,6 +258,11 @@ export interface WebDocumentReviewRecommendation {
   priorWorkflowProvenance: string[];
   modelId: string | null;
   promptVersion: string | null;
+  connectedStatus?: "Executable" | "ReviewOnly" | "Blocked" | "Mixed" | null;
+  confidenceDimensions?: { evidence: number; modeling: number; ontologyFit: number; overall: number } | null;
+  reviewOnlyFindings?: Array<{ id: string; summary: string; reason: string; relatedOperationIds: string[] }>;
+  criticDispositions?: Array<{ findingId: string; disposition: string; rationale: string | null }>;
+  individualReviewGates?: Array<{ operationId: string; classification: string; creationConfirmed: boolean }>;
 }
 
 export interface WebDocumentReviewWorkspace {
@@ -272,7 +297,7 @@ export interface WebDocumentEvidenceView {
 }
 
 export interface WebDocumentReviewDecision {
-  action: "accept" | "reject" | "clarify" | "edit" | "rematch" | "merge" | "reconsider";
+  action: "accept" | "reject" | "clarify" | "edit" | "rematch" | "merge" | "reconsider" | "split" | "exclude-optional" | "confirm-individual";
   expectedWorkKey: string;
   expectedGraphFingerprint: string;
   proposedLabel?: string;
@@ -280,6 +305,9 @@ export interface WebDocumentReviewDecision {
   targetSourceId?: string;
   clarification?: string;
   mergedRecommendationIds?: string[];
+  operationIds?: string[];
+  operationId?: string;
+  confirmProductionClassification?: boolean;
 }
 
 export interface WebHierarchyItem {

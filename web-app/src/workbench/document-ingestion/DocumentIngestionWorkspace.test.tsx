@@ -141,6 +141,89 @@ describe("document ingestion review workspace", () => {
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
   });
 
+  it("explains connected changes, confidence, critique, review-only meaning, and individual gates", async () => {
+    const connected = workspace("Pending");
+    connected.recommendations.items[0] = {
+      ...connected.recommendations.items[0],
+      connectedStatus: "Mixed",
+      type: "CreateClass",
+      action: "ConnectedChange",
+      confidenceDimensions: { evidence: 94, modeling: 82, ontologyFit: 76, overall: 84 },
+      changePreview: {
+        draftable: true,
+        summary: "2 ordered typed changes will be added as one atomic recommendation.",
+        operations: [
+          {
+            operation: "Create class",
+            description: "Create AccountClosure.",
+            targetSourceId: "ontology",
+            operationId: "create-account-closure",
+            dependsOnOperationIds: [],
+            optionalLeaf: false,
+          },
+          {
+            operation: "Add definition",
+            description: "Add the verified definition.",
+            targetSourceId: "ontology",
+            operationId: "define-account-closure",
+            dependsOnOperationIds: ["create-account-closure"],
+            optionalLeaf: true,
+          },
+        ],
+        blockingReason: null,
+      },
+      reviewOnlyFindings: [{
+        id: "finding-separation-of-duties",
+        summary: "Separation of duties rule",
+        reason: "The current typed SHACL surface cannot represent this complex rule safely.",
+        relatedOperationIds: ["create-account-closure"],
+      }],
+      criticDispositions: [{
+        findingId: "critic-1",
+        disposition: "AcceptedAndIncorporated",
+        rationale: "The property domain was corrected.",
+      }],
+      individualReviewGates: [{
+        operationId: "create-jordan-lee",
+        classification: "Illustrative",
+        creationConfirmed: false,
+      }],
+    };
+    const decisions: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/decision")) {
+        decisions.push(JSON.parse(String(init?.body)));
+        return json(connected);
+      }
+      if (path.includes("/review")) return json(connected);
+      if (path.includes("/document-ingestion/tasks")) return json(tasks);
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    renderWorkspace();
+
+    expect(await screen.findByText("Mixed")).toBeInTheDocument();
+    expect(screen.getByLabelText("Confidence details")).toHaveTextContent("Evidence94%");
+    expect(screen.getByRole("region", { name: "Exact proposed changes" })).toHaveTextContent(
+      "Depends on: create-account-closure",
+    );
+    expect(screen.getByLabelText("Review-only findings")).toHaveTextContent("Separation of duties rule");
+    expect(screen.getByText("Modeling critique")).toBeInTheDocument();
+    expect(screen.getByLabelText("Individual confirmations")).toHaveTextContent("Illustrative");
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm individual" }));
+    await waitFor(() => expect(decisions[0]).toMatchObject({
+      action: "confirm-individual",
+      operationId: "create-jordan-lee",
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Exclude optional change Add definition" }));
+    await waitFor(() => expect(decisions[1]).toMatchObject({
+      action: "exclude-optional",
+      operationIds: ["define-account-closure"],
+    }));
+  });
+
   it("waits for the task to become reviewable before requesting its review workspace", async () => {
     let taskReady = false;
     let reviewRequests = 0;

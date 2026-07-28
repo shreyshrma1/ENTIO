@@ -73,6 +73,37 @@ public data class DocumentReviewRecommendation(
     val priorWorkflowProvenance: List<String>,
     val modelId: String?,
     val promptVersion: String?,
+    val connectedStatus: String? = null,
+    val confidenceDimensions: DocumentReviewConfidenceDimensions? = null,
+    val reviewOnlyFindings: List<DocumentReviewOnlyFindingSummary> = emptyList(),
+    val criticDispositions: List<DocumentReviewCriticDispositionSummary> = emptyList(),
+    val individualReviewGates: List<DocumentReviewIndividualGateSummary> = emptyList(),
+)
+
+public data class DocumentReviewConfidenceDimensions(
+    val evidence: Int,
+    val modeling: Int,
+    val ontologyFit: Int,
+    val overall: Int,
+)
+
+public data class DocumentReviewOnlyFindingSummary(
+    val id: String,
+    val summary: String,
+    val reason: String,
+    val relatedOperationIds: List<String>,
+)
+
+public data class DocumentReviewCriticDispositionSummary(
+    val findingId: String,
+    val disposition: String,
+    val rationale: String?,
+)
+
+public data class DocumentReviewIndividualGateSummary(
+    val operationId: String,
+    val classification: String,
+    val creationConfirmed: Boolean,
 )
 
 public data class DocumentReviewChangePreview(
@@ -86,6 +117,9 @@ public data class DocumentReviewProposedOperation(
     val operation: String,
     val description: String,
     val targetSourceId: String?,
+    val operationId: String? = null,
+    val dependsOnOperationIds: List<String> = emptyList(),
+    val optionalLeaf: Boolean = false,
 )
 
 public data class DocumentReviewEvidenceSummary(
@@ -148,6 +182,9 @@ public data class DocumentReviewDecisionRequest(
     val targetSourceId: String? = null,
     val clarification: String? = null,
     val mergedRecommendationIds: List<String> = emptyList(),
+    val operationIds: List<String> = emptyList(),
+    val operationId: String? = null,
+    val confirmProductionClassification: Boolean = false,
 )
 
 internal data class DocumentReviewWorkspaceInput(
@@ -315,6 +352,185 @@ internal class DocumentReviewWorkspaceStore(
     }
 
     @Synchronized
+    fun readVerified(
+        projectId: String,
+        taskId: String,
+        userId: String,
+        page: WebPageRequest,
+    ): DocumentReviewWorkspaceResponse {
+        val stored = ownedVerified(projectId, taskId, userId)
+        val modelId = stored.analysisStages.mapNotNull(DocumentAnalysisStageRecord::selectedModelId)
+            .distinct()
+            .singleOrNull()
+        val recommendations = stored.plan.plan.recommendations.map { recommendation ->
+            val review = stored.reviews.getValue(recommendation.id)
+            val operations = recommendation.operations.map { operation ->
+                val sourceId = operation.operands.filterIsInstance<com.entio.core.DocumentPlanOperand.SourceId>()
+                    .singleOrNull()?.value
+                DocumentReviewProposedOperation(
+                    operation = humanizeOperation(operation.kind.name),
+                    description = describeConnectedOperation(operation, stored.plan.finalIris),
+                    targetSourceId = sourceId,
+                    operationId = operation.id,
+                    dependsOnOperationIds = operation.dependsOnOperationIds,
+                    optionalLeaf = operation.optionalLeaf,
+                )
+            }
+            val draftable = recommendation.status in setOf(
+                DocumentFinalRecommendationStatus.Executable,
+                DocumentFinalRecommendationStatus.Mixed,
+            ) && recommendation.blockers.isEmpty() &&
+                recommendation.individualReviewGates.all(com.entio.core.DocumentIndividualReviewGate::executable)
+            val evidence = recommendation.evidenceIds.flatMap { evidenceId ->
+                stored.evidence[evidenceId.value].orEmptyReferences().map { reference ->
+                    DocumentReviewEvidenceSummary(
+                        evidenceId = reference.id.value,
+                        evidenceType = stored.evidence.getValue(evidenceId.value).type.name,
+                        documentId = reference.documentId.value,
+                        pageNumber = reference.pageNumber,
+                        extractionMethod = reference.extractionMethod.name,
+                        ocrConfidence = reference.ocrConfidence,
+                        excerpt = reference.exactExcerpt,
+                        priorRecordId = null,
+                    )
+                }
+            }.take(MAX_EVIDENCE_SUMMARIES)
+            val isBusinessFact = recommendation.operations.any {
+                it.kind in BUSINESS_FACT_OPERATIONS
+            }
+            DocumentReviewRecommendation(
+                id = recommendation.id,
+                category = if (isBusinessFact) "BusinessFact" else "OntologyStructure",
+                type = recommendation.operations.firstOrNull()?.kind?.name ?: "ReviewOnly",
+                action = "ConnectedChange",
+                proposedLabel = recommendation.title,
+                description = recommendation.description,
+                changePreview = DocumentReviewChangePreview(
+                    draftable = draftable,
+                    summary = when {
+                        operations.isEmpty() -> "This finding is retained for review and will not create an ontology edit."
+                        operations.size == 1 -> "1 exact typed change will be added as an atomic recommendation."
+                        else -> "${operations.size} ordered typed changes will be added as one atomic recommendation."
+                    },
+                    operations = operations,
+                    blockingReason = when {
+                        draftable -> null
+                        recommendation.blockers.isNotEmpty() -> recommendation.blockers.joinToString("; ")
+                        recommendation.individualReviewGates.any { !it.executable } ->
+                            "Confirm every proposed individual before approval."
+                        else -> "This recommendation is review-only."
+                    },
+                ),
+                confidence = recommendation.confidence.overall,
+                confidenceBand = confidenceBand(recommendation.confidence.overall),
+                rationale = recommendation.description,
+                reviewStatus = review.kind.name,
+                evidence = evidence,
+                matches = emptyList(),
+                selectedMatchIri = null,
+                conflicts = emptyList(),
+                mandatoryClarificationReasons = recommendation.blockers,
+                clarification = review.clarification,
+                targetSourceId = operations.mapNotNull(DocumentReviewProposedOperation::targetSourceId).distinct().singleOrNull(),
+                reconsiderationCount = 0,
+                priorWorkflowProvenance = emptyList(),
+                modelId = modelId,
+                promptVersion = com.entio.core.DocumentAnalysisPipelineVersions.FINAL_PLAN_PROMPT,
+                connectedStatus = recommendation.status.name,
+                confidenceDimensions = DocumentReviewConfidenceDimensions(
+                    recommendation.confidence.evidence,
+                    recommendation.confidence.modeling,
+                    recommendation.confidence.ontologyFit,
+                    recommendation.confidence.overall,
+                ),
+                reviewOnlyFindings = recommendation.reviewOnlyFindings.map {
+                    DocumentReviewOnlyFindingSummary(it.id, it.summary, it.reason, it.relatedOperationIds)
+                },
+                criticDispositions = recommendation.criticDispositions.map {
+                    DocumentReviewCriticDispositionSummary(it.findingId, it.kind.name, it.rationale)
+                },
+                individualReviewGates = recommendation.individualReviewGates.map {
+                    DocumentReviewIndividualGateSummary(it.operationId, it.classification.name, it.creationConfirmed)
+                },
+            )
+        }
+        val documents = stored.taskDocuments.map {
+            DocumentReviewDocumentSummary(
+                it.documentId,
+                it.safeFilename,
+                it.mediaType,
+                it.authorityStatus,
+                null,
+                0,
+            )
+        }
+        val summaries = documents.map { document ->
+            val highlights = stored.plan.plan.recommendations.filter { recommendation ->
+                recommendation.evidenceIds.any { evidenceId ->
+                    stored.evidence[evidenceId.value]?.references?.any {
+                        it.documentId.value == document.documentId
+                    } == true
+                }
+            }.map(DocumentFinalRecommendation::title).distinct().sorted()
+            DocumentReviewSummary(
+                document.documentId,
+                "Review verified connected recommendations and their exact evidence.",
+                highlights,
+            )
+        }
+        return DocumentReviewWorkspaceResponse(
+            taskId = taskId,
+            projectId = projectId,
+            exactWorkKey = stored.workKey,
+            graphFingerprint = stored.graphFingerprint,
+            documents = documents,
+            summaries = summaries,
+            recommendations = recommendations.toWebPage(page),
+            draftImpact = DocumentDraftImpact(
+                acceptedCount = stored.reviews.values.count { it.kind == DocumentGroupedDecisionKind.Accepted },
+                pendingCount = stored.reviews.values.count { it.kind == DocumentGroupedDecisionKind.Pending },
+                blockedCount = stored.plan.plan.recommendations.count {
+                    it.status == DocumentFinalRecommendationStatus.Blocked ||
+                        it.status == DocumentFinalRecommendationStatus.ReviewOnly
+                },
+            ),
+        )
+    }
+
+    @Synchronized
+    fun verifiedEvidence(
+        projectId: String,
+        taskId: String,
+        userId: String,
+        evidenceId: String,
+    ): DocumentEvidenceViewResponse {
+        val stored = ownedVerified(projectId, taskId, userId)
+        val reference = stored.evidence.values.flatMap(DocumentEvidence::references)
+            .singleOrNull { it.id.value == evidenceId }
+            ?: throw DocumentIngestionFailure("document-evidence-not-found", "The requested evidence was not found.")
+        val block = stored.blocks[reference.blockId.value]
+            ?: throw DocumentIngestionFailure("document-evidence-stale", "The requested evidence is stale.")
+        val start = (reference.startOffsetInBlock - EVIDENCE_CONTEXT_CHARACTERS).coerceAtLeast(0)
+        val end = (reference.endOffsetInBlock + EVIDENCE_CONTEXT_CHARACTERS).coerceAtMost(block.exactText.length)
+        val text = block.exactText.substring(start, end).take(MAX_EVIDENCE_VIEW_CHARACTERS)
+        val document = stored.taskDocuments.single { it.documentId == reference.documentId.value }
+        return DocumentEvidenceViewResponse(
+            evidenceId = evidenceId,
+            documentId = reference.documentId.value,
+            safeFilename = document.safeFilename,
+            pageNumber = reference.pageNumber,
+            sectionHeading = reference.sectionHeading,
+            extractionMethod = reference.extractionMethod.name,
+            ocrConfidence = reference.ocrConfidence,
+            text = text,
+            highlightStart = (reference.startOffsetInBlock - start).coerceAtMost(text.length),
+            highlightEnd = (reference.endOffsetInBlock - start).coerceAtMost(text.length),
+            pageImageAvailable = false,
+            truncated = end - start > MAX_EVIDENCE_VIEW_CHARACTERS,
+        )
+    }
+
+    @Synchronized
     fun acceptVerified(
         projectId: String,
         taskId: String,
@@ -401,6 +617,47 @@ internal class DocumentReviewWorkspaceStore(
             kind = DocumentGroupedDecisionKind.Rejected,
             clarification = safeClarification,
         )
+        stored.updatedAt = now
+    }
+
+    @Synchronized
+    fun requestVerifiedReview(
+        projectId: String,
+        taskId: String,
+        recommendationId: String,
+        userId: String,
+        expectedWorkKey: String,
+        expectedGraphFingerprint: String,
+        kind: DocumentGroupedDecisionKind,
+        clarification: String?,
+    ): Unit {
+        require(kind in setOf(
+            DocumentGroupedDecisionKind.NeedsClarification,
+            DocumentGroupedDecisionKind.ReconsiderationRequested,
+            DocumentGroupedDecisionKind.SplitRequested,
+        ))
+        val stored = ownedVerified(projectId, taskId, userId)
+        requireVerifiedCurrent(stored, expectedWorkKey, expectedGraphFingerprint)
+        if (stored.plan.plan.recommendations.none { it.id == recommendationId }) {
+            throw DocumentIngestionFailure(
+                "document-recommendation-not-found",
+                "The requested grouped recommendation was not found.",
+            )
+        }
+        val safeClarification = safeRequiredText(clarification, "Reviewer explanation")
+        val now = Instant.now(clock)
+        stored.reviews.getValue(recommendationId).apply {
+            this.kind = kind
+            this.clarification = safeClarification
+            decision = DocumentGroupedRecommendationDecision(
+                decisionId = decisionId(taskId, recommendationId, userId, stored.workKey),
+                recommendationId = recommendationId,
+                actorUserId = userId,
+                decidedAt = now,
+                kind = kind,
+                clarification = safeClarification,
+            )
+        }
         stored.updatedAt = now
     }
 
@@ -926,6 +1183,43 @@ internal class DocumentReviewWorkspaceStore(
         )
     }
 
+    private fun DocumentEvidence?.orEmptyReferences(): List<DocumentEvidenceReference> =
+        this?.references.orEmpty()
+
+    private fun describeConnectedOperation(
+        operation: com.entio.core.DocumentPlanOperation,
+        finalIris: Map<com.entio.core.DocumentTemporaryReference, com.entio.core.Iri>,
+    ): String {
+        val operands = operation.operands.map { operand ->
+            when (operand) {
+                is com.entio.core.DocumentPlanOperand.ExistingEntity -> operand.iri.value
+                is com.entio.core.DocumentPlanOperand.TemporaryEntity ->
+                    finalIris[operand.reference]?.value ?: operand.reference.value
+                is com.entio.core.DocumentPlanOperand.LiteralValue -> "“${operand.value.lexicalForm}”"
+                is com.entio.core.DocumentPlanOperand.TextValue -> "“${operand.value}”"
+                is com.entio.core.DocumentPlanOperand.IntegerValue -> operand.value.toString()
+                is com.entio.core.DocumentPlanOperand.DecimalValue -> operand.lexicalForm
+                is com.entio.core.DocumentPlanOperand.SourceId -> "source ${operand.value}"
+            }
+        }
+        val declaration = operation.declaration?.let { finalIris[it]?.value ?: it.value }
+        return buildString {
+            append(humanizeOperation(operation.kind.name))
+            declaration?.let { append(" ").append(it) }
+            if (operands.isNotEmpty()) append(" using ").append(operands.joinToString(", "))
+            append(".")
+        }
+    }
+
+    private fun humanizeOperation(value: String): String =
+        value.replace(Regex("([a-z0-9])([A-Z])"), "$1 $2")
+
+    private fun confidenceBand(value: Int): String = when {
+        value >= 80 -> "High"
+        value >= 60 -> "Medium"
+        else -> "Low"
+    }
+
     private fun safeRequiredText(value: String?, label: String, maximum: Int = 2_000): String {
         val safe = value?.trim()
         if (safe.isNullOrBlank() || safe.length > maximum) {
@@ -959,5 +1253,11 @@ internal class DocumentReviewWorkspaceStore(
         const val EVIDENCE_CONTEXT_CHARACTERS: Int = 2_000
         const val MAX_EVIDENCE_VIEW_CHARACTERS: Int = 8_000
         const val INDIVIDUAL_CONFIRMATION_BLOCKER: String = "individual-confirmation-required"
+        val BUSINESS_FACT_OPERATIONS: Set<com.entio.core.DocumentPlanOperationKind> = setOf(
+            com.entio.core.DocumentPlanOperationKind.CreateIndividual,
+            com.entio.core.DocumentPlanOperationKind.AssignType,
+            com.entio.core.DocumentPlanOperationKind.AddObjectPropertyAssertion,
+            com.entio.core.DocumentPlanOperationKind.AddDatatypePropertyAssertion,
+        )
     }
 }
