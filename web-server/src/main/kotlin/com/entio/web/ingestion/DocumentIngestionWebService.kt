@@ -1,7 +1,11 @@
 package com.entio.web.ingestion
 
 import com.entio.core.DocumentDraftProvenance
+import com.entio.core.DocumentAnalysisPipelineVersions
+import com.entio.core.DocumentAnalysisStage
+import com.entio.core.DocumentAnalysisStageState
 import com.entio.core.DocumentTaskId
+import com.entio.semantic.ConnectedDocumentDraftContext
 import com.entio.semantic.DocumentDraftOperation
 import com.entio.semantic.DocumentDraftTranslationResult
 import com.entio.semantic.DocumentRecommendationDraftTranslator
@@ -230,6 +234,18 @@ public class DocumentIngestionWebService(
         tasks.find(DocumentTaskId(taskId), projectId, userId)
         val workflow = staging
             ?: throw DocumentIngestionFailure("document-draft-unavailable", "Document draft conversion is unavailable.")
+        val verified = runCatching { reviews.verifiedReviewPlan(projectId, taskId, userId) }.getOrNull()
+        if (verified != null) {
+            return buildConnectedDraft(
+                projectId,
+                taskId,
+                userId,
+                idempotencyKey,
+                request,
+                workflow,
+                verified,
+            )
+        }
         val current = reviews.read(projectId, taskId, userId, WebPageRequest(limit = 1))
         if (current.exactWorkKey != request.expectedWorkKey ||
             current.graphFingerprint != request.expectedGraphFingerprint
@@ -338,6 +354,161 @@ public class DocumentIngestionWebService(
             stagedEditCount = editOperations.size,
             confirmCount = confirms,
         )
+    }
+
+    private fun buildConnectedDraft(
+        projectId: String,
+        taskId: String,
+        userId: String,
+        idempotencyKey: String,
+        request: DocumentDraftBuildRequest,
+        workflow: StagingWorkflowService,
+        reviewPlan: VerifiedDocumentReviewPlan,
+    ): DocumentDraftBuildResponse {
+        if (reviewPlan.workKey != request.expectedWorkKey ||
+            reviewPlan.graphFingerprint != request.expectedGraphFingerprint
+        ) {
+            throw DocumentIngestionFailure("document-review-stale", "The review workspace changed; reload before drafting.")
+        }
+        val stagingSnapshot = workflow.connectedDocumentSnapshot(projectId)
+        if (stagingSnapshot.graphFingerprint != reviewPlan.graphFingerprint) {
+            throw DocumentIngestionFailure("document-review-stale", "The applied ontology changed; rerun document analysis.")
+        }
+        val providerStages = reviewPlan.analysisStages.filter { it.stage.providerBacked }
+        val modelIds = providerStages.mapNotNull { it.selectedModelId }.distinct()
+        val currentModel = modelSettings?.find(userId)
+        val modelCurrent = modelIds.size == 1 &&
+            currentModel?.selectedModelId == modelIds.single() &&
+            currentModel.selectionStatus == com.entio.web.ai.models.AiModelSelectionStatus.READY
+        val promptCurrent = providerStages.isNotEmpty() &&
+            providerStages.all {
+                it.state == DocumentAnalysisStageState.Succeeded &&
+                    it.promptVersion == expectedPromptVersion(it.stage)
+            }
+        if (!modelCurrent || !promptCurrent) {
+            throw DocumentIngestionFailure(
+                "document-draft-stale",
+                "The selected model or document-analysis prompt changed; rerun analysis.",
+            )
+        }
+        val accepted = reviews.acceptedVerified(projectId, taskId, userId)
+        if (accepted.isEmpty()) {
+            throw DocumentIngestionFailure("document-draft-empty", "Accept at least one executable recommendation before drafting.")
+        }
+        val existingKeys = stagingSnapshot.normalizedDocumentOperationKeys.toMutableSet()
+        val translated = accepted.map { candidate ->
+            val result = draftTranslator.translateConnected(
+                candidate.recommendation,
+                ConnectedDocumentDraftContext(
+                    finalIris = reviewPlan.plan.finalIris,
+                    writableSourceIds = stagingSnapshot.writableSourceIds,
+                    expectedWorkKey = reviewPlan.workKey,
+                    currentWorkKey = request.expectedWorkKey,
+                    graphCurrent = true,
+                    evidenceCurrent = candidate.recommendation.evidenceIds.all { it.value in reviewPlan.evidence },
+                    modelAndPromptCurrent = true,
+                    existingNormalizedOperationKeys = existingKeys,
+                ),
+            )
+            val operations = when (result) {
+                is DocumentDraftTranslationResult.Blocked ->
+                    throw DocumentIngestionFailure(result.code, result.message)
+                is DocumentDraftTranslationResult.Prepared -> result.operations
+            }
+            existingKeys += operations.mapNotNull { it.normalizedTypedOperationKey }
+            candidate to operations
+        }
+        val modelId = modelIds.single()
+        val items = translated.flatMap { (candidate, operations) ->
+            val evidenceGroups = candidate.recommendation.evidenceIds.map { evidenceId ->
+                reviewPlan.evidence[evidenceId.value]
+                    ?: throw DocumentIngestionFailure("document-evidence-required", "Verified recommendation evidence is stale.")
+            }
+            val references = evidenceGroups.flatMap { it.references }
+            val extractionMethods = references.map { it.extractionMethod }.distinct().sortedBy { it.name }
+            if (references.isEmpty() || extractionMethods.isEmpty()) {
+                throw DocumentIngestionFailure("document-evidence-required", "A typed draft item requires verified evidence.")
+            }
+            operations.map { prepared ->
+                val operation = prepared.operation
+                    ?: throw DocumentIngestionFailure("document-draft-operation-missing", "A typed operation is missing.")
+                PreparedDocumentStagingItem(
+                    summary = "Document recommendation · ${candidate.recommendation.title}",
+                    editType = operation.editType(),
+                    targetSourceId = prepared.targetSourceId,
+                    operation = operation,
+                    provenance = DocumentDraftProvenance(
+                        taskId = DocumentTaskId(taskId),
+                        recommendationId = candidate.recommendation.id,
+                        decisionId = candidate.decision.decisionId,
+                        evidenceIds = candidate.recommendation.evidenceIds,
+                        modelId = modelId,
+                        promptVersion = DocumentAnalysisPipelineVersions.FINAL_PLAN_PROMPT,
+                        extractionMethods = extractionMethods,
+                        confidence = candidate.recommendation.confidence.overall,
+                        targetSourceId = prepared.targetSourceId,
+                        normalizedTypedOperationKey = prepared.normalizedTypedOperationKey,
+                    ),
+                )
+            }
+        }
+        if (items.size > com.entio.core.MAX_ACCEPTED_DOCUMENT_EDITS) {
+            throw DocumentIngestionFailure("document-draft-task-limit", "A document task cannot stage more than 100 edits.")
+        }
+        provenanceCoordinator.registerConnected(
+            projectId,
+            accepted.map { candidate ->
+                ConnectedDocumentProvenanceCandidate(
+                    taskId = taskId,
+                    recommendation = candidate.recommendation,
+                    decision = candidate.decision,
+                    documents = reviewPlan.taskDocuments,
+                    blocks = reviewPlan.blocks,
+                    evidence = reviewPlan.evidence,
+                    workKey = reviewPlan.workKey,
+                    modelId = modelId,
+                    analysisStages = reviewPlan.analysisStages,
+                    coverage = reviewPlan.plan.plan.coverage,
+                )
+            },
+        )
+        val batches = packAtomicDocumentRecommendationGroups(items)
+        if (batches.size > MAX_DOCUMENT_DRAFT_BATCHES) {
+            throw DocumentIngestionFailure(
+                "document-draft-batch-count-limit",
+                "Connected recommendations require more than the approved five batches.",
+            )
+        }
+        var response: WebStagingResponse? = null
+        batches.forEachIndexed { index, batch ->
+            response = workflow.stageDocumentBatch(
+                projectId,
+                userId,
+                taskId,
+                "$idempotencyKey.batch-${index + 1}",
+                batch,
+            )
+        }
+        reviews.markVerifiedDrafted(projectId, taskId, userId, accepted.mapTo(linkedSetOf()) { it.recommendation.id })
+        return DocumentDraftBuildResponse(
+            staging = response ?: workflow.snapshot(projectId),
+            batchCount = batches.size,
+            stagedEditCount = items.size,
+            confirmCount = 0,
+        )
+    }
+
+    private fun expectedPromptVersion(stage: DocumentAnalysisStage): String? = when (stage) {
+        DocumentAnalysisStage.Discovery -> DocumentAnalysisPipelineVersions.DISCOVERY_PROMPT
+        DocumentAnalysisStage.ConnectedModeling -> DocumentAnalysisPipelineVersions.CONNECTED_MODEL_PROMPT
+        DocumentAnalysisStage.ModelConsolidation -> DocumentAnalysisPipelineVersions.MODEL_CONSOLIDATION_PROMPT
+        DocumentAnalysisStage.Reconciliation -> DocumentAnalysisPipelineVersions.RECONCILIATION_PROMPT
+        DocumentAnalysisStage.OntologyAlignment -> DocumentAnalysisPipelineVersions.ONTOLOGY_ALIGNMENT_PROMPT
+        DocumentAnalysisStage.ModelingCritic -> DocumentAnalysisPipelineVersions.MODELING_CRITIC_PROMPT
+        DocumentAnalysisStage.FinalPlanning -> DocumentAnalysisPipelineVersions.FINAL_PLAN_PROMPT
+        DocumentAnalysisStage.DeterministicVerification,
+        DocumentAnalysisStage.AwaitingReview,
+        -> null
     }
 
     override fun close(): Unit {

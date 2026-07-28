@@ -6,6 +6,9 @@ import com.entio.core.DocumentEvidenceId
 import com.entio.core.DocumentEvidenceReference
 import com.entio.core.DocumentEvidenceType
 import com.entio.core.DocumentExtractionMethod
+import com.entio.core.DocumentConfidenceDimensions
+import com.entio.core.DocumentFinalRecommendation
+import com.entio.core.DocumentFinalRecommendationStatus
 import com.entio.core.DocumentId
 import com.entio.core.DocumentMatchCandidate
 import com.entio.core.DocumentMatchScope
@@ -13,6 +16,10 @@ import com.entio.core.DocumentRecommendation
 import com.entio.core.DocumentRecommendationAction
 import com.entio.core.DocumentRecommendationCategory
 import com.entio.core.DocumentRecommendationReviewStatus
+import com.entio.core.DocumentPlanOperand
+import com.entio.core.DocumentPlanOperation
+import com.entio.core.DocumentPlanOperationKind
+import com.entio.core.DocumentTemporaryReference
 import com.entio.core.DocumentTextBlockId
 import com.entio.core.EditableShaclConstraint
 import com.entio.core.EditableShaclConstraintKind
@@ -250,6 +257,89 @@ class DocumentRecommendationDraftTranslatorTest {
             "document-draft-operand-missing",
             assertIs<DocumentDraftTranslationResult.Blocked>(missingRevisionOperand).code,
         )
+    }
+
+    @Test
+    fun translatesConnectedTemporaryReferencesInDependencyOrder(): Unit {
+        val account = DocumentTemporaryReference("new:class:AccountClosure")
+        val property = DocumentTemporaryReference("new:datatypeProperty:closureDate")
+        val operations = listOf(
+            DocumentPlanOperation(
+                id = "create-account-closure",
+                kind = DocumentPlanOperationKind.CreateClass,
+                order = 0,
+                declaration = account,
+                operands = listOf(DocumentPlanOperand.TextValue("Account closure"), DocumentPlanOperand.SourceId("ontology")),
+                expandedTypedEditCount = 1,
+            ),
+            DocumentPlanOperation(
+                id = "create-closure-date",
+                kind = DocumentPlanOperationKind.CreateDatatypeProperty,
+                order = 1,
+                declaration = property,
+                operands = listOf(DocumentPlanOperand.TextValue("Closure date"), DocumentPlanOperand.SourceId("ontology")),
+                expandedTypedEditCount = 1,
+            ),
+            DocumentPlanOperation(
+                id = "set-domain",
+                kind = DocumentPlanOperationKind.SetPropertyDomain,
+                order = 2,
+                operands = listOf(
+                    DocumentPlanOperand.TemporaryEntity(property),
+                    DocumentPlanOperand.TemporaryEntity(account),
+                    DocumentPlanOperand.SourceId("ontology"),
+                ),
+                dependsOnOperationIds = listOf("create-account-closure", "create-closure-date"),
+                expandedTypedEditCount = 1,
+            ),
+            DocumentPlanOperation(
+                id = "set-range",
+                kind = DocumentPlanOperationKind.SetPropertyRange,
+                order = 3,
+                operands = listOf(
+                    DocumentPlanOperand.TemporaryEntity(property),
+                    DocumentPlanOperand.ExistingEntity(Iri("http://www.w3.org/2001/XMLSchema#date")),
+                    DocumentPlanOperand.SourceId("ontology"),
+                ),
+                dependsOnOperationIds = listOf("create-closure-date"),
+                expandedTypedEditCount = 1,
+            ),
+        )
+        val recommendation = DocumentFinalRecommendation(
+            id = "connected-account-closure",
+            title = "Represent account closure",
+            description = "Create the concept and its date field as one connected change.",
+            discoveryIds = listOf("discovery-account-closure"),
+            evidenceIds = listOf(DocumentEvidenceId("evidence-group")),
+            operations = operations,
+            confidence = DocumentConfidenceDimensions(90, 85, 88),
+            status = DocumentFinalRecommendationStatus.Executable,
+        )
+
+        val result = assertIs<DocumentDraftTranslationResult.Prepared>(
+            translator.translateConnected(
+                recommendation,
+                ConnectedDocumentDraftContext(
+                    finalIris = mapOf(account to CLASS, property to PROPERTY),
+                    writableSourceIds = setOf("ontology"),
+                    expectedWorkKey = "work-key",
+                    currentWorkKey = "work-key",
+                ),
+            ),
+        )
+
+        assertEquals(4, result.operations.size)
+        assertIs<CreateClassEdit>(assertIs<DocumentDraftOperation.Ontology>(result.operations[0].operation).edit)
+        assertIs<CreateDatatypePropertyEdit>(
+            assertIs<DocumentDraftOperation.Ontology>(result.operations[1].operation).edit,
+        )
+        assertIs<SetPropertyDomainEdit>(
+            assertIs<DocumentDraftOperation.Ontology>(result.operations[2].operation).edit,
+        )
+        assertIs<SetPropertyRangeEdit>(
+            assertIs<DocumentDraftOperation.Ontology>(result.operations[3].operation).edit,
+        )
+        assertTrue(result.operations.all { it.normalizedTypedOperationKey?.contains("new:") == false })
     }
 
     private fun recommendation(

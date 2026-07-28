@@ -4,6 +4,10 @@ import com.entio.core.DocumentEvidenceReference
 import com.entio.core.DocumentEvidence
 import com.entio.core.DocumentAnalysisStageRecord
 import com.entio.core.DocumentDiscovery
+import com.entio.core.DocumentFinalRecommendation
+import com.entio.core.DocumentFinalRecommendationStatus
+import com.entio.core.DocumentGroupedDecisionKind
+import com.entio.core.DocumentGroupedRecommendationDecision
 import com.entio.core.DocumentRecommendation
 import com.entio.core.DocumentRecommendationReviewStatus
 import com.entio.core.LocatedDocumentTextBlock
@@ -16,6 +20,7 @@ import java.time.Instant
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import com.entio.semantic.DocumentDraftTranslationContext
+import com.entio.semantic.DocumentChangeSetPlanVerifier
 import com.entio.semantic.DocumentVerifiedFinalPlan
 
 public data class DocumentReviewWorkspaceResponse(
@@ -196,12 +201,20 @@ private data class StoredVerifiedPlan(
     val ownerUserId: String,
     val workKey: String,
     val graphFingerprint: String,
-    val plan: DocumentVerifiedFinalPlan,
+    var plan: DocumentVerifiedFinalPlan,
     val taskDocuments: List<DocumentIngestionDocumentSnapshot>,
     val blocks: Map<String, LocatedDocumentTextBlock>,
     val evidence: Map<String, DocumentEvidence>,
     val analysisStages: List<DocumentAnalysisStageRecord>,
+    val reviews: LinkedHashMap<String, MutableVerifiedRecommendationReview>,
     val installedAt: Instant,
+    var updatedAt: Instant,
+)
+
+private data class MutableVerifiedRecommendationReview(
+    var kind: DocumentGroupedDecisionKind = DocumentGroupedDecisionKind.Pending,
+    var clarification: String? = null,
+    var decision: DocumentGroupedRecommendationDecision? = null,
 )
 
 internal data class VerifiedDocumentReviewPlan(
@@ -214,9 +227,15 @@ internal data class VerifiedDocumentReviewPlan(
     val analysisStages: List<DocumentAnalysisStageRecord>,
 )
 
+internal data class VerifiedDocumentDraftCandidate(
+    val recommendation: DocumentFinalRecommendation,
+    val decision: DocumentGroupedRecommendationDecision,
+)
+
 internal class DocumentReviewWorkspaceStore(
     private val clock: Clock = Clock.systemUTC(),
     private val changeExplainer: DocumentReviewChangeExplainer = DocumentReviewChangeExplainer(),
+    private val planVerifier: DocumentChangeSetPlanVerifier = DocumentChangeSetPlanVerifier(),
 ) {
     private val workspaces: MutableMap<String, StoredReviewWorkspace> = linkedMapOf()
     private val verifiedPlans: MutableMap<String, StoredVerifiedPlan> = linkedMapOf()
@@ -250,7 +269,11 @@ internal class DocumentReviewWorkspaceStore(
             blocks = blocks,
             evidence = evidence,
             analysisStages = task.analysisStages,
+            reviews = plan.plan.recommendations.associateTo(linkedMapOf()) {
+                it.id to MutableVerifiedRecommendationReview()
+            },
             installedAt = Instant.now(clock),
+            updatedAt = Instant.now(clock),
         )
     }
 
@@ -289,6 +312,229 @@ internal class DocumentReviewWorkspaceStore(
             evidence = stored.evidence,
             analysisStages = stored.analysisStages,
         )
+    }
+
+    @Synchronized
+    fun acceptVerified(
+        projectId: String,
+        taskId: String,
+        recommendationId: String,
+        userId: String,
+        expectedWorkKey: String,
+        expectedGraphFingerprint: String,
+        clarification: String? = null,
+    ): Unit {
+        val stored = ownedVerified(projectId, taskId, userId)
+        requireVerifiedCurrent(stored, expectedWorkKey, expectedGraphFingerprint)
+        val recommendation = stored.plan.plan.recommendations.singleOrNull { it.id == recommendationId }
+            ?: throw DocumentIngestionFailure(
+                "document-recommendation-not-found",
+                "The requested grouped recommendation was not found.",
+            )
+        if (recommendation.status !in setOf(
+                DocumentFinalRecommendationStatus.Executable,
+                DocumentFinalRecommendationStatus.Mixed,
+            ) ||
+            recommendation.blockers.isNotEmpty()
+        ) {
+            throw DocumentIngestionFailure(
+                "document-recommendation-review-only",
+                "Only an executable grouped recommendation can enter the draft.",
+            )
+        }
+        if (recommendation.individualReviewGates.any { !it.executable }) {
+            throw DocumentIngestionFailure(
+                "document-individual-confirmation-required",
+                "Confirm every proposed individual before accepting this recommendation.",
+            )
+        }
+        val safeClarification = safeOptionalText(clarification)
+        if (recommendation.confidence.overall < 60 && safeClarification == null) {
+            throw DocumentIngestionFailure(
+                "document-clarification-required",
+                "Low-confidence recommendations require a reviewer clarification.",
+            )
+        }
+        val review = stored.reviews.getValue(recommendationId)
+        val now = Instant.now(clock)
+        review.kind = DocumentGroupedDecisionKind.Accepted
+        review.clarification = safeClarification
+        review.decision = DocumentGroupedRecommendationDecision(
+            decisionId = decisionId(taskId, recommendationId, userId, stored.workKey),
+            recommendationId = recommendationId,
+            actorUserId = userId,
+            decidedAt = now,
+            kind = DocumentGroupedDecisionKind.Accepted,
+            clarification = safeClarification,
+        )
+        stored.updatedAt = now
+    }
+
+    @Synchronized
+    fun rejectVerified(
+        projectId: String,
+        taskId: String,
+        recommendationId: String,
+        userId: String,
+        expectedWorkKey: String,
+        expectedGraphFingerprint: String,
+        clarification: String? = null,
+    ): Unit {
+        val stored = ownedVerified(projectId, taskId, userId)
+        requireVerifiedCurrent(stored, expectedWorkKey, expectedGraphFingerprint)
+        if (stored.plan.plan.recommendations.none { it.id == recommendationId }) {
+            throw DocumentIngestionFailure(
+                "document-recommendation-not-found",
+                "The requested grouped recommendation was not found.",
+            )
+        }
+        val review = stored.reviews.getValue(recommendationId)
+        val now = Instant.now(clock)
+        val safeClarification = safeOptionalText(clarification)
+        review.kind = DocumentGroupedDecisionKind.Rejected
+        review.clarification = safeClarification
+        review.decision = DocumentGroupedRecommendationDecision(
+            decisionId = decisionId(taskId, recommendationId, userId, stored.workKey),
+            recommendationId = recommendationId,
+            actorUserId = userId,
+            decidedAt = now,
+            kind = DocumentGroupedDecisionKind.Rejected,
+            clarification = safeClarification,
+        )
+        stored.updatedAt = now
+    }
+
+    @Synchronized
+    fun confirmVerifiedIndividual(
+        projectId: String,
+        taskId: String,
+        recommendationId: String,
+        operationId: String,
+        userId: String,
+        expectedWorkKey: String,
+        expectedGraphFingerprint: String,
+        confirmProductionClassification: Boolean,
+    ): Unit {
+        val stored = ownedVerified(projectId, taskId, userId)
+        requireVerifiedCurrent(stored, expectedWorkKey, expectedGraphFingerprint)
+        val recommendation = stored.plan.plan.recommendations.singleOrNull { it.id == recommendationId }
+            ?: throw DocumentIngestionFailure(
+                "document-recommendation-not-found",
+                "The requested grouped recommendation was not found.",
+            )
+        val gate = recommendation.individualReviewGates.singleOrNull { it.operationId == operationId }
+            ?: throw DocumentIngestionFailure(
+                "document-individual-gate-not-found",
+                "The requested individual confirmation was not found.",
+            )
+        val updatedGate = gate.copy(
+            creationConfirmed = true,
+            productionClassificationConfirmed =
+                gate.classification != com.entio.core.DocumentIndividualClassification.Production &&
+                    confirmProductionClassification,
+        )
+        val gates = recommendation.individualReviewGates.map {
+            if (it.operationId == operationId) updatedGate else it
+        }.sortedBy(com.entio.core.DocumentIndividualReviewGate::operationId)
+        val remainingBlockers = if (gates.all(com.entio.core.DocumentIndividualReviewGate::executable)) {
+            recommendation.blockers - INDIVIDUAL_CONFIRMATION_BLOCKER
+        } else {
+            recommendation.blockers
+        }
+        val status = when {
+            remainingBlockers.isNotEmpty() -> DocumentFinalRecommendationStatus.Blocked
+            recommendation.reviewOnlyFindings.isNotEmpty() -> DocumentFinalRecommendationStatus.Mixed
+            else -> DocumentFinalRecommendationStatus.Executable
+        }
+        replaceVerifiedRecommendation(
+            stored,
+            recommendation.copy(
+                individualReviewGates = gates,
+                blockers = remainingBlockers.sorted(),
+                status = status,
+            ),
+        )
+        stored.reviews.getValue(recommendationId).apply {
+            kind = DocumentGroupedDecisionKind.Pending
+            decision = null
+        }
+        stored.updatedAt = Instant.now(clock)
+    }
+
+    @Synchronized
+    fun excludeVerifiedOptionalLeaves(
+        projectId: String,
+        taskId: String,
+        recommendationId: String,
+        operationIds: Set<String>,
+        userId: String,
+        expectedWorkKey: String,
+        expectedGraphFingerprint: String,
+    ): Unit {
+        val stored = ownedVerified(projectId, taskId, userId)
+        requireVerifiedCurrent(stored, expectedWorkKey, expectedGraphFingerprint)
+        val recommendation = stored.plan.plan.recommendations.singleOrNull { it.id == recommendationId }
+            ?: throw DocumentIngestionFailure(
+                "document-recommendation-not-found",
+                "The requested grouped recommendation was not found.",
+            )
+        val updated = runCatching { planVerifier.excludeOptionalLeaves(recommendation, operationIds) }
+            .getOrElse {
+                throw DocumentIngestionFailure(
+                    "document-optional-leaf-invalid",
+                    "Only dependency-safe optional leaf operations can be excluded.",
+                )
+            }
+        replaceVerifiedRecommendation(stored, updated)
+        stored.reviews.getValue(recommendationId).apply {
+            kind = DocumentGroupedDecisionKind.Pending
+            decision = null
+        }
+        stored.updatedAt = Instant.now(clock)
+    }
+
+    @Synchronized
+    fun acceptedVerified(
+        projectId: String,
+        taskId: String,
+        userId: String,
+    ): List<VerifiedDocumentDraftCandidate> {
+        val stored = ownedVerified(projectId, taskId, userId)
+        return stored.plan.plan.recommendations.mapNotNull { recommendation ->
+            val review = stored.reviews.getValue(recommendation.id)
+            if (review.kind != DocumentGroupedDecisionKind.Accepted) return@mapNotNull null
+            val decision = review.decision
+                ?: throw DocumentIngestionFailure(
+                    "document-review-decision-missing",
+                    "An accepted grouped recommendation is missing its decision.",
+                )
+            VerifiedDocumentDraftCandidate(recommendation, decision)
+        }
+    }
+
+    @Synchronized
+    fun markVerifiedDrafted(
+        projectId: String,
+        taskId: String,
+        userId: String,
+        recommendationIds: Set<String>,
+    ): Unit {
+        val stored = ownedVerified(projectId, taskId, userId)
+        recommendationIds.forEach { recommendationId ->
+            val review = stored.reviews[recommendationId]
+                ?: throw DocumentIngestionFailure(
+                    "document-recommendation-not-found",
+                    "A drafted grouped recommendation was not found.",
+                )
+            if (review.kind != DocumentGroupedDecisionKind.Accepted) {
+                throw DocumentIngestionFailure(
+                    "document-recommendation-not-accepted",
+                    "Only accepted grouped recommendations can be drafted.",
+                )
+            }
+            review.kind = DocumentGroupedDecisionKind.Drafted
+        }
+        stored.updatedAt = Instant.now(clock)
     }
 
     @Synchronized
@@ -643,6 +889,43 @@ internal class DocumentReviewWorkspaceStore(
         )
         }
 
+    private fun ownedVerified(
+        projectId: String,
+        taskId: String,
+        userId: String,
+    ): StoredVerifiedPlan =
+        verifiedPlans[taskId]
+            ?.takeIf { it.projectId == projectId && it.ownerUserId == userId }
+            ?: throw DocumentIngestionFailure(
+                "document-review-not-ready",
+                "Verified document recommendations are not ready.",
+            )
+
+    private fun requireVerifiedCurrent(
+        stored: StoredVerifiedPlan,
+        expectedWorkKey: String,
+        expectedGraphFingerprint: String,
+    ): Unit {
+        if (stored.workKey != expectedWorkKey || stored.graphFingerprint != expectedGraphFingerprint) {
+            throw DocumentIngestionFailure(
+                "document-review-stale",
+                "The document review changed. Reload it before making a decision.",
+            )
+        }
+    }
+
+    private fun replaceVerifiedRecommendation(
+        stored: StoredVerifiedPlan,
+        replacement: DocumentFinalRecommendation,
+    ): Unit {
+        val recommendations = stored.plan.plan.recommendations.map {
+            if (it.id == replacement.id) replacement else it
+        }.sortedBy(DocumentFinalRecommendation::stableOrderingKey)
+        stored.plan = stored.plan.copy(
+            plan = stored.plan.plan.copy(recommendations = recommendations),
+        )
+    }
+
     private fun safeRequiredText(value: String?, label: String, maximum: Int = 2_000): String {
         val safe = value?.trim()
         if (safe.isNullOrBlank() || safe.length > maximum) {
@@ -675,5 +958,6 @@ internal class DocumentReviewWorkspaceStore(
         const val MAX_HIGHLIGHTS: Int = 100
         const val EVIDENCE_CONTEXT_CHARACTERS: Int = 2_000
         const val MAX_EVIDENCE_VIEW_CHARACTERS: Int = 8_000
+        const val INDIVIDUAL_CONFIRMATION_BLOCKER: String = "individual-confirmation-required"
     }
 }

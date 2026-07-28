@@ -9,10 +9,19 @@ import com.entio.core.CreateDatatypePropertyEdit
 import com.entio.core.CreateIndividualEdit
 import com.entio.core.CreateObjectPropertyEdit
 import com.entio.core.DocumentCandidateCategory
+import com.entio.core.DocumentFinalRecommendation
+import com.entio.core.DocumentFinalRecommendationStatus
+import com.entio.core.DocumentPlanOperand
+import com.entio.core.DocumentPlanOperation
+import com.entio.core.DocumentPlanOperationKind
 import com.entio.core.DocumentRecommendation
 import com.entio.core.DocumentRecommendationAction
 import com.entio.core.ExternalProposalIntent
 import com.entio.core.Iri
+import com.entio.core.AnnotationValue
+import com.entio.core.EditableShaclConstraint
+import com.entio.core.EditableShaclConstraintKind
+import com.entio.core.EditableShaclConstraintValue
 import com.entio.core.RdfLiteral
 import com.entio.core.RdfResource
 import com.entio.core.RemovePropertyDomainEdit
@@ -24,6 +33,7 @@ import com.entio.core.SetPropertyDomainEdit
 import com.entio.core.SetPropertyRangeEdit
 import com.entio.core.TypedOntologyEdit
 import com.entio.core.TypedShaclEdit
+import com.entio.core.DocumentTemporaryReference
 
 public sealed interface DocumentDraftOperation {
     public data class Ontology(val edit: TypedOntologyEdit) : DocumentDraftOperation
@@ -74,8 +84,241 @@ public sealed interface DocumentDraftTranslationResult {
     public data class Blocked(val code: String, val message: String) : DocumentDraftTranslationResult
 }
 
+public data class ConnectedDocumentDraftContext(
+    val finalIris: Map<DocumentTemporaryReference, Iri>,
+    val writableSourceIds: Set<String>,
+    val expectedWorkKey: String,
+    val currentWorkKey: String,
+    val graphCurrent: Boolean = true,
+    val evidenceCurrent: Boolean = true,
+    val modelAndPromptCurrent: Boolean = true,
+    val existingNormalizedOperationKeys: Set<String> = emptySet(),
+    val externalIntentsByOperationId: Map<String, Pair<ExternalProposalIntent, Iri>> = emptyMap(),
+)
+
 /** Converts reviewed recommendations only into existing, approved typed operations. */
 public class DocumentRecommendationDraftTranslator {
+    public fun translateConnected(
+        recommendation: DocumentFinalRecommendation,
+        context: ConnectedDocumentDraftContext,
+    ): DocumentDraftTranslationResult {
+        if (recommendation.status !in setOf(
+                DocumentFinalRecommendationStatus.Executable,
+                DocumentFinalRecommendationStatus.Mixed,
+            ) ||
+            recommendation.blockers.isNotEmpty()
+        ) {
+            return blocked("document-recommendation-review-only", "This grouped recommendation is not executable.")
+        }
+        if (context.expectedWorkKey != context.currentWorkKey ||
+            !context.graphCurrent ||
+            !context.evidenceCurrent ||
+            !context.modelAndPromptCurrent
+        ) {
+            return blocked("document-draft-stale", "The graph, evidence, work key, model, or prompt changed.")
+        }
+        if (recommendation.individualReviewGates.any { !it.executable }) {
+            return blocked(
+                "document-individual-confirmation-required",
+                "Every proposed individual requires explicit creation confirmation.",
+            )
+        }
+        return try {
+            val prepared = recommendation.operations.sortedBy(DocumentPlanOperation::order).map { operation ->
+                translateConnectedOperation(recommendation.id, operation, context)
+            }
+            if (prepared.size != recommendation.expandedTypedEditCount ||
+                prepared.size > com.entio.core.MAX_DOCUMENT_EXPANDED_TYPED_EDITS_PER_RECOMMENDATION
+            ) {
+                return blocked(
+                    "document-compound-recommendation-limit",
+                    "The grouped recommendation does not map exactly to its verified typed-edit count.",
+                )
+            }
+            val keys = prepared.mapNotNull(PreparedDocumentDraftOperation::normalizedTypedOperationKey)
+            if (keys.size != keys.distinct().size || keys.any(context.existingNormalizedOperationKeys::contains)) {
+                return blocked("document-draft-duplicate", "The grouped recommendation contains a duplicate or no-op.")
+            }
+            DocumentDraftTranslationResult.Prepared(prepared)
+        } catch (_: MissingDocumentDraftOperand) {
+            blocked("document-draft-context-missing", "A required typed operand is missing.")
+        } catch (_: UnsupportedDocumentDraftOperation) {
+            blocked("document-recommendation-unsupported", "The grouped recommendation uses an unsupported operation.")
+        } catch (_: IllegalArgumentException) {
+            blocked("document-draft-edit-invalid", "The grouped recommendation contains an invalid typed operation.")
+        }
+    }
+
+    private fun translateConnectedOperation(
+        recommendationId: String,
+        operation: DocumentPlanOperation,
+        context: ConnectedDocumentDraftContext,
+    ): PreparedDocumentDraftOperation {
+        val sourceId = operation.operands.filterIsInstance<DocumentPlanOperand.SourceId>()
+            .singleOrNull()?.value
+            ?: throw MissingDocumentDraftOperand("target source")
+        if (sourceId !in context.writableSourceIds) throw UnsupportedDocumentDraftOperation()
+        val entities = operation.operands.mapNotNull { operand ->
+            when (operand) {
+                is DocumentPlanOperand.ExistingEntity -> operand.iri
+                is DocumentPlanOperand.TemporaryEntity -> context.finalIris[operand.reference]
+                    ?: throw MissingDocumentDraftOperand("temporary reference")
+                else -> null
+            }
+        }
+        val texts = operation.operands.filterIsInstance<DocumentPlanOperand.TextValue>().map { it.value }
+        val literals = operation.operands.filterIsInstance<DocumentPlanOperand.LiteralValue>().map { it.value }
+        val declaration = operation.declaration?.let {
+            context.finalIris[it] ?: throw MissingDocumentDraftOperand("generated IRI")
+        }
+        fun entity(index: Int): Iri = entities.getOrNull(index) ?: throw MissingDocumentDraftOperand("entity operand")
+        fun literal(index: Int): RdfLiteral = literals.getOrNull(index)
+            ?: texts.getOrNull(index)?.let(::RdfLiteral)
+            ?: throw MissingDocumentDraftOperand("literal operand")
+        fun label(): RdfLiteral? = texts.firstOrNull()?.let(::RdfLiteral)
+        val draft = when (operation.kind) {
+            DocumentPlanOperationKind.CreateClass ->
+                DocumentDraftOperation.Ontology(CreateClassEdit(required(declaration, "class IRI"), label()))
+            DocumentPlanOperationKind.CreateObjectProperty ->
+                DocumentDraftOperation.Ontology(CreateObjectPropertyEdit(required(declaration, "property IRI"), label()))
+            DocumentPlanOperationKind.CreateDatatypeProperty ->
+                DocumentDraftOperation.Ontology(CreateDatatypePropertyEdit(required(declaration, "property IRI"), label()))
+            DocumentPlanOperationKind.CreateAnnotationProperty -> DocumentDraftOperation.Semantic(
+                SemanticEditRequest.CreateAnnotationProperty(
+                    required(declaration, "annotation property IRI"),
+                    sourceId,
+                    label(),
+                ),
+            )
+            DocumentPlanOperationKind.CreateIndividual ->
+                DocumentDraftOperation.Ontology(CreateIndividualEdit(required(declaration, "individual IRI"), entities.firstOrNull()))
+            DocumentPlanOperationKind.SetEntityLabel ->
+                DocumentDraftOperation.Ontology(SetEntityLabelEdit(entity(0), literal(0)))
+            DocumentPlanOperationKind.AddSuperclass ->
+                DocumentDraftOperation.Ontology(AddSuperclassEdit(entity(0), entity(1)))
+            DocumentPlanOperationKind.RemoveSuperclass ->
+                DocumentDraftOperation.Ontology(RemoveSuperclassEdit(entity(0), entity(1)))
+            DocumentPlanOperationKind.SetPropertyDomain ->
+                DocumentDraftOperation.Ontology(SetPropertyDomainEdit(entity(0), entity(1)))
+            DocumentPlanOperationKind.RemovePropertyDomain ->
+                DocumentDraftOperation.Ontology(RemovePropertyDomainEdit(entity(0), entity(1)))
+            DocumentPlanOperationKind.SetPropertyRange ->
+                DocumentDraftOperation.Ontology(SetPropertyRangeEdit(entity(0), entity(1)))
+            DocumentPlanOperationKind.RemovePropertyRange ->
+                DocumentDraftOperation.Ontology(RemovePropertyRangeEdit(entity(0), entity(1)))
+            DocumentPlanOperationKind.AssignType ->
+                DocumentDraftOperation.Ontology(AssignTypeEdit(entity(0), entity(1)))
+            DocumentPlanOperationKind.AddObjectPropertyAssertion ->
+                DocumentDraftOperation.Ontology(AddObjectPropertyAssertionEdit(entity(0), entity(1), entity(2)))
+            DocumentPlanOperationKind.AddDatatypePropertyAssertion ->
+                DocumentDraftOperation.Ontology(AddDatatypePropertyAssertionEdit(entity(0), entity(1), literal(0)))
+            DocumentPlanOperationKind.AddDefinition -> DocumentDraftOperation.Semantic(
+                SemanticEditRequest.AddDefinition(entity(0), literal(0), sourceId),
+            )
+            DocumentPlanOperationKind.ReplaceDefinition -> DocumentDraftOperation.Semantic(
+                SemanticEditRequest.ReplaceDefinition(entity(0), literal(0), literal(1), sourceId),
+            )
+            DocumentPlanOperationKind.RemoveDefinition -> DocumentDraftOperation.Semantic(
+                SemanticEditRequest.RemoveDefinition(entity(0), literal(0), sourceId),
+            )
+            DocumentPlanOperationKind.AddAlternateLabel -> DocumentDraftOperation.Semantic(
+                SemanticEditRequest.AddAlternateLabel(entity(0), literal(0), sourceId),
+            )
+            DocumentPlanOperationKind.ReplaceAlternateLabel -> DocumentDraftOperation.Semantic(
+                SemanticEditRequest.ReplaceAlternateLabel(entity(0), literal(0), literal(1), sourceId),
+            )
+            DocumentPlanOperationKind.RemoveAlternateLabel -> DocumentDraftOperation.Semantic(
+                SemanticEditRequest.RemoveAlternateLabel(entity(0), literal(0), sourceId),
+            )
+            DocumentPlanOperationKind.AddAnnotation -> DocumentDraftOperation.Semantic(
+                SemanticEditRequest.AddAnnotation(
+                    entity(0),
+                    entity(1),
+                    AnnotationValue.fromTerm(literals.firstOrNull() ?: entities.getOrNull(2)
+                    ?: throw MissingDocumentDraftOperand("annotation value")),
+                    sourceId,
+                ),
+            )
+            DocumentPlanOperationKind.RemoveAnnotation -> DocumentDraftOperation.Semantic(
+                SemanticEditRequest.RemoveAnnotation(
+                    entity(0),
+                    entity(1),
+                    AnnotationValue.fromTerm(literals.firstOrNull() ?: entities.getOrNull(2)
+                    ?: throw MissingDocumentDraftOperand("annotation value")),
+                    sourceId,
+                ),
+            )
+            DocumentPlanOperationKind.ReuseExternal -> {
+                val external = context.externalIntentsByOperationId[operation.id]
+                    ?: throw MissingDocumentDraftOperand("approved external reuse")
+                DocumentDraftOperation.ExternalReuse(external.first, external.second)
+            }
+            DocumentPlanOperationKind.CreateNodeShape -> DocumentDraftOperation.Shacl(
+                TypedShaclEdit.CreateNodeShape(
+                    sourceId,
+                    required(declaration, "shape IRI"),
+                    texts.firstOrNull() ?: operation.declaration!!.localName,
+                    entity(0),
+                ),
+            )
+            DocumentPlanOperationKind.CreatePropertyShape -> DocumentDraftOperation.Shacl(
+                TypedShaclEdit.CreatePropertyShape(
+                    sourceId,
+                    required(declaration, "shape IRI"),
+                    texts.firstOrNull() ?: operation.declaration!!.localName,
+                    entity(0),
+                    entity(1),
+                    shaclConstraint(operation, entities),
+                ),
+            )
+            DocumentPlanOperationKind.UpdateShaclConstraint -> DocumentDraftOperation.Shacl(
+                TypedShaclEdit.UpdateConstraint(
+                    sourceId,
+                    entity(0),
+                    entity(1),
+                    shaclConstraint(operation, entities.drop(2)),
+                ),
+            )
+            DocumentPlanOperationKind.RemoveShaclConstraint -> DocumentDraftOperation.Shacl(
+                TypedShaclEdit.RemoveConstraint(
+                    sourceId,
+                    entity(0),
+                    entity(1),
+                    EditableShaclConstraintKind.valueOf(texts.first()),
+                ),
+            )
+            DocumentPlanOperationKind.UpdateShapeLabel -> DocumentDraftOperation.Shacl(
+                TypedShaclEdit.UpdateShapeLabel(sourceId, entity(0), texts.first()),
+            )
+            DocumentPlanOperationKind.DeleteShape ->
+                DocumentDraftOperation.Shacl(TypedShaclEdit.DeleteShape(sourceId, entity(0)))
+        }
+        return PreparedDocumentDraftOperation(
+            recommendationId,
+            sourceId,
+            draft,
+            normalizedKey(sourceId, draft),
+        )
+    }
+
+    private fun shaclConstraint(
+        operation: DocumentPlanOperation,
+        entityValues: List<Iri>,
+    ): EditableShaclConstraint {
+        val texts = operation.operands.filterIsInstance<DocumentPlanOperand.TextValue>().map { it.value }
+        val kind = EditableShaclConstraintKind.valueOf(texts.first())
+        val value = operation.operands.firstNotNullOfOrNull { operand ->
+            when (operand) {
+                is DocumentPlanOperand.IntegerValue -> EditableShaclConstraintValue.IntegerValue(operand.value)
+                is DocumentPlanOperand.DecimalValue -> EditableShaclConstraintValue.DecimalValue(operand.lexicalForm)
+                else -> null
+            }
+        } ?: entityValues.firstOrNull()?.let(EditableShaclConstraintValue::IriValue)
+            ?: texts.drop(1).firstOrNull()?.let(EditableShaclConstraintValue::TextValue)
+            ?: throw MissingDocumentDraftOperand("SHACL constraint value")
+        return EditableShaclConstraint(kind, value)
+    }
+
     /**
      * Produces the same typed operations as drafting without requiring an acceptance decision first.
      *
