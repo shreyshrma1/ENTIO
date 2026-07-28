@@ -13,6 +13,7 @@ import java.time.Instant
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import com.entio.semantic.DocumentDraftTranslationContext
+import com.entio.semantic.DocumentVerifiedFinalPlan
 
 public data class DocumentReviewWorkspaceResponse(
     val apiVersion: String = "v1",
@@ -187,11 +188,50 @@ private data class StoredReviewWorkspace(
     var updatedAt: Instant,
 )
 
+private data class StoredVerifiedPlan(
+    val projectId: String,
+    val ownerUserId: String,
+    val workKey: String,
+    val plan: DocumentVerifiedFinalPlan,
+    val installedAt: Instant,
+)
+
 internal class DocumentReviewWorkspaceStore(
     private val clock: Clock = Clock.systemUTC(),
     private val changeExplainer: DocumentReviewChangeExplainer = DocumentReviewChangeExplainer(),
 ) {
     private val workspaces: MutableMap<String, StoredReviewWorkspace> = linkedMapOf()
+    private val verifiedPlans: MutableMap<String, StoredVerifiedPlan> = linkedMapOf()
+
+    @Synchronized
+    fun installVerifiedPlan(
+        task: DocumentIngestionTaskSnapshot,
+        workKey: String,
+        plan: DocumentVerifiedFinalPlan,
+    ): Unit {
+        require(plan.plan.workKey.sha256 == workKey)
+        verifiedPlans[task.taskId] = StoredVerifiedPlan(
+            projectId = task.projectId,
+            ownerUserId = task.ownerUserId,
+            workKey = workKey,
+            plan = plan,
+            installedAt = Instant.now(clock),
+        )
+    }
+
+    @Synchronized
+    fun verifiedPlan(
+        projectId: String,
+        taskId: String,
+        userId: String,
+    ): DocumentVerifiedFinalPlan =
+        verifiedPlans[taskId]
+            ?.takeIf { it.projectId == projectId && it.ownerUserId == userId }
+            ?.plan
+            ?: throw DocumentIngestionFailure(
+                "document-review-not-ready",
+                "Verified document recommendations are not ready.",
+            )
 
     @Synchronized
     fun install(input: DocumentReviewWorkspaceInput): Unit {

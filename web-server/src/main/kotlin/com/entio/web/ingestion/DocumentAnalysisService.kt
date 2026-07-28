@@ -2536,6 +2536,15 @@ internal fun interface DocumentFinalPlanningProvider {
     ): DocumentFinalPlanningProviderResult
 }
 
+internal interface DocumentPipelineProvider :
+    DocumentAnalysisProvider,
+    DocumentDiscoveryProvider,
+    DocumentConnectedModelProvider,
+    DocumentReconciliationProvider,
+    DocumentOntologyAlignmentProvider,
+    DocumentModelingCriticProvider,
+    DocumentFinalPlanningProvider
+
 internal data class CompletedDocumentFinalPlanning(
     val modelId: String,
     val verifiedPlan: DocumentVerifiedFinalPlan,

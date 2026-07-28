@@ -1,6 +1,7 @@
 package com.entio.web.ingestion
 
 import com.entio.core.DocumentProcessingStatus
+import com.entio.core.DocumentAnalysisStageRecord
 import com.entio.core.DocumentTaskId
 import com.entio.core.IngestionDocument
 import java.time.Duration
@@ -41,6 +42,7 @@ public data class DocumentIngestionTaskSnapshot(
     val documents: List<DocumentIngestionDocumentSnapshot>,
     val progress: DocumentIngestionProgress,
     val updates: List<DocumentIngestionStatusUpdate> = emptyList(),
+    val analysisStages: List<DocumentAnalysisStageRecord> = emptyList(),
 )
 
 public data class DocumentIngestionDocumentSnapshot(
@@ -64,6 +66,7 @@ private data class StoredIngestionTask(
     val documents: MutableList<AcceptedDocumentUpload> = mutableListOf(),
     var progress: DocumentIngestionProgress,
     val updates: MutableList<DocumentIngestionStatusUpdate>,
+    val analysisStages: MutableList<DocumentAnalysisStageRecord> = mutableListOf(),
 )
 
 internal data class DocumentIngestionProcessingInput(
@@ -198,6 +201,28 @@ internal class DocumentIngestionTaskManager(
     }
 
     @Synchronized
+    fun recordAnalysisStage(
+        taskId: DocumentTaskId,
+        projectId: String,
+        userId: String,
+        record: DocumentAnalysisStageRecord,
+    ): DocumentIngestionTaskSnapshot {
+        val task = ownedTask(taskId, projectId, userId)
+        if (task.status == DocumentProcessingStatus.Cancelled) {
+            throw DocumentIngestionFailure("ingestion-cancelled", "Document ingestion was cancelled.")
+        }
+        val existingIndex = task.analysisStages.indexOfFirst { it.recordId == record.recordId }
+        if (existingIndex >= 0) {
+            task.analysisStages[existingIndex] = record
+        } else {
+            task.analysisStages += record
+        }
+        while (task.analysisStages.size > MAX_ANALYSIS_STAGE_RECORDS) task.analysisStages.removeFirst()
+        task.updatedAt = Instant.now(configuration.clock)
+        return task.snapshot()
+    }
+
+    @Synchronized
     fun isCancelled(taskId: DocumentTaskId, projectId: String, userId: String): Boolean =
         runCatching { ownedTask(taskId, projectId, userId).status == DocumentProcessingStatus.Cancelled }
             .getOrDefault(true)
@@ -325,6 +350,7 @@ internal class DocumentIngestionTaskManager(
         },
         progress = progress,
         updates = updates.toList(),
+        analysisStages = analysisStages.toList(),
     )
 
     private fun DocumentProcessingStatus.isActiveExecution(): Boolean = this in activeExecutionStates
@@ -334,6 +360,7 @@ internal class DocumentIngestionTaskManager(
 
     private companion object {
         const val MAX_STATUS_UPDATES: Int = 50
+        const val MAX_ANALYSIS_STAGE_RECORDS: Int = 50
 
         val activeExecutionStates: Set<DocumentProcessingStatus> = setOf(
             DocumentProcessingStatus.Uploaded,

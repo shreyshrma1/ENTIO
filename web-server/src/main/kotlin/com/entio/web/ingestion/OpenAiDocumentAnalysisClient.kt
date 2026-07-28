@@ -76,13 +76,7 @@ internal class OpenAiDocumentAnalysisClient(
     private val configuration: OpenAiDocumentAnalysisConfiguration = OpenAiDocumentAnalysisConfiguration(),
     private val objectMapper: ObjectMapper = ObjectMapper().findAndRegisterModules(),
     engine: HttpClientEngine? = null,
-) : DocumentAnalysisProvider,
-    DocumentDiscoveryProvider,
-    DocumentConnectedModelProvider,
-    DocumentReconciliationProvider,
-    DocumentOntologyAlignmentProvider,
-    DocumentModelingCriticProvider,
-    DocumentFinalPlanningProvider,
+) : DocumentPipelineProvider,
     AutoCloseable {
     private val client = if (engine == null) {
         HttpClient(CIO) {
