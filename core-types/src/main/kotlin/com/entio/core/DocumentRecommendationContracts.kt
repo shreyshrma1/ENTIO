@@ -509,6 +509,43 @@ public data class AppliedDocumentApplyEvent(
     }
 }
 
+public data class AppliedDocumentReviewOnlyFinding(
+    public val findingId: String,
+    public val summary: String,
+    public val reason: String,
+    public val evidenceIds: List<DocumentEvidenceId>,
+) {
+    init {
+        requireOpaqueDocumentId(findingId, "Applied review-only finding ID")
+        requireNonBlankBounded(summary, "Applied review-only finding summary", 1_000)
+        requireNonBlankBounded(reason, "Applied review-only finding reason", 2_000)
+        require(
+            evidenceIds.isNotEmpty() &&
+                evidenceIds.size <= MAX_DOCUMENT_EVIDENCE_REFERENCES &&
+                evidenceIds == evidenceIds.distinct().sortedBy(DocumentEvidenceId::value),
+        ) {
+            "Applied review-only finding evidence must be bounded, sorted, and unique."
+        }
+    }
+}
+
+public data class AppliedDocumentIndividualConfirmation(
+    public val operationId: String,
+    public val classification: DocumentIndividualClassification,
+    public val creationConfirmed: Boolean,
+    public val productionClassificationConfirmed: Boolean,
+) {
+    init {
+        requireOpaqueDocumentId(operationId, "Applied individual operation ID")
+        require(creationConfirmed) {
+            "Applied individual provenance requires explicit creation confirmation."
+        }
+        require(!productionClassificationConfirmed || creationConfirmed) {
+            "Production classification confirmation requires creation confirmation."
+        }
+    }
+}
+
 public data class AppliedDocumentProvenance(
     public val recordId: String,
     public val projectId: String,
@@ -516,7 +553,7 @@ public data class AppliedDocumentProvenance(
     public val document: AppliedDocumentIdentity,
     public val evidence: List<AppliedDocumentEvidence>,
     public val recommendationId: String,
-    public val action: DocumentRecommendationAction,
+    public val action: DocumentRecommendationAction?,
     public val decision: AppliedDocumentDecision,
     public val modelId: String?,
     public val promptVersion: String?,
@@ -524,6 +561,15 @@ public data class AppliedDocumentProvenance(
     public val evidenceTypes: List<DocumentEvidenceType>,
     public val typedOperation: AppliedDocumentTypedOperation?,
     public val applyEvent: AppliedDocumentApplyEvent,
+    public val analysisWorkKey: String? = null,
+    public val promptVersions: List<String> = emptyList(),
+    public val stageInputHashes: List<String> = emptyList(),
+    public val stageOutputHashes: List<String> = emptyList(),
+    public val confidenceDimensions: DocumentConfidenceDimensions? = null,
+    public val criticDispositionIds: List<String> = emptyList(),
+    public val coverageDispositionIds: List<String> = emptyList(),
+    public val relatedReviewOnlyFindings: List<AppliedDocumentReviewOnlyFinding> = emptyList(),
+    public val individualConfirmations: List<AppliedDocumentIndividualConfirmation> = emptyList(),
 ) {
     init {
         requireOpaqueDocumentId(recordId, "Applied document provenance record ID")
@@ -558,6 +604,55 @@ public data class AppliedDocumentProvenance(
         }
         require(evidence.all { it.documentId == document.documentId }) {
             "Applied provenance evidence must belong to its document."
+        }
+        analysisWorkKey?.let { requireSha256(it, "Applied provenance analysis work key") }
+        require(promptVersions == promptVersions.distinct().sorted()) {
+            "Applied provenance prompt versions must be sorted and unique."
+        }
+        promptVersions.forEach { requireNonBlankBounded(it, "Applied provenance prompt version", 200) }
+        require(
+            stageInputHashes == stageInputHashes.distinct().sorted() &&
+                stageInputHashes.all { it.matches(Regex("[0-9a-f]{64}")) },
+        ) {
+            "Applied provenance stage input hashes must be sorted, unique SHA-256 values."
+        }
+        require(
+            stageOutputHashes == stageOutputHashes.distinct().sorted() &&
+                stageOutputHashes.all { it.matches(Regex("[0-9a-f]{64}")) },
+        ) {
+            "Applied provenance stage output hashes must be sorted, unique SHA-256 values."
+        }
+        require(criticDispositionIds == criticDispositionIds.distinct().sorted()) {
+            "Applied provenance critic dispositions must be sorted and unique."
+        }
+        criticDispositionIds.forEach { requireOpaqueDocumentId(it, "Applied critic disposition ID") }
+        require(coverageDispositionIds == coverageDispositionIds.distinct().sorted()) {
+            "Applied provenance coverage dispositions must be sorted and unique."
+        }
+        coverageDispositionIds.forEach { requireOpaqueDocumentId(it, "Applied coverage disposition ID") }
+        require(
+            relatedReviewOnlyFindings ==
+                relatedReviewOnlyFindings.distinctBy(AppliedDocumentReviewOnlyFinding::findingId)
+                    .sortedBy(AppliedDocumentReviewOnlyFinding::findingId),
+        ) {
+            "Applied review-only findings must be sorted and unique."
+        }
+        require(
+            individualConfirmations ==
+                individualConfirmations.distinctBy(AppliedDocumentIndividualConfirmation::operationId)
+                    .sortedBy(AppliedDocumentIndividualConfirmation::operationId),
+        ) {
+            "Applied individual confirmations must be sorted and unique."
+        }
+        val hasConnectedMetadata = analysisWorkKey != null
+        require(
+            !hasConnectedMetadata ||
+                confidenceDimensions != null &&
+                promptVersions.isNotEmpty() &&
+                stageInputHashes.isNotEmpty() &&
+                stageOutputHashes.isNotEmpty(),
+        ) {
+            "Connected applied provenance requires confidence, prompts, and stage hashes."
         }
     }
 }

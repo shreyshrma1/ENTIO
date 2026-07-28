@@ -4,6 +4,7 @@ import com.entio.core.DocumentAnalysisStage
 import com.entio.core.DocumentConfidenceDimensions
 import com.entio.core.DocumentCoverageDisposition
 import com.entio.core.DocumentCoverageDispositionKind
+import com.entio.core.DocumentEvidenceId
 import com.entio.core.DocumentFinalPlan
 import com.entio.core.DocumentFinalRecommendation
 import com.entio.core.DocumentFinalRecommendationStatus
@@ -70,9 +71,13 @@ class DocumentIngestionOrchestratorTest {
             ),
             task.analysisStages.map { it.stage },
         )
-        val recommendation = fixture.reviews.verifiedPlan("simple", taskId.value, "alice")
-            .plan.recommendations.single()
+        val reviewPlan = fixture.reviews.verifiedReviewPlan("simple", taskId.value, "alice")
+        val recommendation = reviewPlan.plan.plan.recommendations.single()
         assertEquals("Create Supplier", recommendation.title)
+        assertEquals(task.analysisStages, reviewPlan.analysisStages)
+        assertEquals(recommendation.evidenceIds.toSet(), reviewPlan.evidence.keys.map(::DocumentEvidenceId).toSet())
+        assertTrue(reviewPlan.blocks.isNotEmpty())
+        assertEquals(task.documents, reviewPlan.taskDocuments)
         assertEquals(before.toList(), Files.readAllBytes(fixture.source).toList())
         assertTrue(directory.path.toFile().exists())
         fixture.close()

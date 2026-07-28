@@ -4,16 +4,21 @@ import com.entio.core.AppliedDocumentApplyEvent
 import com.entio.core.AppliedDocumentDecision
 import com.entio.core.AppliedDocumentEvidence
 import com.entio.core.AppliedDocumentIdentity
+import com.entio.core.AppliedDocumentIndividualConfirmation
 import com.entio.core.AppliedDocumentProvenance
+import com.entio.core.AppliedDocumentReviewOnlyFinding
+import com.entio.core.DocumentConfidenceDimensions
 import com.entio.core.DocumentEvidenceId
 import com.entio.core.DocumentEvidenceType
 import com.entio.core.DocumentExtractionMethod
 import com.entio.core.DocumentId
+import com.entio.core.DocumentIndividualClassification
 import com.entio.core.DocumentRecommendationAction
 import com.entio.core.DocumentRecommendationReviewStatus
 import com.entio.core.DocumentTaskId
 import com.entio.core.DocumentTextBlockId
 import com.entio.web.contract.InMemoryProjectRegistry
+import com.fasterxml.jackson.databind.ObjectMapper
 import java.nio.file.Files
 import java.time.Instant
 import kotlin.test.Test
@@ -42,7 +47,27 @@ class AppliedDocumentProvenanceRepositoryTest {
             workKey = "a".repeat(64),
             modelId = "gpt-test",
             promptVersions = listOf("phase-11-5-final-plan-v1"),
+            stageInputHashes = listOf("c".repeat(64)),
             stageOutputHashes = listOf("b".repeat(64)),
+            confidenceDimensions = DocumentConfidenceDimensions(90, 85, 80),
+            criticDispositionIds = listOf("critic-1"),
+            coverageDispositionIds = listOf("discovery-1"),
+            relatedReviewOnlyFindings = listOf(
+                AppliedDocumentReviewOnlyFinding(
+                    "review-only-1",
+                    "Aggregation rule",
+                    "The current typed edits cannot represent aggregation safely.",
+                    listOf(DocumentEvidenceId("evidence-1")),
+                ),
+            ),
+            individualConfirmations = listOf(
+                AppliedDocumentIndividualConfirmation(
+                    "operation-1",
+                    DocumentIndividualClassification.Production,
+                    creationConfirmed = true,
+                    productionClassificationConfirmed = false,
+                ),
+            ),
         )
 
         repository.save("project-a", listOf(record))
@@ -80,6 +105,45 @@ class AppliedDocumentProvenanceRepositoryTest {
         assertEquals(listOf(record), restarted.list("project-a"))
         assertFalse(root.startsWith(projectA))
         assertFalse(projectA.startsWith(root))
+    }
+
+    @Test
+    fun schemaOneRecordsRemainReadableWithEmptyConnectedMetadata(): Unit {
+        val allowed = Files.createTempDirectory("entio-provenance-legacy-allowed")
+        val project = Files.createDirectory(allowed.resolve("project"))
+        val registry = InMemoryProjectRegistry(setOf(allowed)).also {
+            it.register("project-a", "A", project)
+        }
+        val root = Files.createTempDirectory("entio-provenance-legacy-store")
+        val repository = AppliedDocumentProvenanceRepository(root, registry)
+        repository.save("project-a", listOf(provenance()))
+        val recordsPath = Files.list(root).use { paths ->
+            paths.filter { Files.isDirectory(it) }.findFirst().orElseThrow().resolve("records-v1.json")
+        }
+        val mapper = ObjectMapper().findAndRegisterModules()
+        val rootNode = mapper.readTree(Files.readAllBytes(recordsPath))
+        (rootNode as com.fasterxml.jackson.databind.node.ObjectNode).put("schemaVersion", 1)
+        val record = rootNode.path("records").first() as com.fasterxml.jackson.databind.node.ObjectNode
+        listOf(
+            "analysisWorkKey",
+            "promptVersions",
+            "stageInputHashes",
+            "stageOutputHashes",
+            "confidenceDimensions",
+            "criticDispositionIds",
+            "coverageDispositionIds",
+            "relatedReviewOnlyFindings",
+            "individualConfirmations",
+        ).forEach(record::remove)
+        Files.write(recordsPath, mapper.writeValueAsBytes(rootNode))
+
+        val legacy = AppliedDocumentProvenanceRepository(root, registry).list("project-a").single()
+
+        assertNull(legacy.analysisWorkKey)
+        assertNull(legacy.confidenceDimensions)
+        assertTrue(legacy.promptVersions.isEmpty())
+        assertTrue(legacy.criticDispositionIds.isEmpty())
+        assertTrue(legacy.relatedReviewOnlyFindings.isEmpty())
     }
 
     @Test

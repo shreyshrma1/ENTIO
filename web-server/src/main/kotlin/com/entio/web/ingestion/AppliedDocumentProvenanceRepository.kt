@@ -1,6 +1,9 @@
 package com.entio.web.ingestion
 
 import com.entio.core.AppliedDocumentProvenance
+import com.entio.core.AppliedDocumentIndividualConfirmation
+import com.entio.core.AppliedDocumentReviewOnlyFinding
+import com.entio.core.DocumentConfidenceDimensions
 import com.entio.web.contract.ProjectRegistry
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
@@ -64,16 +67,37 @@ internal data class AppliedDocumentPipelineMetadata(
     val workKey: String,
     val modelId: String,
     val promptVersions: List<String>,
+    val stageInputHashes: List<String> = emptyList(),
     val stageOutputHashes: List<String>,
+    val confidenceDimensions: DocumentConfidenceDimensions? = null,
+    val criticDispositionIds: List<String> = emptyList(),
+    val coverageDispositionIds: List<String> = emptyList(),
+    val relatedReviewOnlyFindings: List<AppliedDocumentReviewOnlyFinding> = emptyList(),
+    val individualConfirmations: List<AppliedDocumentIndividualConfirmation> = emptyList(),
 ) {
     init {
         require(recommendationId.isNotBlank())
         require(Regex("[a-f0-9]{64}").matches(workKey))
         require(modelId.isNotBlank())
         require(promptVersions.isNotEmpty() && promptVersions == promptVersions.distinct().sorted())
+        require(stageInputHashes == stageInputHashes.distinct().sorted() &&
+            stageInputHashes.all { Regex("[a-f0-9]{64}").matches(it) }
+        )
         require(stageOutputHashes.isNotEmpty() &&
             stageOutputHashes.all { Regex("[a-f0-9]{64}").matches(it) } &&
             stageOutputHashes == stageOutputHashes.distinct().sorted()
+        )
+        require(criticDispositionIds == criticDispositionIds.distinct().sorted())
+        require(coverageDispositionIds == coverageDispositionIds.distinct().sorted())
+        require(
+            relatedReviewOnlyFindings ==
+                relatedReviewOnlyFindings.distinctBy(AppliedDocumentReviewOnlyFinding::findingId)
+                    .sortedBy(AppliedDocumentReviewOnlyFinding::findingId),
+        )
+        require(
+            individualConfirmations ==
+                individualConfirmations.distinctBy(AppliedDocumentIndividualConfirmation::operationId)
+                    .sortedBy(AppliedDocumentIndividualConfirmation::operationId),
         )
     }
 }
@@ -116,7 +140,7 @@ public class AppliedDocumentProvenanceRepository(
                     documentId = record.document.documentId.value,
                     safeFilename = record.document.safeFilename,
                     recommendationId = record.recommendationId,
-                    action = record.action.name,
+                    action = record.action?.name ?: "ConnectedChangeSet",
                     confidence = record.confidence,
                     evidence = record.evidence
                         .sortedBy { it.evidenceId.value }
