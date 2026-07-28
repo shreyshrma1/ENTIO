@@ -74,6 +74,7 @@ class DocumentIngestionOrchestratorTest {
         val reviewPlan = fixture.reviews.verifiedReviewPlan("simple", taskId.value, "alice")
         val recommendation = reviewPlan.plan.plan.recommendations.single()
         assertEquals("Create Supplier", recommendation.title)
+        assertTrue(reviewPlan.graphFingerprint.isNotBlank())
         assertEquals(task.analysisStages, reviewPlan.analysisStages)
         assertEquals(recommendation.evidenceIds.toSet(), reviewPlan.evidence.keys.map(::DocumentEvidenceId).toSet())
         assertTrue(reviewPlan.blocks.isNotEmpty())
