@@ -476,6 +476,267 @@ class DocumentAnalysisPipelineContractsTest {
     }
 
     @Test
+    fun `pins Phase 11 point 5 plus contract versions`(): Unit {
+        assertEquals(
+            "phase-11-5-plus-semantic-plan-prompt-v1",
+            DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_PROMPT,
+        )
+        assertEquals(
+            "phase-11-5-plus-semantic-plan-request-v1",
+            DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_REQUEST,
+        )
+        assertEquals(
+            "phase-11-5-plus-semantic-plan-response-v1",
+            DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_RESPONSE,
+        )
+        assertEquals(
+            "phase-11-5-plus-pattern-registry-v1",
+            DocumentAnalysisPipelineVersions.SEMANTIC_PATTERN_REGISTRY,
+        )
+        assertEquals(
+            "phase-11-5-plus-compiler-result-v1",
+            DocumentAnalysisPipelineVersions.COMPILER_RESULT,
+        )
+        assertEquals(
+            "phase-11-5-plus-document-review-v1",
+            DocumentAnalysisPipelineVersions.DOCUMENT_REVIEW,
+        )
+    }
+
+    @Test
+    fun `accepts every approved semantic item kind with compatible references`(): Unit {
+        val items = DocumentSemanticItemKind.entries.mapIndexed { index, kind ->
+            val id = "semantic-${index.toString().padStart(2, '0')}"
+            semanticItem(
+                id = id,
+                kind = kind,
+                references = semanticReferences(kind),
+                literalValue = RdfLiteral("25000").takeIf {
+                    kind == DocumentSemanticItemKind.DatatypeValueAssertion
+                },
+                datatypeIntent = "decimal".takeIf {
+                    kind in setOf(
+                        DocumentSemanticItemKind.DatatypeProperty,
+                        DocumentSemanticItemKind.DatatypePropertyRange,
+                    )
+                },
+                outcome = if (kind == DocumentSemanticItemKind.ComplexRule) {
+                    DocumentSemanticOutcome.ReviewOnly
+                } else {
+                    DocumentSemanticOutcome.Executable
+                },
+            )
+        }.sortedBy(DocumentSemanticPlanItem::stableOrderingKey)
+
+        assertEquals(DocumentSemanticItemKind.entries.size, items.size)
+        assertTrue(items.all { it.discoveryIds == listOf("discovery-1") })
+    }
+
+    @Test
+    fun `rejects invalid semantic references evidence and identities`(): Unit {
+        val classItem = semanticItem(id = "semantic-class")
+        val selfReference = DocumentSemanticReference(
+            DocumentSemanticReferenceRole.Related,
+            DocumentSemanticReferenceTarget.SemanticItem(classItem.id),
+        )
+
+        assertFailsWith<IllegalArgumentException> {
+            classItem.copy(references = listOf(selfReference))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            semanticItem(
+                kind = DocumentSemanticItemKind.SubclassRelationship,
+                references = listOf(
+                    alignmentReference(DocumentSemanticReferenceRole.Subclass),
+                ),
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            classItem.copy(evidenceIds = emptyList())
+        }
+        assertFailsWith<IllegalArgumentException> {
+            DocumentSemanticPlan(
+                workKey = DocumentAnalysisWorkKey("a".repeat(64)),
+                verifiedDiscoveryIds = listOf("discovery-1"),
+                criticFindingIds = emptyList(),
+                items = listOf(
+                    semanticItem(
+                        id = "semantic-referencing",
+                        kind = DocumentSemanticItemKind.ComplexRule,
+                        references = listOf(
+                            DocumentSemanticReference(
+                                DocumentSemanticReferenceRole.Related,
+                                DocumentSemanticReferenceTarget.SemanticItem("semantic-missing"),
+                            ),
+                        ),
+                        outcome = DocumentSemanticOutcome.ReviewOnly,
+                    ),
+                ),
+                groups = emptyList(),
+            )
+        }
+        assertFailsWith<IllegalArgumentException> {
+            DocumentSemanticPlan(
+                workKey = DocumentAnalysisWorkKey("b".repeat(64)),
+                verifiedDiscoveryIds = listOf("discovery-1"),
+                criticFindingIds = emptyList(),
+                items = listOf(classItem, classItem),
+                groups = emptyList(),
+            )
+        }
+    }
+
+    @Test
+    fun `requires deterministic semantic plans and group references`(): Unit {
+        val classItem = semanticItem(id = "semantic-class", label = "Payment")
+        val propertyItem = semanticItem(
+            id = "semantic-property",
+            kind = DocumentSemanticItemKind.ObjectProperty,
+            label = "has approval record",
+        )
+        val orderedItems = listOf(classItem, propertyItem).sortedBy(DocumentSemanticPlanItem::stableOrderingKey)
+        val group = semanticGroup(itemIds = orderedItems.map(DocumentSemanticPlanItem::id).sorted())
+        val plan = DocumentSemanticPlan(
+            workKey = DocumentAnalysisWorkKey("c".repeat(64)),
+            verifiedDiscoveryIds = listOf("discovery-1"),
+            criticFindingIds = emptyList(),
+            items = orderedItems,
+            groups = listOf(group),
+        )
+
+        assertEquals(orderedItems, plan.items)
+        assertFailsWith<IllegalArgumentException> {
+            plan.copy(items = orderedItems.reversed())
+        }
+        assertFailsWith<IllegalArgumentException> {
+            plan.copy(groups = listOf(group.copy(itemIds = listOf("semantic-missing"))))
+        }
+    }
+
+    @Test
+    fun `models matched existing and blocked discovery dispositions explicitly`(): Unit {
+        val matched = DocumentCoverageDisposition(
+            discoveryId = "discovery-1",
+            kind = DocumentCoverageDispositionKind.MatchedExisting,
+            alignmentId = "alignment-1",
+        )
+        val blocked = DocumentCoverageDisposition(
+            discoveryId = "discovery-2",
+            kind = DocumentCoverageDispositionKind.Blocked,
+            rationale = "The required supporting concept is unresolved.",
+        )
+
+        assertEquals("alignment-1", matched.alignmentId)
+        assertEquals("The required supporting concept is unresolved.", blocked.rationale)
+        assertFailsWith<IllegalArgumentException> {
+            matched.copy(alignmentId = null)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            blocked.copy(rationale = null)
+        }
+    }
+
+    @Test
+    fun `keeps semantic coverage separate from compilation success`(): Unit {
+        val semanticCoverage = DocumentQualityMetric(9, 10, 90)
+        val compilationSuccess = DocumentQualityMetric(
+            numerator = 19,
+            denominator = 20,
+            percentage = 95,
+            failureCodes = listOf("unsupported-mapping"),
+        )
+        val notApplicable = DocumentQualityMetric(0, 0, null)
+
+        assertEquals(90, semanticCoverage.percentage)
+        assertEquals(95, compilationSuccess.percentage)
+        assertEquals(null, notApplicable.percentage)
+        assertFailsWith<IllegalArgumentException> {
+            semanticCoverage.copy(percentage = 91)
+        }
+    }
+
+    @Test
+    fun `uses optional compilation confidence for executable and review only outcomes`(): Unit {
+        val compiledConfidence = DocumentCompiledConfidenceDimensions(
+            evidence = 92,
+            modeling = 85,
+            ontologyFit = 88,
+            compilation = 100,
+        )
+        val reviewOnlyConfidence = DocumentCompiledConfidenceDimensions(
+            evidence = 92,
+            modeling = 85,
+            ontologyFit = 88,
+            compilation = null,
+        )
+        val reviewOnly = DocumentCompiledRecommendationResult(
+            groupId = "group-1",
+            status = DocumentCompilationStatus.ReviewOnly,
+            confidence = reviewOnlyConfidence,
+        )
+
+        assertEquals(85, compiledConfidence.overall)
+        assertEquals(null, reviewOnly.confidence.compilation)
+        assertFailsWith<IllegalArgumentException> {
+            reviewOnly.copy(confidence = compiledConfidence)
+        }
+    }
+
+    @Test
+    fun `compiled results resolve references without putting final IRIs in semantic plans`(): Unit {
+        val item = semanticItem(id = "semantic-class")
+        val group = semanticGroup(itemIds = listOf(item.id))
+        val plan = DocumentSemanticPlan(
+            workKey = DocumentAnalysisWorkKey("d".repeat(64)),
+            verifiedDiscoveryIds = listOf("discovery-1"),
+            criticFindingIds = emptyList(),
+            items = listOf(item),
+            groups = listOf(group),
+        )
+        val compiled = DocumentCompiledRecommendationResult(
+            groupId = group.id,
+            status = DocumentCompilationStatus.Compiled,
+            operations = listOf(
+                DocumentPlanOperation(
+                    id = "operation-1",
+                    kind = DocumentPlanOperationKind.CreateClass,
+                    order = 0,
+                    declaration = DocumentTemporaryReference("new:class:Payment"),
+                    expandedTypedEditCount = 1,
+                ),
+            ),
+            references = listOf(
+                DocumentCompiledReference(
+                    semanticItemId = item.id,
+                    temporaryReference = DocumentTemporaryReference("new:class:Payment"),
+                    finalIri = Iri("https://example.com/Payment"),
+                ),
+            ),
+            confidence = DocumentCompiledConfidenceDimensions(90, 85, 80, 100),
+        )
+        val result = DocumentCompiledPlanResult(
+            workKey = plan.workKey,
+            semanticPlan = DocumentVerifiedSemanticPlan(
+                plan,
+                listOf(
+                    DocumentCoverageDisposition(
+                        "discovery-1",
+                        DocumentCoverageDispositionKind.ExecutableRecommendation,
+                        recommendationId = group.id,
+                    ),
+                ),
+            ),
+            recommendations = listOf(compiled),
+            semanticCoverage = DocumentQualityMetric(1, 1, 100),
+            compilationSuccess = DocumentQualityMetric(1, 1, 100),
+        )
+
+        assertEquals("https://example.com/Payment", result.recommendations.single().references.single().finalIri.value)
+        assertTrue(DocumentSemanticPlanItem::class.java.declaredFields.none { it.type == Iri::class.java })
+        assertTrue(DocumentSemanticPlanItem::class.java.declaredFields.none { it.type == DocumentPlanOperation::class.java })
+    }
+
+    @Test
     fun `pipeline contracts stay independent from provider server and UI types`(): Unit {
         val forbiddenPrefixes = listOf(
             "io.ktor.",
@@ -493,12 +754,99 @@ class DocumentAnalysisPipelineContractsTest {
             DocumentAlignmentRecord::class,
             DocumentCriticFinding::class,
             DocumentFinalPlan::class,
+            DocumentSemanticPlanItem::class,
+            DocumentSemanticRecommendationGroup::class,
+            DocumentSemanticPlan::class,
         )
 
         contractTypes.flatMap { it.java.declaredFields.toList() }.forEach { field ->
             assertTrue(forbiddenPrefixes.none(field.type.name::startsWith), "${field.name} leaked ${field.type.name}")
         }
     }
+
+    private fun semanticItem(
+        id: String = "semantic-1",
+        kind: DocumentSemanticItemKind = DocumentSemanticItemKind.Class,
+        label: String = "Payment",
+        references: List<DocumentSemanticReference> = emptyList(),
+        literalValue: RdfLiteral? = null,
+        datatypeIntent: String? = null,
+        outcome: DocumentSemanticOutcome = DocumentSemanticOutcome.Executable,
+    ): DocumentSemanticPlanItem = DocumentSemanticPlanItem(
+        id = id,
+        kind = kind,
+        label = label,
+        definition = "A payment described by the document.",
+        literalValue = literalValue,
+        datatypeIntent = datatypeIntent,
+        references = references,
+        discoveryIds = listOf("discovery-1"),
+        evidenceIds = listOf(evidenceId),
+        rationale = "The verified evidence supports this semantic treatment.",
+        outcome = outcome,
+        confidence = DocumentConfidenceDimensions(90, 85, 80),
+    )
+
+    private fun semanticGroup(
+        id: String = "group-1",
+        itemIds: List<String>,
+    ): DocumentSemanticRecommendationGroup = DocumentSemanticRecommendationGroup(
+        id = id,
+        title = "Add payment model",
+        description = "Create the connected payment structure.",
+        itemIds = itemIds,
+        discoveryIds = listOf("discovery-1"),
+        evidenceIds = listOf(evidenceId),
+        outcome = DocumentSemanticOutcome.Executable,
+        rationale = "The items form one coherent recommendation.",
+        confidence = DocumentConfidenceDimensions(90, 85, 80),
+    )
+
+    private fun semanticReferences(kind: DocumentSemanticItemKind): List<DocumentSemanticReference> {
+        val roles = when (kind) {
+            DocumentSemanticItemKind.SubclassRelationship ->
+                listOf(DocumentSemanticReferenceRole.Subclass, DocumentSemanticReferenceRole.Superclass)
+            DocumentSemanticItemKind.ObjectPropertyDomain,
+            DocumentSemanticItemKind.DatatypePropertyDomain,
+            -> listOf(DocumentSemanticReferenceRole.Property, DocumentSemanticReferenceRole.Domain)
+            DocumentSemanticItemKind.ObjectPropertyRange,
+            DocumentSemanticItemKind.DatatypePropertyRange,
+            -> listOf(DocumentSemanticReferenceRole.Property, DocumentSemanticReferenceRole.Range)
+            DocumentSemanticItemKind.IndividualType ->
+                listOf(DocumentSemanticReferenceRole.Individual, DocumentSemanticReferenceRole.Type)
+            DocumentSemanticItemKind.ObjectPropertyAssertion ->
+                listOf(
+                    DocumentSemanticReferenceRole.Subject,
+                    DocumentSemanticReferenceRole.Predicate,
+                    DocumentSemanticReferenceRole.Object,
+                )
+            DocumentSemanticItemKind.DatatypeValueAssertion ->
+                listOf(DocumentSemanticReferenceRole.Subject, DocumentSemanticReferenceRole.Predicate)
+            DocumentSemanticItemKind.PreferredLabel,
+            DocumentSemanticItemKind.Definition,
+            DocumentSemanticItemKind.AlternateLabel,
+            -> listOf(DocumentSemanticReferenceRole.Entity)
+            DocumentSemanticItemKind.NodeShape -> listOf(DocumentSemanticReferenceRole.TargetClass)
+            DocumentSemanticItemKind.PropertyShape ->
+                listOf(DocumentSemanticReferenceRole.Shape, DocumentSemanticReferenceRole.Path)
+            DocumentSemanticItemKind.ShaclConstraint ->
+                listOf(DocumentSemanticReferenceRole.ConstraintTarget)
+            DocumentSemanticItemKind.ComplexRule -> listOf(DocumentSemanticReferenceRole.Related)
+            DocumentSemanticItemKind.Class,
+            DocumentSemanticItemKind.ObjectProperty,
+            DocumentSemanticItemKind.DatatypeProperty,
+            DocumentSemanticItemKind.AnnotationProperty,
+            DocumentSemanticItemKind.Individual,
+            -> emptyList()
+        }
+        return roles.map(::alignmentReference).sortedBy(DocumentSemanticReference::stableOrderingKey)
+    }
+
+    private fun alignmentReference(role: DocumentSemanticReferenceRole): DocumentSemanticReference =
+        DocumentSemanticReference(
+            role,
+            DocumentSemanticReferenceTarget.Alignment("alignment-${role.name.lowercase()}"),
+        )
 
     private fun discovery(
         id: String = "discovery-1",

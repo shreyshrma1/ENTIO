@@ -38,6 +38,12 @@ public object DocumentAnalysisPipelineVersions {
     public const val FINAL_PLAN_PROMPT: String = "phase-11-5-final-plan-v1"
     public const val FINAL_PLAN_REQUEST: String = "phase-11-5-final-plan-request-v1"
     public const val FINAL_PLAN_RESPONSE: String = "phase-11-5-final-plan-response-v1"
+    public const val SEMANTIC_PLAN_PROMPT: String = "phase-11-5-plus-semantic-plan-prompt-v1"
+    public const val SEMANTIC_PLAN_REQUEST: String = "phase-11-5-plus-semantic-plan-request-v1"
+    public const val SEMANTIC_PLAN_RESPONSE: String = "phase-11-5-plus-semantic-plan-response-v1"
+    public const val SEMANTIC_PATTERN_REGISTRY: String = "phase-11-5-plus-pattern-registry-v1"
+    public const val COMPILER_RESULT: String = "phase-11-5-plus-compiler-result-v1"
+    public const val DOCUMENT_REVIEW: String = "phase-11-5-plus-document-review-v1"
 }
 
 @JvmInline
@@ -772,12 +778,14 @@ public data class DocumentReviewOnlyFinding(
 public enum class DocumentCoverageDispositionKind {
     ExecutableRecommendation,
     ReviewOnlyFinding,
+    MatchedExisting,
     MergedIntoAnotherDiscovery,
     Duplicate,
     AdministrativeMetadata,
     IllustrativeExample,
     Unsupported,
     RejectedWithRationale,
+    Blocked,
 }
 
 public data class DocumentCoverageDisposition(
@@ -785,12 +793,14 @@ public data class DocumentCoverageDisposition(
     public val kind: DocumentCoverageDispositionKind,
     public val recommendationId: String? = null,
     public val relatedDiscoveryId: String? = null,
+    public val alignmentId: String? = null,
     public val rationale: String? = null,
 ) {
     init {
         requireOpaqueDocumentId(discoveryId, "Document coverage discovery ID")
         recommendationId?.let { requireOpaqueDocumentId(it, "Document coverage recommendation ID") }
         relatedDiscoveryId?.let { requireOpaqueDocumentId(it, "Related document coverage discovery ID") }
+        alignmentId?.let { requireOpaqueDocumentId(it, "Document coverage alignment ID") }
         requireOptionalDocumentText(rationale, "Document coverage rationale", 2_000)
         require(
             (kind in setOf(
@@ -805,11 +815,19 @@ public data class DocumentCoverageDisposition(
         ) {
             "Only merged discovery coverage requires a related discovery ID."
         }
+        require((kind == DocumentCoverageDispositionKind.MatchedExisting) == (alignmentId != null)) {
+            "Only matched-existing coverage requires an alignment ID."
+        }
         require(relatedDiscoveryId == null || relatedDiscoveryId != discoveryId) {
             "A discovery cannot be merged into itself."
         }
-        require((kind == DocumentCoverageDispositionKind.RejectedWithRationale) == (rationale != null)) {
-            "Only rejected discovery coverage requires a rationale."
+        require(
+            (kind in setOf(
+                DocumentCoverageDispositionKind.RejectedWithRationale,
+                DocumentCoverageDispositionKind.Blocked,
+            )) == (rationale != null),
+        ) {
+            "Rejected and blocked discovery coverage require a rationale."
         }
     }
 
@@ -1042,6 +1060,465 @@ public data class DocumentFinalPlan(
         val dispositions = recommendations.flatMap(DocumentFinalRecommendation::criticDispositions)
         require(dispositions.map(DocumentCriticDisposition::findingId).sorted() == criticFindingIds) {
             "Every critic finding must have exactly one final disposition."
+        }
+    }
+}
+
+public enum class DocumentSemanticItemKind {
+    Class,
+    ObjectProperty,
+    DatatypeProperty,
+    AnnotationProperty,
+    Individual,
+    SubclassRelationship,
+    ObjectPropertyDomain,
+    ObjectPropertyRange,
+    DatatypePropertyDomain,
+    DatatypePropertyRange,
+    IndividualType,
+    ObjectPropertyAssertion,
+    DatatypeValueAssertion,
+    PreferredLabel,
+    Definition,
+    AlternateLabel,
+    NodeShape,
+    PropertyShape,
+    ShaclConstraint,
+    ComplexRule,
+}
+
+public enum class DocumentSemanticReferenceRole {
+    Subject,
+    Predicate,
+    Object,
+    Subclass,
+    Superclass,
+    Property,
+    Domain,
+    Range,
+    Individual,
+    Type,
+    Entity,
+    Shape,
+    TargetClass,
+    Path,
+    ConstraintTarget,
+    Datatype,
+    Related,
+}
+
+public sealed interface DocumentSemanticReferenceTarget {
+    public data class SemanticItem(public val itemId: String) : DocumentSemanticReferenceTarget {
+        init {
+            requireOpaqueDocumentId(itemId, "Document semantic referenced item ID")
+        }
+    }
+
+    public data class Alignment(public val alignmentId: String) : DocumentSemanticReferenceTarget {
+        init {
+            requireOpaqueDocumentId(alignmentId, "Document semantic alignment ID")
+        }
+    }
+}
+
+public data class DocumentSemanticReference(
+    public val role: DocumentSemanticReferenceRole,
+    public val target: DocumentSemanticReferenceTarget,
+) {
+    public val stableOrderingKey: String
+        get() = "${role.ordinal.toString().padStart(2, '0')}:${target.stableValue}"
+}
+
+private val DocumentSemanticReferenceTarget.stableValue: String
+    get() = when (this) {
+        is DocumentSemanticReferenceTarget.Alignment -> "alignment:$alignmentId"
+        is DocumentSemanticReferenceTarget.SemanticItem -> "item:$itemId"
+    }
+
+public enum class DocumentSemanticOutcome {
+    Executable,
+    ReviewOnly,
+    Blocked,
+}
+
+public data class DocumentSemanticPlanItem(
+    public val id: String,
+    public val kind: DocumentSemanticItemKind,
+    public val label: String,
+    public val definition: String? = null,
+    public val literalValue: RdfLiteral? = null,
+    public val datatypeIntent: String? = null,
+    public val references: List<DocumentSemanticReference> = emptyList(),
+    public val discoveryIds: List<String>,
+    public val evidenceIds: List<DocumentEvidenceId>,
+    public val rationale: String,
+    public val outcome: DocumentSemanticOutcome,
+    public val ambiguity: String? = null,
+    public val criticDispositions: List<DocumentCriticDisposition> = emptyList(),
+    public val confidence: DocumentConfidenceDimensions,
+) {
+    init {
+        requireOpaqueDocumentId(id, "Document semantic item ID")
+        requireNonBlankBounded(label, "Document semantic item label", 500)
+        requireOptionalDocumentText(definition, "Document semantic item definition", 2_000)
+        requireOptionalDocumentText(datatypeIntent, "Document semantic datatype intent", 500)
+        requireOptionalDocumentText(ambiguity, "Document semantic item ambiguity", 2_000)
+        requireNonBlankBounded(rationale, "Document semantic item rationale", 2_000)
+        require(discoveryIds.isNotEmpty() && discoveryIds == discoveryIds.distinct().sorted()) {
+            "Document semantic item discoveries must be sorted, unique, and nonempty."
+        }
+        discoveryIds.forEach { requireOpaqueDocumentId(it, "Document semantic item discovery ID") }
+        require(
+            evidenceIds.isNotEmpty() &&
+                evidenceIds.size <= MAX_DOCUMENT_EVIDENCE_REFERENCES &&
+                evidenceIds == evidenceIds.distinct().sortedBy(DocumentEvidenceId::value),
+        ) {
+            "Document semantic item evidence must be bounded, sorted, unique, and nonempty."
+        }
+        require(references == references.distinct().sortedBy(DocumentSemanticReference::stableOrderingKey)) {
+            "Document semantic item references must be sorted and unique."
+        }
+        require(references.none {
+            (it.target as? DocumentSemanticReferenceTarget.SemanticItem)?.itemId == id
+        }) {
+            "A document semantic item cannot reference itself."
+        }
+        require(
+            criticDispositions == criticDispositions.distinctBy(DocumentCriticDisposition::findingId)
+                .sortedBy(DocumentCriticDisposition::stableOrderingKey),
+        ) {
+            "Document semantic critic dispositions must be sorted and unique."
+        }
+        require((kind == DocumentSemanticItemKind.DatatypeValueAssertion) == (literalValue != null)) {
+            "Only a datatype-value semantic item requires a literal value."
+        }
+        require(datatypeIntent == null || kind in DATATYPE_INTENT_KINDS) {
+            "Datatype intent is supported only for datatype semantic items."
+        }
+        require(outcome != DocumentSemanticOutcome.Executable || ambiguity == null) {
+            "An executable semantic item cannot retain unresolved ambiguity."
+        }
+        requireReferenceRoles()
+    }
+
+    public val referencedItemIds: List<String>
+        get() = references.mapNotNull {
+            (it.target as? DocumentSemanticReferenceTarget.SemanticItem)?.itemId
+        }.distinct().sorted()
+
+    public val alignmentIds: List<String>
+        get() = references.mapNotNull {
+            (it.target as? DocumentSemanticReferenceTarget.Alignment)?.alignmentId
+        }.distinct().sorted()
+
+    public val stableOrderingKey: String
+        get() = "${kind.name}:$label:$id"
+
+    private fun requireReferenceRoles(): Unit {
+        val roles = references.map(DocumentSemanticReference::role)
+        val expected = when (kind) {
+            DocumentSemanticItemKind.SubclassRelationship ->
+                listOf(DocumentSemanticReferenceRole.Subclass, DocumentSemanticReferenceRole.Superclass)
+            DocumentSemanticItemKind.ObjectPropertyDomain,
+            DocumentSemanticItemKind.DatatypePropertyDomain,
+            -> listOf(DocumentSemanticReferenceRole.Property, DocumentSemanticReferenceRole.Domain)
+            DocumentSemanticItemKind.ObjectPropertyRange,
+            DocumentSemanticItemKind.DatatypePropertyRange,
+            -> listOf(DocumentSemanticReferenceRole.Property, DocumentSemanticReferenceRole.Range)
+            DocumentSemanticItemKind.IndividualType ->
+                listOf(DocumentSemanticReferenceRole.Individual, DocumentSemanticReferenceRole.Type)
+            DocumentSemanticItemKind.ObjectPropertyAssertion ->
+                listOf(
+                    DocumentSemanticReferenceRole.Subject,
+                    DocumentSemanticReferenceRole.Predicate,
+                    DocumentSemanticReferenceRole.Object,
+                )
+            DocumentSemanticItemKind.DatatypeValueAssertion ->
+                listOf(DocumentSemanticReferenceRole.Subject, DocumentSemanticReferenceRole.Predicate)
+            DocumentSemanticItemKind.PreferredLabel,
+            DocumentSemanticItemKind.Definition,
+            DocumentSemanticItemKind.AlternateLabel,
+            -> listOf(DocumentSemanticReferenceRole.Entity)
+            DocumentSemanticItemKind.NodeShape -> listOf(DocumentSemanticReferenceRole.TargetClass)
+            DocumentSemanticItemKind.PropertyShape ->
+                listOf(DocumentSemanticReferenceRole.Shape, DocumentSemanticReferenceRole.Path)
+            DocumentSemanticItemKind.ShaclConstraint ->
+                listOf(DocumentSemanticReferenceRole.ConstraintTarget)
+            DocumentSemanticItemKind.ComplexRule -> null
+            DocumentSemanticItemKind.Class,
+            DocumentSemanticItemKind.ObjectProperty,
+            DocumentSemanticItemKind.DatatypeProperty,
+            DocumentSemanticItemKind.AnnotationProperty,
+            DocumentSemanticItemKind.Individual,
+            -> emptyList()
+        }
+        if (expected == null) {
+            require(references.isNotEmpty() && roles.all { it == DocumentSemanticReferenceRole.Related }) {
+                "A complex semantic rule requires one or more related references."
+            }
+        } else {
+            require(roles.sortedBy(DocumentSemanticReferenceRole::ordinal) ==
+                expected.sortedBy(DocumentSemanticReferenceRole::ordinal)) {
+                "Document semantic reference roles are incompatible with the item kind."
+            }
+        }
+    }
+
+    private companion object {
+        val DATATYPE_INTENT_KINDS: Set<DocumentSemanticItemKind> = setOf(
+            DocumentSemanticItemKind.DatatypeProperty,
+            DocumentSemanticItemKind.DatatypePropertyRange,
+            DocumentSemanticItemKind.DatatypeValueAssertion,
+            DocumentSemanticItemKind.ShaclConstraint,
+        )
+    }
+}
+
+public data class DocumentSemanticRecommendationGroup(
+    public val id: String,
+    public val title: String,
+    public val description: String,
+    public val itemIds: List<String>,
+    public val discoveryIds: List<String>,
+    public val evidenceIds: List<DocumentEvidenceId>,
+    public val outcome: DocumentSemanticOutcome,
+    public val rationale: String,
+    public val criticDispositions: List<DocumentCriticDisposition> = emptyList(),
+    public val confidence: DocumentConfidenceDimensions,
+) {
+    init {
+        requireOpaqueDocumentId(id, "Document semantic group ID")
+        requireNonBlankBounded(title, "Document semantic group title", 500)
+        requireNonBlankBounded(description, "Document semantic group description", 2_000)
+        requireNonBlankBounded(rationale, "Document semantic group rationale", 2_000)
+        require(itemIds.isNotEmpty() && itemIds == itemIds.distinct().sorted()) {
+            "Document semantic group item IDs must be sorted, unique, and nonempty."
+        }
+        itemIds.forEach { requireOpaqueDocumentId(it, "Document semantic group item ID") }
+        require(discoveryIds.isNotEmpty() && discoveryIds == discoveryIds.distinct().sorted()) {
+            "Document semantic group discovery IDs must be sorted, unique, and nonempty."
+        }
+        discoveryIds.forEach { requireOpaqueDocumentId(it, "Document semantic group discovery ID") }
+        require(
+            evidenceIds.isNotEmpty() &&
+                evidenceIds.size <= MAX_DOCUMENT_EVIDENCE_REFERENCES &&
+                evidenceIds == evidenceIds.distinct().sortedBy(DocumentEvidenceId::value),
+        ) {
+            "Document semantic group evidence must be bounded, sorted, unique, and nonempty."
+        }
+        require(
+            criticDispositions == criticDispositions.distinctBy(DocumentCriticDisposition::findingId)
+                .sortedBy(DocumentCriticDisposition::stableOrderingKey),
+        ) {
+            "Document semantic group critic dispositions must be sorted and unique."
+        }
+    }
+
+    public val stableOrderingKey: String
+        get() = "${outcome.name}:$title:$id"
+}
+
+public data class DocumentSemanticPlan(
+    public val workKey: DocumentAnalysisWorkKey,
+    public val verifiedDiscoveryIds: List<String>,
+    public val criticFindingIds: List<String>,
+    public val items: List<DocumentSemanticPlanItem>,
+    public val groups: List<DocumentSemanticRecommendationGroup>,
+) {
+    init {
+        require(
+            verifiedDiscoveryIds.isNotEmpty() &&
+                verifiedDiscoveryIds.size <= MAX_DOCUMENT_DISCOVERIES_PER_TASK &&
+                verifiedDiscoveryIds == verifiedDiscoveryIds.distinct().sorted(),
+        ) {
+            "Document semantic plan discovery IDs must be bounded, sorted, unique, and nonempty."
+        }
+        verifiedDiscoveryIds.forEach { requireOpaqueDocumentId(it, "Document semantic plan discovery ID") }
+        require(criticFindingIds == criticFindingIds.distinct().sorted()) {
+            "Document semantic plan critic finding IDs must be sorted and unique."
+        }
+        criticFindingIds.forEach { requireOpaqueDocumentId(it, "Document semantic plan critic finding ID") }
+        require(items.size <= MAX_DOCUMENT_CONNECTED_MODEL_ITEMS) {
+            "Document semantic plan items exceed the approved bound."
+        }
+        require(items == items.sortedBy(DocumentSemanticPlanItem::stableOrderingKey)) {
+            "Document semantic plan items must use deterministic order."
+        }
+        require(items.map(DocumentSemanticPlanItem::id).distinct().size == items.size) {
+            "Document semantic plan item IDs must be unique."
+        }
+        require(groups.size <= MAX_DOCUMENT_FINAL_RECOMMENDATIONS) {
+            "Document semantic plan groups exceed the approved bound."
+        }
+        require(
+            groups == groups.sortedBy(DocumentSemanticRecommendationGroup::stableOrderingKey) &&
+                groups.map(DocumentSemanticRecommendationGroup::id).distinct().size == groups.size,
+        ) {
+            "Document semantic plan groups must be sorted and unique."
+        }
+        val itemIds = items.map(DocumentSemanticPlanItem::id).toSet()
+        require(items.flatMap(DocumentSemanticPlanItem::referencedItemIds).all(itemIds::contains)) {
+            "Document semantic plan contains an unresolved item reference."
+        }
+        require(groups.flatMap(DocumentSemanticRecommendationGroup::itemIds).all(itemIds::contains)) {
+            "Document semantic group contains an unresolved item ID."
+        }
+        require(items.flatMap(DocumentSemanticPlanItem::discoveryIds).all(verifiedDiscoveryIds::contains)) {
+            "Document semantic item contains an unknown discovery ID."
+        }
+        require(groups.flatMap(DocumentSemanticRecommendationGroup::discoveryIds).all(verifiedDiscoveryIds::contains)) {
+            "Document semantic group contains an unknown discovery ID."
+        }
+        val dispositions = groups.flatMap(DocumentSemanticRecommendationGroup::criticDispositions)
+        require(dispositions.map(DocumentCriticDisposition::findingId).sorted() == criticFindingIds) {
+            "Every semantic-plan critic finding must have exactly one group disposition."
+        }
+    }
+}
+
+public enum class DocumentCompilationStatus {
+    Compiled,
+    ReviewOnly,
+    Blocked,
+}
+
+public data class DocumentCompilationFailure(
+    public val semanticItemId: String,
+    public val safeCode: String,
+    public val message: String,
+) {
+    init {
+        requireOpaqueDocumentId(semanticItemId, "Document compilation semantic item ID")
+        requireNonBlankBounded(safeCode, "Document compilation safe code", 200)
+        requireNonBlankBounded(message, "Document compilation failure message", 2_000)
+    }
+
+    public val stableOrderingKey: String
+        get() = "$semanticItemId:$safeCode"
+}
+
+public data class DocumentCompiledReference(
+    public val semanticItemId: String,
+    public val temporaryReference: DocumentTemporaryReference,
+    public val finalIri: Iri,
+) {
+    init {
+        requireOpaqueDocumentId(semanticItemId, "Document compiled semantic item ID")
+    }
+
+    public val stableOrderingKey: String
+        get() = semanticItemId
+}
+
+public data class DocumentQualityMetric(
+    public val numerator: Int,
+    public val denominator: Int,
+    public val percentage: Int?,
+    public val failureCodes: List<String> = emptyList(),
+) {
+    init {
+        require(numerator >= 0 && denominator >= 0 && numerator <= denominator) {
+            "Document quality metric counts are invalid."
+        }
+        require(
+            (denominator == 0 && percentage == null) ||
+                (denominator > 0 && percentage == numerator * 100 / denominator),
+        ) {
+            "Document quality metric percentage must match its counts."
+        }
+        require(failureCodes == failureCodes.distinct().sorted()) {
+            "Document quality metric failure codes must be sorted and unique."
+        }
+        failureCodes.forEach { requireNonBlankBounded(it, "Document quality metric failure code", 200) }
+    }
+}
+
+public data class DocumentCompiledConfidenceDimensions(
+    public val evidence: Int,
+    public val modeling: Int,
+    public val ontologyFit: Int,
+    public val compilation: Int?,
+    public val overall: Int = listOfNotNull(evidence, modeling, ontologyFit, compilation).min(),
+) {
+    init {
+        require(listOf(evidence, modeling, ontologyFit, overall).all { it in 0..100 }) {
+            "Document compiled confidence dimensions must be between 0 and 100."
+        }
+        require(compilation == null || compilation in 0..100) {
+            "Document compilation confidence must be absent or between 0 and 100."
+        }
+        require(overall == listOfNotNull(evidence, modeling, ontologyFit, compilation).min()) {
+            "Overall compiled confidence must equal the weakest applicable dimension."
+        }
+    }
+}
+
+public data class DocumentCompiledRecommendationResult(
+    public val groupId: String,
+    public val status: DocumentCompilationStatus,
+    public val operations: List<DocumentPlanOperation> = emptyList(),
+    public val references: List<DocumentCompiledReference> = emptyList(),
+    public val failures: List<DocumentCompilationFailure> = emptyList(),
+    public val confidence: DocumentCompiledConfidenceDimensions,
+) {
+    init {
+        requireOpaqueDocumentId(groupId, "Document compiled group ID")
+        require(operations == operations.sortedBy(DocumentPlanOperation::order)) {
+            "Compiled document operations must use deterministic order."
+        }
+        require(operations.map(DocumentPlanOperation::id).distinct().size == operations.size) {
+            "Compiled document operation IDs must be unique."
+        }
+        require(references == references.distinctBy(DocumentCompiledReference::semanticItemId)
+            .sortedBy(DocumentCompiledReference::stableOrderingKey)) {
+            "Compiled document references must be sorted and unique."
+        }
+        require(failures == failures.distinctBy { it.semanticItemId to it.safeCode }
+            .sortedBy(DocumentCompilationFailure::stableOrderingKey)) {
+            "Document compilation failures must be sorted and unique."
+        }
+        when (status) {
+            DocumentCompilationStatus.Compiled ->
+                require(operations.isNotEmpty() && failures.isEmpty() && confidence.compilation != null) {
+                    "A compiled document group requires operations and compilation confidence."
+                }
+            DocumentCompilationStatus.ReviewOnly ->
+                require(operations.isEmpty() && failures.isEmpty() && confidence.compilation == null) {
+                    "A review-only document group cannot claim compilation output."
+                }
+            DocumentCompilationStatus.Blocked ->
+                require(failures.isNotEmpty() && confidence.compilation == 0) {
+                    "A blocked document group requires failures and zero compilation confidence."
+                }
+        }
+    }
+
+    public val expandedTypedEditCount: Int
+        get() = operations.sumOf(DocumentPlanOperation::expandedTypedEditCount)
+}
+
+public data class DocumentVerifiedSemanticPlan(
+    public val plan: DocumentSemanticPlan,
+    public val coverage: List<DocumentCoverageDisposition>,
+)
+
+public data class DocumentCompiledPlanResult(
+    public val workKey: DocumentAnalysisWorkKey,
+    public val semanticPlan: DocumentVerifiedSemanticPlan,
+    public val recommendations: List<DocumentCompiledRecommendationResult>,
+    public val semanticCoverage: DocumentQualityMetric,
+    public val compilationSuccess: DocumentQualityMetric,
+) {
+    init {
+        require(
+            recommendations == recommendations.sortedBy(DocumentCompiledRecommendationResult::groupId) &&
+                recommendations.map(DocumentCompiledRecommendationResult::groupId).distinct().size ==
+                recommendations.size,
+        ) {
+            "Compiled document recommendations must be sorted and unique."
+        }
+        require(workKey == semanticPlan.plan.workKey) {
+            "Compiled document result work key must match its semantic plan."
         }
     }
 }
