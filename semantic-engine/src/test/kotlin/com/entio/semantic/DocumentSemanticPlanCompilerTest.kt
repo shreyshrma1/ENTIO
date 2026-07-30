@@ -385,6 +385,112 @@ class DocumentSemanticPlanCompilerTest {
         assertTrue(result.references.none { it.finalIri.value.contains("Unrelated") })
     }
 
+    @Test
+    fun `orders declarations before use and records exact dependencies`(): Unit {
+        val parent = item("parent", DocumentSemanticItemKind.Class, "Parent")
+        val child = item("child", DocumentSemanticItemKind.Class, "Child")
+        val hierarchy = item(
+            "hierarchy",
+            DocumentSemanticItemKind.SubclassRelationship,
+            "Child is a Parent",
+            refs(
+                DocumentSemanticReferenceRole.Subclass to child.id,
+                DocumentSemanticReferenceRole.Superclass to parent.id,
+            ),
+        )
+
+        val operations = compile(parent, child, hierarchy).operations
+        val hierarchyOperation = operations.single { it.kind == DocumentPlanOperationKind.AddSuperclass }
+        val declarationIds = operations.filter { it.kind == DocumentPlanOperationKind.CreateClass }.map { it.id }.sorted()
+
+        assertEquals(declarationIds, hierarchyOperation.dependsOnOperationIds)
+        assertTrue(operations.indexOf(hierarchyOperation) > operations.indexOfFirst {
+            it.id == declarationIds.last()
+        })
+    }
+
+    @Test
+    fun `splits only independent dependency closures and blocks an oversized atomic closure`(): Unit {
+        val independent = (1..21).map { index ->
+            item("class-$index", DocumentSemanticItemKind.Class, "Independent $index")
+        }
+        val split = compiler.compile(plan(independent, DocumentSemanticOutcome.Executable), context())
+
+        assertEquals(2, split.size)
+        assertEquals(listOf(20, 1), split.map { it.expandedTypedEditCount })
+        assertTrue(split.all { it.sourceGroupId == "group-1" })
+
+        val classes = (1..11).map { index ->
+            item("chain-class-$index", DocumentSemanticItemKind.Class, "Chain $index")
+        }
+        val relationships = classes.zipWithNext().mapIndexed { index, (child, parent) ->
+            item(
+                "chain-link-$index",
+                DocumentSemanticItemKind.SubclassRelationship,
+                "Chain link $index",
+                refs(
+                    DocumentSemanticReferenceRole.Subclass to child.id,
+                    DocumentSemanticReferenceRole.Superclass to parent.id,
+                ),
+            )
+        }
+        val blocked = compiler.compile(
+            plan(classes + relationships, DocumentSemanticOutcome.Executable),
+            context(),
+        ).single()
+
+        assertEquals(DocumentCompilationStatus.Blocked, blocked.status)
+        assertEquals("atomic-group-exceeds-limit", blocked.failures.single().safeCode)
+    }
+
+    @Test
+    fun `blocks stale fingerprints duplicate current work and task limit overflow`(): Unit {
+        val customer = item("customer", DocumentSemanticItemKind.Class, "Customer")
+        val staleOntology = compile(
+            customer,
+            context = context(
+                expectedOntologyFingerprint = "expected",
+                currentOntologyFingerprint = "changed",
+            ),
+        )
+        assertEquals("stale-ontology", staleOntology.failures.single().safeCode)
+
+        val staleWork = compile(
+            customer,
+            context = context(
+                expectedCurrentWorkFingerprint = "expected",
+                currentWorkFingerprint = "changed",
+            ),
+        )
+        assertEquals("stale-current-work", staleWork.failures.single().safeCode)
+
+        val baseline = compile(customer)
+        val duplicateKey = operationKey(baseline.operations.single())
+        val duplicate = compile(
+            customer,
+            context = context(existingOperationKeys = setOf(duplicateKey)),
+        )
+        assertEquals("duplicate-or-no-op", duplicate.failures.single().safeCode)
+
+        val items = (1..101).map { index ->
+            item("task-class-$index", DocumentSemanticItemKind.Class, "Task Class $index")
+        }
+        val groups = items.chunked(20).mapIndexed { index, groupItems ->
+            group("group-${index.toString().padStart(2, '0')}", groupItems)
+        }
+        val taskPlan = DocumentSemanticPlan(
+            DocumentAnalysisWorkKey("b".repeat(64)),
+            listOf("discovery-1"),
+            emptyList(),
+            items.sortedBy(DocumentSemanticPlanItem::stableOrderingKey),
+            groups.sortedBy(DocumentSemanticRecommendationGroup::stableOrderingKey),
+        )
+        val limited = compiler.compile(taskPlan, context())
+
+        assertTrue(limited.all { it.status == DocumentCompilationStatus.Blocked })
+        assertTrue(limited.all { it.failures.single().safeCode == "task-edit-limit-exceeded" })
+    }
+
     private val compiler = DocumentSemanticPlanCompiler()
     private val evidenceId = DocumentEvidenceId("evidence-1")
 
@@ -399,8 +505,23 @@ class DocumentSemanticPlanCompilerTest {
         outcome: DocumentSemanticOutcome,
     ): DocumentSemanticPlan {
         val orderedItems = items.sortedBy(DocumentSemanticPlanItem::stableOrderingKey)
-        val group = DocumentSemanticRecommendationGroup(
-            id = "group-1",
+        val group = group("group-1", items, outcome)
+        return DocumentSemanticPlan(
+            DocumentAnalysisWorkKey("a".repeat(64)),
+            listOf("discovery-1"),
+            emptyList(),
+            orderedItems,
+            listOf(group),
+        )
+    }
+
+    private fun group(
+        id: String,
+        items: List<DocumentSemanticPlanItem>,
+        outcome: DocumentSemanticOutcome = DocumentSemanticOutcome.Executable,
+    ): DocumentSemanticRecommendationGroup =
+        DocumentSemanticRecommendationGroup(
+            id = id,
             title = "Compile verified meaning",
             description = "Compile the connected semantic model.",
             itemIds = items.map(DocumentSemanticPlanItem::id).sorted(),
@@ -410,14 +531,6 @@ class DocumentSemanticPlanCompilerTest {
             rationale = "The verified evidence supports this group.",
             confidence = DocumentConfidenceDimensions(90, 85, 80),
         )
-        return DocumentSemanticPlan(
-            DocumentAnalysisWorkKey("a".repeat(64)),
-            listOf("discovery-1"),
-            emptyList(),
-            orderedItems,
-            listOf(group),
-        )
-    }
 
     private fun item(
         id: String,
@@ -461,6 +574,11 @@ class DocumentSemanticPlanCompilerTest {
         aligned: Map<String, DocumentCompilerEntity> = emptyMap(),
         itemAlignments: Map<String, String> = emptyMap(),
         administrativeDiscoveryIds: Set<String> = emptySet(),
+        expectedOntologyFingerprint: String = "current",
+        currentOntologyFingerprint: String = expectedOntologyFingerprint,
+        expectedCurrentWorkFingerprint: String = "current",
+        currentWorkFingerprint: String = expectedCurrentWorkFingerprint,
+        existingOperationKeys: Set<String> = emptySet(),
     ): DocumentSemanticCompilerContext = DocumentSemanticCompilerContext(
         targetSourceId = "simple",
         iriNamespace = "https://example.com",
@@ -468,5 +586,14 @@ class DocumentSemanticPlanCompilerTest {
         alignedEntities = aligned,
         itemAlignmentIds = itemAlignments,
         administrativeDiscoveryIds = administrativeDiscoveryIds,
+        expectedOntologyFingerprint = expectedOntologyFingerprint,
+        currentOntologyFingerprint = currentOntologyFingerprint,
+        expectedCurrentWorkFingerprint = expectedCurrentWorkFingerprint,
+        currentWorkFingerprint = currentWorkFingerprint,
+        existingOperationKeys = existingOperationKeys,
     )
+
+    private fun operationKey(operation: com.entio.core.DocumentPlanOperation): String =
+        "${operation.kind.name}:${operation.declaration?.value.orEmpty()}:" +
+            operation.operands.filterNot { it is com.entio.core.DocumentPlanOperand.SourceId }.joinToString("|")
 }
