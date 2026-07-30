@@ -17,6 +17,8 @@ import com.entio.core.DocumentSemanticReferenceTarget
 import com.entio.core.DocumentTemporaryReference
 import com.entio.core.DocumentTemporaryReferenceKind
 import com.entio.core.Iri
+import com.entio.core.MAX_DOCUMENT_EXPANDED_TYPED_EDITS_PER_RECOMMENDATION
+import com.entio.core.MAX_DOCUMENT_EXPANDED_TYPED_EDITS_PER_TASK
 
 public data class DocumentCompilerEntity(
     public val iri: Iri,
@@ -32,6 +34,11 @@ public data class DocumentSemanticCompilerContext(
     public val alignedEntities: Map<String, DocumentCompilerEntity>,
     public val itemAlignmentIds: Map<String, String> = emptyMap(),
     public val administrativeDiscoveryIds: Set<String> = emptySet(),
+    public val expectedOntologyFingerprint: String = "current",
+    public val currentOntologyFingerprint: String = expectedOntologyFingerprint,
+    public val expectedCurrentWorkFingerprint: String = "current",
+    public val currentWorkFingerprint: String = expectedCurrentWorkFingerprint,
+    public val existingOperationKeys: Set<String> = emptySet(),
 ) {
     init {
         require(targetSourceId.isNotBlank()) { "A semantic compiler target source is required." }
@@ -91,7 +98,23 @@ public class DocumentSemanticPlanCompiler {
         context: DocumentSemanticCompilerContext,
     ): List<DocumentCompiledRecommendationResult> {
         val itemsById = plan.items.associateBy(DocumentSemanticPlanItem::id)
-        return plan.groups.map { group ->
+        val freshnessFailure = when {
+            context.expectedOntologyFingerprint != context.currentOntologyFingerprint -> "stale-ontology"
+            context.expectedCurrentWorkFingerprint != context.currentWorkFingerprint -> "stale-current-work"
+            else -> null
+        }
+        val compiled = plan.groups.map { group ->
+            if (freshnessFailure != null) {
+                return@map blocked(
+                    group.id,
+                    group.itemIds.first(),
+                    freshnessFailure,
+                    "The deterministic compiler context is stale.",
+                    group.confidence.evidence,
+                    group.confidence.modeling,
+                    group.confidence.ontologyFit,
+                )
+            }
             if (group.outcome == DocumentSemanticOutcome.ReviewOnly) {
                 return@map DocumentCompiledRecommendationResult(
                     groupId = group.id,
@@ -124,7 +147,24 @@ public class DocumentSemanticPlanCompiler {
                     group.confidence.ontologyFit,
                 )
             }
-        }.sortedBy(DocumentCompiledRecommendationResult::groupId)
+        }.flatMap(::splitSafely)
+            .sortedBy(DocumentCompiledRecommendationResult::groupId)
+        if (compiled.sumOf(DocumentCompiledRecommendationResult::expandedTypedEditCount) >
+            MAX_DOCUMENT_EXPANDED_TYPED_EDITS_PER_TASK
+        ) {
+            return plan.groups.map { group ->
+                blocked(
+                    group.id,
+                    group.itemIds.first(),
+                    "task-edit-limit-exceeded",
+                    "The compiled task exceeds the approved typed-edit limit.",
+                    group.confidence.evidence,
+                    group.confidence.modeling,
+                    group.confidence.ontologyFit,
+                )
+            }.sortedBy(DocumentCompiledRecommendationResult::groupId)
+        }
+        return compiled
     }
 
     private fun compileGroup(
@@ -301,10 +341,21 @@ public class DocumentSemanticPlanCompiler {
         if (operations.isEmpty()) {
             throw CompilationBlocked(items.first().id, "semantic-group-empty", "The semantic group compiled no typed work.")
         }
+        val orderedOperations = orderWithDependencies(operations)
+        val operationKeys = orderedOperations.map(::operationKey)
+        if (operationKeys.size != operationKeys.distinct().size ||
+            operationKeys.any(context.existingOperationKeys::contains)
+        ) {
+            throw CompilationBlocked(
+                items.first().id,
+                "duplicate-or-no-op",
+                "The compiled group duplicates current work or contains a no-op.",
+            )
+        }
         return DocumentCompiledRecommendationResult(
             groupId = groupId,
             status = DocumentCompilationStatus.Compiled,
-            operations = operations.mapIndexed { index, operation -> operation.copy(order = index) },
+            operations = orderedOperations,
             references = references.sortedBy(DocumentCompiledReference::stableOrderingKey),
             confidence = confidence(
                 items.minOf { it.confidence.evidence },
@@ -314,6 +365,113 @@ public class DocumentSemanticPlanCompiler {
             ),
         )
     }
+
+    private fun orderWithDependencies(operations: List<DocumentPlanOperation>): List<DocumentPlanOperation> {
+        val declarationIds = operations.mapNotNull { operation ->
+            operation.declaration?.let { it to operation.id }
+        }.toMap()
+        val withDependencies = operations.map { operation ->
+            operation.copy(
+                dependsOnOperationIds = (
+                    operation.dependsOnOperationIds +
+                        operation.referencedTemporaryEntities.mapNotNull(declarationIds::get)
+                ).filterNot { it == operation.id }.distinct().sorted(),
+            )
+        }
+        val byId = withDependencies.associateBy(DocumentPlanOperation::id)
+        require(byId.size == withDependencies.size) { "Compiled operation IDs must be unique." }
+        require(withDependencies.flatMap(DocumentPlanOperation::dependsOnOperationIds).all(byId::containsKey)) {
+            "A compiled operation dependency is unresolved."
+        }
+        val remaining = withDependencies.associate { it.id to it.dependsOnOperationIds.toMutableSet() }.toMutableMap()
+        val ordered = mutableListOf<DocumentPlanOperation>()
+        while (remaining.isNotEmpty()) {
+            val ready = remaining.filterValues(Set<String>::isEmpty).keys.sorted()
+            if (ready.isEmpty()) throw CompilationBlocked(
+                withDependencies.first().id,
+                "operation-dependency-cycle",
+                "The compiled operation dependency graph contains a cycle.",
+            )
+            ready.forEach { id ->
+                ordered += byId.getValue(id)
+                remaining.remove(id)
+                remaining.values.forEach { it.remove(id) }
+            }
+        }
+        return ordered.mapIndexed { index, operation -> operation.copy(order = index) }
+    }
+
+    private fun splitSafely(
+        result: DocumentCompiledRecommendationResult,
+    ): List<DocumentCompiledRecommendationResult> {
+        if (result.status != DocumentCompilationStatus.Compiled ||
+            result.expandedTypedEditCount <= MAX_DOCUMENT_EXPANDED_TYPED_EDITS_PER_RECOMMENDATION
+        ) {
+            return listOf(result)
+        }
+        val byId = result.operations.associateBy(DocumentPlanOperation::id)
+        val neighbors = result.operations.associate { it.id to mutableSetOf<String>() }
+        result.operations.forEach { operation ->
+            operation.dependsOnOperationIds.forEach { dependency ->
+                neighbors.getValue(operation.id) += dependency
+                neighbors.getValue(dependency) += operation.id
+            }
+        }
+        val components = mutableListOf<List<DocumentPlanOperation>>()
+        val unseen = byId.keys.toMutableSet()
+        while (unseen.isNotEmpty()) {
+            val pending = ArrayDeque(listOf(unseen.min()))
+            val componentIds = linkedSetOf<String>()
+            while (pending.isNotEmpty()) {
+                val id = pending.removeFirst()
+                if (!componentIds.add(id)) continue
+                unseen.remove(id)
+                neighbors.getValue(id).sorted().forEach(pending::addLast)
+            }
+            components += componentIds.map(byId::getValue).sortedBy(DocumentPlanOperation::order)
+        }
+        if (components.any {
+                it.sumOf(DocumentPlanOperation::expandedTypedEditCount) >
+                    MAX_DOCUMENT_EXPANDED_TYPED_EDITS_PER_RECOMMENDATION
+            }
+        ) {
+            return listOf(blocked(
+                result.sourceGroupId,
+                result.failures.firstOrNull()?.semanticItemId ?: result.sourceGroupId,
+                "atomic-group-exceeds-limit",
+                "An atomic dependency closure exceeds the approved recommendation limit.",
+                result.confidence.evidence,
+                result.confidence.modeling,
+                result.confidence.ontologyFit,
+            ))
+        }
+        val partitions = mutableListOf<MutableList<DocumentPlanOperation>>()
+        components.forEach { component ->
+            val current = partitions.lastOrNull()
+            if (current == null ||
+                current.sumOf(DocumentPlanOperation::expandedTypedEditCount) +
+                component.sumOf(DocumentPlanOperation::expandedTypedEditCount) >
+                MAX_DOCUMENT_EXPANDED_TYPED_EDITS_PER_RECOMMENDATION
+            ) {
+                partitions += mutableListOf<DocumentPlanOperation>()
+            }
+            partitions.last() += component
+        }
+        return partitions.mapIndexed { index, partition ->
+            val declarations = partition.mapNotNull(DocumentPlanOperation::declaration).toSet()
+            result.copy(
+                groupId = "${result.sourceGroupId}-part-${(index + 1).toString().padStart(2, '0')}",
+                sourceGroupId = result.sourceGroupId,
+                operations = partition.sortedBy(DocumentPlanOperation::order)
+                    .mapIndexed { order, operation -> operation.copy(order = order) },
+                references = result.references.filter { it.temporaryReference in declarations },
+            )
+        }
+    }
+
+    private fun operationKey(operation: DocumentPlanOperation): String =
+        "${operation.kind.name}:${operation.declaration?.value.orEmpty()}:" +
+            operation.operands.filterNot { it is DocumentPlanOperand.SourceId }.joinToString("|")
 
     private fun shaclOperands(
         item: DocumentSemanticPlanItem,

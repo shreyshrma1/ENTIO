@@ -1507,9 +1507,11 @@ public data class DocumentCompiledRecommendationResult(
     public val references: List<DocumentCompiledReference> = emptyList(),
     public val failures: List<DocumentCompilationFailure> = emptyList(),
     public val confidence: DocumentCompiledConfidenceDimensions,
+    public val sourceGroupId: String = groupId,
 ) {
     init {
         requireOpaqueDocumentId(groupId, "Document compiled group ID")
+        requireOpaqueDocumentId(sourceGroupId, "Document compiled source group ID")
         require(operations == operations.sortedBy(DocumentPlanOperation::order)) {
             "Compiled document operations must use deterministic order."
         }
