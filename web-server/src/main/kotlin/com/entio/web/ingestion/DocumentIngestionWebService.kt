@@ -212,6 +212,26 @@ public class DocumentIngestionWebService(
                     request.expectedGraphFingerprint,
                     request.clarification,
                 )
+                "retain" -> {
+                    val candidate = reviews.retainVerifiedReviewOnly(
+                        projectId,
+                        taskId,
+                        recommendationId,
+                        userId,
+                        request.expectedWorkKey,
+                        request.expectedGraphFingerprint,
+                        request.clarification,
+                    )
+                    val modelId = candidate.reviewPlan.analysisStages
+                        .mapNotNull { it.selectedModelId }
+                        .distinct()
+                        .singleOrNull()
+                        ?: throw DocumentIngestionFailure(
+                            "document-model-selection-stale",
+                            "The review-only finding no longer has one verified selected model.",
+                        )
+                    provenanceCoordinator.retainReviewOnly(projectId, candidate, modelId)
+                }
                 "reject" -> reviews.rejectVerified(
                     projectId,
                     taskId,
@@ -593,7 +613,7 @@ public class DocumentIngestionWebService(
         DocumentAnalysisStage.Reconciliation -> DocumentAnalysisPipelineVersions.RECONCILIATION_PROMPT
         DocumentAnalysisStage.OntologyAlignment -> DocumentAnalysisPipelineVersions.ONTOLOGY_ALIGNMENT_PROMPT
         DocumentAnalysisStage.ModelingCritic -> DocumentAnalysisPipelineVersions.MODELING_CRITIC_PROMPT
-        DocumentAnalysisStage.FinalPlanning -> DocumentAnalysisPipelineVersions.FINAL_PLAN_PROMPT
+        DocumentAnalysisStage.FinalPlanning -> DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_PROMPT
         DocumentAnalysisStage.DeterministicVerification,
         DocumentAnalysisStage.AwaitingReview,
         -> null

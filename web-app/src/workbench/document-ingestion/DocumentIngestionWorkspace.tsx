@@ -269,6 +269,22 @@ function DocumentReview({ projectId, taskId, ready }: { projectId: string; taskI
         {draft.isSuccess ? <span role="status">{draft.data.stagedEditCount} typed edit{draft.data.stagedEditCount === 1 ? "" : "s"} added to the shared proposal.</span> : null}
         {draft.isError ? <span role="alert">Accepted items could not be drafted. Resolve stale or blocked recommendations and retry.</span> : null}
       </div>
+      {workspace.semanticCoverage || workspace.compilationSuccess ? <div
+        className="document-quality-metrics"
+        aria-label="Semantic coverage and compilation metrics"
+      >
+        <strong>Deterministic quality checks</strong>
+        {workspace.semanticCoverage ? <span>
+          Semantic coverage: {workspace.semanticCoverage.percentage == null
+            ? "not applicable"
+            : `${workspace.semanticCoverage.percentage}%`}
+        </span> : null}
+        {workspace.compilationSuccess ? <span>
+          Compilation success: {workspace.compilationSuccess.percentage == null
+            ? "not applicable"
+            : `${workspace.compilationSuccess.percentage}%`}
+        </span> : null}
+      </div> : null}
     </div>
 
     {(["OntologyStructure", "BusinessFact"] as const).map((category) =>
@@ -330,8 +346,8 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
     </header>
 
     <section className="document-change-description">
-      <h4>Why Entio suggests this</h4>
-      <p>{recommendation.description ?? recommendation.rationale}</p>
+      <h4>Semantic intent</h4>
+      <p>{recommendation.semanticIntent ?? recommendation.description ?? recommendation.rationale}</p>
     </section>
 
     <section className={`document-change-preview ${changePreview.draftable ? "" : "blocked"}`} aria-label="Exact proposed changes">
@@ -351,6 +367,9 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
           >Exclude optional change</button> : null}
         </li>)}</ol> : null}
       {changePreview.blockingReason ? <p role="note"><strong>Cannot be approved:</strong> {changePreview.blockingReason}</p> : null}
+      {recommendation.generatedIris?.length ? <p>
+        <strong>Generated IRIs:</strong> {recommendation.generatedIris.join(", ")}
+      </p> : null}
     </section>
 
     {recommendation.confidenceDimensions ? <section className="document-confidence" aria-label="Confidence details">
@@ -359,6 +378,10 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
         <div><dt>Evidence</dt><dd>{recommendation.confidenceDimensions.evidence}%</dd></div>
         <div><dt>Modeling</dt><dd>{recommendation.confidenceDimensions.modeling}%</dd></div>
         <div><dt>Ontology fit</dt><dd>{recommendation.confidenceDimensions.ontologyFit}%</dd></div>
+        <div><dt>Compilation</dt><dd>{recommendation.confidenceDimensions.compilation == null
+          ? "Not applicable"
+          : `${recommendation.confidenceDimensions.compilation}%`}</dd></div>
+        <div><dt>Overall</dt><dd>{recommendation.confidenceDimensions.overall}%</dd></div>
       </dl>
     </section> : null}
 
@@ -412,6 +435,10 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
 
     <div className="document-review-actions">
       {changePreview.draftable ? <button className="button primary" type="button" disabled={busy || (clarificationRequired && !clarification.trim())} onClick={() => onDecision({ action: "accept", clarification })}>Approve for proposal</button> : null}
+      {recommendation.connectedStatus === "ReviewOnly" && recommendation.reviewStatus !== "Drafted"
+        ? <button className="button primary" type="button" disabled={busy} onClick={() =>
+          onDecision({ action: "retain", clarification })}>Retain as documented rule</button>
+        : null}
       <button type="button" disabled={busy} onClick={() => onDecision({ action: "reject" })}>Reject</button>
     </div>
 

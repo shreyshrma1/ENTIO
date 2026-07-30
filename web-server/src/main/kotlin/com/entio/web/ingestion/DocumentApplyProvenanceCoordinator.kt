@@ -130,6 +130,128 @@ internal class DocumentApplyProvenanceCoordinator(
     }
 
     @Synchronized
+    fun retainReviewOnly(
+        projectId: String,
+        candidate: VerifiedDocumentReviewOnlyCandidate,
+        modelId: String,
+    ): Int {
+        val recommendation = candidate.recommendation
+        val reviewPlan = candidate.reviewPlan
+        val evidenceGroups = recommendation.evidenceIds.map { evidenceId ->
+            reviewPlan.evidence[evidenceId.value]
+                ?: throw DocumentIngestionFailure(
+                    "document-provenance-evidence-stale",
+                    "Review-only provenance evidence is no longer available.",
+                )
+        }
+        val prompts = reviewPlan.analysisStages.mapNotNull(DocumentAnalysisStageRecord::promptVersion)
+            .distinct().sorted()
+        val inputHashes = reviewPlan.analysisStages.mapNotNull(DocumentAnalysisStageRecord::inputSha256)
+            .distinct().sorted()
+        val outputHashes = reviewPlan.analysisStages.mapNotNull(DocumentAnalysisStageRecord::outputSha256)
+            .distinct().sorted()
+        val coverageIds = reviewPlan.plan.plan.coverage
+            .filter { it.recommendationId == recommendation.id }
+            .map(DocumentCoverageDisposition::discoveryId)
+            .distinct().sorted()
+        val findings = recommendation.reviewOnlyFindings.map { finding ->
+            AppliedDocumentReviewOnlyFinding(
+                findingId = finding.id,
+                summary = finding.summary,
+                reason = finding.reason,
+                evidenceIds = finding.evidenceIds,
+            )
+        }.sortedBy(AppliedDocumentReviewOnlyFinding::findingId)
+        val appliedAt = Instant.now(clock)
+        val records = evidenceGroups.flatMap(DocumentEvidence::references)
+            .groupBy { it.documentId.value }
+            .map { (documentId, documentEvidence) ->
+                val document = reviewPlan.taskDocuments.singleOrNull { it.documentId == documentId }
+                    ?: throw DocumentIngestionFailure(
+                        "document-provenance-document-missing",
+                        "A review-only provenance document is unavailable.",
+                    )
+                val evidence = documentEvidence.map { reference ->
+                    val block = reviewPlan.blocks[reference.blockId.value]
+                        ?: throw DocumentIngestionFailure(
+                            "document-provenance-evidence-stale",
+                            "Review-only provenance evidence is stale.",
+                        )
+                    AppliedDocumentEvidence(
+                        evidenceId = reference.id,
+                        documentId = reference.documentId,
+                        pageNumber = reference.pageNumber,
+                        blockId = reference.blockId,
+                        startOffsetInBlock = reference.startOffsetInBlock,
+                        endOffsetInBlock = reference.endOffsetInBlock,
+                        exactExcerpt = reference.exactExcerpt,
+                        extractionMethod = reference.extractionMethod,
+                        extractorVersion = block.extractorVersion,
+                        confidence = reference.ocrConfidence ?: recommendation.confidence.overall,
+                    )
+                }
+                AppliedDocumentProvenance(
+                    recordId = recordId(
+                        projectId,
+                        "documented-rule",
+                        recommendation.id,
+                        document.checksumSha256,
+                        evidence.joinToString("\u0000") { it.evidenceId.value },
+                        recommendation.id,
+                        candidate.decision.decisionId,
+                        reviewPlan.graphFingerprint,
+                    ),
+                    projectId = projectId,
+                    taskId = com.entio.core.DocumentTaskId(candidate.taskId),
+                    document = AppliedDocumentIdentity(
+                        documentId = com.entio.core.DocumentId(document.documentId),
+                        checksumSha256 = document.checksumSha256,
+                        safeFilename = document.safeFilename,
+                    ),
+                    evidence = evidence,
+                    recommendationId = recommendation.id,
+                    action = com.entio.core.DocumentRecommendationAction.Confirm,
+                    decision = AppliedDocumentDecision(
+                        decisionId = candidate.decision.decisionId,
+                        recommendationId = recommendation.id,
+                        actorUserId = candidate.decision.actorUserId,
+                        decidedAt = candidate.decision.decidedAt,
+                        status = DocumentRecommendationReviewStatus.Drafted,
+                        clarification = candidate.decision.clarification,
+                    ),
+                    modelId = modelId,
+                    promptVersion = DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_PROMPT,
+                    confidence = recommendation.confidence.overall,
+                    evidenceTypes = evidenceGroups.map(DocumentEvidence::type).distinct().sortedBy { it.name },
+                    typedOperation = null,
+                    applyEvent = AppliedDocumentApplyEvent(
+                        proposalId = null,
+                        appliedByUserId = candidate.decision.actorUserId,
+                        appliedAt = appliedAt,
+                        baselineOntologyFingerprint = reviewPlan.graphFingerprint,
+                        resultingOntologyFingerprint = reviewPlan.graphFingerprint,
+                    ),
+                    analysisWorkKey = reviewPlan.workKey,
+                    promptVersions = prompts,
+                    stageInputHashes = inputHashes,
+                    stageOutputHashes = outputHashes,
+                    confidenceDimensions = recommendation.confidence,
+                    criticDispositionIds = recommendation.criticDispositions.map { it.findingId }.distinct().sorted(),
+                    coverageDispositionIds = coverageIds,
+                    relatedReviewOnlyFindings = findings,
+                )
+            }.sortedBy(AppliedDocumentProvenance::recordId)
+        if (records.isEmpty()) {
+            throw DocumentIngestionFailure(
+                "document-provenance-evidence-stale",
+                "Review-only provenance requires exact document evidence.",
+            )
+        }
+        repository.save(projectId, records)
+        return records.size
+    }
+
+    @Synchronized
     override fun begin(
         projectId: String,
         proposalId: String,
@@ -457,7 +579,7 @@ internal class DocumentApplyProvenanceCoordinator(
                     clarification = template.decision.clarification,
                 ),
                 modelId = template.modelId,
-                promptVersion = DocumentAnalysisPipelineVersions.FINAL_PLAN_PROMPT,
+                promptVersion = DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_PROMPT,
                 confidence = template.recommendation.confidence.overall,
                 evidenceTypes = evidenceGroups.map(DocumentEvidence::type).distinct().sortedBy { it.name },
                 typedOperation = typed,
