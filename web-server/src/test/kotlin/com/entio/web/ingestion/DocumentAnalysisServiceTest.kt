@@ -1054,7 +1054,7 @@ class DocumentAnalysisServiceTest {
     }
 
     @Test
-    fun marksWholeBlockPackingOmissionsIncompleteAndPreventsLaterStages(): Unit = runBlocking {
+    fun includesEveryWholeBlockWithoutCharacterBasedTruncation(): Unit = runBlocking {
         val fixture = fixture()
         var supplied: DocumentDiscoveryRequest? = null
         val provider = DocumentDiscoveryProvider { _, _, _, request ->
@@ -1078,14 +1078,14 @@ class DocumentAnalysisServiceTest {
 
         val result = fixture.discoveryService(provider).discover("alice", "task-1", oversized)
 
-        assertEquals(1, supplied?.includedBlockCount)
-        assertEquals(1, supplied?.omittedBlockCount)
-        assertEquals(firstText, supplied?.blocks?.single()?.text)
-        assertEquals(1, result.omittedBlockCount)
-        assertEquals(DocumentAnalysisStageState.Incomplete, result.stageRecord.state)
-        assertEquals("document-discovery-input-incomplete", result.stageRecord.safeCode)
-        assertTrue(!result.complete)
-        assertTrue(!result.eligibleForLaterStages)
+        assertEquals(2, supplied?.includedBlockCount)
+        assertEquals(0, supplied?.omittedBlockCount)
+        assertEquals(listOf(firstText, secondText), supplied?.blocks?.map(DocumentDiscoveryBlock::text))
+        assertEquals(0, result.omittedBlockCount)
+        assertEquals(DocumentAnalysisStageState.Succeeded, result.stageRecord.state)
+        assertEquals(null, result.stageRecord.safeCode)
+        assertTrue(result.complete)
+        assertTrue(result.eligibleForLaterStages)
     }
 
     @Test
@@ -1854,6 +1854,136 @@ class DocumentAnalysisServiceTest {
         assertEquals(1, consolidationCalls)
         assertEquals(discoveries.map(DocumentDiscovery::id).sorted(), modeledDiscoveryIds.sorted())
         assertEquals(result.chunkCount + 1, result.stageRecords.size)
+    }
+
+    @Test
+    fun splitsOnlyOutputLimitedConnectedChunksAndPreservesEveryDiscovery(): Unit = runBlocking {
+        val fixture = fixture()
+        val discoveries = (0 until 8).map { index ->
+            connectedDiscovery(
+                id = "discovery-adaptive-${index.toString().padStart(2, '0')}",
+                description = "Adaptive business concept $index",
+            )
+        }
+        val successfulDiscoveryIds = mutableListOf<String>()
+        var outputLimitedCalls = 0
+        val provider = connectedProvider(
+            onModel = { _, _, request ->
+                if (request.discoveries.size > 2) {
+                    outputLimitedCalls += 1
+                    DocumentConnectedModelProviderResult.Failed(
+                        retryable = false,
+                        safeCode = "document-provider-output-token-limit",
+                    )
+                } else {
+                    successfulDiscoveryIds += request.discoveries.map(DocumentDiscovery::id)
+                    DocumentConnectedModelProviderResult.CompletedModel(
+                        DocumentConnectedModelResponse(
+                            items = request.discoveries.mapIndexed { index, discovery ->
+                                connectedItem(
+                                    providerId = "adaptive-${request.chunkIndex}-$index",
+                                    order = index,
+                                    kind = "Class",
+                                    label = discovery.description,
+                                    discoveryId = discovery.id,
+                                )
+                            },
+                        ),
+                    )
+                }
+            },
+            onConsolidate = { _, _, request ->
+                DocumentConnectedModelProviderResult.CompletedConsolidation(
+                    DocumentModelConsolidationResponse(
+                        items = request.chunkModels.flatMap { it.items }
+                            .mapIndexed { index, item -> item.copy(order = index) },
+                    ),
+                )
+            },
+        )
+
+        val result = fixture.connectedModelService(provider).model(
+            "alice",
+            "task-adaptive-output",
+            connectedDiscoveryStage(discoveries),
+        )
+
+        assertEquals(3, outputLimitedCalls)
+        assertEquals(4, result.chunkCount)
+        assertEquals(8, result.providerCalls)
+        assertEquals(8, result.logicalCalls)
+        assertEquals(5, result.stageRecords.size)
+        assertEquals(
+            discoveries.map(DocumentDiscovery::id).sorted(),
+            successfulDiscoveryIds.sorted(),
+        )
+        assertEquals(
+            discoveries.map(DocumentDiscovery::id).toSet(),
+            result.model.items.flatMap(DocumentConnectedModelItem::discoveryIds).toSet(),
+        )
+    }
+
+    @Test
+    fun splitsUnavailableConnectedChunksWithoutRepeatingFailedParent(): Unit = runBlocking {
+        val fixture = fixture()
+        val discoveries = (0 until 4).map { index ->
+            connectedDiscovery(
+                id = "discovery-unavailable-${index.toString().padStart(2, '0')}",
+                description = "Provider-sensitive business concept $index",
+            )
+        }
+        val successfulDiscoveryIds = mutableListOf<String>()
+        var unavailableCalls = 0
+        val provider = connectedProvider(
+            onModel = { _, _, request ->
+                if (request.discoveries.size > 2) {
+                    unavailableCalls += 1
+                    DocumentConnectedModelProviderResult.Failed(
+                        retryable = true,
+                        safeCode = "document-provider-unavailable",
+                    )
+                } else {
+                    successfulDiscoveryIds += request.discoveries.map(DocumentDiscovery::id)
+                    DocumentConnectedModelProviderResult.CompletedModel(
+                        DocumentConnectedModelResponse(
+                            items = request.discoveries.mapIndexed { index, discovery ->
+                                connectedItem(
+                                    providerId = "unavailable-${request.chunkIndex}-$index",
+                                    order = index,
+                                    kind = "Class",
+                                    label = discovery.description,
+                                    discoveryId = discovery.id,
+                                )
+                            },
+                        ),
+                    )
+                }
+            },
+            onConsolidate = { _, _, request ->
+                DocumentConnectedModelProviderResult.CompletedConsolidation(
+                    DocumentModelConsolidationResponse(
+                        items = request.chunkModels.flatMap { it.items }
+                            .mapIndexed { index, item -> item.copy(order = index) },
+                    ),
+                )
+            },
+        )
+
+        val result = fixture.connectedModelService(provider).model(
+            "alice",
+            "task-adaptive-unavailable",
+            connectedDiscoveryStage(discoveries),
+        )
+
+        assertEquals(1, unavailableCalls)
+        assertEquals(2, result.chunkCount)
+        assertEquals(4, result.providerCalls)
+        assertEquals(4, result.logicalCalls)
+        assertEquals(3, result.stageRecords.size)
+        assertEquals(
+            discoveries.map(DocumentDiscovery::id).sorted(),
+            successfulDiscoveryIds.sorted(),
+        )
     }
 
     @Test

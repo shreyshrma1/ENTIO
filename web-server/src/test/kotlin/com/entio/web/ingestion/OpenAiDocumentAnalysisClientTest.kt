@@ -396,6 +396,18 @@ class OpenAiDocumentAnalysisClientTest {
             DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_RESPONSE,
             format.path("schema").path("properties").path("schemaVersion").path("const").asText(),
         )
+        val planSchema = format.path("schema").path("properties").path("plan").path("properties")
+        assertEquals(
+            listOf("model-payment"),
+            planSchema.path("items").path("items").path("properties").path("id").path("enum").map(JsonNode::asText),
+        )
+        assertEquals(1, planSchema.path("items").path("minItems").asInt())
+        assertEquals(1, planSchema.path("items").path("maxItems").asInt())
+        assertEquals(1, planSchema.path("groups").path("minItems").asInt())
+        assertEquals(
+            1,
+            format.path("schema").path("properties").path("coverage").path("minItems").asInt(),
+        )
         val serializedSchema = format.path("schema").toString()
         listOf("operations", "finalIri", "sourceId", "rawTriple", "writeInstruction").forEach {
             assertTrue(!serializedSchema.contains("\"$it\""))
@@ -427,16 +439,16 @@ class OpenAiDocumentAnalysisClientTest {
         }
 
         val failed = assertIs<DocumentSemanticPlanningProviderResult.Failed>(result)
-        assertEquals("document-semantic-plan-item-invalid", failed.safeCode)
-        assertEquals(false, failed.retryable)
+        assertEquals("document-semantic-plan-schema-invalid", failed.safeCode)
+        assertEquals(true, failed.retryable)
 
-        val invalidCoverage = validSemanticPlanningOutput().replace(
+        val providerCoverageWithMissingGroupReference = validSemanticPlanningOutput().replace(
             "\"recommendationId\":\"recommendation-1\"",
             "\"recommendationId\":null",
         )
         val coverageEngine = MockEngine {
             respond(
-                providerEnvelope(invalidCoverage),
+                providerEnvelope(providerCoverageWithMissingGroupReference),
                 headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
             )
         }
@@ -448,9 +460,76 @@ class OpenAiDocumentAnalysisClientTest {
                 finalPlanningRequest(),
             )
         }
-        val coverageFailure = assertIs<DocumentSemanticPlanningProviderResult.Failed>(coverageResult)
-        assertEquals("document-semantic-plan-coverage-invalid", coverageFailure.safeCode)
-        assertEquals(false, coverageFailure.retryable)
+        val canonicalCoverage = assertIs<DocumentSemanticPlanningProviderResult.Completed>(coverageResult)
+            .response.coverage.single()
+        assertEquals(DocumentCoverageDispositionKind.ExecutableRecommendation, canonicalCoverage.kind)
+        assertEquals("recommendation-1", canonicalCoverage.recommendationId)
+
+        val providerBookkeepingWithUnknownIds = validSemanticPlanningOutput()
+            .replace("\"verifiedDiscoveryIds\":[\"discovery-1\"]", "\"verifiedDiscoveryIds\":[\"mistyped-discovery\"]")
+            .replace("\"discoveryIds\":[\"discovery-1\"]", "\"discoveryIds\":[\"mistyped-discovery\"]")
+            .replace(
+            "\"evidenceIds\":[\"evidence-1\"]",
+            "\"evidenceIds\":[\"unknown-evidence\"]",
+        )
+        val bookkeepingEngine = MockEngine {
+            respond(
+                providerEnvelope(providerBookkeepingWithUnknownIds),
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val bookkeepingResult = OpenAiDocumentAnalysisClient(engine = bookkeepingEngine).use {
+            it.planSemantic(
+                "secret-value",
+                "gpt-test-2026",
+                "Return semantic meaning only.",
+                finalPlanningRequest(),
+            )
+        }
+        val canonicalized = assertIs<DocumentSemanticPlanningProviderResult.Completed>(bookkeepingResult).response
+        assertEquals(listOf("discovery-1"), canonicalized.plan.verifiedDiscoveryIds)
+        assertEquals(listOf("discovery-1"), canonicalized.plan.items.single().discoveryIds)
+        assertEquals(listOf("evidence-1"), canonicalized.plan.items.single().evidenceIds.map { it.value })
+
+        val missingItemRoot = ObjectMapper().readTree(validSemanticPlanningOutput())
+        (missingItemRoot.path("plan").path("items") as com.fasterxml.jackson.databind.node.ArrayNode).removeAll()
+        val missingItemEngine = MockEngine {
+            respond(
+                providerEnvelope(ObjectMapper().writeValueAsString(missingItemRoot)),
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val missingItemResult = OpenAiDocumentAnalysisClient(engine = missingItemEngine).use {
+            it.planSemantic(
+                "secret-value",
+                "gpt-test-2026",
+                "Return semantic meaning only.",
+                finalPlanningRequest(),
+            )
+        }
+        val missingItemFailure = assertIs<DocumentSemanticPlanningProviderResult.Failed>(missingItemResult)
+        assertEquals("document-semantic-plan-item-invalid", missingItemFailure.safeCode)
+        assertEquals(true, missingItemFailure.retryable)
+
+        val missingGroupRoot = ObjectMapper().readTree(validSemanticPlanningOutput())
+        (missingGroupRoot.path("plan").path("groups") as com.fasterxml.jackson.databind.node.ArrayNode).removeAll()
+        val missingGroupEngine = MockEngine {
+            respond(
+                providerEnvelope(ObjectMapper().writeValueAsString(missingGroupRoot)),
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val missingGroupResult = OpenAiDocumentAnalysisClient(engine = missingGroupEngine).use {
+            it.planSemantic(
+                "secret-value",
+                "gpt-test-2026",
+                "Return semantic meaning only.",
+                finalPlanningRequest(),
+            )
+        }
+        val completedMissingGroup = assertIs<DocumentSemanticPlanningProviderResult.Completed>(missingGroupResult)
+        assertEquals(listOf("model-payment"), completedMissingGroup.response.plan.groups.single().itemIds)
+        assertTrue(completedMissingGroup.response.plan.groups.single().id.startsWith("generated-group-"))
     }
 
     @Test
@@ -1493,7 +1572,7 @@ class OpenAiDocumentAnalysisClientTest {
         """{"schemaVersion":"phase-11-5-final-plan-response-v1","plan":{"workKey":"${"a".repeat(64)}","verifiedDiscoveryIds":["discovery-1"],"criticFindingIds":[],"recommendations":[{"id":"recommendation-1","title":"Create payment policy","description":"Create the supported payment policy concept.","discoveryIds":["discovery-1"],"evidenceIds":["evidence-1"],"operations":[{"id":"create-policy","kind":"CreateClass","order":0,"declaration":"new:class:PaymentPolicy","operands":[{"kind":"SourceId","value":"simple","datatypeIri":null,"language":null}],"dependsOnOperationIds":[],"expandedTypedEditCount":1,"optionalLeaf":false}],"reviewOnlyFindings":[],"criticDispositions":[],"evidenceConfidence":90,"modelingConfidence":85,"ontologyFitConfidence":80,"status":"Executable","blockers":[],"individualReviewGates":[]}],"coverage":[{"discoveryId":"discovery-1","kind":"ExecutableRecommendation","recommendationId":"recommendation-1","relatedDiscoveryId":null,"rationale":null}]}}"""
 
     private fun validSemanticPlanningOutput(): String =
-        """{"schemaVersion":"phase-11-5-plus-semantic-plan-response-v1","plan":{"workKey":"${"a".repeat(64)}","verifiedDiscoveryIds":["discovery-1"],"criticFindingIds":[],"items":[{"id":"semantic-payment","kind":"Class","label":"Payment","definition":"A payment described by verified evidence.","literalValue":null,"datatypeIntent":null,"references":[],"discoveryIds":["discovery-1"],"evidenceIds":["evidence-1"],"rationale":"The evidence defines a reusable payment concept.","outcome":"Executable","ambiguity":null,"criticDispositions":[],"evidenceConfidence":90,"modelingConfidence":85,"ontologyFitConfidence":80}],"groups":[{"id":"recommendation-1","title":"Create Payment","description":"Create the verified payment concept.","itemIds":["semantic-payment"],"discoveryIds":["discovery-1"],"evidenceIds":["evidence-1"],"outcome":"Executable","rationale":"The connected meaning is supported.","criticDispositions":[],"evidenceConfidence":90,"modelingConfidence":85,"ontologyFitConfidence":80}]},"coverage":[{"discoveryId":"discovery-1","kind":"ExecutableRecommendation","recommendationId":"recommendation-1","relatedDiscoveryId":null,"alignmentId":null,"rationale":null}]}"""
+        """{"schemaVersion":"phase-11-5-plus-semantic-plan-response-v1","plan":{"workKey":"${"a".repeat(64)}","verifiedDiscoveryIds":["discovery-1"],"criticFindingIds":[],"items":[{"id":"model-payment","kind":"Class","label":"Payment","definition":"A payment described by verified evidence.","literalValue":null,"datatypeIntent":null,"references":[],"discoveryIds":["discovery-1"],"evidenceIds":["evidence-1"],"rationale":"The evidence defines a reusable payment concept.","outcome":"Executable","ambiguity":null,"criticDispositions":[],"evidenceConfidence":90,"modelingConfidence":85,"ontologyFitConfidence":80}],"groups":[{"id":"recommendation-1","title":"Create Payment","description":"Create the verified payment concept.","itemIds":["model-payment"],"discoveryIds":["discovery-1"],"evidenceIds":["evidence-1"],"outcome":"Executable","rationale":"The connected meaning is supported.","criticDispositions":[],"evidenceConfidence":90,"modelingConfidence":85,"ontologyFitConfidence":80}]},"coverage":[{"discoveryId":"discovery-1","kind":"ExecutableRecommendation","recommendationId":"recommendation-1","relatedDiscoveryId":null,"alignmentId":null,"rationale":null}]}"""
 
     private fun nonCanonicalFinalPlanningOutput(): String =
         """{"schemaVersion":"phase-11-5-final-plan-response-v1","plan":{"workKey":"${"a".repeat(64)}","verifiedDiscoveryIds":["discovery-1","discovery-1"],"criticFindingIds":[],"recommendations":[{"id":"recommendation-1","title":"Create payment policy","description":"Create the supported payment policy concept.","discoveryIds":["discovery-1","discovery-1"],"evidenceIds":["evidence-1","evidence-1"],"operations":[{"id":"define-policy","kind":"AddDefinition","order":1,"declaration":null,"operands":[{"kind":"TemporaryEntity","value":"new:class:PaymentPolicy","datatypeIri":null,"language":null},{"kind":"TextValue","value":"A policy governing supported payments.","datatypeIri":null,"language":null}],"dependsOnOperationIds":["create-policy","create-policy"],"expandedTypedEditCount":1,"optionalLeaf":false},{"id":"create-policy","kind":"CreateClass","order":4,"declaration":"new:class:PaymentPolicy","operands":[{"kind":"SourceId","value":"simple","datatypeIri":null,"language":null}],"dependsOnOperationIds":[],"expandedTypedEditCount":1,"optionalLeaf":false}],"reviewOnlyFindings":[],"criticDispositions":[],"evidenceConfidence":90,"modelingConfidence":85,"ontologyFitConfidence":80,"status":"Executable","blockers":[],"individualReviewGates":[]}],"coverage":[{"discoveryId":"discovery-1","kind":"ExecutableRecommendation","recommendationId":"recommendation-1","relatedDiscoveryId":null,"rationale":null}]}}"""

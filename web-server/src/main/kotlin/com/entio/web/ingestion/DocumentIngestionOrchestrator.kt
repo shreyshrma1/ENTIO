@@ -214,7 +214,7 @@ internal class DocumentIngestionOrchestrator(
             remainingLogicalCalls,
         )
         connected.stageRecords.forEach { recordStage(input, it) }
-        remainingLogicalCalls -= connected.stageRecords.size
+        remainingLogicalCalls -= connected.logicalCalls
         checkCancellation(input)
         val displayedItems = connected.model.items.take(MAX_REPORTED_CONNECTED_MODEL_ITEMS)
         val retainedDetails = displayedItems.map { item ->

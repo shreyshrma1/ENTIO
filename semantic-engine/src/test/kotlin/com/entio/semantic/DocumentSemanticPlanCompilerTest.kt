@@ -4,6 +4,7 @@ import com.entio.core.DocumentAnalysisWorkKey
 import com.entio.core.DocumentCompilationStatus
 import com.entio.core.DocumentConfidenceDimensions
 import com.entio.core.DocumentEvidenceId
+import com.entio.core.DocumentPlanOperation
 import com.entio.core.DocumentPlanOperationKind
 import com.entio.core.DocumentSemanticItemKind
 import com.entio.core.DocumentSemanticOutcome
@@ -16,6 +17,7 @@ import com.entio.core.DocumentSemanticReferenceTarget
 import com.entio.core.DocumentTemporaryReferenceKind
 import com.entio.core.Iri
 import com.entio.core.RdfLiteral
+import kotlin.system.measureTimeMillis
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -59,6 +61,73 @@ class DocumentSemanticPlanCompilerTest {
             result.operations.map { it.kind },
         )
         assertEquals(3, result.references.size)
+    }
+
+    @Test
+    fun `adds explicitly referenced declarations that a semantic group omitted`(): Unit {
+        val payment = item("payment", DocumentSemanticItemKind.Class, "Payment")
+        val approvedBy = item("approved-by", DocumentSemanticItemKind.ObjectProperty, "approved by")
+        val domain = item(
+            "approved-by-domain",
+            DocumentSemanticItemKind.ObjectPropertyDomain,
+            "approved by domain",
+            refs(
+                DocumentSemanticReferenceRole.Property to approvedBy.id,
+                DocumentSemanticReferenceRole.Domain to payment.id,
+            ),
+        )
+        val plan = DocumentSemanticPlan(
+            workKey = DocumentAnalysisWorkKey("a".repeat(64)),
+            verifiedDiscoveryIds = listOf("discovery-1"),
+            criticFindingIds = emptyList(),
+            items = listOf(payment, approvedBy, domain).sortedBy(DocumentSemanticPlanItem::stableOrderingKey),
+            groups = listOf(group("group-domain", listOf(domain))),
+        )
+
+        val result = compiler.compile(plan, context()).single()
+
+        assertEquals(DocumentCompilationStatus.Compiled, result.status, result.failures.toString())
+        assertEquals(
+            setOf(DocumentPlanOperationKind.CreateClass, DocumentPlanOperationKind.CreateObjectProperty),
+            result.operations.take(2).map(DocumentPlanOperation::kind).toSet(),
+        )
+        assertEquals(DocumentPlanOperationKind.SetPropertyDomain, result.operations.last().kind)
+        assertTrue(result.operations.last().dependsOnOperationIds.size == 2)
+    }
+
+    @Test
+    fun `compiles bounded explicit dependency closures within the throughput budget`(): Unit {
+        val items = (1..50).flatMap { index ->
+            val target = item("target-$index", DocumentSemanticItemKind.Class, "Target $index")
+            val shape = item(
+                "shape-$index",
+                DocumentSemanticItemKind.NodeShape,
+                "Shape $index",
+                refs(DocumentSemanticReferenceRole.TargetClass to target.id),
+            )
+            listOf(target, shape)
+        }
+        val shapes = items.filter { it.kind == DocumentSemanticItemKind.NodeShape }
+        val plan = DocumentSemanticPlan(
+            workKey = DocumentAnalysisWorkKey("a".repeat(64)),
+            verifiedDiscoveryIds = listOf("discovery-1"),
+            criticFindingIds = emptyList(),
+            items = items.sortedBy(DocumentSemanticPlanItem::stableOrderingKey),
+            groups = shapes.mapIndexed { index, shape ->
+                group("throughput-group-${index + 1}", listOf(shape))
+            }.sortedBy(DocumentSemanticRecommendationGroup::stableOrderingKey),
+        )
+        var compiledCount = 0
+
+        val durationMillis = measureTimeMillis {
+            repeat(100) {
+                val results = compiler.compile(plan, context())
+                compiledCount += results.count { it.status == DocumentCompilationStatus.Compiled }
+            }
+        }
+
+        assertEquals(5_000, compiledCount)
+        assertTrue(durationMillis < 10_000, "Dependency completion took ${durationMillis}ms for 100 bounded plans.")
     }
 
     @Test
