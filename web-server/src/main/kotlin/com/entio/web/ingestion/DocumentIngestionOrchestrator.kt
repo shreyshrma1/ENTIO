@@ -72,7 +72,7 @@ internal class DocumentIngestionOrchestrator(
     private val finalPlanning = DocumentFinalPlanningService(
         credentials,
         settings,
-        boundedProvider,
+        SemanticCompilingDocumentFinalPlanningProvider(boundedProvider),
         clock = configuration.clock,
         isCancelled = ::isCancelled,
     )
@@ -430,7 +430,7 @@ internal class DocumentIngestionOrchestrator(
                 DocumentAnalysisPipelineVersions.RECONCILIATION_PROMPT,
                 DocumentAnalysisPipelineVersions.ONTOLOGY_ALIGNMENT_PROMPT,
                 DocumentAnalysisPipelineVersions.MODELING_CRITIC_PROMPT,
-                DocumentAnalysisPipelineVersions.FINAL_PLAN_PROMPT,
+                DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_PROMPT,
             ) + input.documents.sortedBy { it.document.id.value }.map { it.document.checksumSha256 },
         ),
     )
@@ -845,6 +845,16 @@ private class BudgetedDocumentPipelineProvider(
     ): DocumentFinalPlanningProviderResult {
         reserve(request.taskId, "final", request)
         return delegate.plan(apiKey, selectedModelId, systemInstruction, request)
+    }
+
+    override suspend fun planSemantic(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentFinalPlanningRequest,
+    ): DocumentSemanticPlanningProviderResult {
+        reserve(request.taskId, "semantic-final", request.toPromptPayload())
+        return delegate.planSemantic(apiKey, selectedModelId, systemInstruction, request)
     }
 
     @Synchronized

@@ -15,6 +15,11 @@ import com.entio.core.DocumentPlanOperation
 import com.entio.core.DocumentPlanOperationKind
 import com.entio.core.DocumentReviewOnlyFinding
 import com.entio.core.DocumentTemporaryReference
+import com.entio.core.DocumentSemanticItemKind
+import com.entio.core.DocumentSemanticOutcome
+import com.entio.core.DocumentSemanticPlan
+import com.entio.core.DocumentSemanticPlanItem
+import com.entio.core.DocumentSemanticRecommendationGroup
 import com.entio.web.ai.InMemoryAiCredentialStore
 import com.entio.web.ai.models.AiModelCompatibilityState
 import com.entio.web.ai.models.AiModelDiscoveryStatus
@@ -298,13 +303,10 @@ class DocumentIngestionOrchestratorTest {
         val task = fixture.manager.find(taskId, "simple", "alice")
         assertEquals("awaiting-review", task.status)
         assertEquals(2, fixture.provider.finalPlanningCalls)
-        assertContains(fixture.provider.finalPlanningInstructions.last(), "operation-contract-invalid")
+        assertContains(fixture.provider.finalPlanningInstructions.last(), "semantic-group-blocked")
         assertContains(fixture.provider.finalPlanningInstructions.last(), "Supplier")
-        assertContains(fixture.provider.finalPlanningInstructions.last(), "SetPropertyDomain")
-        assertContains(fixture.provider.finalPlanningInstructions.last(), "generic role")
-        assertContains(fixture.provider.finalPlanningInstructions.last(), "duplicate blocked operation attempt")
-        assertContains(fixture.provider.finalPlanningInstructions.last(), "create it rather than placing")
-        assertContains(fixture.provider.finalPlanningInstructions.last(), "model the transaction, decision record")
+        assertContains(fixture.provider.finalPlanningInstructions.last(), "corrected semantic plan")
+        assertContains(fixture.provider.finalPlanningInstructions.last(), "Do not emit operations")
         val recommendations = fixture.reviews
             .verifiedReviewPlan("simple", taskId.value, "alice")
             .plan
@@ -1002,6 +1004,125 @@ class DocumentIngestionOrchestratorTest {
                             )
                         },
                     ),
+                ),
+            )
+        }
+
+        override suspend fun planSemantic(
+            apiKey: String,
+            selectedModelId: String,
+            systemInstruction: String,
+            request: DocumentFinalPlanningRequest,
+        ): DocumentSemanticPlanningProviderResult {
+            assertContains(systemInstruction, "strict Phase 11.5+ semantic-plan response")
+            assertContains(systemInstruction, "Never emit Entio operations")
+            finalPlanningCalls += 1
+            finalPlanningInstructions += systemInstruction
+            if (retryFinalPlanningOnce && finalPlanningCalls == 1) {
+                return DocumentSemanticPlanningProviderResult.Failed(
+                    retryable = true,
+                    safeCode = "document-provider-malformed-output",
+                )
+            }
+            val discoveries = request.discoveries.sortedBy(DocumentDiscovery::stableOrderingKey)
+            val discoveryIds = discoveries.map(DocumentDiscovery::id).sorted()
+            val businessDiscoveries = discoveries.filter {
+                it.contentClassification.name == "BusinessContent"
+            }
+            val correctionReviewOnly = degradeFinalPlanCorrection && finalPlanningCalls == 2
+            val forceBlocked = invalidFinalPlanOnce && finalPlanningCalls == 1
+            val items = businessDiscoveries.mapIndexed { index, discovery ->
+                DocumentSemanticPlanItem(
+                    id = "semantic-${index + 1}",
+                    kind = DocumentSemanticItemKind.Class,
+                    label = if (compoundConcept) "Account closure" else {
+                        if (businessDiscoveries.size == 1) "Supplier" else "Supplier ${index + 1}"
+                    },
+                    definition = "An evidence-grounded business concept.",
+                    discoveryIds = listOf(discovery.id),
+                    evidenceIds = discovery.evidence.map(DocumentEvidence::id).sortedBy(DocumentEvidenceId::value),
+                    rationale = "Verified evidence defines this reusable concept.",
+                    outcome = when {
+                        correctionReviewOnly -> DocumentSemanticOutcome.ReviewOnly
+                        forceBlocked -> DocumentSemanticOutcome.Blocked
+                        else -> DocumentSemanticOutcome.Executable
+                    },
+                    confidence = DocumentConfidenceDimensions(95, 90, 90),
+                )
+            }.sortedBy(DocumentSemanticPlanItem::stableOrderingKey)
+            val semanticGroups = items.mapIndexed { index, item ->
+                DocumentSemanticRecommendationGroup(
+                    id = "recommendation-${index + 1}",
+                    title = if (correctionReviewOnly) "Review Supplier only" else
+                        "Create ${if (compoundConcept) "Account closure" else item.label}",
+                    description = "Treat the verified business concept faithfully.",
+                    itemIds = listOf(item.id),
+                    discoveryIds = item.discoveryIds,
+                    evidenceIds = item.evidenceIds,
+                    outcome = when {
+                        correctionReviewOnly -> DocumentSemanticOutcome.ReviewOnly
+                        forceBlocked -> DocumentSemanticOutcome.Blocked
+                        else -> DocumentSemanticOutcome.Executable
+                    },
+                    rationale = if (correctionReviewOnly) {
+                        "Retain the complete meaning for human review."
+                    } else {
+                        "Compile the verified reusable concept."
+                    },
+                    confidence = DocumentConfidenceDimensions(95, 90, 90),
+                )
+            }
+            val coverage = discoveries.map { discovery ->
+                val recommendationId = items.indexOfFirst { discovery.id in it.discoveryIds }
+                    .takeIf { it >= 0 }
+                    ?.let { "recommendation-${it + 1}" }
+                when {
+                    discovery.contentClassification.name == "AdministrativeMetadata" ->
+                        DocumentCoverageDisposition(
+                            discovery.id,
+                            DocumentCoverageDispositionKind.AdministrativeMetadata,
+                        )
+                    forceBlocked -> DocumentCoverageDisposition(
+                        discovery.id,
+                        DocumentCoverageDispositionKind.Blocked,
+                        rationale = "Deterministic correction is required.",
+                    )
+                    correctionReviewOnly -> DocumentCoverageDisposition(
+                        discovery.id,
+                        DocumentCoverageDispositionKind.ReviewOnlyFinding,
+                        recommendationId = recommendationId,
+                    )
+                    else -> DocumentCoverageDisposition(
+                        discovery.id,
+                        DocumentCoverageDispositionKind.ExecutableRecommendation,
+                        recommendationId = recommendationId,
+                    )
+                }
+            }.sortedBy(DocumentCoverageDisposition::stableOrderingKey)
+            val groups = (
+                semanticGroups + if (degradeFinalPlanCorrection && finalPlanningCalls == 1) {
+                    listOf(
+                        semanticGroups.first().copy(
+                            id = "recommendation-needs-correction",
+                            title = "Blocked duplicate Supplier treatment",
+                            outcome = DocumentSemanticOutcome.Blocked,
+                            rationale = "This deterministic failure exercises the bounded correction path.",
+                        ),
+                    )
+                } else {
+                    emptyList()
+                }
+            ).sortedBy(DocumentSemanticRecommendationGroup::stableOrderingKey)
+            return DocumentSemanticPlanningProviderResult.Completed(
+                DocumentSemanticPlanningResponse(
+                    plan = DocumentSemanticPlan(
+                        workKey = request.workKey,
+                        verifiedDiscoveryIds = discoveryIds,
+                        criticFindingIds = request.criticFindings.map { it.id }.sorted(),
+                        items = items,
+                        groups = groups,
+                    ),
+                    coverage = coverage,
                 ),
             )
         }
