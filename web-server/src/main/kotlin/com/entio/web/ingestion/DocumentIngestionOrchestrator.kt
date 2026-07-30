@@ -17,7 +17,6 @@ import com.entio.core.OntologyEntityDescriptor
 import com.entio.core.SemanticDescriptorKind
 import com.entio.core.ShaclGraphRole
 import com.entio.semantic.DocumentPlanVerificationContext
-import com.entio.semantic.DocumentOntologyMatcher
 import com.entio.semantic.DocumentSemanticRecord
 import com.entio.semantic.ProjectLoader
 import com.entio.semantic.SemanticDescriptionService
@@ -35,7 +34,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 
 /** Connects the bounded Phase 11 services into one task-owned production workflow. */
 internal class DocumentIngestionOrchestrator(
@@ -50,7 +48,6 @@ internal class DocumentIngestionOrchestrator(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val projectLoader: ProjectLoader = ProjectLoader(),
     private val descriptions: SemanticDescriptionService = SemanticDescriptionService(),
-    private val matcher: DocumentOntologyMatcher = DocumentOntologyMatcher(),
 ) : AutoCloseable {
     private val jobs: MutableMap<String, Job> = linkedMapOf()
     private val processingInputs: MutableMap<String, DocumentIngestionProcessingInput> = linkedMapOf()
@@ -66,29 +63,6 @@ internal class DocumentIngestionOrchestrator(
         isCancelled = ::isCancelled,
     )
     private val modeling = DocumentConnectedModelingService(
-        credentials,
-        settings,
-        boundedProvider,
-        clock = configuration.clock,
-        isCancelled = ::isCancelled,
-    )
-    private val reconciliation = DocumentReconciliationService(
-        credentials,
-        settings,
-        provenance,
-        boundedProvider,
-        clock = configuration.clock,
-        isCancelled = ::isCancelled,
-    )
-    private val alignment = DocumentOntologyAlignmentService(
-        credentials,
-        settings,
-        boundedProvider,
-        matcher,
-        clock = configuration.clock,
-        isCancelled = ::isCancelled,
-    )
-    private val critic = DocumentModelingCriticService(
         credentials,
         settings,
         boundedProvider,
@@ -124,6 +98,11 @@ internal class DocumentIngestionOrchestrator(
         job?.join()
     }
 
+    @Synchronized
+    fun cancel(taskId: String): Unit {
+        jobs[taskId]?.cancel(CancellationException("Document generation was stopped by the user."))
+    }
+
     override fun close(): Unit {
         scope.cancel()
         boundedProvider.close()
@@ -134,9 +113,7 @@ internal class DocumentIngestionOrchestrator(
             processingInputs[input.taskId.value] = input
         }
         try {
-            withTimeout(configuration.analysisTaskTimeout.toMillis()) {
-                processCurrent(input)
-            }
+            processCurrent(input)
         } finally {
             synchronized(processingInputs) {
                 processingInputs.remove(input.taskId.value)
@@ -185,16 +162,51 @@ internal class DocumentIngestionOrchestrator(
             .map { it.id }
             .distinct()
             .sorted()
-        val discoveryResult = discovery.discoverAll(
-            input.ownerUserId,
-            input.taskId.value,
-            extracted,
+        val discoveredDocuments = extracted
+            .sortedBy { it.document.id.value }
+            .map { document ->
+                discovery.discover(
+                    input.ownerUserId,
+                    input.taskId.value,
+                    document,
+                ).also { completed ->
+                    // Persist each completed call immediately so a later document failure
+                    // does not erase useful progress and timing from the task history.
+                    recordStage(input, completed.stageRecord)
+                }
+            }
+        val discoveryResult = CompletedDocumentDiscoveryStage(discoveredDocuments)
+        val filenamesByDocumentId = input.documents.associate {
+            it.document.id.value to it.document.safeFilename
+        }
+        val discoverySkipCount = discoveredDocuments.sumOf { it.skipped.size }
+        val discoveryDetails = discoveredDocuments
+            .filter { it.skipped.isNotEmpty() }
+            .map { completed ->
+                val groupedCodes = completed.skipped
+                    .groupingBy(DocumentDiscoverySkip::safeCode)
+                    .eachCount()
+                    .toSortedMap()
+                    .entries
+                    .joinToString("; ") { (code, count) -> "$count × $code" }
+                "${filenamesByDocumentId[completed.documentId] ?: completed.documentId}: retained " +
+                    "${completed.discoveries.size} of ${completed.stageRecord.totalCount} provider findings; " +
+                    "rejected $groupedCodes."
+            }
+        announce(
+            input,
+            50,
+            if (discoverySkipCount == 0) {
+                "Verified discovery is complete for ${extracted.size} document(s)."
+            } else {
+                "Verified discovery retained ${discoveryResult.discoveries.size} evidence-grounded meaning(s) and rejected " +
+                    "$discoverySkipCount invalid provider finding(s)."
+            },
+            discoveryDetails,
         )
-        discoveryResult.documents.forEach { recordStage(input, it.stageRecord) }
-        announce(input, 50, "Verified discovery is complete for ${extracted.size} document(s).")
         checkCancellation(input)
         var remainingLogicalCalls = com.entio.core.MAX_DOCUMENT_PLANNED_LOGICAL_CALLS - input.documents.size
-        announce(input, 52, "Building a connected model from verified discoveries.")
+        announce(input, 52, "Synthesizing connected meaning across verified discoveries.")
         val connected = modeling.model(
             input.ownerUserId,
             input.taskId.value,
@@ -204,20 +216,52 @@ internal class DocumentIngestionOrchestrator(
         connected.stageRecords.forEach { recordStage(input, it) }
         remainingLogicalCalls -= connected.stageRecords.size
         checkCancellation(input)
-        announce(input, 60, "Comparing meaning across documents and prior applied provenance.")
-        val reconciled = reconciliation.reconcile(
-            input.ownerUserId,
-            input.projectId,
-            input.taskId.value,
-            extracted,
-            discoveryResult,
-            connected,
-            remainingLogicalCalls,
+        val displayedItems = connected.model.items.take(MAX_REPORTED_CONNECTED_MODEL_ITEMS)
+        val retainedDetails = displayedItems.map { item ->
+            "Retained ${item.kind.name}: '${item.label}'."
+        } + if (connected.model.items.size > displayedItems.size) {
+            listOf(
+                "${connected.model.items.size - displayedItems.size} additional retained items were omitted " +
+                    "from this bounded status update.",
+            )
+        } else {
+            emptyList()
+        }
+        val displayedSkips = connected.skippedItems.take(MAX_REPORTED_CONNECTED_MODEL_SKIPS)
+        val unrepresentedDetails = connected.unrepresentedDocumentIds.map { documentId ->
+            "Connected synthesis did not represent " +
+                (filenamesByDocumentId[documentId] ?: documentId) +
+                "; final planning will use its verified discoveries directly."
+        }
+        val details = displayedSkips.map(DocumentConnectedModelSkip::statusDetail) +
+            if (connected.skippedItems.size > displayedSkips.size) {
+                listOf(
+                    "${connected.skippedItems.size - displayedSkips.size} additional skipped items were omitted " +
+                        "from this bounded status update.",
+                )
+            } else {
+                emptyList()
+            } +
+            retainedDetails +
+            unrepresentedDetails
+        announce(
+            input,
+            66,
+            if (connected.model.items.isEmpty()) {
+                "Semantic synthesis could not retain a valid connected item; continuing from verified discoveries."
+            } else if (connected.unrepresentedDocumentIds.isNotEmpty()) {
+                "Semantic synthesis retained ${connected.model.items.size} valid item(s); " +
+                    "continuing with verified discoveries for " +
+                    "${connected.unrepresentedDocumentIds.size} unrepresented document(s)."
+            } else if (connected.skippedItems.isNotEmpty()) {
+                "Semantic synthesis retained ${connected.model.items.size} valid item(s) and skipped " +
+                    "${connected.skippedItems.size} invalid item(s)."
+            } else {
+                "Semantic synthesis retained ${connected.model.items.size} valid item(s)."
+            },
+            details,
         )
-        recordStage(input, reconciled.stageRecord)
-        remainingLogicalCalls -= 1
-        checkCancellation(input)
-        announce(input, 68, "Aligning the connected model with the current ontology and work in progress.")
+        announce(input, 68, "Semantic synthesis is complete; preparing current ontology context.")
         val snapshot = alignmentSnapshot(
             input.projectId,
             project,
@@ -225,43 +269,21 @@ internal class DocumentIngestionOrchestrator(
             currentWorkFingerprint,
             writableSourceIds,
         )
-        val aligned = alignment.align(
-            input.ownerUserId,
-            input.taskId.value,
-            input.projectId,
-            connected,
-            reconciled,
-            snapshot,
-        )
-        recordStage(input, aligned.stageRecord)
-        remainingLogicalCalls -= 1
-        checkCancellation(input)
-        announce(input, 76, "Critiquing modeling quality and confidence.")
-        val critiqued = critic.critique(
-            input.ownerUserId,
-            input.taskId.value,
-            discoveryResult,
-            connected,
-            reconciled,
-            aligned,
-        )
-        recordStage(input, critiqued.stageRecord)
-        remainingLogicalCalls -= 1
         checkCancellation(input)
         require(remainingLogicalCalls >= 1) {
-            "The final plan cannot fit the approved logical-call budget."
+            "Ontology-aware recommendation planning cannot fit the approved logical-call budget."
         }
-        announce(input, 84, "Preparing grouped recommendations and exact change sets.")
+        announce(input, 76, "Planning ontology-aware grouped recommendations and exact change sets.")
         val workKey = workKey(input, ontologyFingerprint)
-        val finalResult = finalPlanning.plan(
+        val finalResult = finalPlanning.planStreamlined(
             input.ownerUserId,
             input.taskId.value,
             workKey,
             discoveryResult,
             connected,
-            reconciled,
-            aligned,
-            critiqued,
+            snapshot,
+            extracted.associate { it.document.id.value to it.document.authority }.toSortedMap(),
+            provenance.summaries(input.projectId),
             DocumentPlanVerificationContext(
                 expectedOntologyFingerprint = ontologyFingerprint,
                 currentOntologyFingerprint = webGraphFingerprint(loadProject(input.projectId).graph),
@@ -276,6 +298,13 @@ internal class DocumentIngestionOrchestrator(
                         "document-iri-namespace-missing",
                         "A writable ontology namespace is required for final planning.",
                     ),
+                discoveryKinds = discoveryResult.discoveries.associate { it.id to it.kind },
+                discoveryContentClassifications = discoveryResult.discoveries.associate {
+                    it.id to it.contentClassification
+                },
+                discoveryIndividualClassifications = discoveryResult.discoveries.associate {
+                    it.id to it.individualClassification
+                },
             ),
         )
         recordStage(input, finalResult.stageRecord)
@@ -297,7 +326,15 @@ internal class DocumentIngestionOrchestrator(
                 totalCount = finalResult.verifiedPlan.plan.recommendations.size,
             ),
         )
-        val reviewTask = tasks.transition(
+        reviews.installVerifiedPlan(
+            tasks.find(input.taskId, input.projectId, input.ownerUserId),
+            workKey.sha256,
+            ontologyFingerprint,
+            finalResult.verifiedPlan,
+            extracted,
+            discoveryResult.discoveries,
+        )
+        tasks.transition(
             input.taskId,
             input.projectId,
             input.ownerUserId,
@@ -306,20 +343,13 @@ internal class DocumentIngestionOrchestrator(
             100,
             "Grouped evidence-linked recommendations are ready for review.",
         )
-        reviews.installVerifiedPlan(
-            reviewTask,
-            workKey.sha256,
-            ontologyFingerprint,
-            finalResult.verifiedPlan,
-            extracted,
-            discoveryResult.discoveries,
-        )
     }
 
     private fun announce(
         input: DocumentIngestionProcessingInput,
         percent: Int,
         message: String,
+        details: List<String> = emptyList(),
     ): Unit {
         checkCancellation(input)
         tasks.transition(
@@ -330,6 +360,7 @@ internal class DocumentIngestionOrchestrator(
             input.documents.size,
             percent,
             message,
+            details,
         )
     }
 
@@ -598,10 +629,35 @@ internal class DocumentIngestionOrchestrator(
                 "Document analysis is blocked until the selected model and credential are ready.",
             )
         } else if (failure is DocumentAnalysisFailure) {
-            tasks.fail(id, projectId, userId, safeAnalysisFailureMessage(failure.code))
+            tasks.fail(
+                id,
+                projectId,
+                userId,
+                safeAnalysisFailureMessage(failure.code),
+                safeAnalysisFailureDetails(failure),
+            )
         } else {
             tasks.fail(id, projectId, userId, "Document processing failed safely.")
         }
+    }
+
+    private fun safeAnalysisFailureDetails(failure: DocumentAnalysisFailure): List<String> = buildList {
+        add("Stage: ${safeAnalysisFailureStage(failure.code)}.")
+        add("Error code: ${failure.code}.")
+        addAll(failure.details)
+        if (failure.details.isEmpty() && !failure.message.isNullOrBlank()) {
+            add("Cause: ${failure.message}.")
+        }
+    }
+
+    private fun safeAnalysisFailureStage(code: String): String = when {
+        code.startsWith("document-discovery-") -> "document discovery"
+        code.startsWith("document-connected-model-") || code.startsWith("document-model-consolidation-") ->
+            "connected semantic synthesis"
+        code.startsWith("document-final-plan-") -> "ontology-aware recommendation planning"
+        code.startsWith("document-provider-") -> "model provider request"
+        code.startsWith("evidence-") -> "evidence verification"
+        else -> "deterministic document analysis"
     }
 
     private fun safeAnalysisFailureMessage(code: String): String = when (code) {
@@ -609,6 +665,11 @@ internal class DocumentIngestionOrchestrator(
             "Model analysis authorization failed. Recheck the provider credential."
         "document-provider-rate-limited" ->
             "Model analysis was rate limited after bounded retries."
+        "document-provider-request-rate-limit" ->
+            "The selected model's token-rate allowance is too small for this bounded analysis request " +
+                "(document-provider-request-rate-limit)."
+        "document-provider-quota-exhausted" ->
+            "The provider account has no available model quota (document-provider-quota-exhausted)."
         "document-provider-unavailable" ->
             "The model provider was unavailable after bounded retries."
         "document-provider-timeout" ->
@@ -657,16 +718,29 @@ internal class DocumentIngestionOrchestrator(
             "Document analysis reached Entio's provider-call limit."
         "document-analysis-input-empty" ->
             "No extracted document text was available for model analysis."
-        else -> "Document analysis failed safely."
+        "document-final-plan-evidence-invalid" ->
+            "The final recommendation cited evidence outside Entio's verified discovery inventory " +
+                "(document-final-plan-evidence-invalid)."
+        "document-final-plan-evidence-stale" ->
+            "The final recommendation evidence no longer matches the extracted document text " +
+                "(document-final-plan-evidence-stale)."
+        "document-review-work-key-mismatch",
+        "document-review-graph-fingerprint-missing",
+        ->
+            "The verified recommendation plan did not match the current review workspace ($code)."
+        else ->
+            "Document analysis stopped because deterministic pipeline validation rejected a result ($code)."
     }
 
     private companion object {
+        const val MAX_REPORTED_CONNECTED_MODEL_SKIPS: Int = 4
+        const val MAX_REPORTED_CONNECTED_MODEL_ITEMS: Int = 4
         const val MAX_ONTOLOGY_CONTEXT_ENTITIES: Int = 200
         const val MAX_ONTOLOGY_CONTEXT_CHARACTERS: Int = 40_000
         const val MAX_ONTOLOGY_CONTEXT_TEXT: Int = 500
         const val MAX_ONTOLOGY_CONTEXT_TOKENS: Int = 5_000
         const val MAX_ALIGNMENT_ENTRIES: Int = 20_000
-        const val REQUIRED_POST_DISCOVERY_LOGICAL_CALLS: Int = 5
+        const val REQUIRED_POST_DISCOVERY_LOGICAL_CALLS: Int = 2
         val ONTOLOGY_CONTEXT_STOP_WORDS: Set<String> = setOf(
             "and",
             "are",
@@ -784,10 +858,10 @@ private class BudgetedDocumentPipelineProvider(
             .joinToString("") { "%02x".format(it) }
         val requests = requestCountsByTask.getOrPut(taskId) { linkedMapOf() }
         val prior = requests[digest] ?: 0
-        if (prior >= 2) {
+        if (prior >= com.entio.core.MAX_DOCUMENT_AUTOMATIC_RETRY_ATTEMPTS + 1) {
             throw DocumentAnalysisFailure(
                 "document-provider-retry-limit",
-                "A logical model call may be retried only once with exact input.",
+                "A logical model call exhausted the bounded exact-input retry reserve.",
             )
         }
         if (prior == 0 && requests.size >= com.entio.core.MAX_DOCUMENT_PLANNED_LOGICAL_CALLS) {
@@ -796,7 +870,7 @@ private class BudgetedDocumentPipelineProvider(
                 "The planned logical-call limit was reached.",
             )
         }
-        if (prior == 1) {
+        if (prior > 0) {
             val retries = (retriesByTask[taskId] ?: 0) + 1
             if (retries > com.entio.core.MAX_DOCUMENT_AUTOMATIC_RETRY_ATTEMPTS) {
                 throw DocumentAnalysisFailure(

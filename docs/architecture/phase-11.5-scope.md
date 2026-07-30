@@ -8,6 +8,25 @@
 
 Approved for implementation on 2026-07-27.
 
+Amended on 2026-07-29 to reduce ordinary provider cost. The current production
+pipeline keeps the same logical responsibilities but consolidates them into:
+
+```text
+per-document discovery
+→ connected cross-document semantic synthesis
+→ ontology-aware recommendation planning and modeling review
+→ deterministic verification
+→ human review
+```
+
+Cross-document reconciliation is part of semantic synthesis. Ontology alignment,
+modeling critique, and final change-set planning are part of one ontology-aware
+planning call. Model consolidation remains conditional on connected-model
+chunking. A correction call is made only when deterministic validation returns a
+specific repairable finding. The older separate-stage descriptions below define
+the responsibilities that the consolidated calls must still perform; they no
+longer require one provider call per heading.
+
 The required contract, migration, prompt, limit, and benchmark audit is recorded in
 `docs/decisions/phase-11.5-slice-0-contract-audit.md`. Production implementation
 begins with ExecPlan Slice 1 only after Slice 0 is verified and merged.
@@ -16,15 +35,13 @@ begins with ExecPlan Slice 1 only after Slice 0 is verified and merged.
 
 Phase 11.5 redesigns document ingestion so Entio no longer asks one model call to jump directly from document text to isolated ontology edits.
 
-Instead, Entio should use several specialized AI stages:
+Instead, Entio uses specialized AI stages without assigning every logical
+responsibility to a separate provider call:
 
 ```text
 document discovery
-→ connected domain modeling
-→ cross-document reconciliation
-→ ontology alignment
-→ modeling critique
-→ final bounded change-set plan
+→ connected cross-document semantic synthesis
+→ ontology-aware recommendation planning and modeling review
 → deterministic verification
 → human review
 ```
@@ -165,9 +182,11 @@ This stage should identify:
 - constraints;
 - complex rules that cannot be expressed safely.
 
-### 3. Cross-Document Reconciliation
+### 3. Cross-Document Reconciliation Responsibility
 
-When several documents are part of one task, or when durable prior provenance is available, Entio should reconcile them.
+When several documents are part of one task, or when durable prior provenance is
+available, connected semantic synthesis should reconcile them without requiring
+a separate provider call.
 
 The reconciliation call should identify:
 
@@ -184,9 +203,10 @@ A newer document must not automatically override an older one.
 
 The call may recommend conflict handling, but human confirmation remains required.
 
-### 4. Ontology Alignment
+### 4. Ontology Alignment Responsibility
 
-The alignment call should compare the connected domain model with:
+The ontology-aware recommendation-planning call should compare the connected
+domain model with:
 
 - the applied local ontology;
 - imported ontologies;
@@ -210,9 +230,11 @@ For each modeled concept or relationship, it should recommend:
 
 Alignment should happen after the connected model exists so missing supporting concepts do not force incorrect reuse.
 
-### 5. Modeling Critique
+### 5. Modeling Critique Responsibility
 
-A separate critic call should review the proposed model.
+The ontology-aware recommendation-planning call must review the proposed model
+before returning recommendations. A separate critic call is not unconditional;
+deterministic findings trigger a bounded correction call when needed.
 
 It should ask:
 
@@ -239,9 +261,9 @@ The critic should be able to:
 
 The critic output is advisory until incorporated into the final plan.
 
-### 6. Final Change-Set Plan
+### 6. Final Change-Set Planning Responsibility
 
-The final planning call should incorporate:
+The consolidated ontology-aware planning call should incorporate:
 
 - document discoveries;
 - connected model;

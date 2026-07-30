@@ -151,11 +151,14 @@ public class DocumentIngestionWebService(
 
     public fun cancel(projectId: String, taskId: String, userId: String): DocumentIngestionTaskSnapshot {
         requireProject(projectId)
-        return tasks.cancel(DocumentTaskId(taskId), projectId, userId)
+        val cancelled = tasks.cancel(DocumentTaskId(taskId), projectId, userId)
+        orchestrator?.cancel(taskId)
+        return cancelled
     }
 
     public fun delete(projectId: String, taskId: String, userId: String): Unit {
         requireProject(projectId)
+        orchestrator?.cancel(taskId)
         tasks.delete(DocumentTaskId(taskId), projectId, userId)
         reviews.remove(taskId)
     }

@@ -21,6 +21,7 @@ import com.entio.core.DocumentConnectedModel
 import com.entio.core.DocumentConnectedModelItem
 import com.entio.core.DocumentConnectedModelReferenceRole
 import com.entio.core.DocumentContentClassification
+import com.entio.core.DocumentConfidenceDimensions
 import com.entio.core.DocumentCriticAction
 import com.entio.core.DocumentDiscovery
 import com.entio.core.DocumentDiscoveryKind
@@ -799,7 +800,10 @@ class DocumentAnalysisServiceTest {
                     "High-value payments require approval.",
                     "High-value payments require approval.",
                     assertion = "ExplicitFact",
-                ).copy(relatedProviderIds = listOf("concept")),
+                ).copy(
+                    relatedProviderIds = listOf("concept"),
+                    evidenceConfidence = 5,
+                ),
                 discoveryResponseItem(
                     request,
                     "control",
@@ -878,6 +882,10 @@ class DocumentAnalysisServiceTest {
             listOf(first.discoveries.single { it.kind == DocumentDiscoveryKind.Concept }.id),
             first.discoveries.single { it.kind == DocumentDiscoveryKind.Relationship }.relatedDiscoveryIds,
         )
+        assertEquals(
+            100,
+            first.discoveries.single { it.kind == DocumentDiscoveryKind.Relationship }.evidenceConfidence,
+        )
         assertTrue(first.discoveries.all { discovery ->
             discovery.evidence.flatMap(DocumentEvidence::references).all { reference ->
                 reference.documentId.value == "document-1" &&
@@ -893,6 +901,65 @@ class DocumentAnalysisServiceTest {
         assertEquals(1, first.stageRecord.providerAttemptCount)
         assertTrue(suppliedInstruction.contains("untrusted quoted data"))
         assertTrue(suppliedInstruction.contains("without receiving or guessing the current ontology"))
+        assertTrue(suppliedInstruction.contains("separate discoveries for the transaction"))
+        assertTrue(suppliedInstruction.contains("copy one supplied evidenceAnchors[].anchorId exactly"))
+        assertTrue(suppliedInstruction.contains("never invent an anchor ID", ignoreCase = true))
+        assertTrue(suppliedRequest!!.evidenceAnchors.isNotEmpty())
+        assertTrue(suppliedRequest!!.evidenceAnchors.all { anchor ->
+            suppliedRequest!!.blocks.single { it.blockId == anchor.blockId }.text.substring(
+                anchor.startOffsetInBlock,
+                anchor.endOffsetInBlock,
+            ) == anchor.exactExcerpt
+        })
+    }
+
+    @Test
+    fun canonicalizesTheUploadedDocumentTitleAsAdministrativeProvenance(): Unit = runBlocking {
+        val fixture = fixture()
+        val title = "Commercial Account and Payment Authorization Policy"
+        val provider = DocumentDiscoveryProvider { _, _, _, request ->
+            DocumentDiscoveryProviderResult.Completed(
+                DocumentDiscoveryResponse(
+                    discoveries = listOf(
+                        discoveryResponseItem(
+                            request,
+                            "document-title",
+                            "Concept",
+                            title,
+                            title,
+                        ),
+                        discoveryResponseItem(
+                            request,
+                            "account",
+                            "Concept",
+                            "Commercial account",
+                            "commercial account",
+                        ),
+                    ),
+                ),
+            )
+        }
+        val service = fixture.discoveryService(provider)
+
+        val result = service.discover(
+            "alice",
+            "task-1",
+            extracted(
+                "$title establishes requirements for each commercial account.",
+                safeFilename = "commercial-account-and-payment-authorization-policy.pdf",
+            ),
+        )
+
+        val provenance = result.discoveries.single { it.description == title }
+        assertEquals(DocumentDiscoveryKind.Metadata, provenance.kind)
+        assertEquals(
+            DocumentContentClassification.AdministrativeMetadata,
+            provenance.contentClassification,
+        )
+        assertEquals(
+            DocumentContentClassification.BusinessContent,
+            result.discoveries.single { it.description == "Commercial account" }.contentClassification,
+        )
     }
 
     @Test
@@ -1069,7 +1136,7 @@ class DocumentAnalysisServiceTest {
     }
 
     @Test
-    fun rejectsMalformedDuplicateAndOverflowingDiscoveryResponses(): Unit = runBlocking {
+    fun rejectsMalformedAndOverflowingDiscoveryResponses(): Unit = runBlocking {
         val fixture = fixture()
         val document = extracted("Customer records matter.")
         suspend fun failureFor(
@@ -1095,13 +1162,6 @@ class DocumentAnalysisServiceTest {
         assertEquals(
             "document-discovery-provider-schema-invalid",
             failureFor { request ->
-                val item = discoveryResponseItem(request, "duplicate", "Concept", "Customer", "Customer")
-                DocumentDiscoveryResponse(discoveries = listOf(item, item))
-            }.code,
-        )
-        assertEquals(
-            "document-discovery-provider-schema-invalid",
-            failureFor { request ->
                 DocumentDiscoveryResponse(
                     discoveries = List(201) { index ->
                         discoveryResponseItem(
@@ -1114,6 +1174,77 @@ class DocumentAnalysisServiceTest {
                     },
                 )
             }.code,
+        )
+    }
+
+    @Test
+    fun retainsGroundedDiscoveryAndDropsOnlyItsAmbiguousOptionalRelationship(): Unit = runBlocking {
+        val fixture = fixture()
+        val document = extracted("Customer records matter.")
+        val provider = DocumentDiscoveryProvider { _, _, _, request ->
+            val first = discoveryResponseItem(request, "duplicate", "Concept", "Customer", "Customer")
+            val second = discoveryResponseItem(
+                request,
+                "duplicate",
+                "Concept",
+                "Customer records",
+                "Customer records",
+            )
+            val ambiguous = discoveryResponseItem(
+                request,
+                "relationship",
+                "Relationship",
+                "Customer records relate to customers",
+                "Customer records",
+            ).copy(relatedProviderIds = listOf("duplicate"))
+            DocumentDiscoveryProviderResult.Completed(
+                DocumentDiscoveryResponse(discoveries = listOf(first, second, ambiguous)),
+            )
+        }
+
+        val result = fixture.discoveryService(provider).discover("alice", "task-1", document)
+
+        assertEquals(3, result.discoveries.size)
+        assertEquals(
+            setOf("Customer", "Customer records", "Customer records relate to customers"),
+            result.discoveries.map { it.description }.toSet(),
+        )
+        assertTrue(
+            result.discoveries.single { it.description == "Customer records relate to customers" }
+                .relatedDiscoveryIds.isEmpty(),
+        )
+        assertTrue(result.skipped.isEmpty())
+    }
+
+    @Test
+    fun reportsEveryDeterministicallyDeduplicatedDiscovery(): Unit = runBlocking {
+        val fixture = fixture()
+        val document = extracted("Customer records matter.")
+        val provider = DocumentDiscoveryProvider { _, _, _, request ->
+            DocumentDiscoveryProviderResult.Completed(
+                DocumentDiscoveryResponse(
+                    discoveries = listOf("first", "second", "third").map { providerId ->
+                        discoveryResponseItem(
+                            request,
+                            providerId,
+                            "Concept",
+                            "Customer",
+                            "Customer",
+                        )
+                    },
+                ),
+            )
+        }
+
+        val result = fixture.discoveryService(provider).discover("alice", "task-1", document)
+
+        assertEquals(1, result.discoveries.size)
+        assertEquals(
+            listOf(
+                "document-discovery-duplicate",
+                "document-discovery-duplicate",
+            ),
+            result.skipped.map(DocumentDiscoverySkip::safeCode),
         )
     }
 
@@ -1306,8 +1437,346 @@ class DocumentAnalysisServiceTest {
         assertTrue(!serializedRequest.contains("targetSource"))
         assertTrue(!serializedRequest.contains("http://"))
         assertTrue(suppliedInstruction.contains("without receiving, guessing, or targeting the current ontology"))
+        assertTrue(suppliedInstruction.contains("Never put 'discovery-payment' in providerItemId"))
+        assertTrue(suppliedInstruction.contains("first model the reusable business entity"))
+        assertTrue(suppliedInstruction.contains("never a replacement class"))
         assertEquals(1, result.providerCalls)
         assertEquals(DocumentAnalysisPipelineVersions.CONNECTED_MODEL_PROMPT, result.stageRecords.single().promptVersion)
+    }
+
+    @Test
+    fun modelsEachDocumentIndependentlyBeforeConsolidatingThem(): Unit = runBlocking {
+        val fixture = fixture()
+        val consumer = connectedDiscovery(
+            "discovery-consumer-activity",
+            "Consumer servicing activity",
+            DocumentDiscoveryKind.Concept,
+            documentId = "document-consumer",
+        )
+        val commercial = connectedDiscovery(
+            "discovery-commercial-payment",
+            "Commercial payment",
+            DocumentDiscoveryKind.Concept,
+            documentId = "document-commercial",
+        )
+        val modeledDocuments = mutableListOf<Set<String>>()
+        var consolidationCalls = 0
+        val provider = connectedProvider(
+            onModel = { _, _, request ->
+                modeledDocuments += request.discoveries.map { it.documentId.value }.toSet()
+                val discovery = request.discoveries.single()
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(
+                            connectedItem(
+                                providerId = "item-${request.chunkIndex}",
+                                order = 0,
+                                kind = "Class",
+                                label = discovery.description,
+                                discoveryId = discovery.id,
+                            ),
+                        ),
+                    ),
+                )
+            },
+            onConsolidate = { _, _, request ->
+                consolidationCalls += 1
+                DocumentConnectedModelProviderResult.CompletedConsolidation(
+                    DocumentModelConsolidationResponse(
+                        items = request.chunkModels.flatMapIndexed { index, model ->
+                            model.items.map { item ->
+                                connectedItem(
+                                    providerId = "consolidated-$index",
+                                    order = index,
+                                    kind = item.kind,
+                                    label = item.label,
+                                    discoveryId = item.discoveryIds.single(),
+                                )
+                            }
+                        },
+                    ),
+                )
+            },
+        )
+
+        val result = fixture.connectedModelService(provider).model(
+            "alice",
+            "task-per-document",
+            connectedDiscoveryStage(listOf(consumer, commercial)),
+        )
+
+        assertEquals(
+            setOf(setOf("document-consumer"), setOf("document-commercial")),
+            modeledDocuments.toSet(),
+        )
+        assertEquals(2, result.chunkCount)
+        assertTrue(result.consolidated)
+        assertEquals(1, consolidationCalls)
+        assertEquals(
+            setOf(consumer.id, commercial.id),
+            result.model.items.flatMap(DocumentConnectedModelItem::discoveryIds).toSet(),
+        )
+    }
+
+    @Test
+    fun retainsVerifiedChunkModelsWhenConsolidationDropsCoveredBusinessMeaning(): Unit = runBlocking {
+        val fixture = fixture()
+        val consumer = connectedDiscovery(
+            "discovery-consumer-activity",
+            "Consumer servicing activity",
+            DocumentDiscoveryKind.Concept,
+            documentId = "document-consumer",
+        )
+        val commercial = connectedDiscovery(
+            "discovery-commercial-payment",
+            "Commercial payment",
+            DocumentDiscoveryKind.Concept,
+            documentId = "document-commercial",
+        )
+        val provider = connectedProvider(
+            onModel = { _, _, request ->
+                val discovery = request.discoveries.single()
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(
+                            connectedItem(
+                                providerId = "item-${request.chunkIndex}",
+                                order = 0,
+                                kind = "Class",
+                                label = discovery.description,
+                                discoveryId = discovery.id,
+                            ),
+                        ),
+                    ),
+                )
+            },
+            onConsolidate = { _, _, request ->
+                val retained = request.chunkModels
+                    .flatMap(DocumentConnectedModelResponse::items)
+                    .single { it.discoveryIds == listOf(commercial.id) }
+                DocumentConnectedModelProviderResult.CompletedConsolidation(
+                    DocumentModelConsolidationResponse(
+                        items = listOf(retained.copy(providerId = "retained-commercial", order = 0)),
+                    ),
+                )
+            },
+        )
+
+        val result = fixture.connectedModelService(provider).model(
+            "alice",
+            "task-partial-consolidation",
+            connectedDiscoveryStage(listOf(consumer, commercial)),
+        )
+
+        assertEquals(
+            setOf("Consumer servicing activity", "Commercial payment"),
+            result.model.items.map { it.label }.toSet(),
+        )
+        assertTrue(result.unrepresentedDocumentIds.isEmpty())
+        assertTrue(result.skippedItems.any {
+            it.code == "document-model-consolidation-coverage-incomplete" &&
+                it.reason.contains("retained the verified per-document models")
+        })
+    }
+
+    @Test
+    fun retainsVerifiedChunkModelsWhenConsolidationCollapsesDistinctStructureBehindBroadCoverage(): Unit = runBlocking {
+        val fixture = fixture()
+        val consumer = connectedDiscovery(
+            "discovery-consumer",
+            "Consumer servicing",
+            documentId = "document-consumer",
+        )
+        val commercial = connectedDiscovery(
+            "discovery-commercial",
+            "Commercial payments",
+            documentId = "document-commercial",
+        )
+        val provider = connectedProvider(
+            onModel = { _, _, request ->
+                val discovery = request.discoveries.single()
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(
+                            connectedItem(
+                                "concept-${request.chunkIndex}",
+                                0,
+                                "Class",
+                                "${discovery.description} concept",
+                                discovery.id,
+                            ),
+                            connectedItem(
+                                "record-${request.chunkIndex}",
+                                1,
+                                "Class",
+                                "${discovery.description} record",
+                                discovery.id,
+                            ),
+                        ),
+                    ),
+                )
+            },
+            onConsolidate = { _, _, _ ->
+                DocumentConnectedModelProviderResult.CompletedConsolidation(
+                    DocumentModelConsolidationResponse(
+                        items = listOf(
+                            connectedItem(
+                                "collapsed",
+                                0,
+                                "Class",
+                                "Broad business policy",
+                                consumer.id,
+                            ).copy(discoveryIds = listOf(commercial.id, consumer.id).sorted()),
+                        ),
+                    ),
+                )
+            },
+        )
+
+        val result = fixture.connectedModelService(provider).model(
+            "alice",
+            "task-collapsed-consolidation",
+            connectedDiscoveryStage(listOf(consumer, commercial)),
+        )
+
+        assertEquals(4, result.model.items.size)
+        assertTrue(result.model.items.none { it.label == "Broad business policy" })
+        assertTrue(result.skippedItems.any {
+            it.code == "document-model-consolidation-coverage-incomplete" &&
+                it.reason.contains("collapsed or omitted")
+        })
+    }
+
+    @Test
+    fun retainsVerifiedChunkDeclarationsWhenConsolidationReplacesThemWithEqualSizedBroadOutput(): Unit = runBlocking {
+        val fixture = fixture()
+        val consumer = connectedDiscovery(
+            "discovery-consumer",
+            "Consumer servicing activity",
+            documentId = "document-consumer",
+        )
+        val commercial = connectedDiscovery(
+            "discovery-commercial",
+            "Commercial payment",
+            documentId = "document-commercial",
+        )
+        val provider = connectedProvider(
+            onModel = { _, _, request ->
+                val discovery = request.discoveries.single()
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(
+                            connectedItem(
+                                "concept-${request.chunkIndex}",
+                                0,
+                                "Class",
+                                discovery.description,
+                                discovery.id,
+                            ),
+                        ),
+                    ),
+                )
+            },
+            onConsolidate = { _, _, _ ->
+                val discoveryIds = listOf(commercial.id, consumer.id).sorted()
+                DocumentConnectedModelProviderResult.CompletedConsolidation(
+                    DocumentModelConsolidationResponse(
+                        items = listOf(
+                            connectedItem(
+                                "broad",
+                                0,
+                                "Class",
+                                "Broad business meaning",
+                                consumer.id,
+                            ).copy(discoveryIds = discoveryIds),
+                            connectedItem(
+                                "broad-rule",
+                                1,
+                                "ComplexRule",
+                                "Broad business rule",
+                                consumer.id,
+                                references = listOf(
+                                    ProviderConnectedModelReference("Related", "broad"),
+                                ),
+                                reviewOnly = true,
+                            ).copy(discoveryIds = discoveryIds),
+                        ),
+                    ),
+                )
+            },
+        )
+
+        val result = fixture.connectedModelService(provider).model(
+            "alice",
+            "task-equal-sized-consolidation",
+            connectedDiscoveryStage(listOf(consumer, commercial)),
+        )
+
+        assertEquals(
+            setOf("Consumer servicing activity", "Commercial payment"),
+            result.model.items.map(DocumentConnectedModelItem::label).toSet(),
+        )
+        assertTrue(result.skippedItems.any {
+            it.code == "document-model-consolidation-coverage-incomplete" &&
+                it.reason.contains("collapsed or omitted")
+        })
+    }
+
+    @Test
+    fun canonicalizesEquivalentConnectedModelOrderingBeforeDeterministicValidation(): Unit = runBlocking {
+        val fixture = fixture()
+        val payment = connectedDiscovery("discovery-payment", "Payment")
+        val approval = connectedDiscovery("discovery-approval", "Payment Approval")
+        val relationship = connectedDiscovery(
+            "discovery-relationship",
+            "A payment has an approval",
+            DocumentDiscoveryKind.Relationship,
+        )
+        val provider = connectedProvider(
+            onModel = { _, _, _ ->
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(
+                            connectedItem(
+                                "domain",
+                                30,
+                                "DomainAssignment",
+                                "has approval domain",
+                                relationship.id,
+                                references = listOf(
+                                    ProviderConnectedModelReference("Property", "has-approval"),
+                                    ProviderConnectedModelReference("Domain", "payment"),
+                                ),
+                            ).copy(
+                                discoveryIds = listOf(relationship.id, payment.id),
+                            ),
+                            connectedItem("has-approval", 20, "ObjectProperty", "has approval", relationship.id),
+                            connectedItem("payment", 10, "Class", "Payment", payment.id),
+                            connectedItem("approval", 10, "Class", "Payment Approval", approval.id),
+                        ),
+                    ),
+                )
+            },
+        )
+
+        val result = fixture.connectedModelService(provider)
+            .model(
+                "alice",
+                "task-canonical-order",
+                connectedDiscoveryStage(listOf(payment, approval, relationship)),
+            )
+
+        assertEquals(result.model.items.indices.toList(), result.model.items.map { it.order })
+        assertEquals(
+            listOf("Payment Approval", "Payment", "has approval", "has approval domain"),
+            result.model.items.map { it.label },
+        )
+        val domain = result.model.items.last()
+        assertEquals(listOf(payment.id, relationship.id), domain.discoveryIds)
+        assertEquals(
+            setOf(DocumentConnectedModelReferenceRole.Domain, DocumentConnectedModelReferenceRole.Property),
+            domain.references.map { it.role }.toSet(),
+        )
     }
 
     @Test
@@ -1364,7 +1833,7 @@ class DocumentAnalysisServiceTest {
             "document-connected-model-call-budget-incomplete",
             assertFailsWith<DocumentAnalysisFailure> {
                 fixture.connectedModelService(insufficientProvider)
-                    .model("alice", "task-1", stage, remainingLogicalCallBudget = 6)
+                    .model("alice", "task-1", stage, remainingLogicalCallBudget = 1)
             }.code,
         )
         val result = fixture.connectedModelService(provider)
@@ -1388,10 +1857,10 @@ class DocumentAnalysisServiceTest {
             DocumentContentClassification.AdministrativeMetadata,
         )
 
-        suspend fun failure(
+        suspend fun modeled(
             items: List<ProviderConnectedModelItem>,
             discoveries: List<DocumentDiscovery> = listOf(business),
-        ): String {
+        ): CompletedConnectedDocumentModel {
             val provider = connectedProvider(
                 onModel = { _, _, _ ->
                     DocumentConnectedModelProviderResult.CompletedModel(
@@ -1399,81 +1868,389 @@ class DocumentAnalysisServiceTest {
                     )
                 },
             )
-            return assertFailsWith<DocumentAnalysisFailure> {
-                fixture.connectedModelService(provider)
-                    .model("alice", "task-${items.size}-${discoveries.size}", connectedDiscoveryStage(discoveries))
-            }.code
+            return fixture.connectedModelService(provider)
+                .model("alice", "task-${items.size}-${discoveries.size}", connectedDiscoveryStage(discoveries))
         }
 
+        val metadataOnly = modeled(
+            listOf(connectedItem("metadata", 0, "Class", "Effective Date", metadata.id)),
+            listOf(metadata),
+        )
+        assertTrue(metadataOnly.model.items.isEmpty())
         assertEquals(
-            "document-connected-model-provider-schema-invalid",
-            failure(listOf(connectedItem("metadata", 0, "Class", "Effective Date", metadata.id)), listOf(metadata)),
+            "document-connected-model-grounding-invalid",
+            metadataOnly.skippedItems.single().code,
         )
         val declaration = connectedItem("payment", 0, "Class", "Payment", business.id)
-        assertEquals(
-            "document-connected-model-provider-schema-invalid",
-            failure(
-                listOf(
-                    declaration,
-                    connectedItem(
-                        "missing",
-                        1,
-                        "ComplexRule",
-                        "Missing reference",
-                        business.id,
-                        listOf(ProviderConnectedModelReference("Related", "not-present")),
-                        reviewOnly = true,
+        val mixedGroundingProvider = connectedProvider(
+            onModel = { _, _, _ ->
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(
+                            declaration,
+                            connectedItem("policy-id", 1, "DatatypeProperty", "hasPolicyID", metadata.id),
+                        ),
                     ),
-                ),
+                )
+            },
+        )
+        val retainedBusinessModel = fixture.connectedModelService(mixedGroundingProvider)
+            .model(
+                "alice",
+                "task-mixed-grounding",
+                connectedDiscoveryStage(listOf(business, metadata)),
+            )
+        assertEquals(listOf("Payment"), retainedBusinessModel.model.items.map { it.label })
+        assertEquals(listOf("hasPolicyID"), retainedBusinessModel.skippedItems.map { it.label })
+        assertEquals(
+            "document-connected-model-grounding-invalid",
+            retainedBusinessModel.skippedItems.single().code,
+        )
+        assertTrue(
+            retainedBusinessModel.skippedItems.single().reason.contains(
+                "No business-content grounding",
             ),
         )
+        val unsupportedIndividual = modeled(
+            listOf(connectedItem("payment-analyst", 0, "Individual", "Payment Analyst", business.id)),
+        )
+        assertTrue(unsupportedIndividual.model.items.isEmpty())
         assertEquals(
-            "document-connected-model-provider-schema-invalid",
-            failure(listOf(declaration, declaration.copy(order = 1))),
+            "document-connected-model-individual-evidence-required",
+            unsupportedIndividual.skippedItems.single().code,
+        )
+        val normative = connectedDiscovery(
+            "discovery-requirement",
+            "Each payment must identify a destination.",
+            DocumentDiscoveryKind.Requirement,
+        )
+        val supportedOperationalClass = modeled(
+            listOf(connectedItem("payment", 0, "Class", "Payment", normative.id)),
+            listOf(normative),
+        )
+        assertEquals(listOf("Payment"), supportedOperationalClass.model.items.map { it.label })
+        assertTrue(supportedOperationalClass.skippedItems.isEmpty())
+        val unsupportedNormativeClass = modeled(
+            listOf(
+                connectedItem(
+                    "payment-validation",
+                    0,
+                    "Class",
+                    "Payment Validation",
+                    normative.id,
+                ),
+            ),
+            listOf(normative),
+        )
+        assertTrue(unsupportedNormativeClass.model.items.isEmpty())
+        assertEquals(
+            "document-connected-model-class-evidence-required",
+            unsupportedNormativeClass.skippedItems.single().code,
+        )
+        val definition = connectedDiscovery(
+            "discovery-definition",
+            "Account closure means the date the account is closed after all adjustments.",
+            DocumentDiscoveryKind.Definition,
+        )
+        val unsupportedGenericClass = modeled(
+            listOf(connectedItem("definition", 0, "Class", "Definition", definition.id)),
+            listOf(definition),
+        )
+        assertTrue(unsupportedGenericClass.model.items.isEmpty())
+        assertEquals(
+            "document-connected-model-class-evidence-required",
+            unsupportedGenericClass.skippedItems.single().code,
+        )
+        val unsupportedPluralGenericClass = modeled(
+            listOf(connectedItem("controls", 0, "Class", "Compliance Controls", business.id)),
+        )
+        assertTrue(unsupportedPluralGenericClass.model.items.isEmpty())
+        assertEquals(
+            "document-connected-model-class-evidence-required",
+            unsupportedPluralGenericClass.skippedItems.single().code,
+        )
+        val missingReferenceProvider = connectedProvider(
+            onModel = { _, _, _ ->
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(
+                            declaration,
+                            connectedItem(
+                                "missing",
+                                1,
+                                "ComplexRule",
+                                "Missing reference",
+                                business.id,
+                                listOf(ProviderConnectedModelReference("Related", "not-present")),
+                                reviewOnly = true,
+                            ),
+                        ),
+                    ),
+                )
+            },
+        )
+        val retainedAfterMissingReference = fixture.connectedModelService(missingReferenceProvider)
+            .model("alice", "task-missing-reference", connectedDiscoveryStage(listOf(business)))
+        assertEquals(listOf("Payment"), retainedAfterMissingReference.model.items.map { it.label })
+        assertTrue(
+            retainedAfterMissingReference.skippedItems.single().details.any {
+                it.contains("Invalid target 'not-present'")
+            },
+        )
+        assertTrue(
+            retainedAfterMissingReference.skippedItems.single().details.any {
+                it.startsWith("Valid provider item IDs in the rejected response:") &&
+                    it.contains("payment")
+            },
+        )
+        val aliasReferenceProvider = connectedProvider(
+            onModel = { _, _, _ ->
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(
+                            connectedItem(
+                                "model-payment-transaction",
+                                0,
+                                "Class",
+                                "Payment Transaction",
+                                business.id,
+                            ),
+                            connectedItem(
+                                "payment-rule",
+                                1,
+                                "ComplexRule",
+                                "Payment approval rule",
+                                business.id,
+                                listOf(
+                                    ProviderConnectedModelReference(
+                                        "Related",
+                                        "item-payment-transaction",
+                                    ),
+                                ),
+                                reviewOnly = true,
+                            ),
+                        ),
+                    ),
+                )
+            },
+        )
+        val reconciledAliasReference = fixture.connectedModelService(aliasReferenceProvider)
+            .model("alice", "task-alias-reference", connectedDiscoveryStage(listOf(business)))
+        assertEquals(
+            listOf("Payment Transaction", "Payment approval rule"),
+            reconciledAliasReference.model.items.map { it.label },
+        )
+        assertTrue(reconciledAliasReference.skippedItems.isEmpty())
+        val ambiguousAliasReferenceProvider = connectedProvider(
+            onModel = { _, _, _ ->
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(
+                            connectedItem("first-payment", 0, "Class", "Payment Transaction", business.id),
+                            connectedItem("second-payment", 1, "Class", "Payment Transaction", business.id),
+                            connectedItem(
+                                "ambiguous-rule",
+                                2,
+                                "ComplexRule",
+                                "Ambiguous payment rule",
+                                business.id,
+                                listOf(
+                                    ProviderConnectedModelReference(
+                                        "Related",
+                                        "item-payment-transaction",
+                                    ),
+                                ),
+                                reviewOnly = true,
+                            ),
+                        ),
+                    ),
+                )
+            },
+        )
+        val rejectedAmbiguousAlias = fixture.connectedModelService(ambiguousAliasReferenceProvider)
+            .model("alice", "task-ambiguous-alias", connectedDiscoveryStage(listOf(business)))
+        assertTrue(rejectedAmbiguousAlias.skippedItems.any {
+            it.providerId == "ambiguous-rule" &&
+                it.code == "document-connected-model-reference-target-invalid"
+        })
+        val discoveryReferenceProvider = connectedProvider(
+            onModel = { _, _, _ ->
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(
+                            declaration,
+                            connectedItem(
+                                "rule",
+                                1,
+                                "ComplexRule",
+                                "Payment separation rule",
+                                business.id,
+                                listOf(ProviderConnectedModelReference("Related", business.id)),
+                                reviewOnly = true,
+                            ),
+                        ),
+                    ),
+                )
+            },
+        )
+        val canonicalizedDiscoveryReference = fixture.connectedModelService(discoveryReferenceProvider)
+            .model("alice", "task-discovery-reference", connectedDiscoveryStage(listOf(business)))
+        assertEquals(
+            listOf("Payment", "Payment separation rule"),
+            canonicalizedDiscoveryReference.model.items.map { it.label },
         )
         assertEquals(
-            "document-connected-model-provider-schema-invalid",
-            failure(
-                listOf(
-                    connectedItem(
-                        "cycle-a",
-                        0,
-                        "ComplexRule",
-                        "Cycle A",
-                        business.id,
-                        listOf(ProviderConnectedModelReference("Related", "cycle-b")),
-                        reviewOnly = true,
+            canonicalizedDiscoveryReference.model.items.first().id,
+            canonicalizedDiscoveryReference.model.items.last().references.single().itemId,
+        )
+        val repeatedTransportIdProvider = connectedProvider(
+            onModel = { _, _, _ ->
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(declaration, declaration.copy(order = 1)),
                     ),
-                    connectedItem(
-                        "cycle-b",
-                        1,
-                        "ComplexRule",
-                        "Cycle B",
-                        business.id,
-                        listOf(ProviderConnectedModelReference("Related", "cycle-a")),
-                        reviewOnly = true,
+                )
+            },
+        )
+        val canonicalized = fixture.connectedModelService(repeatedTransportIdProvider)
+            .model("alice", "task-repeated-transport-id", connectedDiscoveryStage(listOf(business)))
+        assertEquals(1, canonicalized.model.items.size)
+        val partiallyInvalidProvider = connectedProvider(
+            onModel = { _, _, _ ->
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(
+                            declaration,
+                            connectedItem(
+                                "malformed-property",
+                                1,
+                                "ObjectProperty",
+                                "Malformed property",
+                                business.id,
+                                listOf(ProviderConnectedModelReference("Related", "payment")),
+                            ),
+                        ),
                     ),
-                ),
+                )
+            },
+        )
+        val retained = fixture.connectedModelService(partiallyInvalidProvider)
+            .model("alice", "task-partially-invalid-model", connectedDiscoveryStage(listOf(business)))
+        assertEquals(listOf("Payment"), retained.model.items.map { it.label })
+        var structuralRepairCalls = 0
+        val structurallyRepairedProvider = connectedProvider(
+            onModel = { _, _, _ ->
+                structuralRepairCalls += 1
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = if (structuralRepairCalls == 1) {
+                            listOf(
+                                declaration,
+                                connectedItem(
+                                    "payment-property",
+                                    1,
+                                    "ObjectProperty",
+                                    "has payment requirement",
+                                    business.id,
+                                    listOf(ProviderConnectedModelReference("Related", "payment")),
+                                ),
+                            )
+                        } else {
+                            listOf(
+                                declaration,
+                                connectedItem(
+                                    "payment-property",
+                                    1,
+                                    "ObjectProperty",
+                                    "has payment requirement",
+                                    business.id,
+                                ),
+                            )
+                        },
+                    ),
+                )
+            },
+        )
+        val structurallyRepaired = fixture.connectedModelService(structurallyRepairedProvider)
+            .model("alice", "task-structural-repair", connectedDiscoveryStage(listOf(business)))
+        assertEquals(2, structuralRepairCalls)
+        assertEquals(
+            listOf("Payment", "has payment requirement"),
+            structurallyRepaired.model.items.map { it.label },
+        )
+        assertTrue(structurallyRepaired.skippedItems.isEmpty())
+        val cycleItems = listOf(
+            connectedItem(
+                "cycle-a",
+                0,
+                "ComplexRule",
+                "Cycle A",
+                business.id,
+                listOf(ProviderConnectedModelReference("Related", "cycle-b")),
+                reviewOnly = true,
+            ),
+            connectedItem(
+                "cycle-b",
+                1,
+                "ComplexRule",
+                "Cycle B",
+                business.id,
+                listOf(ProviderConnectedModelReference("Related", "cycle-a")),
+                reviewOnly = true,
+            ),
+        )
+        val cycleResult = modeled(cycleItems)
+        assertTrue(cycleResult.model.items.isEmpty())
+        assertTrue(cycleResult.skippedItems.all { it.code == "document-connected-model-cycle" })
+        assertTrue(
+            cycleResult.skippedItems.first().details.contains(
+                "Rejected response summary: 2 connected synthesis items were returned; " +
+                    "2 could not be ordered because their references form or depend on a cycle.",
+            ),
+        )
+        assertTrue(
+            cycleResult.skippedItems.first().details.any {
+                it == "Cycle path: 'cycle-a' ('Cycle A') -> 'cycle-b' ('Cycle B') -> 'cycle-a' ('Cycle A')."
+            },
+        )
+        assertTrue(
+            cycleResult.skippedItems.first().details.contains(
+                "Rejected item 'cycle-a' ('Cycle A') had unresolved references: Related -> 'cycle-b'.",
             ),
         )
         val declarations = (0..20).map { index ->
             connectedItem("support-$index", index, "Class", "Support $index", business.id)
         }
+        val excessiveReferenceItem = connectedItem(
+            "excessive",
+            declarations.size,
+            "ComplexRule",
+            "Excessive references",
+            business.id,
+            references = declarations.map {
+                ProviderConnectedModelReference("Related", it.providerId)
+            },
+            reviewOnly = true,
+        )
+        val excessiveReferenceProvider = connectedProvider(
+            onModel = { _, _, _ ->
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = declarations + excessiveReferenceItem,
+                    ),
+                )
+            },
+        )
+        val retainedDeclarations = fixture.connectedModelService(excessiveReferenceProvider)
+            .model(
+                "alice",
+                "task-excessive-references",
+                connectedDiscoveryStage(listOf(business)),
+            )
+        assertEquals(declarations.size, retainedDeclarations.model.items.size)
         assertEquals(
-            "document-connected-model-provider-schema-invalid",
-            failure(
-                declarations + connectedItem(
-                    "excessive",
-                    declarations.size,
-                    "ComplexRule",
-                    "Excessive references",
-                    business.id,
-                    references = declarations.map {
-                        ProviderConnectedModelReference("Related", it.providerId)
-                    },
-                    reviewOnly = true,
-                ),
-            ),
+            "document-connected-model-reference-invalid",
+            retainedDeclarations.skippedItems.single().code,
         )
     }
 
@@ -1660,19 +2437,18 @@ class DocumentAnalysisServiceTest {
                 ),
             )
         }
-        assertEquals(
-            "document-reconciliation-supersession-unverified",
-            assertFailsWith<DocumentAnalysisFailure> {
-                fixture.reconciliationService(dateOnlyProvider, provenanceRepository())
-                    .reconcile(
-                        "alice",
-                        "project-a",
-                        "task-1",
-                        listOf(oldDocument, newDocument),
-                        dateOnlyStage,
-                        connectedResult(connectedModelItem("model-policy", 0, "Payment policy", oldDiscovery.id)),
-                    )
-            }.code,
+        val rejectedDateOnly = fixture.reconciliationService(dateOnlyProvider, provenanceRepository())
+            .reconcile(
+                "alice",
+                "project-a",
+                "task-1",
+                listOf(oldDocument, newDocument),
+                dateOnlyStage,
+                connectedResult(connectedModelItem("model-policy", 0, "Payment policy", oldDiscovery.id)),
+            )
+        assertTrue(
+            rejectedDateOnly.records.isEmpty(),
+            "An unsupported date-only supersession claim must be discarded without failing other reconciliation work.",
         )
     }
 
@@ -1789,7 +2565,9 @@ class DocumentAnalysisServiceTest {
         assertEquals("ontology-fingerprint", completed.records.single().ontologyFingerprint)
         assertEquals("current-work-fingerprint", completed.records.single().currentWorkFingerprint)
 
+        var unrelatedCalls = 0
         val unrelatedProvider = DocumentOntologyAlignmentProvider { _, _, _, _ ->
+            unrelatedCalls += 1
             DocumentOntologyAlignmentProviderResult.Completed(
                 DocumentOntologyAlignmentResponse(
                     records = listOf(
@@ -1797,9 +2575,19 @@ class DocumentAnalysisServiceTest {
                             "bad-match",
                             payment.id,
                             "Reuse",
-                            listOf(accountContext.referenceId),
+                            listOf(
+                                if (unrelatedCalls == 1) {
+                                    accountContext.referenceId
+                                } else {
+                                    paymentContext.referenceId
+                                },
+                            ),
                             null,
-                            "Account is available.",
+                            if (unrelatedCalls == 1) {
+                                "Account is available."
+                            } else {
+                                "The current ontology already contains the same Payment concept."
+                            },
                             70,
                             null,
                         ),
@@ -1807,15 +2595,14 @@ class DocumentAnalysisServiceTest {
                 ),
             )
         }
-        assertEquals(
-            "document-alignment-target-unresolved",
-            assertFailsWith<DocumentAnalysisFailure> {
-                fixture.alignmentService(unrelatedProvider)
-                    .align("alice", "task-2", "project-a", connected, reconciliation, snapshot)
-            }.code,
-        )
+        val corrected = fixture.alignmentService(unrelatedProvider)
+            .align("alice", "task-2", "project-a", connected, reconciliation, snapshot)
+        assertEquals(paymentContext.entityIri, corrected.records.single().advisedTargets.single().entityIri.value)
+        assertEquals(2, unrelatedCalls)
 
+        var staleCalls = 0
         val staleProvider = DocumentOntologyAlignmentProvider { _, _, _, _ ->
+            staleCalls += 1
             DocumentOntologyAlignmentProviderResult.Completed(
                 DocumentOntologyAlignmentResponse(
                     records = listOf(
@@ -1834,12 +2621,13 @@ class DocumentAnalysisServiceTest {
             )
         }
         assertEquals(
-            "document-alignment-provider-schema-invalid",
+            "document-alignment-record-contract-invalid",
             assertFailsWith<DocumentAnalysisFailure> {
                 fixture.alignmentService(staleProvider)
                     .align("alice", "task-3", "project-a", connected, reconciliation, snapshot)
             }.code,
         )
+        assertEquals(2, staleCalls)
     }
 
     @Test
@@ -1945,6 +2733,9 @@ class DocumentAnalysisServiceTest {
             assertTrue(instruction.contains("Compliance Status"))
             assertTrue(instruction.contains("conditional rules"))
             assertTrue(instruction.contains("illustrative individuals"))
+            assertTrue(instruction.contains("operational controls"))
+            assertTrue(instruction.contains("retention duties"))
+            assertTrue(instruction.contains("likely duplicate or inverse-wording relationships"))
             assertTrue(request.discoveries.any {
                 it.contentClassification == DocumentContentClassification.AdministrativeMetadata
             })
@@ -2019,19 +2810,39 @@ class DocumentAnalysisServiceTest {
                 ),
             )
         }
-        assertEquals(
-            "document-critic-provider-schema-invalid",
-            assertFailsWith<DocumentAnalysisFailure> {
-                fixture.criticService(unknownProvider).critique(
-                    "alice",
-                    "task-2",
-                    connectedDiscoveryStage(discoveries),
-                    connected,
-                    reconciliation,
-                    alignment,
-                )
-            }.code,
+        val unknown = fixture.criticService(unknownProvider).critique(
+            "alice",
+            "task-2",
+            connectedDiscoveryStage(discoveries),
+            connected,
+            reconciliation,
+            alignment,
         )
+        assertTrue(unknown.findings.isEmpty())
+
+        val approvalProvider = DocumentModelingCriticProvider { _, _, _, _ ->
+            DocumentModelingCriticProviderResult.Completed(
+                DocumentModelingCriticResponse(
+                    findings = listOf(
+                        criticFinding(
+                            "approved",
+                            "model-payment-property",
+                            "Approve",
+                            "The payment relationship needs no correction.",
+                        ),
+                    ),
+                ),
+            )
+        }
+        val approved = fixture.criticService(approvalProvider).critique(
+            "alice",
+            "task-approved",
+            connectedDiscoveryStage(discoveries),
+            connected,
+            reconciliation,
+            alignment,
+        )
+        assertTrue(approved.findings.isEmpty())
 
         val duplicateProvider = DocumentModelingCriticProvider { _, _, _, _ ->
             DocumentModelingCriticProviderResult.Completed(
@@ -2043,18 +2854,75 @@ class DocumentAnalysisServiceTest {
                 ),
             )
         }
+        val duplicate = fixture.criticService(duplicateProvider).critique(
+            "alice",
+            "task-3",
+            connectedDiscoveryStage(discoveries),
+            connected,
+            reconciliation,
+            alignment,
+        )
+        assertTrue(duplicate.findings.isEmpty())
+
+        val overstatedConfidenceProvider = DocumentModelingCriticProvider { _, _, _, _ ->
+            DocumentModelingCriticProviderResult.Completed(
+                DocumentModelingCriticResponse(
+                    findings = listOf(
+                        criticFinding(
+                            "revise-overstated-confidence",
+                            "model-payment-property",
+                            "Revise",
+                            "The property still needs domain and range context.",
+                            evidence = 100,
+                            modeling = 100,
+                            ontologyFit = 100,
+                        ),
+                    ),
+                ),
+            )
+        }
+        val clamped = fixture.criticService(overstatedConfidenceProvider).critique(
+            "alice",
+            "task-4",
+            connectedDiscoveryStage(discoveries),
+            connected,
+            reconciliation,
+            alignment,
+        )
+        assertEquals(DocumentCriticAction.Revise, clamped.findings.single().action)
         assertEquals(
-            "document-critic-provider-schema-invalid",
-            assertFailsWith<DocumentAnalysisFailure> {
-                fixture.criticService(duplicateProvider).critique(
-                    "alice",
-                    "task-3",
-                    connectedDiscoveryStage(discoveries),
-                    connected,
-                    reconciliation,
-                    alignment,
-                )
-            }.code,
+            clamped.baselineConfidenceByTarget.getValue("model-payment-property"),
+            clamped.confidenceByTarget.getValue("model-payment-property"),
+        )
+
+        val fivePointConfidenceProvider = DocumentModelingCriticProvider { _, _, _, _ ->
+            DocumentModelingCriticProviderResult.Completed(
+                DocumentModelingCriticResponse(
+                    findings = listOf(
+                        criticFinding(
+                            "revise-five-point-confidence",
+                            "model-payment-property",
+                            "Revise",
+                            "The property still needs domain and range context.",
+                            evidence = 5,
+                            modeling = 4,
+                            ontologyFit = 3,
+                        ),
+                    ),
+                ),
+            )
+        }
+        val normalized = fixture.criticService(fivePointConfidenceProvider).critique(
+            "alice",
+            "task-five-point",
+            connectedDiscoveryStage(discoveries),
+            connected,
+            reconciliation,
+            alignment,
+        )
+        assertEquals(
+            DocumentConfidenceDimensions(90, 80, 60),
+            normalized.confidenceByTarget.getValue("model-payment-property"),
         )
 
         val unboundedProvider = DocumentModelingCriticProvider { _, _, _, _ ->
@@ -2076,7 +2944,7 @@ class DocumentAnalysisServiceTest {
             assertFailsWith<DocumentAnalysisFailure> {
                 fixture.criticService(unboundedProvider).critique(
                     "alice",
-                    "task-4",
+                    "task-5",
                     connectedDiscoveryStage(discoveries),
                     connected,
                     reconciliation,
@@ -2210,12 +3078,16 @@ class DocumentAnalysisServiceTest {
     private fun work(vararg documents: ExtractedDocument): DocumentAnalysisWork =
         DocumentAnalysisWork("task-1", "ontology-fingerprint", documents.toList(), "authority-key")
 
-    private fun extracted(text: String, id: String = "document-1"): ExtractedDocument {
+    private fun extracted(
+        text: String,
+        id: String = "document-1",
+        safeFilename: String = "$id.txt",
+    ): ExtractedDocument {
         val documentId = DocumentId(id)
         val document = IngestionDocument(
             id = documentId,
             taskId = DocumentTaskId("task-1"),
-            safeFilename = "$id.txt",
+            safeFilename = safeFilename,
             mediaType = DocumentMediaType.Text,
             byteSize = text.length.toLong(),
             checksumSha256 = id.padEnd(64, 'a').take(64).replace(Regex("[^a-f0-9]"), "a"),

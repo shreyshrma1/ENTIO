@@ -51,9 +51,18 @@ describe("document ingestion review workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Status Updates" }));
     const statusDialog = screen.getByRole("dialog", { name: "Ingestion Status Updates" });
+    const statusHistory = within(statusDialog).getByRole("region", { name: "Ingestion status history" });
+    expect(statusHistory).toHaveClass("document-status-scroll-region");
+    expect(statusHistory).toHaveAttribute("tabindex", "0");
     expect(within(statusDialog).getByText("Documents uploaded and awaiting extraction.")).toBeInTheDocument();
     expect(within(statusDialog).getByText("Ready for review.")).toBeInTheDocument();
     expect(within(statusDialog).getByText("Awaiting Review · 100% · 1 of 1 documents")).toBeInTheDocument();
+    fireEvent.click(within(statusDialog).getByText("Details"));
+    expect(within(statusDialog).getByText("Stage: connected semantic synthesis.")).toBeInTheDocument();
+    expect(
+      within(statusDialog).getByText("Culprit: connected synthesis item 'item-2' with label 'Effective Date'."),
+    ).toBeInTheDocument();
+    expect(within(statusDialog).getByText("Unknown discovery IDs: discovery-missing.")).toBeInTheDocument();
     fireEvent.click(within(statusDialog).getByRole("button", { name: "Close ingestion status updates" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Open Explicit evidence" }));
@@ -81,12 +90,49 @@ describe("document ingestion review workspace", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("1 typed edit added to the shared proposal.");
   });
 
-  it("supports keyboard-reachable task, match, edit, reconsider, cancel, and delete controls", async () => {
+  it("warns that visible status is stale when live task polling fails", async () => {
+    let taskRequests = 0;
+    const activeTasks = {
+      ...tasks,
+      items: [{
+        ...tasks.items[0],
+        status: "analyzing",
+        progress: {
+          stage: "analyzing",
+          completedDocuments: 1,
+          totalDocuments: 1,
+          percent: 40,
+          message: "Discovering evidence-grounded meaning in each document.",
+        },
+      }],
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/document-ingestion/tasks")) {
+        taskRequests += 1;
+        if (taskRequests === 1) return json(activeTasks);
+        return new Response("", { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    renderWorkspace();
+
+    expect(await screen.findByText("Discovering evidence-grounded meaning in each document.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Status Updates" }));
+    const dialog = screen.getByRole("dialog", { name: "Ingestion Status Updates" });
+    expect(await within(dialog).findByRole("alert", {}, { timeout: 2_000 })).toHaveTextContent(
+      "Live status updates could not be refreshed. The updates below may be out of date.",
+    );
+    expect(within(dialog).getByRole("button", { name: "Retry status updates" })).toBeInTheDocument();
+    expect(taskRequests).toBeGreaterThanOrEqual(2);
+  });
+
+  it("supports keyboard-reachable task, match, edit, reconsider, and delete controls", async () => {
     const requests: Array<{ path: string; method: string }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       requests.push({ path, method: init?.method ?? "GET" });
-      if (path.endsWith("/cancel")) return json(tasks.items[0]);
       if (path.includes("/decision")) return json(workspace("Pending"));
       if (path.includes("/review")) return json(workspace("Pending"));
       if (init?.method === "DELETE") return new Response(null, { status: 204 });
@@ -104,11 +150,49 @@ describe("document ingestion review workspace", () => {
     expect(screen.getByRole("button", { name: "Approve for proposal" })).not.toHaveAttribute("tabindex", "-1");
     fireEvent.click(screen.getByRole("button", { name: "Save review edits" }));
     fireEvent.click(screen.getByRole("button", { name: "Ask Entio to reconsider" }));
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
+    await waitFor(() => expect(requests.some((request) => request.method === "DELETE")).toBe(true));
+  });
+
+  it("lets the user stop active model generation", async () => {
+    const requests: Array<{ path: string; method: string }> = [];
+    const activeTasks = {
+      ...tasks,
+      items: [{
+        ...tasks.items[0],
+        status: "analyzing",
+        progress: {
+          stage: "analyzing",
+          completedDocuments: 1,
+          totalDocuments: 1,
+          percent: 84,
+          message: "Preparing grouped recommendations and exact change sets.",
+        },
+      }],
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      requests.push({ path, method: init?.method ?? "GET" });
+      if (path.endsWith("/cancel")) return json({
+        ...activeTasks.items[0],
+        status: "cancelled",
+        progress: {
+          ...activeTasks.items[0].progress,
+          stage: "cancelled",
+          message: "Generation stopped by user.",
+        },
+      });
+      if (path.includes("/document-ingestion/tasks")) return json(activeTasks);
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    renderWorkspace();
+
+    const stop = await screen.findByRole("button", { name: "Stop generation" });
+    expect(stop).not.toHaveAttribute("tabindex", "-1");
+    fireEvent.click(stop);
     await waitFor(() => expect(requests.some((request) => request.path.endsWith("/cancel"))).toBe(true));
-    expect(requests.some((request) => request.method === "DELETE")).toBe(true);
   });
 
   it("does not offer approval when the server cannot produce an exact change", async () => {
@@ -293,7 +377,20 @@ const tasks = {
     progress: { stage: "awaiting-review", completedDocuments: 1, totalDocuments: 1, percent: 100, message: "Ready for review." },
     updates: [
       { order: 1, stage: "uploaded", completedDocuments: 0, totalDocuments: 1, percent: 0, message: "Documents uploaded and awaiting extraction.", timestamp: "2026-07-24T12:00:00Z" },
-      { order: 2, stage: "awaiting-review", completedDocuments: 1, totalDocuments: 1, percent: 100, message: "Ready for review.", timestamp: "2026-07-24T12:01:00Z" },
+      {
+        order: 2,
+        stage: "awaiting-review",
+        completedDocuments: 1,
+        totalDocuments: 1,
+        percent: 100,
+        message: "Ready for review.",
+        timestamp: "2026-07-24T12:01:00Z",
+        details: [
+          "Stage: connected semantic synthesis.",
+          "Culprit: connected synthesis item 'item-2' with label 'Effective Date'.",
+          "Unknown discovery IDs: discovery-missing.",
+        ],
+      },
     ],
   }],
   offset: 0,

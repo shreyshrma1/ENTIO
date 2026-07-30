@@ -7,18 +7,26 @@ import com.entio.core.IngestionDocument
 import java.time.Duration
 import java.time.Instant
 
+private const val MAX_STATUS_DETAILS: Int = 10
+private const val MAX_STATUS_DETAIL_CHARACTERS: Int = 500
+
 public data class DocumentIngestionProgress(
     val stage: String,
     val completedDocuments: Int,
     val totalDocuments: Int,
     val percent: Int,
     val message: String,
+    val details: List<String> = emptyList(),
 ) {
     init {
         require(completedDocuments in 0..totalDocuments) { "Completed document count is invalid." }
         require(totalDocuments > 0) { "Document progress requires at least one document." }
         require(percent in 0..100) { "Document progress percent must be between 0 and 100." }
         require(message.isNotBlank() && message.length <= 500) { "Document progress message must be safe and bounded." }
+        require(details.size <= MAX_STATUS_DETAILS) { "Document progress contains too many details." }
+        require(details.all { it.isNotBlank() && it.length <= MAX_STATUS_DETAIL_CHARACTERS }) {
+            "Document progress details must be safe and bounded."
+        }
     }
 }
 
@@ -30,6 +38,7 @@ public data class DocumentIngestionStatusUpdate(
     val percent: Int,
     val message: String,
     val timestamp: String,
+    val details: List<String> = emptyList(),
 )
 
 public data class DocumentIngestionTaskSnapshot(
@@ -184,6 +193,7 @@ internal class DocumentIngestionTaskManager(
         completedDocuments: Int,
         percent: Int,
         message: String,
+        details: List<String> = emptyList(),
     ): DocumentIngestionTaskSnapshot {
         val task = ownedTask(taskId, projectId, userId)
         if (task.status == DocumentProcessingStatus.Cancelled) {
@@ -196,6 +206,14 @@ internal class DocumentIngestionTaskManager(
             totalDocuments = task.progress.totalDocuments,
             percent = percent,
             message = message.take(500),
+            details = details
+                .asSequence()
+                .map(String::trim)
+                .filter(String::isNotEmpty)
+                .distinct()
+                .take(MAX_STATUS_DETAILS)
+                .map { it.take(MAX_STATUS_DETAIL_CHARACTERS) }
+                .toList(),
         ))
         return task.snapshot()
     }
@@ -245,7 +263,7 @@ internal class DocumentIngestionTaskManager(
         val task = ownedTask(taskId, projectId, userId)
         if (task.status !in terminalStates) {
             task.status = DocumentProcessingStatus.Cancelled
-            task.recordProgress(task.progress.copy(stage = "cancelled", message = "Document ingestion was cancelled."))
+            task.recordProgress(task.progress.copy(stage = "cancelled", message = "Generation stopped by user."))
             storage.deleteTask(task.directory)
         }
         return task.snapshot()
@@ -259,9 +277,15 @@ internal class DocumentIngestionTaskManager(
     }
 
     @Synchronized
-    fun fail(taskId: DocumentTaskId, projectId: String, userId: String, message: String): Unit {
+    fun fail(
+        taskId: DocumentTaskId,
+        projectId: String,
+        userId: String,
+        message: String,
+        details: List<String> = emptyList(),
+    ): Unit {
         val task = ownedTask(taskId, projectId, userId)
-        failAndCleanup(task, message)
+        failAndCleanup(task, message, details)
     }
 
     @Synchronized
@@ -296,9 +320,26 @@ internal class DocumentIngestionTaskManager(
             }
     }
 
-    private fun failAndCleanup(task: StoredIngestionTask, message: String): Unit {
+    private fun failAndCleanup(
+        task: StoredIngestionTask,
+        message: String,
+        details: List<String> = emptyList(),
+    ): Unit {
         task.status = DocumentProcessingStatus.Failed
-        task.recordProgress(task.progress.copy(stage = "failed", message = message.take(500)))
+        task.recordProgress(
+            task.progress.copy(
+                stage = "failed",
+                message = message.take(500),
+                details = details
+                    .asSequence()
+                    .map(String::trim)
+                    .filter(String::isNotEmpty)
+                    .distinct()
+                    .take(MAX_STATUS_DETAILS)
+                    .map { it.take(MAX_STATUS_DETAIL_CHARACTERS) }
+                    .toList(),
+            ),
+        )
         if (storage.taskExists(task.directory)) runCatching { storage.deleteTask(task.directory) }
     }
 
@@ -321,6 +362,7 @@ internal class DocumentIngestionTaskManager(
             percent = percent,
             message = message,
             timestamp = timestamp.toString(),
+            details = details,
         )
 
     private fun StoredIngestionTask.snapshot(): DocumentIngestionTaskSnapshot = DocumentIngestionTaskSnapshot(

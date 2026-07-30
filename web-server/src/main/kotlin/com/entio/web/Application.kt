@@ -54,6 +54,8 @@ import com.entio.web.ingestion.DocumentIngestionFailure
 import com.entio.web.ingestion.DocumentReviewDecisionRequest
 import com.entio.web.ingestion.DocumentDraftBuildRequest
 import com.entio.web.ingestion.DocumentIngestionWebService
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.SerializationFeature
 
 /**
  * Installs the smallest server boundary needed before semantic web contracts are added.
@@ -63,7 +65,9 @@ public fun Application.module(
     documentIngestionConfiguration: DocumentIngestionConfiguration = DocumentIngestionConfiguration(),
 ): Unit {
     install(ContentNegotiation) {
-        jackson()
+        jackson {
+            configureWebJson()
+        }
     }
     install(WebSockets)
 
@@ -763,6 +767,10 @@ public fun Application.module(
         }
     }
 }
+
+internal fun ObjectMapper.configureWebJson(): ObjectMapper =
+    findAndRegisterModules()
+        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
 
 private fun ApplicationCall.requiredProjectId(): String = parameters["projectId"]
     ?.takeIf(String::isNotBlank)

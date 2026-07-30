@@ -170,6 +170,7 @@ export interface WebDocumentIngestionProgress {
   totalDocuments: number;
   percent: number;
   message: string;
+  details?: string[];
 }
 
 export interface WebDocumentIngestionStatusUpdate extends WebDocumentIngestionProgress {
@@ -205,6 +206,8 @@ export interface WebDocumentAnalysisStage {
   stage: string;
   state: string;
   scopeId: string;
+  startedAt: string | null;
+  finishedAt: string | null;
   durationMillis: number | null;
   providerAttemptCount: number;
   completedCount: number;
