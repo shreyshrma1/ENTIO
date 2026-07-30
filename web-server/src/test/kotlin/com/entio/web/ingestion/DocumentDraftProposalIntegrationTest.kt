@@ -20,6 +20,7 @@ import com.entio.core.DocumentExtractionMethod
 import com.entio.core.DocumentId
 import com.entio.core.DocumentFinalRecommendation
 import com.entio.core.DocumentFinalRecommendationStatus
+import com.entio.core.DocumentFinalPlan
 import com.entio.core.DocumentGroupedDecisionKind
 import com.entio.core.DocumentGroupedRecommendationDecision
 import com.entio.core.DocumentPlanOperand
@@ -38,6 +39,7 @@ import com.entio.core.LocatedDocumentTextBlock
 import com.entio.core.RdfLiteral
 import com.entio.semantic.DocumentDraftOperation
 import com.entio.semantic.DocumentDraftTranslationContext
+import com.entio.semantic.DocumentVerifiedFinalPlan
 import com.entio.web.PreparedDocumentStagingItem
 import com.entio.web.StagingWorkflowService
 import com.entio.web.WebWorkflowFailure
@@ -268,6 +270,97 @@ class DocumentDraftProposalIntegrationTest {
         assertEquals(listOf("review-only-1"), applied.relatedReviewOnlyFindings.map { it.findingId })
         assertEquals(listOf("b".repeat(64)), applied.stageInputHashes)
         assertEquals(listOf("c".repeat(64)), applied.stageOutputHashes)
+    }
+
+    @Test
+    fun explicitlyRetainsPureReviewOnlyFindingWithoutOntologyEdit(): Unit {
+        val fixture = fixture()
+        val repository = AppliedDocumentProvenanceRepository(
+            Files.createTempDirectory("entio-review-only-provenance"),
+            fixture.registry,
+        )
+        val coordinator = DocumentApplyProvenanceCoordinator(repository)
+        val legacy = candidate()
+        val finding = DocumentReviewOnlyFinding(
+            id = "review-only-rule",
+            summary = "Approval separation rule",
+            reason = "The rule is meaningful but cannot be represented by a supported typed edit.",
+            discoveryIds = listOf("discovery-1"),
+            evidenceIds = listOf(DocumentEvidenceId("evidence-group")),
+        )
+        val recommendation = DocumentFinalRecommendation(
+            id = "recommendation-review-only",
+            title = "Retain approval separation rule",
+            description = "Retain the verified rule as documented meaning.",
+            discoveryIds = listOf("discovery-1"),
+            evidenceIds = listOf(DocumentEvidenceId("evidence-group")),
+            reviewOnlyFindings = listOf(finding),
+            confidence = DocumentConfidenceDimensions(92, 88, 84),
+            status = DocumentFinalRecommendationStatus.ReviewOnly,
+        )
+        val decision = DocumentGroupedRecommendationDecision(
+            decisionId = "decision-review-only",
+            recommendationId = recommendation.id,
+            actorUserId = "alice",
+            decidedAt = Instant.parse("2026-07-30T12:00:00Z"),
+            kind = DocumentGroupedDecisionKind.Drafted,
+        )
+        val plan = DocumentFinalPlan(
+            workKey = com.entio.core.DocumentAnalysisWorkKey("a".repeat(64)),
+            verifiedDiscoveryIds = listOf("discovery-1"),
+            criticFindingIds = emptyList(),
+            recommendations = listOf(recommendation),
+            coverage = listOf(
+                DocumentCoverageDisposition(
+                    discoveryId = "discovery-1",
+                    kind = DocumentCoverageDispositionKind.ReviewOnlyFinding,
+                    recommendationId = recommendation.id,
+                ),
+            ),
+        )
+        val candidate = VerifiedDocumentReviewOnlyCandidate(
+            taskId = "task-1",
+            recommendation = recommendation,
+            decision = decision,
+            reviewPlan = VerifiedDocumentReviewPlan(
+                workKey = "a".repeat(64),
+                graphFingerprint = "graph-fingerprint",
+                plan = DocumentVerifiedFinalPlan(plan, emptyMap(), emptyList()),
+                taskDocuments = legacy.documents,
+                blocks = legacy.blocks,
+                evidence = legacy.recommendation.evidence.associateBy { it.id.value },
+                analysisStages = listOf(
+                    DocumentAnalysisStageRecord(
+                        recordId = "stage-semantic-1",
+                        stage = DocumentAnalysisStage.FinalPlanning,
+                        state = DocumentAnalysisStageState.Succeeded,
+                        scopeId = "task-1",
+                        startedAt = decision.decidedAt,
+                        finishedAt = decision.decidedAt,
+                        durationMillis = 0,
+                        selectedModelId = "gpt-test",
+                        promptVersion = DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_PROMPT,
+                        requestSchemaVersion = DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_REQUEST,
+                        responseSchemaVersion = DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_RESPONSE,
+                        inputSha256 = "b".repeat(64),
+                        outputSha256 = "c".repeat(64),
+                        providerAttemptCount = 1,
+                        completedCount = 1,
+                        totalCount = 1,
+                    ),
+                ),
+            ),
+        )
+        val before = fixture.source.readBytes()
+
+        assertEquals(1, coordinator.retainReviewOnly("simple", candidate, "gpt-test"))
+
+        assertEquals(before.toList(), fixture.source.readBytes().toList())
+        val retained = repository.list("simple").single()
+        assertEquals(null, retained.typedOperation)
+        assertEquals(null, retained.applyEvent.proposalId)
+        assertEquals(listOf("review-only-rule"), retained.relatedReviewOnlyFindings.map { it.findingId })
+        assertEquals(DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_PROMPT, retained.promptVersion)
     }
 
     @Test

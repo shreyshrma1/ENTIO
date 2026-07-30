@@ -33,6 +33,15 @@ public data class DocumentReviewWorkspaceResponse(
     val summaries: List<DocumentReviewSummary>,
     val recommendations: WebPage<DocumentReviewRecommendation>,
     val draftImpact: DocumentDraftImpact,
+    val semanticCoverage: DocumentReviewQualityMetric? = null,
+    val compilationSuccess: DocumentReviewQualityMetric? = null,
+)
+
+public data class DocumentReviewQualityMetric(
+    val numerator: Int,
+    val denominator: Int,
+    val percentage: Int?,
+    val failureCodes: List<String> = emptyList(),
 )
 
 public data class DocumentReviewDocumentSummary(
@@ -78,12 +87,16 @@ public data class DocumentReviewRecommendation(
     val reviewOnlyFindings: List<DocumentReviewOnlyFindingSummary> = emptyList(),
     val criticDispositions: List<DocumentReviewCriticDispositionSummary> = emptyList(),
     val individualReviewGates: List<DocumentReviewIndividualGateSummary> = emptyList(),
+    val semanticIntent: String? = null,
+    val generatedIris: List<String> = emptyList(),
+    val safeBlockers: List<String> = emptyList(),
 )
 
 public data class DocumentReviewConfidenceDimensions(
     val evidence: Int,
     val modeling: Int,
     val ontologyFit: Int,
+    val compilation: Int? = null,
     val overall: Int,
 )
 
@@ -269,6 +282,13 @@ internal data class VerifiedDocumentDraftCandidate(
     val decision: DocumentGroupedRecommendationDecision,
 )
 
+internal data class VerifiedDocumentReviewOnlyCandidate(
+    val taskId: String,
+    val recommendation: DocumentFinalRecommendation,
+    val decision: DocumentGroupedRecommendationDecision,
+    val reviewPlan: VerifiedDocumentReviewPlan,
+)
+
 internal class DocumentReviewWorkspaceStore(
     private val clock: Clock = Clock.systemUTC(),
     private val changeExplainer: DocumentReviewChangeExplainer = DocumentReviewChangeExplainer(),
@@ -419,6 +439,16 @@ internal class DocumentReviewWorkspaceStore(
             val isBusinessFact = recommendation.operations.any {
                 it.kind in BUSINESS_FACT_OPERATIONS
             }
+            val compilationConfidence = when (recommendation.status) {
+                DocumentFinalRecommendationStatus.Executable,
+                DocumentFinalRecommendationStatus.Mixed,
+                -> 100
+                DocumentFinalRecommendationStatus.Blocked -> 0
+                DocumentFinalRecommendationStatus.ReviewOnly -> null
+            }
+            val generatedIris = recommendation.operations.mapNotNull { operation ->
+                operation.declaration?.let(stored.plan.finalIris::get)
+            }.map(com.entio.core.Iri::value).distinct().sorted()
             DocumentReviewRecommendation(
                 id = recommendation.id,
                 category = if (isBusinessFact) "BusinessFact" else "OntologyStructure",
@@ -456,13 +486,19 @@ internal class DocumentReviewWorkspaceStore(
                 reconsiderationCount = 0,
                 priorWorkflowProvenance = emptyList(),
                 modelId = modelId,
-                promptVersion = com.entio.core.DocumentAnalysisPipelineVersions.FINAL_PLAN_PROMPT,
+                promptVersion = com.entio.core.DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_PROMPT,
                 connectedStatus = recommendation.status.name,
                 confidenceDimensions = DocumentReviewConfidenceDimensions(
                     recommendation.confidence.evidence,
                     recommendation.confidence.modeling,
                     recommendation.confidence.ontologyFit,
-                    recommendation.confidence.overall,
+                    compilationConfidence,
+                    listOfNotNull(
+                        recommendation.confidence.evidence,
+                        recommendation.confidence.modeling,
+                        recommendation.confidence.ontologyFit,
+                        compilationConfidence,
+                    ).min(),
                 ),
                 reviewOnlyFindings = recommendation.reviewOnlyFindings.map {
                     DocumentReviewOnlyFindingSummary(it.id, it.summary, it.reason, it.relatedOperationIds)
@@ -473,6 +509,9 @@ internal class DocumentReviewWorkspaceStore(
                 individualReviewGates = recommendation.individualReviewGates.map {
                     DocumentReviewIndividualGateSummary(it.operationId, it.classification.name, it.creationConfirmed)
                 },
+                semanticIntent = recommendation.description,
+                generatedIris = generatedIris,
+                safeBlockers = recommendation.blockers,
             )
         }
         val documents = stored.taskDocuments.map {
@@ -499,6 +538,19 @@ internal class DocumentReviewWorkspaceStore(
                 highlights,
             )
         }
+        val blockedCoverage = stored.plan.plan.coverage.count {
+            it.kind == com.entio.core.DocumentCoverageDispositionKind.Blocked
+        }
+        val executableRecommendations = stored.plan.plan.recommendations.filter {
+            it.status in setOf(
+                DocumentFinalRecommendationStatus.Executable,
+                DocumentFinalRecommendationStatus.Mixed,
+                DocumentFinalRecommendationStatus.Blocked,
+            )
+        }
+        val compiledRecommendations = executableRecommendations.count {
+            it.status in setOf(DocumentFinalRecommendationStatus.Executable, DocumentFinalRecommendationStatus.Mixed)
+        }
         return DocumentReviewWorkspaceResponse(
             taskId = taskId,
             projectId = projectId,
@@ -514,6 +566,20 @@ internal class DocumentReviewWorkspaceStore(
                     it.status == DocumentFinalRecommendationStatus.Blocked ||
                         it.status == DocumentFinalRecommendationStatus.ReviewOnly
                 },
+            ),
+            semanticCoverage = DocumentReviewQualityMetric(
+                numerator = stored.plan.plan.coverage.size - blockedCoverage,
+                denominator = stored.plan.plan.coverage.size,
+                percentage = qualityPercentage(stored.plan.plan.coverage.size - blockedCoverage, stored.plan.plan.coverage.size),
+                failureCodes = stored.plan.plan.recommendations.flatMap(DocumentFinalRecommendation::blockers)
+                    .distinct().sorted(),
+            ),
+            compilationSuccess = DocumentReviewQualityMetric(
+                numerator = compiledRecommendations,
+                denominator = executableRecommendations.size,
+                percentage = qualityPercentage(compiledRecommendations, executableRecommendations.size),
+                failureCodes = executableRecommendations.flatMap(DocumentFinalRecommendation::blockers)
+                    .distinct().sorted(),
             ),
         )
     }
@@ -605,6 +671,64 @@ internal class DocumentReviewWorkspaceStore(
             clarification = safeClarification,
         )
         stored.updatedAt = now
+    }
+
+    @Synchronized
+    fun retainVerifiedReviewOnly(
+        projectId: String,
+        taskId: String,
+        recommendationId: String,
+        userId: String,
+        expectedWorkKey: String,
+        expectedGraphFingerprint: String,
+        clarification: String?,
+    ): VerifiedDocumentReviewOnlyCandidate {
+        val stored = ownedVerified(projectId, taskId, userId)
+        requireVerifiedCurrent(stored, expectedWorkKey, expectedGraphFingerprint)
+        val recommendation = stored.plan.plan.recommendations.singleOrNull { it.id == recommendationId }
+            ?: throw DocumentIngestionFailure(
+                "document-recommendation-not-found",
+                "The requested grouped recommendation was not found.",
+            )
+        if (recommendation.status != DocumentFinalRecommendationStatus.ReviewOnly ||
+            recommendation.operations.isNotEmpty() ||
+            recommendation.reviewOnlyFindings.isEmpty()
+        ) {
+            throw DocumentIngestionFailure(
+                "document-retain-not-review-only",
+                "Only a pure review-only finding can be retained as a documented rule.",
+            )
+        }
+        val safeClarification = safeOptionalText(clarification)
+        val now = Instant.now(clock)
+        val decision = DocumentGroupedRecommendationDecision(
+            decisionId = decisionId(taskId, recommendationId, userId, stored.workKey),
+            recommendationId = recommendationId,
+            actorUserId = userId,
+            decidedAt = now,
+            kind = DocumentGroupedDecisionKind.Drafted,
+            clarification = safeClarification,
+        )
+        stored.reviews.getValue(recommendationId).apply {
+            kind = DocumentGroupedDecisionKind.Drafted
+            this.clarification = safeClarification
+            this.decision = decision
+        }
+        stored.updatedAt = now
+        return VerifiedDocumentReviewOnlyCandidate(
+            taskId = taskId,
+            recommendation = recommendation,
+            decision = decision,
+            reviewPlan = VerifiedDocumentReviewPlan(
+                workKey = stored.workKey,
+                graphFingerprint = stored.graphFingerprint,
+                plan = stored.plan,
+                taskDocuments = stored.taskDocuments,
+                blocks = stored.blocks,
+                evidence = stored.evidence,
+                analysisStages = stored.analysisStages,
+            ),
+        )
     }
 
     @Synchronized
@@ -1262,6 +1386,9 @@ internal class DocumentReviewWorkspaceStore(
             .joinToString("") { "%02x".format(it) }
         return "decision-$digest"
     }
+
+    private fun qualityPercentage(numerator: Int, denominator: Int): Int? =
+        if (denominator == 0) null else numerator * 100 / denominator
 
     private companion object {
         const val MAX_RECOMMENDATIONS: Int = 2_000

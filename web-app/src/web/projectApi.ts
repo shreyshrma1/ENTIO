@@ -262,10 +262,15 @@ export interface WebDocumentReviewRecommendation {
   modelId: string | null;
   promptVersion: string | null;
   connectedStatus?: "Executable" | "ReviewOnly" | "Blocked" | "Mixed" | null;
-  confidenceDimensions?: { evidence: number; modeling: number; ontologyFit: number; overall: number } | null;
+  confidenceDimensions?: {
+    evidence: number; modeling: number; ontologyFit: number; compilation: number | null; overall: number;
+  } | null;
   reviewOnlyFindings?: Array<{ id: string; summary: string; reason: string; relatedOperationIds: string[] }>;
   criticDispositions?: Array<{ findingId: string; disposition: string; rationale: string | null }>;
   individualReviewGates?: Array<{ operationId: string; classification: string; creationConfirmed: boolean }>;
+  semanticIntent?: string | null;
+  generatedIris?: string[];
+  safeBlockers?: string[];
 }
 
 export interface WebDocumentReviewWorkspace {
@@ -281,6 +286,8 @@ export interface WebDocumentReviewWorkspace {
   summaries: Array<{ documentId: string; purpose: string; highlights: string[] }>;
   recommendations: WebPage<WebDocumentReviewRecommendation>;
   draftImpact: { acceptedCount: number; pendingCount: number; blockedCount: number; maximumAcceptedEdits: number; readOnly: true };
+  semanticCoverage?: { numerator: number; denominator: number; percentage: number | null; failureCodes: string[] } | null;
+  compilationSuccess?: { numerator: number; denominator: number; percentage: number | null; failureCodes: string[] } | null;
 }
 
 export interface WebDocumentEvidenceView {
@@ -300,7 +307,7 @@ export interface WebDocumentEvidenceView {
 }
 
 export interface WebDocumentReviewDecision {
-  action: "accept" | "reject" | "clarify" | "edit" | "rematch" | "merge" | "reconsider" | "split" | "exclude-optional" | "confirm-individual";
+  action: "accept" | "retain" | "reject" | "clarify" | "edit" | "rematch" | "merge" | "reconsider" | "split" | "exclude-optional" | "confirm-individual";
   expectedWorkKey: string;
   expectedGraphFingerprint: string;
   proposedLabel?: string;

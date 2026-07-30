@@ -232,7 +232,9 @@ describe("document ingestion review workspace", () => {
       connectedStatus: "Mixed",
       type: "CreateClass",
       action: "ConnectedChange",
-      confidenceDimensions: { evidence: 94, modeling: 82, ontologyFit: 76, overall: 84 },
+      confidenceDimensions: { evidence: 94, modeling: 82, ontologyFit: 76, compilation: 100, overall: 76 },
+      semanticIntent: "Create the Account closure concept and preserve its connected rule.",
+      generatedIris: ["https://example.com/AccountClosure"],
       changePreview: {
         draftable: true,
         summary: "2 ordered typed changes will be added as one atomic recommendation.",
@@ -289,8 +291,15 @@ describe("document ingestion review workspace", () => {
 
     expect(await screen.findByText("Mixed")).toBeInTheDocument();
     expect(screen.getByLabelText("Confidence details")).toHaveTextContent("Evidence94%");
+    expect(screen.getByLabelText("Confidence details")).toHaveTextContent("Compilation100%");
+    expect(screen.getByLabelText("Semantic coverage and compilation metrics")).toHaveTextContent(
+      "Semantic coverage: 100%",
+    );
     expect(screen.getByRole("region", { name: "Exact proposed changes" })).toHaveTextContent(
       "Depends on: create-account-closure",
+    );
+    expect(screen.getByRole("region", { name: "Exact proposed changes" })).toHaveTextContent(
+      "https://example.com/AccountClosure",
     );
     expect(screen.getByLabelText("Review-only findings")).toHaveTextContent("Separation of duties rule");
     expect(screen.getByText("Modeling critique")).toBeInTheDocument();
@@ -306,6 +315,56 @@ describe("document ingestion review workspace", () => {
       action: "exclude-optional",
       operationIds: ["define-account-closure"],
     }));
+  });
+
+  it("sends only the retain decision for a pure review-only rule", async () => {
+    const reviewOnly = workspace("Pending");
+    reviewOnly.recommendations.items[0] = {
+      ...reviewOnly.recommendations.items[0],
+      connectedStatus: "ReviewOnly",
+      changePreview: {
+        draftable: false,
+        summary: "This finding is retained for review and will not create an ontology edit.",
+        operations: [],
+        blockingReason: "This recommendation is review-only.",
+      },
+      confidenceDimensions: {
+        evidence: 90,
+        modeling: 85,
+        ontologyFit: 80,
+        compilation: null,
+        overall: 80,
+      },
+      reviewOnlyFindings: [{
+        id: "finding-rule",
+        summary: "Approval separation rule",
+        reason: "The rule is meaningful but is not a supported typed edit.",
+        relatedOperationIds: [],
+      }],
+    };
+    const decisions: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/decision")) {
+        decisions.push(JSON.parse(String(init?.body)));
+        return json(reviewOnly);
+      }
+      if (path.includes("/review")) return json(reviewOnly);
+      if (path.includes("/document-ingestion/tasks")) return json(tasks);
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    renderWorkspace();
+
+    expect(await screen.findByLabelText("Confidence details")).toHaveTextContent("CompilationNot applicable");
+    fireEvent.click(screen.getByRole("button", { name: "Retain as documented rule" }));
+    await waitFor(() => expect(decisions).toHaveLength(1));
+    expect(decisions[0]).toMatchObject({
+      action: "retain",
+      expectedWorkKey: "work-key",
+      expectedGraphFingerprint: "graph-fingerprint",
+    });
+    expect(decisions[0]).not.toHaveProperty("operations");
   });
 
   it("waits for the task to become reviewable before requesting its review workspace", async () => {
@@ -448,6 +507,8 @@ function workspace(status: WebDocumentReviewRecommendation["reviewStatus"]): Web
       nextOffset: null,
     },
     draftImpact: { acceptedCount: status === "Accepted" ? 1 : 0, pendingCount: status === "Pending" ? 1 : 0, blockedCount: 1, maximumAcceptedEdits: 100, readOnly: true },
+    semanticCoverage: { numerator: 1, denominator: 1, percentage: 100, failureCodes: [] },
+    compilationSuccess: { numerator: 1, denominator: 1, percentage: 100, failureCodes: [] },
   };
 }
 
