@@ -427,8 +427,30 @@ class OpenAiDocumentAnalysisClientTest {
         }
 
         val failed = assertIs<DocumentSemanticPlanningProviderResult.Failed>(result)
-        assertEquals("document-semantic-plan-invalid", failed.safeCode)
+        assertEquals("document-semantic-plan-item-invalid", failed.safeCode)
         assertEquals(false, failed.retryable)
+
+        val invalidCoverage = validSemanticPlanningOutput().replace(
+            "\"recommendationId\":\"recommendation-1\"",
+            "\"recommendationId\":null",
+        )
+        val coverageEngine = MockEngine {
+            respond(
+                providerEnvelope(invalidCoverage),
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val coverageResult = OpenAiDocumentAnalysisClient(engine = coverageEngine).use {
+            it.planSemantic(
+                "secret-value",
+                "gpt-test-2026",
+                "Return semantic meaning only.",
+                finalPlanningRequest(),
+            )
+        }
+        val coverageFailure = assertIs<DocumentSemanticPlanningProviderResult.Failed>(coverageResult)
+        assertEquals("document-semantic-plan-coverage-invalid", coverageFailure.safeCode)
+        assertEquals(false, coverageFailure.retryable)
     }
 
     @Test

@@ -52,5 +52,45 @@
     "separation of initiation and final approval",
     "temporal sequencing",
     "conditional service applicability"
-  ]
+  ],
+  "requiredPositiveConcepts": [
+    "Payment",
+    "Account",
+    "Payment Instruction",
+    "Payment Approval Record",
+    "Supporting Record",
+    "Invoice",
+    "Payment Destination",
+    "Consumer Loan",
+    "Loan Servicing",
+    "Payment Suspense",
+    "Servicing Control",
+    "High-Value Approval Rule",
+    "Linked-Payment Aggregation Rule"
+  ],
+  "requiredMajorRelationships": [
+    "account initiates payment",
+    "payment has instruction",
+    "payment has approval record",
+    "payment has destination",
+    "payment references invoice",
+    "consumer loan has servicing control"
+  ],
+  "thresholds": {
+    "runCount": 10,
+    "coreConceptMinimumRuns": 9,
+    "majorRelationshipMinimumRuns": 8,
+    "supportedCompilationMinimumPercent": 95,
+    "prohibitedMaximumRuns": 0,
+    "complexRuleReviewOnlyMinimumRuns": 10,
+    "exactProvenanceMinimumRuns": 10,
+    "completeLedgerMinimumRuns": 10,
+    "illustrativeGateMinimumRuns": 10,
+    "automaticWriteMaximumRuns": 0
+  },
+  "controlledProvider": {
+    "modelEnvironmentVariable": "ENTIO_DOCUMENT_BENCHMARK_MODEL",
+    "enableEnvironmentVariable": "ENTIO_DOCUMENT_BENCHMARK",
+    "expectedContractVersion": "phase-11-5-plus-semantic-plan-response-v1"
+  }
 }
