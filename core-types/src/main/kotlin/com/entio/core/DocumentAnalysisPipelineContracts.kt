@@ -1433,6 +1433,53 @@ public data class DocumentQualityMetric(
     }
 }
 
+public enum class DocumentBenchmarkExpectationCategory {
+    Concept,
+    Relationship,
+    Rule,
+    Individual,
+    NegativeExpectation,
+}
+
+public data class DocumentBenchmarkExpectation(
+    public val id: String,
+    public val category: DocumentBenchmarkExpectationCategory,
+    public val satisfied: Boolean,
+) {
+    init {
+        requireOpaqueDocumentId(id, "Document benchmark expectation ID")
+    }
+
+    public val stableOrderingKey: String
+        get() = "${category.ordinal.toString().padStart(2, '0')}:$id"
+}
+
+public data class DocumentBenchmarkCategoryCount(
+    public val category: DocumentBenchmarkExpectationCategory,
+    public val satisfied: Int,
+    public val total: Int,
+) {
+    init {
+        require(satisfied >= 0 && total >= 0 && satisfied <= total) {
+            "Document benchmark category counts are invalid."
+        }
+    }
+}
+
+public data class DocumentCompletenessMetrics(
+    public val verifiedPlan: DocumentVerifiedSemanticPlan,
+    public val semanticCoverage: DocumentQualityMetric,
+    public val compilationSuccess: DocumentQualityMetric,
+    public val benchmarkCounts: List<DocumentBenchmarkCategoryCount> = emptyList(),
+) {
+    init {
+        require(benchmarkCounts == benchmarkCounts.distinctBy(DocumentBenchmarkCategoryCount::category)
+            .sortedBy { it.category.ordinal }) {
+            "Document benchmark category counts must be sorted and unique."
+        }
+    }
+}
+
 public data class DocumentCompiledConfidenceDimensions(
     public val evidence: Int,
     public val modeling: Int,
