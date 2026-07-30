@@ -16,6 +16,17 @@ import type {
   WebDocumentReviewRecommendation,
 } from "../../web/projectApi";
 
+const STOPPABLE_DOCUMENT_TASK_STATUSES = new Set([
+  "uploaded",
+  "extracting",
+  "analyzing",
+  "matching",
+  "comparing",
+  "preparing-recommendations",
+  "building-draft",
+  "validating",
+]);
+
 export default function DocumentIngestionWorkspace({ projectId }: { projectId: string }) {
   const tasks = useDocumentIngestionTasks(projectId);
   const upload = useUploadDocuments(projectId);
@@ -96,7 +107,13 @@ export default function DocumentIngestionWorkspace({ projectId }: { projectId: s
             </button>
             <div className="document-task-actions">
               <button type="button" onClick={() => setStatusTaskId(task.taskId)}>Status Updates</button>
-              <button type="button" onClick={() => cancel.mutate(task.taskId)} disabled={task.status === "cancelled"}>Cancel</button>
+              {STOPPABLE_DOCUMENT_TASK_STATUSES.has(task.status) ? <button
+                type="button"
+                onClick={() => cancel.mutate(task.taskId)}
+                disabled={cancel.isPending && cancel.variables === task.taskId}
+              >
+                {cancel.isPending && cancel.variables === task.taskId ? "Stopping..." : "Stop generation"}
+              </button> : null}
               <button type="button" onClick={() => remove.mutate(task.taskId, {
                 onSuccess: () => {
                   setSelectedTaskId(null);
@@ -146,38 +163,44 @@ function DocumentStatusDialog({
     end.current?.scrollIntoView?.({ block: "nearest" });
   }, [task.updates.length]);
 
-  return <div className="ai-modal-backdrop"><section className="ai-modal" role="dialog" aria-modal="true" aria-labelledby="document-status-title">
+  return <div className="ai-modal-backdrop"><section className="ai-modal document-status-modal" role="dialog" aria-modal="true" aria-labelledby="document-status-title">
     <header><h2 id="document-status-title">Ingestion Status Updates</h2><button className="icon-button" type="button" aria-label="Close ingestion status updates" onClick={onClose}>×</button></header>
-    <p>{task.documents.map((document) => document.safeFilename).join(", ") || "Pending upload"}</p>
-    {refreshFailed ? <div className="workflow-error" role="alert">
-      <p>Live status updates could not be refreshed. The updates below may be out of date.</p>
-      <button className="button" type="button" onClick={onRetry} disabled={refreshing}>
-        {refreshing ? "Retrying..." : "Retry status updates"}
-      </button>
-    </div> : null}
-    <div className="ai-status-list">
-      {task.updates.map((update) => <div className="ai-status-item" key={update.order}>
-        <strong>{update.order}</strong>
-        <div>
-          <span>{update.message}</span>
-          <small className="document-status-details">{statusStageLabel(update.stage)} · {update.percent}% · {update.completedDocuments} of {update.totalDocuments} documents</small>
-        </div>
-        <time dateTime={update.timestamp}>{new Date(update.timestamp).toLocaleTimeString()}</time>
-      </div>)}
-      <div ref={end} />
+    <div className="document-status-scroll-region" role="region" aria-label="Ingestion status history" tabIndex={0}>
+      <p>{task.documents.map((document) => document.safeFilename).join(", ") || "Pending upload"}</p>
+      {refreshFailed ? <div className="workflow-error" role="alert">
+        <p>Live status updates could not be refreshed. The updates below may be out of date.</p>
+        <button className="button" type="button" onClick={onRetry} disabled={refreshing}>
+          {refreshing ? "Retrying..." : "Retry status updates"}
+        </button>
+      </div> : null}
+      <div className="ai-status-list">
+        {task.updates.map((update) => <div className="ai-status-item" key={update.order}>
+          <strong>{update.order}</strong>
+          <div>
+            <span>{update.message}</span>
+            <small className="document-status-details">{statusStageLabel(update.stage)} · {update.percent}% · {update.completedDocuments} of {update.totalDocuments} documents</small>
+            {update.details?.length ? <details className="ai-status-details">
+              <summary>Details</summary>
+              <ul>{update.details.map((detail, index) => <li key={`${detail}-${index}`}>{detail}</li>)}</ul>
+            </details> : null}
+          </div>
+          <time dateTime={update.timestamp}>{new Date(update.timestamp).toLocaleTimeString()}</time>
+        </div>)}
+        <div ref={end} />
+      </div>
+      {task.analysisStages?.length ? <section className="document-stage-timeline" aria-label="Analysis stage timeline">
+        <h3>Analysis stages</h3>
+        <ol>{task.analysisStages.map((stage) => <li key={stage.recordId}>
+          <strong>{humanize(stage.stage)}</strong>
+          <span>{humanize(stage.state)}</span>
+          <small>
+            {stage.durationMillis != null ? `${(stage.durationMillis / 1000).toFixed(1)} seconds` : "Waiting"}
+            {stage.providerAttemptCount > 1 ? ` · ${stage.providerAttemptCount} attempts` : ""}
+            {stage.safeCode ? ` · ${humanize(stage.safeCode)}` : ""}
+          </small>
+        </li>)}</ol>
+      </section> : null}
     </div>
-    {task.analysisStages?.length ? <section className="document-stage-timeline" aria-label="Analysis stage timeline">
-      <h3>Analysis stages</h3>
-      <ol>{task.analysisStages.map((stage) => <li key={stage.recordId}>
-        <strong>{humanize(stage.stage)}</strong>
-        <span>{humanize(stage.state)}</span>
-        <small>
-          {stage.durationMillis != null ? `${(stage.durationMillis / 1000).toFixed(1)} seconds` : "Waiting"}
-          {stage.providerAttemptCount > 1 ? ` · ${stage.providerAttemptCount} attempts` : ""}
-          {stage.safeCode ? ` · ${humanize(stage.safeCode)}` : ""}
-        </small>
-      </li>)}</ol>
-    </section> : null}
     <button className="button" type="button" onClick={onClose}>Close</button>
   </section></div>;
 }

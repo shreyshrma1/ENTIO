@@ -102,6 +102,7 @@ class DocumentAnalysisPipelineContractsTest {
 
     @Test
     fun `requires connected model references to point to earlier items`(): Unit {
+        assertTrue(DocumentConnectedModel(emptyList()).items.isEmpty())
         val payment = connectedItem(id = "item-1", order = 0, label = "Payment")
         val approvalRecord = connectedItem(id = "item-2", order = 1, label = "Payment Approval Record")
         val relationship = connectedItem(

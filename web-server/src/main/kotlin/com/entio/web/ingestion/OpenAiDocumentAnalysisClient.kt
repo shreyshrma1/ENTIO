@@ -8,12 +8,16 @@ import com.entio.core.DocumentAssertionClassification
 import com.entio.core.DocumentContentClassification
 import com.entio.core.DocumentConnectedModelItemKind
 import com.entio.core.DocumentConnectedModelReferenceRole
+import com.entio.core.DocumentConfidenceDimensions
 import com.entio.core.DocumentCriticAction
 import com.entio.core.DocumentCriticDisposition
 import com.entio.core.DocumentCriticDispositionKind
+import com.entio.core.DocumentCriticFinding
 import com.entio.core.DocumentCoverageDisposition
 import com.entio.core.DocumentCoverageDispositionKind
+import com.entio.core.DocumentDiscovery
 import com.entio.core.DocumentDiscoveryKind
+import com.entio.core.DocumentEvidence
 import com.entio.core.DocumentEvidenceId
 import com.entio.core.DocumentFinalPlan
 import com.entio.core.DocumentFinalRecommendation
@@ -39,6 +43,7 @@ import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.HttpTimeoutConfig
 import io.ktor.client.request.accept
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -56,7 +61,6 @@ import kotlin.coroutines.cancellation.CancellationException
 internal data class OpenAiDocumentAnalysisConfiguration(
     val endpoint: String = "https://api.openai.com/v1/responses",
     val connectTimeoutMillis: Long = 10_000,
-    val requestTimeoutMillis: Long = 120_000,
 ) {
     init {
         require(runCatching {
@@ -68,7 +72,6 @@ internal data class OpenAiDocumentAnalysisConfiguration(
                 uri.fragment == null
         }.getOrDefault(false)) { "Document analysis requires the fixed OpenAI Responses endpoint." }
         require(connectTimeoutMillis in 1..30_000)
-        require(requestTimeoutMillis in 1..180_000)
     }
 }
 
@@ -84,7 +87,7 @@ internal class OpenAiDocumentAnalysisClient(
             followRedirects = false
             install(HttpTimeout) {
                 connectTimeoutMillis = configuration.connectTimeoutMillis
-                requestTimeoutMillis = configuration.requestTimeoutMillis
+                requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS
             }
         }
     } else {
@@ -92,7 +95,7 @@ internal class OpenAiDocumentAnalysisClient(
             followRedirects = false
             install(HttpTimeout) {
                 connectTimeoutMillis = configuration.connectTimeoutMillis
-                requestTimeoutMillis = configuration.requestTimeoutMillis
+                requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS
             }
         }
     }
@@ -126,7 +129,7 @@ internal class OpenAiDocumentAnalysisClient(
             val structured = parseStrictResponse(extractOutputText(responseText))
             DocumentAnalysisProviderResult.Completed(structured)
         } catch (failure: SafeProviderResponseFailure) {
-            DocumentAnalysisProviderResult.Failed(false, failure.code)
+            DocumentAnalysisProviderResult.Failed(failure.retryable, failure.code)
         } catch (failure: CancellationException) {
             throw failure
         } catch (_: HttpRequestTimeoutException) {
@@ -134,7 +137,7 @@ internal class OpenAiDocumentAnalysisClient(
         } catch (_: IOException) {
             DocumentAnalysisProviderResult.Failed(true, "document-provider-unavailable")
         } catch (_: Exception) {
-            DocumentAnalysisProviderResult.Failed(false, "document-provider-malformed-output")
+            DocumentAnalysisProviderResult.Failed(true, "document-provider-malformed-output")
         }
     }
 
@@ -169,10 +172,10 @@ internal class OpenAiDocumentAnalysisClient(
             if (responseText.length > MAX_DOCUMENT_PROVIDER_RESPONSE_CHARACTERS) {
                 return DocumentDiscoveryProviderResult.Failed(false, "document-provider-response-limit")
             }
-            val structured = parseStrictDiscoveryResponse(extractOutputText(responseText))
+            val structured = parseStrictDiscoveryResponse(extractOutputText(responseText), request)
             DocumentDiscoveryProviderResult.Completed(structured)
         } catch (failure: SafeProviderResponseFailure) {
-            DocumentDiscoveryProviderResult.Failed(false, failure.code)
+            DocumentDiscoveryProviderResult.Failed(failure.retryable, failure.code)
         } catch (failure: CancellationException) {
             throw failure
         } catch (_: HttpRequestTimeoutException) {
@@ -180,7 +183,7 @@ internal class OpenAiDocumentAnalysisClient(
         } catch (_: IOException) {
             DocumentDiscoveryProviderResult.Failed(true, "document-provider-unavailable")
         } catch (_: Exception) {
-            DocumentDiscoveryProviderResult.Failed(false, "document-provider-malformed-output")
+            DocumentDiscoveryProviderResult.Failed(true, "document-provider-malformed-output")
         }
     }
 
@@ -257,7 +260,7 @@ internal class OpenAiDocumentAnalysisClient(
                 parseStrictReconciliationResponse(extractOutputText(responseText)),
             )
         } catch (failure: SafeProviderResponseFailure) {
-            DocumentReconciliationProviderResult.Failed(false, failure.code)
+            DocumentReconciliationProviderResult.Failed(failure.retryable, failure.code)
         } catch (failure: CancellationException) {
             throw failure
         } catch (_: HttpRequestTimeoutException) {
@@ -265,7 +268,7 @@ internal class OpenAiDocumentAnalysisClient(
         } catch (_: IOException) {
             DocumentReconciliationProviderResult.Failed(true, "document-provider-unavailable")
         } catch (_: Exception) {
-            DocumentReconciliationProviderResult.Failed(false, "document-provider-malformed-output")
+            DocumentReconciliationProviderResult.Failed(true, "document-provider-malformed-output")
         }
     }
 
@@ -304,7 +307,7 @@ internal class OpenAiDocumentAnalysisClient(
                 parseStrictOntologyAlignmentResponse(extractOutputText(responseText)),
             )
         } catch (failure: SafeProviderResponseFailure) {
-            DocumentOntologyAlignmentProviderResult.Failed(false, failure.code)
+            DocumentOntologyAlignmentProviderResult.Failed(failure.retryable, failure.code)
         } catch (failure: CancellationException) {
             throw failure
         } catch (_: HttpRequestTimeoutException) {
@@ -312,7 +315,7 @@ internal class OpenAiDocumentAnalysisClient(
         } catch (_: IOException) {
             DocumentOntologyAlignmentProviderResult.Failed(true, "document-provider-unavailable")
         } catch (_: Exception) {
-            DocumentOntologyAlignmentProviderResult.Failed(false, "document-provider-malformed-output")
+            DocumentOntologyAlignmentProviderResult.Failed(true, "document-provider-malformed-output")
         }
     }
 
@@ -351,7 +354,7 @@ internal class OpenAiDocumentAnalysisClient(
                 parseStrictModelingCriticResponse(extractOutputText(responseText)),
             )
         } catch (failure: SafeProviderResponseFailure) {
-            DocumentModelingCriticProviderResult.Failed(false, failure.code)
+            DocumentModelingCriticProviderResult.Failed(failure.retryable, failure.code)
         } catch (failure: CancellationException) {
             throw failure
         } catch (_: HttpRequestTimeoutException) {
@@ -359,7 +362,7 @@ internal class OpenAiDocumentAnalysisClient(
         } catch (_: IOException) {
             DocumentModelingCriticProviderResult.Failed(true, "document-provider-unavailable")
         } catch (_: Exception) {
-            DocumentModelingCriticProviderResult.Failed(false, "document-provider-malformed-output")
+            DocumentModelingCriticProviderResult.Failed(true, "document-provider-malformed-output")
         }
     }
 
@@ -395,18 +398,20 @@ internal class OpenAiDocumentAnalysisClient(
                 return DocumentFinalPlanningProviderResult.Failed(false, "document-provider-response-limit")
             }
             DocumentFinalPlanningProviderResult.Completed(
-                parseStrictFinalPlanningResponse(extractOutputText(responseText)),
+                parseStrictFinalPlanningResponse(extractOutputText(responseText), request),
             )
         } catch (failure: SafeProviderResponseFailure) {
-            DocumentFinalPlanningProviderResult.Failed(false, failure.code)
+            DocumentFinalPlanningProviderResult.Failed(failure.retryable, failure.code)
         } catch (failure: CancellationException) {
             throw failure
         } catch (_: HttpRequestTimeoutException) {
             DocumentFinalPlanningProviderResult.Failed(true, "document-provider-timeout")
         } catch (_: IOException) {
             DocumentFinalPlanningProviderResult.Failed(true, "document-provider-unavailable")
+        } catch (failure: IllegalArgumentException) {
+            DocumentFinalPlanningProviderResult.Failed(true, classifyFinalPlanParseFailure(failure))
         } catch (_: Exception) {
-            DocumentFinalPlanningProviderResult.Failed(false, "document-provider-malformed-output")
+            DocumentFinalPlanningProviderResult.Failed(true, "document-provider-malformed-output")
         }
     }
 
@@ -425,9 +430,15 @@ internal class OpenAiDocumentAnalysisClient(
             null
         }
         val providerCode = providerError?.path("code")?.takeIf(JsonNode::isTextual)?.asText()
+        val providerType = providerError?.path("type")?.takeIf(JsonNode::isTextual)?.asText()
         val providerParameter = providerError?.path("param")?.takeIf(JsonNode::isTextual)?.asText()
+        val providerMessage = providerError?.path("message")?.takeIf(JsonNode::isTextual)?.asText().orEmpty()
         val safeCode = when {
             status == 401 || status == 403 -> "document-provider-authorization"
+            status == 429 && (providerCode == "insufficient_quota" || providerType == "insufficient_quota") ->
+                "document-provider-quota-exhausted"
+            status == 429 && providerMessage.contains("request too large", ignoreCase = true) ->
+                "document-provider-request-rate-limit"
             status == 429 -> "document-provider-rate-limited"
             status >= 500 -> "document-provider-unavailable"
             providerCode == "invalid_json_schema" ||
@@ -437,9 +448,36 @@ internal class OpenAiDocumentAnalysisClient(
             else -> "document-provider-request-rejected"
         }
         return SafeHttpFailure(
-            retryable = status == 429 || status >= 500,
+            retryable = safeCode == "document-provider-rate-limited" || status >= 500,
             safeCode = safeCode,
         )
+    }
+
+    private fun classifyFinalPlanParseFailure(failure: IllegalArgumentException): String {
+        val message = failure.message.orEmpty()
+        return when {
+            message.contains("temporary", ignoreCase = true) ->
+                "document-final-plan-temporary-reference-invalid"
+            message.contains("dependenc", ignoreCase = true) ->
+                "document-final-plan-dependency-invalid"
+            message.contains("coverage", ignoreCase = true) ||
+                message.contains("verified discovery", ignoreCase = true) ->
+                "document-final-plan-coverage-invalid"
+            message.contains("critic", ignoreCase = true) ->
+                "document-final-plan-critic-disposition-invalid"
+            message.contains("individual", ignoreCase = true) ->
+                "document-final-plan-individual-gate-invalid"
+            message.contains("expanded", ignoreCase = true) ->
+                "document-final-plan-edit-limit-invalid"
+            message.contains("executable", ignoreCase = true) ||
+                message.contains("review-only", ignoreCase = true) ||
+                message.contains("mixed recommendation", ignoreCase = true) ||
+                message.contains("blocked recommendation", ignoreCase = true) ->
+                "document-final-plan-status-invalid"
+            message.contains("recommendation", ignoreCase = true) ->
+                "document-final-plan-recommendation-invalid"
+            else -> "document-final-plan-schema-invalid"
+        }
     }
 
     private suspend fun connectedModelCall(
@@ -484,7 +522,7 @@ internal class OpenAiDocumentAnalysisClient(
             }
             completed(parseStrictConnectedModelResponse(extractOutputText(responseText), responseSchemaVersion))
         } catch (failure: SafeProviderResponseFailure) {
-            DocumentConnectedModelProviderResult.Failed(false, failure.code)
+            DocumentConnectedModelProviderResult.Failed(failure.retryable, failure.code)
         } catch (failure: CancellationException) {
             throw failure
         } catch (_: HttpRequestTimeoutException) {
@@ -492,7 +530,7 @@ internal class OpenAiDocumentAnalysisClient(
         } catch (_: IOException) {
             DocumentConnectedModelProviderResult.Failed(true, "document-provider-unavailable")
         } catch (_: Exception) {
-            DocumentConnectedModelProviderResult.Failed(false, "document-provider-malformed-output")
+            DocumentConnectedModelProviderResult.Failed(true, "document-provider-malformed-output")
         }
     }
 
@@ -500,6 +538,7 @@ internal class OpenAiDocumentAnalysisClient(
         val root = objectMapper.createObjectNode()
         root.put("model", modelId)
         root.put("store", false)
+        root.put("max_output_tokens", MAX_DOCUMENT_PROVIDER_OUTPUT_TOKENS)
         root.putArray("tools")
         root.put("instructions", instruction)
         root.put("input", objectMapper.writeValueAsString(request))
@@ -515,10 +554,11 @@ internal class OpenAiDocumentAnalysisClient(
         val root = objectMapper.createObjectNode()
         root.put("model", modelId)
         root.put("store", false)
+        root.put("max_output_tokens", MAX_DOCUMENT_DISCOVERY_OUTPUT_TOKENS)
         root.putArray("tools")
         root.put("instructions", instruction)
-        root.put("input", objectMapper.writeValueAsString(request))
-        root.set<JsonNode>("text", strictDiscoveryTextFormat())
+        root.put("input", objectMapper.writeValueAsString(request.toPromptPayload()))
+        root.set<JsonNode>("text", strictDiscoveryTextFormat(request))
         return objectMapper.writeValueAsString(root)
     }
 
@@ -532,6 +572,7 @@ internal class OpenAiDocumentAnalysisClient(
         val root = objectMapper.createObjectNode()
         root.put("model", modelId)
         root.put("store", false)
+        root.put("max_output_tokens", MAX_DOCUMENT_PROVIDER_OUTPUT_TOKENS)
         root.putArray("tools")
         root.put("instructions", instruction)
         root.put("input", objectMapper.writeValueAsString(request))
@@ -547,6 +588,7 @@ internal class OpenAiDocumentAnalysisClient(
         val root = objectMapper.createObjectNode()
         root.put("model", modelId)
         root.put("store", false)
+        root.put("max_output_tokens", MAX_DOCUMENT_PROVIDER_OUTPUT_TOKENS)
         root.putArray("tools")
         root.put("instructions", instruction)
         root.put("input", objectMapper.writeValueAsString(request))
@@ -562,12 +604,18 @@ internal class OpenAiDocumentAnalysisClient(
         val root = objectMapper.createObjectNode()
         root.put("model", modelId)
         root.put("store", false)
+        root.put("max_output_tokens", alignmentOutputTokens(request))
         root.putArray("tools")
         root.put("instructions", instruction)
         root.put("input", objectMapper.writeValueAsString(request))
-        root.set<JsonNode>("text", strictOntologyAlignmentTextFormat())
+        root.set<JsonNode>("text", strictOntologyAlignmentTextFormat(request.connectedModel.items.size))
         return objectMapper.writeValueAsString(root)
     }
+
+    private fun alignmentOutputTokens(request: DocumentOntologyAlignmentRequest): Int =
+        (MIN_DOCUMENT_ALIGNMENT_OUTPUT_TOKENS +
+            request.connectedModel.items.size * DOCUMENT_ALIGNMENT_TOKENS_PER_MODEL_ITEM)
+            .coerceAtMost(MAX_DOCUMENT_ALIGNMENT_OUTPUT_TOKENS)
 
     private fun modelingCriticRequestBody(
         modelId: String,
@@ -577,9 +625,10 @@ internal class OpenAiDocumentAnalysisClient(
         val root = objectMapper.createObjectNode()
         root.put("model", modelId)
         root.put("store", false)
+        root.put("max_output_tokens", MAX_DOCUMENT_PROVIDER_OUTPUT_TOKENS)
         root.putArray("tools")
         root.put("instructions", instruction)
-        root.put("input", objectMapper.writeValueAsString(request))
+        root.put("input", objectMapper.writeValueAsString(request.toPromptPayload()))
         root.set<JsonNode>("text", strictModelingCriticTextFormat())
         return objectMapper.writeValueAsString(root)
     }
@@ -592,14 +641,25 @@ internal class OpenAiDocumentAnalysisClient(
         val root = objectMapper.createObjectNode()
         root.put("model", modelId)
         root.put("store", false)
+        root.put("max_output_tokens", finalPlanOutputTokens(request))
         root.putArray("tools")
         root.put("instructions", instruction)
-        root.put("input", objectMapper.writeValueAsString(request))
-        root.set<JsonNode>("text", strictFinalPlanningTextFormat())
+        root.put("input", objectMapper.writeValueAsString(request.toPromptPayload()))
+        root.set<JsonNode>("text", strictFinalPlanningTextFormat(request))
         return objectMapper.writeValueAsString(root)
     }
 
-    private fun strictFinalPlanningTextFormat(): JsonNode {
+    private fun finalPlanOutputTokens(request: DocumentFinalPlanningRequest): Int =
+        (MIN_DOCUMENT_FINAL_PLAN_OUTPUT_TOKENS +
+            maxOf(
+                request.connectedModel.items.size,
+                request.discoveries.count {
+                    it.contentClassification == DocumentContentClassification.BusinessContent
+                },
+            ) * DOCUMENT_FINAL_PLAN_TOKENS_PER_MODEL_ITEM)
+            .coerceAtMost(MAX_DOCUMENT_FINAL_PLAN_OUTPUT_TOKENS)
+
+    private fun strictFinalPlanningTextFormat(request: DocumentFinalPlanningRequest): JsonNode {
         fun objectSchema(required: List<String>, properties: JsonNode): JsonNode =
             objectMapper.createObjectNode().apply {
                 put("type", "object")
@@ -608,22 +668,114 @@ internal class OpenAiDocumentAnalysisClient(
                 set<JsonNode>("properties", properties)
             }
         fun stringArray(maxItems: Int): JsonNode = boundedUniqueStringArray(0, maxItems, 500)
-        val operand = objectSchema(
+        fun requiredStringArray(maxItems: Int): JsonNode = boundedUniqueStringArray(1, maxItems, 500)
+        fun nullSchema(description: String): JsonNode =
+            objectMapper.createObjectNode().put("type", "null").put("description", description)
+        fun operand(
+            kind: String,
+            valueSchema: JsonNode,
+            datatypeSchema: JsonNode = nullSchema("Not used by this operand kind."),
+            languageSchema: JsonNode = nullSchema("Not used by this operand kind."),
+        ): JsonNode = objectSchema(
             FINAL_OPERAND_FIELDS.toList(),
             objectMapper.createObjectNode().apply {
-                set<JsonNode>("kind", stringEnum(FINAL_OPERAND_KINDS, "Typed operand kind."))
-                putObject("value").put("type", "string").put("minLength", 1).put("maxLength", 2_000)
-                set<JsonNode>("datatypeIri", nullableString(2_000, "Literal datatype IRI."))
-                set<JsonNode>("language", nullableString(100, "Literal language tag."))
+                set<JsonNode>("kind", stringEnum(listOf(kind), "The exact typed operand kind."))
+                set<JsonNode>("value", valueSchema)
+                set<JsonNode>("datatypeIri", datatypeSchema)
+                set<JsonNode>("language", languageSchema)
             },
         )
+        fun boundedText(description: String): JsonNode =
+            objectMapper.createObjectNode()
+                .put("type", "string")
+                .put("minLength", 1)
+                .put("maxLength", 2_000)
+                .put("description", description)
+        val allowedExistingEntityIris = (
+            request.ontologySnapshot.entries.map(DocumentOntologyAlignmentContextEntry::entityIri) +
+                listOf(
+                    "http://www.w3.org/2001/XMLSchema#boolean",
+                    "http://www.w3.org/2001/XMLSchema#date",
+                    "http://www.w3.org/2001/XMLSchema#dateTime",
+                    "http://www.w3.org/2001/XMLSchema#decimal",
+                    "http://www.w3.org/2001/XMLSchema#integer",
+                    "http://www.w3.org/2001/XMLSchema#string",
+                )
+            ).distinct().sorted()
+        val operand = objectMapper.createObjectNode().apply {
+            set<JsonNode>("anyOf", objectMapper.createArrayNode().apply {
+                add(operand(
+                    "ExistingEntity",
+                    stringEnum(
+                        allowedExistingEntityIris,
+                        "An exact entity IRI copied from the supplied ontology snapshot or an approved XSD datatype IRI.",
+                    ),
+                ))
+                add(operand(
+                    "TemporaryEntity",
+                    objectMapper.createObjectNode()
+                        .put("type", "string")
+                        .put(
+                            "pattern",
+                            "^new:(class|objectProperty|datatypeProperty|annotationProperty|individual|shape):" +
+                                "[A-Za-z][A-Za-z0-9_]*$",
+                        )
+                        .put("description", "An exact declaration created earlier in this recommendation."),
+                ))
+                add(operand(
+                    "LiteralValue",
+                    boundedText("The literal lexical form copied from verified evidence."),
+                    nullableString(2_000, "The literal datatype IRI when present."),
+                    nullableString(100, "The literal language tag when present."),
+                ))
+                add(operand("TextValue", boundedText("A supported label, definition, annotation, or SHACL constraint kind.")))
+                add(operand(
+                    "IntegerValue",
+                    objectMapper.createObjectNode()
+                        .put("type", "string")
+                        .put("pattern", "^-?[0-9]+$")
+                        .put("description", "An integer encoded as text for the typed operand wire contract."),
+                ))
+                add(operand(
+                    "DecimalValue",
+                    objectMapper.createObjectNode()
+                        .put("type", "string")
+                        .put("pattern", "^-?[0-9]+(?:\\.[0-9]+)?$")
+                        .put("description", "A decimal encoded as text for the typed operand wire contract."),
+                ))
+                add(operand(
+                    "SourceId",
+                    stringEnum(
+                        request.ontologySnapshot.writableSourceIds,
+                        "An exact writable ontology source ID copied from the supplied snapshot.",
+                    ),
+                ))
+            })
+        }
         val operation = objectSchema(
             FINAL_OPERATION_FIELDS.toList(),
             objectMapper.createObjectNode().apply {
                 putObject("id").put("type", "string").put("minLength", 1).put("maxLength", 200)
-                set<JsonNode>("kind", stringEnum(DocumentPlanOperationKind.entries.map { it.name }, "Typed operation."))
+                set<JsonNode>(
+                    "kind",
+                    stringEnum(
+                        DocumentPlanOperationKind.entries.map { it.name },
+                        "Typed ontology operation. A created object or datatype property requires separate " +
+                            "SetPropertyDomain and SetPropertyRange operations in the same recommendation. Model generic " +
+                            "roles as classes, never individuals. Model supported enforceable requirements with SHACL " +
+                            "shape operations; otherwise retain exactly one review-only finding.",
+                    ),
+                )
                 putObject("order").put("type", "integer").put("minimum", 0).put("maximum", 99)
-                set<JsonNode>("declaration", nullableString(500, "Temporary new:<kind>:<localName> reference."))
+                set<JsonNode>(
+                    "declaration",
+                    nullablePatternString(
+                        500,
+                        "^new:(class|objectProperty|datatypeProperty|annotationProperty|individual|shape):" +
+                            "[A-Za-z][A-Za-z0-9_]*$",
+                        "Temporary new:<kind>:<LocalName> reference with no spaces or punctuation.",
+                    ),
+                )
                 set<JsonNode>("operands", objectMapper.createObjectNode().apply {
                     put("type", "array")
                     put("maxItems", 20)
@@ -640,8 +792,8 @@ internal class OpenAiDocumentAnalysisClient(
                 putObject("id").put("type", "string").put("minLength", 1).put("maxLength", 200)
                 putObject("summary").put("type", "string").put("minLength", 1).put("maxLength", 1_000)
                 putObject("reason").put("type", "string").put("minLength", 1).put("maxLength", 2_000)
-                set<JsonNode>("discoveryIds", stringArray(100))
-                set<JsonNode>("evidenceIds", stringArray(8))
+                set<JsonNode>("discoveryIds", requiredStringArray(100))
+                set<JsonNode>("evidenceIds", requiredStringArray(8))
                 set<JsonNode>("relatedOperationIds", stringArray(20))
             },
         )
@@ -674,8 +826,8 @@ internal class OpenAiDocumentAnalysisClient(
                 putObject("id").put("type", "string").put("minLength", 1).put("maxLength", 200)
                 putObject("title").put("type", "string").put("minLength", 1).put("maxLength", 500)
                 putObject("description").put("type", "string").put("minLength", 1).put("maxLength", 2_000)
-                set<JsonNode>("discoveryIds", stringArray(100))
-                set<JsonNode>("evidenceIds", stringArray(8))
+                set<JsonNode>("discoveryIds", requiredStringArray(100))
+                set<JsonNode>("evidenceIds", requiredStringArray(8))
                 set<JsonNode>("operations", objectMapper.createObjectNode().apply {
                     put("type", "array")
                     put("maxItems", 20)
@@ -692,7 +844,11 @@ internal class OpenAiDocumentAnalysisClient(
                     set<JsonNode>("items", criticDisposition)
                 })
                 listOf("evidenceConfidence", "modelingConfidence", "ontologyFitConfidence").forEach { field ->
-                    putObject(field).put("type", "integer").put("minimum", 0).put("maximum", 100)
+                    putObject(field)
+                        .put("type", "integer")
+                        .put("minimum", 0)
+                        .put("maximum", 100)
+                        .put("description", "Percentage on a 0-100 scale; use 80 for eighty percent, not 4.")
                 }
                 set<JsonNode>(
                     "status",
@@ -723,7 +879,7 @@ internal class OpenAiDocumentAnalysisClient(
             FINAL_PLAN_FIELDS.toList(),
             objectMapper.createObjectNode().apply {
                 putObject("workKey").put("type", "string").put("pattern", "^[a-f0-9]{64}$")
-                set<JsonNode>("verifiedDiscoveryIds", stringArray(500))
+                set<JsonNode>("verifiedDiscoveryIds", requiredStringArray(500))
                 set<JsonNode>("criticFindingIds", stringArray(600))
                 set<JsonNode>("recommendations", objectMapper.createObjectNode().apply {
                     put("type", "array")
@@ -772,7 +928,11 @@ internal class OpenAiDocumentAnalysisClient(
                 ))
                 putObject("reason").put("type", "string").put("minLength", 1).put("maxLength", 2_000)
                 listOf("evidenceConfidence", "modelingConfidence", "ontologyFitConfidence").forEach { name ->
-                    putObject(name).put("type", "integer").put("minimum", 0).put("maximum", 100)
+                    putObject(name)
+                        .put("type", "integer")
+                        .put("minimum", 0)
+                        .put("maximum", 100)
+                        .put("description", "Percentage on a 0-100 scale; use 80 for eighty percent, not 4.")
                 }
             })
         }
@@ -801,7 +961,7 @@ internal class OpenAiDocumentAnalysisClient(
         }
     }
 
-    private fun strictOntologyAlignmentTextFormat(): JsonNode {
+    private fun strictOntologyAlignmentTextFormat(expectedRecordCount: Int): JsonNode {
         val record = objectMapper.createObjectNode().apply {
             put("type", "object")
             put("additionalProperties", false)
@@ -835,7 +995,8 @@ internal class OpenAiDocumentAnalysisClient(
                     .put("const", DocumentAnalysisPipelineVersions.ONTOLOGY_ALIGNMENT_RESPONSE)
                 set<JsonNode>("records", objectMapper.createObjectNode().apply {
                     put("type", "array")
-                    put("maxItems", 300)
+                    put("minItems", expectedRecordCount)
+                    put("maxItems", expectedRecordCount)
                     set<JsonNode>("items", record)
                 })
             })
@@ -910,21 +1071,34 @@ internal class OpenAiDocumentAnalysisClient(
         responseSchemaVersion: String,
         formatName: String,
     ): JsonNode {
-        val reference = objectMapper.createObjectNode().apply {
-            put("type", "object")
-            put("additionalProperties", false)
-            set<JsonNode>("required", objectMapper.valueToTree(CONNECTED_MODEL_REFERENCE_FIELDS.sorted()))
-            set<JsonNode>("properties", objectMapper.createObjectNode().apply {
-                set<JsonNode>("role", stringEnum(
-                    DocumentConnectedModelReferenceRole.entries.map { it.name },
-                    "The semantic role of this dependency.",
-                ))
-                putObject("providerItemId")
-                    .put("type", "string")
-                    .put("pattern", "^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
-            })
-        }
-        val item = objectMapper.createObjectNode().apply {
+        fun nullSchema(description: String): JsonNode =
+            objectMapper.createObjectNode().put("type", "null").put("description", description)
+        fun reference(roles: List<DocumentConnectedModelReferenceRole>): JsonNode =
+            objectMapper.createObjectNode().apply {
+                put("type", "object")
+                put("additionalProperties", false)
+                set<JsonNode>("required", objectMapper.valueToTree(CONNECTED_MODEL_REFERENCE_FIELDS.sorted()))
+                set<JsonNode>("properties", objectMapper.createObjectNode().apply {
+                    set<JsonNode>(
+                        "role",
+                        stringEnum(
+                            (roles.ifEmpty { DocumentConnectedModelReferenceRole.entries }).map { it.name },
+                            "The exact semantic role of this dependency.",
+                        ),
+                    )
+                    putObject("providerItemId")
+                        .put("type", "string")
+                        .put("pattern", "^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
+                })
+            }
+        fun item(
+            kinds: List<DocumentConnectedModelItemKind>,
+            roles: List<DocumentConnectedModelReferenceRole>,
+            minimumReferences: Int,
+            maximumReferences: Int,
+            literalRequired: Boolean = false,
+            reviewOnlyRequired: Boolean = false,
+        ): JsonNode = objectMapper.createObjectNode().apply {
             put("type", "object")
             put("additionalProperties", false)
             set<JsonNode>("required", objectMapper.valueToTree(CONNECTED_MODEL_FIELDS.sorted()))
@@ -932,10 +1106,10 @@ internal class OpenAiDocumentAnalysisClient(
                 putObject("providerId")
                     .put("type", "string")
                     .put("pattern", "^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
-                set<JsonNode>("kind", stringEnum(
-                    DocumentConnectedModelItemKind.entries.map { it.name },
-                    "The local connected-model item kind.",
-                ))
+                set<JsonNode>(
+                    "kind",
+                    stringEnum(kinds.map { it.name }, "The connected-model item kind for this exact reference contract."),
+                )
                 putObject("label").put("type", "string").put("minLength", 1).put("maxLength", 500)
                 putObject("rationale").put("type", "string").put("minLength", 1).put("maxLength", 2_000)
                 set<JsonNode>("discoveryIds", objectMapper.createObjectNode().apply {
@@ -946,23 +1120,147 @@ internal class OpenAiDocumentAnalysisClient(
                 })
                 set<JsonNode>("references", objectMapper.createObjectNode().apply {
                     put("type", "array")
-                    put("maxItems", 20)
-                    set<JsonNode>("items", reference)
+                    put("minItems", minimumReferences)
+                    put("maxItems", maximumReferences)
+                    set<JsonNode>("items", reference(roles))
                 })
-                set<JsonNode>("literalLexicalForm", nullableString(
-                    8_000,
-                    "The literal lexical form for a DatatypeValueAssertion, otherwise null.",
-                ))
-                set<JsonNode>("literalDatatypeIri", nullableString(
-                    2_000,
-                    "The literal datatype IRI when present, otherwise null.",
-                ))
-                set<JsonNode>("literalLanguageTag", nullableString(
-                    100,
-                    "The literal language tag when present, otherwise null.",
-                ))
+                set<JsonNode>(
+                    "literalLexicalForm",
+                    if (literalRequired) {
+                        objectMapper.createObjectNode()
+                            .put("type", "string")
+                            .put("minLength", 1)
+                            .put("maxLength", 8_000)
+                            .put("description", "The exact literal lexical form.")
+                    } else {
+                        nullSchema("Null because this item is not a datatype-value assertion.")
+                    },
+                )
+                set<JsonNode>(
+                    "literalDatatypeIri",
+                    if (literalRequired) {
+                        nullableString(2_000, "The literal datatype IRI when explicitly supported, otherwise null.")
+                    } else {
+                        nullSchema("Null because this item is not a datatype-value assertion.")
+                    },
+                )
+                set<JsonNode>(
+                    "literalLanguageTag",
+                    if (literalRequired) {
+                        nullableString(100, "The literal language tag when explicitly supported, otherwise null.")
+                    } else {
+                        nullSchema("Null because this item is not a datatype-value assertion.")
+                    },
+                )
                 putObject("order").put("type", "integer").put("minimum", 0)
-                putObject("reviewOnlyEligible").put("type", "boolean")
+                if (reviewOnlyRequired) {
+                    putObject("reviewOnlyEligible")
+                        .put("type", "boolean")
+                        .put("const", true)
+                        .put("description", "Complex rules must remain review-only eligible.")
+                } else {
+                    putObject("reviewOnlyEligible").put("type", "boolean")
+                }
+            })
+        }
+        val item = objectMapper.createObjectNode().apply {
+            set<JsonNode>("anyOf", objectMapper.createArrayNode().apply {
+                add(item(
+                    listOf(
+                        DocumentConnectedModelItemKind.Class,
+                        DocumentConnectedModelItemKind.ObjectProperty,
+                        DocumentConnectedModelItemKind.DatatypeProperty,
+                        DocumentConnectedModelItemKind.AnnotationProperty,
+                        DocumentConnectedModelItemKind.Individual,
+                    ),
+                    emptyList(),
+                    0,
+                    0,
+                ))
+                add(item(
+                    listOf(DocumentConnectedModelItemKind.SubclassRelationship),
+                    listOf(
+                        DocumentConnectedModelReferenceRole.Subclass,
+                        DocumentConnectedModelReferenceRole.Superclass,
+                    ),
+                    2,
+                    2,
+                ))
+                add(item(
+                    listOf(DocumentConnectedModelItemKind.DomainAssignment),
+                    listOf(
+                        DocumentConnectedModelReferenceRole.Property,
+                        DocumentConnectedModelReferenceRole.Domain,
+                    ),
+                    2,
+                    2,
+                ))
+                add(item(
+                    listOf(DocumentConnectedModelItemKind.RangeAssignment),
+                    listOf(
+                        DocumentConnectedModelReferenceRole.Property,
+                        DocumentConnectedModelReferenceRole.Range,
+                    ),
+                    2,
+                    2,
+                ))
+                add(item(
+                    listOf(DocumentConnectedModelItemKind.TypeAssertion),
+                    listOf(
+                        DocumentConnectedModelReferenceRole.Individual,
+                        DocumentConnectedModelReferenceRole.Type,
+                    ),
+                    2,
+                    2,
+                ))
+                add(item(
+                    listOf(DocumentConnectedModelItemKind.ObjectPropertyAssertion),
+                    listOf(
+                        DocumentConnectedModelReferenceRole.Subject,
+                        DocumentConnectedModelReferenceRole.Predicate,
+                        DocumentConnectedModelReferenceRole.Object,
+                    ),
+                    3,
+                    3,
+                ))
+                add(item(
+                    listOf(DocumentConnectedModelItemKind.DatatypeValueAssertion),
+                    listOf(
+                        DocumentConnectedModelReferenceRole.Subject,
+                        DocumentConnectedModelReferenceRole.Predicate,
+                    ),
+                    2,
+                    2,
+                    literalRequired = true,
+                ))
+                add(item(
+                    listOf(DocumentConnectedModelItemKind.NodeShape),
+                    listOf(DocumentConnectedModelReferenceRole.TargetClass),
+                    1,
+                    1,
+                ))
+                add(item(
+                    listOf(DocumentConnectedModelItemKind.PropertyShape),
+                    listOf(
+                        DocumentConnectedModelReferenceRole.Shape,
+                        DocumentConnectedModelReferenceRole.Path,
+                    ),
+                    2,
+                    2,
+                ))
+                add(item(
+                    listOf(DocumentConnectedModelItemKind.Constraint),
+                    listOf(DocumentConnectedModelReferenceRole.ConstraintTarget),
+                    1,
+                    1,
+                ))
+                add(item(
+                    listOf(DocumentConnectedModelItemKind.ComplexRule),
+                    listOf(DocumentConnectedModelReferenceRole.Related),
+                    1,
+                    20,
+                    reviewOnlyRequired = true,
+                ))
             })
         }
         val schema = objectMapper.createObjectNode().apply {
@@ -989,7 +1287,11 @@ internal class OpenAiDocumentAnalysisClient(
         }
     }
 
-    private fun strictDiscoveryTextFormat(): JsonNode {
+    private fun strictDiscoveryTextFormat(request: DocumentDiscoveryRequest): JsonNode {
+        val allowedAnchorIds = request.evidenceAnchors
+            .map(DocumentDiscoveryEvidenceAnchor::anchorId)
+            .distinct()
+            .sorted()
         val evidence = objectMapper.createObjectNode().apply {
             put("type", "array")
             put("minItems", 1)
@@ -997,24 +1299,12 @@ internal class OpenAiDocumentAnalysisClient(
             set<JsonNode>("items", objectMapper.createObjectNode().apply {
                 put("type", "object")
                 put("additionalProperties", false)
-                set<JsonNode>("required", objectMapper.valueToTree(EVIDENCE_FIELDS.sorted()))
+                set<JsonNode>("required", objectMapper.valueToTree(DISCOVERY_EVIDENCE_FIELDS.sorted()))
                 set<JsonNode>("properties", objectMapper.createObjectNode().apply {
-                    putObject("documentId")
-                        .put("type", "string")
-                        .put("maxLength", 200)
-                    putObject("blockId")
-                        .put("type", "string")
-                        .put("maxLength", 200)
-                    putObject("startOffsetInBlock")
-                        .put("type", "integer")
-                        .put("minimum", 0)
-                    putObject("endOffsetInBlock")
-                        .put("type", "integer")
-                        .put("minimum", 1)
-                    putObject("excerpt")
-                        .put("type", "string")
-                        .put("minLength", 1)
-                        .put("maxLength", 500)
+                    set<JsonNode>("anchorId", stringEnum(
+                        allowedAnchorIds,
+                        "A server-issued evidence anchor copied exactly from the request.",
+                    ))
                 })
             })
         }
@@ -1078,7 +1368,7 @@ internal class OpenAiDocumentAnalysisClient(
         return objectMapper.createObjectNode().apply {
             set<JsonNode>("format", objectMapper.createObjectNode().apply {
                 put("type", "json_schema")
-                put("name", "phase_11_5_document_discovery")
+                put("name", "phase_11_5_document_discovery_v2")
                 put("strict", true)
                 set<JsonNode>("schema", schema)
             })
@@ -1210,6 +1500,18 @@ internal class OpenAiDocumentAnalysisClient(
             put("description", description)
         }
 
+    private fun nullablePatternString(
+        maxLength: Int,
+        pattern: String,
+        description: String,
+    ): JsonNode =
+        objectMapper.createObjectNode().apply {
+            putArray("type").add("string").add("null")
+            put("maxLength", maxLength)
+            put("pattern", pattern)
+            put("description", description)
+        }
+
     private fun nullableEnum(values: List<String>, description: String): JsonNode =
         objectMapper.createObjectNode().apply {
             putArray("type").add("string").add("null")
@@ -1285,7 +1587,11 @@ internal class OpenAiDocumentAnalysisClient(
         )
     }
 
-    private fun parseStrictDiscoveryResponse(value: String): DocumentDiscoveryResponse {
+    private fun parseStrictDiscoveryResponse(
+        value: String,
+        request: DocumentDiscoveryRequest,
+    ): DocumentDiscoveryResponse {
+        val anchorsById = request.evidenceAnchors.associateBy(DocumentDiscoveryEvidenceAnchor::anchorId)
         val root = objectMapper.readTree(value)
         require(root.isObject && root.fieldNames().asSequence().toSet() == setOf("schemaVersion", "discoveries"))
         require(root.path("schemaVersion").asText() == DocumentAnalysisPipelineVersions.DISCOVERY_RESPONSE)
@@ -1305,13 +1611,18 @@ internal class OpenAiDocumentAnalysisClient(
                     assertionClassification = discovery.requiredText("assertionClassification"),
                     description = discovery.requiredText("description"),
                     evidence = evidence.map { claim ->
-                        require(claim.isObject && claim.fieldNames().asSequence().toSet() == EVIDENCE_FIELDS)
+                        require(
+                            claim.isObject &&
+                                claim.fieldNames().asSequence().toSet() == DISCOVERY_EVIDENCE_FIELDS,
+                        )
+                        val anchor = anchorsById[claim.requiredText("anchorId")]
+                            ?: throw IllegalArgumentException("Unknown discovery evidence anchor.")
                         ProviderEvidenceClaim(
-                            documentId = claim.requiredText("documentId"),
-                            blockId = claim.requiredText("blockId"),
-                            startOffsetInBlock = claim.requiredInteger("startOffsetInBlock"),
-                            endOffsetInBlock = claim.requiredInteger("endOffsetInBlock"),
-                            excerpt = claim.requiredText("excerpt"),
+                            documentId = anchor.documentId,
+                            blockId = anchor.blockId,
+                            startOffsetInBlock = anchor.startOffsetInBlock,
+                            endOffsetInBlock = anchor.endOffsetInBlock,
+                            excerpt = anchor.exactExcerpt,
                         )
                     },
                     relatedProviderIds = related.map { item ->
@@ -1440,7 +1751,10 @@ internal class OpenAiDocumentAnalysisClient(
         )
     }
 
-    private fun parseStrictFinalPlanningResponse(value: String): DocumentFinalPlanningResponse {
+    private fun parseStrictFinalPlanningResponse(
+        value: String,
+        request: DocumentFinalPlanningRequest,
+    ): DocumentFinalPlanningResponse {
         val root = objectMapper.readTree(value)
         require(root.isObject && root.fieldNames().asSequence().toSet() == setOf("schemaVersion", "plan"))
         require(root.requiredText("schemaVersion") == DocumentAnalysisPipelineVersions.FINAL_PLAN_RESPONSE)
@@ -1450,27 +1764,449 @@ internal class OpenAiDocumentAnalysisClient(
         val coverage = planNode.path("coverage")
         require(recommendations.isArray && recommendations.size() <= 100)
         require(coverage.isArray)
-        val plan = DocumentFinalPlan(
-            workKey = DocumentAnalysisWorkKey(planNode.requiredText("workKey")),
-            verifiedDiscoveryIds = planNode.requiredTextArray("verifiedDiscoveryIds", 1, 500).sorted(),
-            criticFindingIds = planNode.requiredTextArray("criticFindingIds", 0, 600).sorted(),
-            recommendations = recommendations.map(::parseFinalRecommendation)
-                .sortedBy(DocumentFinalRecommendation::stableOrderingKey),
-            coverage = coverage.map { node ->
-                require(node.isObject && node.fieldNames().asSequence().toSet() == FINAL_COVERAGE_FIELDS)
-                DocumentCoverageDisposition(
-                    discoveryId = node.requiredText("discoveryId"),
-                    kind = DocumentCoverageDispositionKind.valueOf(node.requiredText("kind")),
-                    recommendationId = node.optionalText("recommendationId"),
-                    relatedDiscoveryId = node.optionalText("relatedDiscoveryId"),
-                    rationale = node.optionalText("rationale"),
+        val verifiedDiscoveryIds = request.discoveries.map(DocumentDiscovery::id).sorted()
+        val discoveryById = request.discoveries.associateBy(DocumentDiscovery::id)
+        val knownCriticFindingIds = request.criticFindings.map(DocumentCriticFinding::id).toSet()
+        val citationCanonicalRecommendations = recommendations
+            .mapNotNull { node ->
+                runCatching { parseFinalRecommendation(node, knownCriticFindingIds) }.getOrNull()
+            }
+            .mapNotNull { canonicalizeFinalRecommendationCitations(it, discoveryById) }
+        val parsedRecommendations = canonicalizeFinalRecommendationConfidence(
+            canonicalizeFinalCriticDispositions(
+                canonicalizeFinalOperationSources(
+                    citationCanonicalRecommendations,
+                    request.ontologySnapshot.writableSourceIds,
+                ),
+                request,
+            ),
+            request,
+        )
+            .let { recommendationsWithConfidence ->
+                canonicalizeFinalIndividualGates(
+                    recommendationsWithConfidence,
+                    discoveryById,
                 )
-            }.sortedBy(DocumentCoverageDisposition::stableOrderingKey),
+            }
+            .let(::canonicalizeUnresolvedConfidenceGates)
+            .let { canonicalizeMissingBusinessDocumentRecommendations(it, request) }
+            .sortedBy(DocumentFinalRecommendation::stableOrderingKey)
+        val recommendationsByDiscovery = parsedRecommendations
+            .flatMap { recommendation ->
+                recommendation.discoveryIds.map { discoveryId -> discoveryId to recommendation }
+            }
+            .groupBy({ it.first }, { it.second })
+        val parsedCoverage = coverage
+            .mapNotNull { node ->
+                runCatching { parseFinalCoverage(node, recommendationsByDiscovery) }.getOrNull()
+            }
+            .filter { it.discoveryId in discoveryById }
+            .groupBy(DocumentCoverageDisposition::discoveryId)
+        val canonicalCoverage = verifiedDiscoveryIds.map { discoveryId ->
+            val matchingRecommendations = recommendationsByDiscovery[discoveryId].orEmpty().distinct()
+            val supplied = parsedCoverage[discoveryId].orEmpty().distinct()
+            when {
+                matchingRecommendations.isNotEmpty() -> {
+                    val recommendation = matchingRecommendations.sortedWith(
+                        compareBy<DocumentFinalRecommendation>(
+                            { coverageRecommendationPriority(it.status) },
+                            { -it.confidence.overall },
+                            DocumentFinalRecommendation::stableOrderingKey,
+                        ),
+                    ).first()
+                    DocumentCoverageDisposition(
+                        discoveryId = discoveryId,
+                        kind = if (recommendation.status in setOf(
+                                DocumentFinalRecommendationStatus.Executable,
+                                DocumentFinalRecommendationStatus.Mixed,
+                            )
+                        ) {
+                            DocumentCoverageDispositionKind.ExecutableRecommendation
+                        } else {
+                            DocumentCoverageDispositionKind.ReviewOnlyFinding
+                        },
+                        recommendationId = recommendation.id,
+                    )
+                }
+                supplied.size == 1 -> supplied.single()
+                else -> {
+                    val discovery = discoveryById.getValue(discoveryId)
+                    DocumentCoverageDisposition(
+                        discoveryId = discoveryId,
+                        kind = when {
+                            discovery.contentClassification == DocumentContentClassification.AdministrativeMetadata ->
+                                DocumentCoverageDispositionKind.AdministrativeMetadata
+                            discovery.assertionClassification ==
+                                com.entio.core.DocumentAssertionClassification.IllustrativeExample ->
+                                DocumentCoverageDispositionKind.IllustrativeExample
+                            else -> DocumentCoverageDispositionKind.Unsupported
+                        },
+                    )
+                }
+            }
+        }
+        val plan = DocumentFinalPlan(
+            workKey = request.workKey,
+            verifiedDiscoveryIds = verifiedDiscoveryIds,
+            criticFindingIds = request.criticFindings.map(DocumentCriticFinding::id).sorted(),
+            recommendations = parsedRecommendations,
+            coverage = canonicalCoverage,
         )
         return DocumentFinalPlanningResponse(plan = plan)
     }
 
-    private fun parseFinalRecommendation(node: JsonNode): DocumentFinalRecommendation {
+    private fun canonicalizeFinalRecommendationConfidence(
+        recommendations: List<DocumentFinalRecommendation>,
+        request: DocumentFinalPlanningRequest,
+    ): List<DocumentFinalRecommendation> {
+        val discoveries = request.discoveries.associateBy(DocumentDiscovery::id)
+        val modelItemsByDiscovery = request.connectedModel.items
+            .flatMap { item -> item.discoveryIds.map { discoveryId -> discoveryId to item.id } }
+            .groupBy({ it.first }, { it.second })
+        return recommendations.map { recommendation ->
+            val relatedTargetIds = recommendation.discoveryIds
+                .flatMap { modelItemsByDiscovery[it].orEmpty() }
+                .distinct()
+            val relatedConfidence = relatedTargetIds.mapNotNull(request.confidenceByTarget::get)
+            val evidenceConfidence = recommendation.discoveryIds
+                .mapNotNull(discoveries::get)
+                .minOfOrNull(DocumentDiscovery::evidenceConfidence)
+                ?: recommendation.confidence.evidence
+            val canonical = if (relatedConfidence.isEmpty()) {
+                DocumentConfidenceDimensions(
+                    evidence = evidenceConfidence,
+                    modeling = recommendation.confidence.modeling,
+                    ontologyFit = recommendation.confidence.ontologyFit,
+                )
+            } else {
+                DocumentConfidenceDimensions(
+                    evidence = minOf(evidenceConfidence, relatedConfidence.minOf { it.evidence }),
+                    modeling = relatedConfidence.minOf { it.modeling },
+                    ontologyFit = relatedConfidence.minOf { it.ontologyFit },
+                )
+            }
+            recommendation.copy(confidence = canonical)
+        }
+    }
+
+    private fun canonicalizeUnresolvedConfidenceGates(
+        recommendations: List<DocumentFinalRecommendation>,
+    ): List<DocumentFinalRecommendation> = recommendations.map { recommendation ->
+        if (recommendation.operations.isEmpty() ||
+            listOf(
+                recommendation.confidence.evidence,
+                recommendation.confidence.modeling,
+                recommendation.confidence.ontologyFit,
+            ).all { it > 0 }
+        ) {
+            recommendation
+        } else {
+            recommendation.copy(
+                status = DocumentFinalRecommendationStatus.Blocked,
+                blockers = (recommendation.blockers + "confidence-dimension-unresolved").distinct().sorted(),
+            )
+        }
+    }
+
+    private fun canonicalizeMissingBusinessDocumentRecommendations(
+        recommendations: List<DocumentFinalRecommendation>,
+        request: DocumentFinalPlanningRequest,
+    ): List<DocumentFinalRecommendation> {
+        val discoveriesByDocument = request.discoveries
+            .filter { it.contentClassification == DocumentContentClassification.BusinessContent }
+            .groupBy { it.documentId.value }
+        val representedDocumentIds = recommendations
+            .flatMap(DocumentFinalRecommendation::discoveryIds)
+            .mapNotNull { discoveryId -> request.discoveries.singleOrNull { it.id == discoveryId } }
+            .map { it.documentId.value }
+            .toSet()
+        val modelItemsByDiscovery = request.connectedModel.items
+            .flatMap { item -> item.discoveryIds.map { discoveryId -> discoveryId to item } }
+            .groupBy({ it.first }, { it.second })
+        val retained = discoveriesByDocument
+            .filterKeys { it !in representedDocumentIds }
+            .toSortedMap()
+            .map { (documentId, discoveries) ->
+                val discoveryIds = discoveries.map(DocumentDiscovery::id).distinct().sorted()
+                val evidenceIds = discoveries.flatMap(DocumentDiscovery::evidence)
+                    .map(DocumentEvidence::id)
+                    .distinct()
+                    .sortedBy(DocumentEvidenceId::value)
+                    .take(MAX_FINAL_EVIDENCE_IDS)
+                val representativeLabel = discoveryIds
+                    .flatMap { modelItemsByDiscovery[it].orEmpty() }
+                    .sortedBy { it.order }
+                    .firstOrNull()
+                    ?.label
+                    ?: "document-backed business meaning"
+                val suffix = documentId.replace(Regex("[^A-Za-z0-9]"), "").take(32)
+                DocumentFinalRecommendation(
+                    id = "recommendation-retained-$suffix",
+                    title = "Review omitted meaning: $representativeLabel".take(500),
+                    description = "Verified business meaning from this document was not represented by the final planner. " +
+                        "Entio retained it for explicit review instead of silently discarding it.",
+                    discoveryIds = discoveryIds,
+                    evidenceIds = evidenceIds,
+                    reviewOnlyFindings = listOf(
+                        DocumentReviewOnlyFinding(
+                            id = "review-retained-$suffix",
+                            summary = "Review omitted document-backed meaning".take(1_000),
+                            reason = "The final planner did not produce a supported grouped change for this verified meaning.",
+                            discoveryIds = discoveryIds,
+                            evidenceIds = evidenceIds,
+                        ),
+                    ),
+                    confidence = DocumentConfidenceDimensions(
+                        evidence = discoveries.minOf(DocumentDiscovery::evidenceConfidence),
+                        modeling = 0,
+                        ontologyFit = 0,
+                    ),
+                    status = DocumentFinalRecommendationStatus.ReviewOnly,
+                )
+            }
+        return recommendations + retained
+    }
+
+    private fun canonicalizeFinalOperationSources(
+        recommendations: List<DocumentFinalRecommendation>,
+        writableSourceIds: List<String>,
+    ): List<DocumentFinalRecommendation> = recommendations.map { recommendation ->
+        val suppliedSources = recommendation.operations
+            .flatMap(DocumentPlanOperation::operands)
+            .filterIsInstance<DocumentPlanOperand.SourceId>()
+            .map(DocumentPlanOperand.SourceId::value)
+            .distinct()
+        val source = when {
+            suppliedSources.size == 1 && suppliedSources.single() in writableSourceIds ->
+                suppliedSources.single()
+            suppliedSources.isEmpty() && writableSourceIds.size == 1 ->
+                writableSourceIds.single()
+            else -> null
+        }
+        if (source == null) {
+            recommendation
+        } else {
+            recommendation.copy(
+                operations = recommendation.operations.map { operation ->
+                    if (operation.operands.any { it is DocumentPlanOperand.SourceId }) {
+                        operation
+                    } else {
+                        operation.copy(operands = operation.operands + DocumentPlanOperand.SourceId(source))
+                    }
+                },
+            )
+        }
+    }
+
+    private fun canonicalizeFinalIndividualGates(
+        recommendations: List<DocumentFinalRecommendation>,
+        discoveries: Map<String, DocumentDiscovery>,
+    ): List<DocumentFinalRecommendation> = recommendations.map { recommendation ->
+        val individualOperations = recommendation.operations.filter {
+            it.kind == DocumentPlanOperationKind.CreateIndividual
+        }
+        if (individualOperations.isEmpty()) {
+            recommendation.copy(individualReviewGates = emptyList())
+        } else {
+            val classifications = recommendation.discoveryIds
+                .mapNotNull(discoveries::get)
+                .filter { it.kind == DocumentDiscoveryKind.Individual }
+                .mapNotNull(DocumentDiscovery::individualClassification)
+            val classification = when {
+                DocumentIndividualClassification.Illustrative in classifications ->
+                    DocumentIndividualClassification.Illustrative
+                DocumentIndividualClassification.Ambiguous in classifications ->
+                    DocumentIndividualClassification.Ambiguous
+                DocumentIndividualClassification.Unknown in classifications || classifications.isEmpty() ->
+                    DocumentIndividualClassification.Unknown
+                else -> DocumentIndividualClassification.Production
+            }
+            recommendation.copy(
+                status = DocumentFinalRecommendationStatus.Blocked,
+                blockers = (recommendation.blockers + "individual-confirmation-required").distinct().sorted(),
+                individualReviewGates = individualOperations.map { operation ->
+                    DocumentIndividualReviewGate(
+                        operationId = operation.id,
+                        classification = classification,
+                    )
+                }.sortedBy(DocumentIndividualReviewGate::operationId),
+            )
+        }
+    }
+
+    private fun coverageRecommendationPriority(status: DocumentFinalRecommendationStatus): Int = when (status) {
+        DocumentFinalRecommendationStatus.Executable -> 0
+        DocumentFinalRecommendationStatus.Mixed -> 1
+        DocumentFinalRecommendationStatus.ReviewOnly -> 2
+        DocumentFinalRecommendationStatus.Blocked -> 3
+    }
+
+    private fun canonicalizeFinalRecommendationCitations(
+        recommendation: DocumentFinalRecommendation,
+        discoveryById: Map<String, DocumentDiscovery>,
+    ): DocumentFinalRecommendation? {
+        val discoveryIds = recommendation.discoveryIds
+            .filter(discoveryById::containsKey)
+            .distinct()
+            .sorted()
+        if (discoveryIds.isEmpty()) return null
+
+        fun verifiedEvidenceIds(ids: List<String>): List<DocumentEvidenceId> =
+            ids.flatMap { discoveryById.getValue(it).evidence }
+                .map(DocumentEvidence::id)
+                .distinct()
+                .sortedBy(DocumentEvidenceId::value)
+                .take(MAX_FINAL_EVIDENCE_IDS)
+
+        val evidenceIds = verifiedEvidenceIds(discoveryIds)
+        require(evidenceIds.isNotEmpty())
+        val reviewOnlyFindings = recommendation.reviewOnlyFindings.map { finding ->
+            val findingDiscoveryIds = finding.discoveryIds
+                .filter(discoveryIds::contains)
+                .distinct()
+                .sorted()
+                .ifEmpty { discoveryIds }
+            finding.copy(
+                discoveryIds = findingDiscoveryIds,
+                evidenceIds = verifiedEvidenceIds(findingDiscoveryIds),
+            )
+        }
+        return recommendation.copy(
+            discoveryIds = discoveryIds,
+            evidenceIds = evidenceIds,
+            reviewOnlyFindings = reviewOnlyFindings,
+        )
+    }
+
+    private fun canonicalizeFinalCriticDispositions(
+        recommendations: List<DocumentFinalRecommendation>,
+        request: DocumentFinalPlanningRequest,
+    ): List<DocumentFinalRecommendation> {
+        val knownFindings = request.criticFindings.associateBy(DocumentCriticFinding::id)
+        val occurrences = recommendations.flatMap { recommendation ->
+            recommendation.criticDispositions
+                .filter { it.findingId in knownFindings }
+                .map { it.findingId to recommendation.id }
+        }.groupBy({ it.first }, { it.second })
+        val canonical = recommendations.map { recommendation ->
+            recommendation.copy(
+                criticDispositions = recommendation.criticDispositions
+                    .filter { disposition ->
+                        disposition.findingId in knownFindings &&
+                            occurrences[disposition.findingId].orEmpty().size == 1
+                    }
+                    .distinctBy(DocumentCriticDisposition::findingId)
+                    .sortedBy(DocumentCriticDisposition::stableOrderingKey),
+            )
+        }.toMutableList()
+        val retainedFindingIds = canonical.flatMap(DocumentFinalRecommendation::criticDispositions)
+            .map(DocumentCriticDisposition::findingId)
+            .toSet()
+        val modelItems = request.connectedModel.items.associateBy { it.id }
+        val alignments = request.alignments.associateBy { it.id }
+        knownFindings.values.filter { it.id !in retainedFindingIds }.sortedBy(DocumentCriticFinding::stableOrderingKey)
+            .forEach { finding ->
+                val modelItemId = finding.targetId.takeIf(modelItems::containsKey)
+                    ?: alignments[finding.targetId]?.modelItemId
+                val relatedDiscoveryIds = modelItemId?.let(modelItems::get)?.discoveryIds.orEmpty().toSet()
+                val targetIndex = canonical.indices.maxWithOrNull(
+                    compareBy<Int>(
+                        { canonical[it].discoveryIds.count(relatedDiscoveryIds::contains) },
+                        { canonical[it].stableOrderingKey },
+                    ),
+                )?.takeIf { canonical[it].discoveryIds.any(relatedDiscoveryIds::contains) }
+                if (targetIndex == null) {
+                    val modelItem = checkNotNull(modelItemId?.let(modelItems::get)) {
+                        "A verified critic target must resolve to a connected-model item."
+                    }
+                    val discoveryIds = relatedDiscoveryIds.sorted()
+                    val evidenceIds = discoveryIds
+                        .flatMap { discoveryId ->
+                            request.discoveries.single { it.id == discoveryId }.evidence
+                        }
+                        .map(DocumentEvidence::id)
+                        .distinct()
+                        .sortedBy(DocumentEvidenceId::value)
+                        .take(MAX_FINAL_EVIDENCE_IDS)
+                    canonical += DocumentFinalRecommendation(
+                        id = "recommendation-${finding.id}",
+                        title = "Review modeling concern: ${modelItem.label}".take(500),
+                        description = finding.reason,
+                        discoveryIds = discoveryIds,
+                        evidenceIds = evidenceIds,
+                        reviewOnlyFindings = listOf(
+                            DocumentReviewOnlyFinding(
+                                id = "review-${finding.id}",
+                                summary = "Review ${modelItem.label}".take(1_000),
+                                reason = finding.reason,
+                                discoveryIds = discoveryIds,
+                                evidenceIds = evidenceIds,
+                            ),
+                        ),
+                        criticDispositions = listOf(
+                            DocumentCriticDisposition(
+                                findingId = finding.id,
+                                kind = DocumentCriticDispositionKind.Unresolved,
+                            ),
+                        ),
+                        confidence = request.confidenceByTarget.getValue(finding.targetId),
+                        status = DocumentFinalRecommendationStatus.Blocked,
+                        blockers = listOf("unresolved-critic-finding"),
+                    )
+                    return@forEach
+                }
+                val target = canonical[targetIndex]
+                canonical[targetIndex] = target.copy(
+                    criticDispositions = (
+                        target.criticDispositions +
+                            DocumentCriticDisposition(
+                                findingId = finding.id,
+                                kind = DocumentCriticDispositionKind.Unresolved,
+                            )
+                        ).sortedBy(DocumentCriticDisposition::stableOrderingKey),
+                    status = DocumentFinalRecommendationStatus.Blocked,
+                    blockers = (target.blockers + "unresolved-critic-finding").distinct().sorted(),
+                )
+            }
+        return canonical
+    }
+
+    private fun parseFinalCoverage(
+        node: JsonNode,
+        recommendationsByDiscovery: Map<String, List<DocumentFinalRecommendation>>,
+    ): DocumentCoverageDisposition {
+        require(node.isObject && node.fieldNames().asSequence().toSet() == FINAL_COVERAGE_FIELDS)
+        val discoveryId = node.requiredText("discoveryId")
+        val kind = DocumentCoverageDispositionKind.valueOf(node.requiredText("kind"))
+        val matchingRecommendations = recommendationsByDiscovery[discoveryId].orEmpty()
+        val suppliedRecommendationId = node.optionalText("recommendationId")
+        val recommendationId = if (
+            kind in setOf(
+                DocumentCoverageDispositionKind.ExecutableRecommendation,
+                DocumentCoverageDispositionKind.ReviewOnlyFinding,
+            )
+        ) {
+            suppliedRecommendationId
+                ?.takeIf { id -> matchingRecommendations.any { it.id == id } }
+                ?: matchingRecommendations.singleOrNull()?.id
+        } else {
+            null
+        }
+        return DocumentCoverageDisposition(
+            discoveryId = discoveryId,
+            kind = kind,
+            recommendationId = recommendationId,
+            relatedDiscoveryId = node.optionalText("relatedDiscoveryId")
+                .takeIf { kind == DocumentCoverageDispositionKind.MergedIntoAnotherDiscovery },
+            rationale = node.optionalText("rationale")
+                .takeIf { kind == DocumentCoverageDispositionKind.RejectedWithRationale },
+        )
+    }
+
+    private fun parseFinalRecommendation(
+        node: JsonNode,
+        knownCriticFindingIds: Set<String>,
+    ): DocumentFinalRecommendation? {
         require(node.isObject && node.fieldNames().asSequence().toSet() == FINAL_RECOMMENDATION_FIELDS)
         val operations = node.path("operations")
         val reviewOnly = node.path("reviewOnlyFindings")
@@ -1480,53 +2216,156 @@ internal class OpenAiDocumentAnalysisClient(
         require(reviewOnly.isArray && reviewOnly.size() <= 20)
         require(dispositions.isArray && dispositions.size() <= 600)
         require(individualGates.isArray && individualGates.size() <= 20)
-        return DocumentFinalRecommendation(
-            id = node.requiredText("id"),
-            title = node.requiredText("title"),
-            description = node.requiredText("description"),
-            discoveryIds = node.requiredTextArray("discoveryIds", 1, 100).sorted(),
-            evidenceIds = node.requiredTextArray("evidenceIds", 1, 8).map(::DocumentEvidenceId).sortedBy(DocumentEvidenceId::value),
-            operations = operations.map(::parseFinalOperation).sortedBy(DocumentPlanOperation::order),
-            reviewOnlyFindings = reviewOnly.map { finding ->
+        val operationResults = operations.map { operation ->
+            operation to runCatching { parseFinalOperation(operation) }
+        }
+        val parsedOperations = canonicalizeFinalOperations(
+            operationResults.mapNotNull { (_, result) -> result.getOrNull() },
+        )
+        val operationFailures = operationResults.mapNotNull { (operation, result) ->
+            result.exceptionOrNull()?.let { failure ->
+                val operationId = operation.path("id").asText("(missing-id)").take(80)
+                val operationKind = operation.path("kind").asText("(missing-kind)").take(80)
+                "operation-contract-invalid: operation '$operationId' ($operationKind): " +
+                    (failure.message ?: "The operation did not satisfy the typed-operation contract.")
+                        .replace(Regex("\\s+"), " ")
+                        .take(250)
+            }
+        }.distinct().sorted()
+        val parsedOperationIds = parsedOperations.map(DocumentPlanOperation::id).toSet()
+        val parsedReviewOnly = reviewOnly.mapNotNull { finding ->
+            runCatching {
                 require(finding.isObject && finding.fieldNames().asSequence().toSet() == FINAL_REVIEW_ONLY_FIELDS)
                 DocumentReviewOnlyFinding(
                     id = finding.requiredText("id"),
                     summary = finding.requiredText("summary"),
                     reason = finding.requiredText("reason"),
-                    discoveryIds = finding.requiredTextArray("discoveryIds", 1, 100).sorted(),
+                    discoveryIds = finding.requiredTextArray("discoveryIds", 1, 100).distinct().sorted(),
                     evidenceIds = finding.requiredTextArray("evidenceIds", 1, 8)
+                        .distinct()
                         .map(::DocumentEvidenceId)
                         .sortedBy(DocumentEvidenceId::value),
-                    relatedOperationIds = finding.requiredTextArray("relatedOperationIds", 0, 20).sorted(),
+                    relatedOperationIds = finding.requiredTextArray("relatedOperationIds", 0, 20)
+                        .filter(parsedOperationIds::contains)
+                        .distinct()
+                        .sorted(),
                 )
-            },
-            criticDispositions = dispositions.map { disposition ->
-                require(
-                    disposition.isObject &&
-                        disposition.fieldNames().asSequence().toSet() == FINAL_CRITIC_DISPOSITION_FIELDS,
-                )
+            }.getOrNull()
+        }
+        val parsedDispositions = dispositions.mapNotNull { disposition ->
+            require(
+                disposition.isObject &&
+                    disposition.fieldNames().asSequence().toSet() == FINAL_CRITIC_DISPOSITION_FIELDS,
+            )
+            val findingId = disposition.requiredText("findingId")
+            if (findingId !in knownCriticFindingIds) return@mapNotNull null
+            val kind = DocumentCriticDispositionKind.valueOf(disposition.requiredText("kind"))
+            val rationale = disposition.optionalText("rationale")
+            if (kind == DocumentCriticDispositionKind.RejectedWithRationale && rationale == null) {
                 DocumentCriticDisposition(
-                    findingId = disposition.requiredText("findingId"),
-                    kind = DocumentCriticDispositionKind.valueOf(disposition.requiredText("kind")),
-                    rationale = disposition.optionalText("rationale"),
+                    findingId = findingId,
+                    kind = DocumentCriticDispositionKind.Unresolved,
                 )
-            }.sortedBy(DocumentCriticDisposition::stableOrderingKey),
+            } else {
+                DocumentCriticDisposition(
+                    findingId = findingId,
+                    kind = kind,
+                    rationale = rationale.takeIf { kind == DocumentCriticDispositionKind.RejectedWithRationale },
+                )
+            }
+        }.groupBy(DocumentCriticDisposition::findingId)
+            .map { (findingId, duplicates) ->
+                val kinds = duplicates.map(DocumentCriticDisposition::kind).distinct()
+                if (kinds.size > 1) {
+                    DocumentCriticDisposition(
+                        findingId = findingId,
+                        kind = DocumentCriticDispositionKind.Unresolved,
+                    )
+                } else {
+                    duplicates.sortedBy { it.rationale.orEmpty() }.first()
+                }
+            }
+            .sortedBy(DocumentCriticDisposition::stableOrderingKey)
+        val parsedIndividualGates = individualGates.mapNotNull { gate ->
+            runCatching {
+                require(gate.isObject && gate.fieldNames().asSequence().toSet() == FINAL_INDIVIDUAL_GATE_FIELDS)
+                DocumentIndividualReviewGate(
+                    operationId = gate.requiredText("operationId"),
+                    classification = DocumentIndividualClassification.valueOf(gate.requiredText("classification")),
+                    creationConfirmed = false,
+                    productionClassificationConfirmed = false,
+                )
+            }.getOrNull()
+        }.filter { gate ->
+            parsedOperations.any {
+                it.id == gate.operationId && it.kind == DocumentPlanOperationKind.CreateIndividual
+            }
+        }.sortedBy(DocumentIndividualReviewGate::operationId)
+        val discoveryIds = node.requiredTextArray("discoveryIds", 1, 100).distinct().sorted()
+        val suppliedEvidenceIds = node.requiredTextArray("evidenceIds", 1, 8)
+            .distinct()
+            .map(::DocumentEvidenceId)
+            .sortedBy(DocumentEvidenceId::value)
+        val title = node.requiredText("title")
+        val description = node.requiredText("description")
+        val fallbackReviewOnly = if (parsedOperations.isEmpty() && parsedReviewOnly.isEmpty()) {
+            listOf(
+                DocumentReviewOnlyFinding(
+                    id = "review-${node.requiredText("id")}",
+                    summary = title,
+                    reason = (
+                        "The proposed change did not satisfy Entio's supported typed-operation contract. " +
+                            operationFailures.joinToString(" ").ifBlank {
+                                "No supported typed operation was retained."
+                            } +
+                            " $description"
+                        ).take(2_000),
+                    discoveryIds = discoveryIds,
+                    evidenceIds = suppliedEvidenceIds,
+                ),
+            )
+        } else {
+            parsedReviewOnly
+        }
+        val parsedBlockers = buildList {
+            addAll(node.requiredTextArray("blockers", 0, 20))
+            if (parsedDispositions.any { it.kind == DocumentCriticDispositionKind.Unresolved }) {
+                add("unresolved-critic-finding")
+            }
+            if (parsedIndividualGates.any { !it.executable }) {
+                add("individual-confirmation-required")
+            }
+            if (parsedOperations.isEmpty() && parsedReviewOnly.isEmpty()) {
+                addAll(
+                    operationFailures.ifEmpty { listOf("operation-contract-invalid") },
+                )
+            }
+        }.distinct().sorted()
+        DocumentFinalRecommendationStatus.valueOf(node.requiredText("status"))
+        val canonicalStatus = when {
+            parsedBlockers.isNotEmpty() -> DocumentFinalRecommendationStatus.Blocked
+            parsedOperations.isNotEmpty() && fallbackReviewOnly.isNotEmpty() -> DocumentFinalRecommendationStatus.Mixed
+            parsedOperations.isNotEmpty() -> DocumentFinalRecommendationStatus.Executable
+            fallbackReviewOnly.isNotEmpty() -> DocumentFinalRecommendationStatus.ReviewOnly
+            else -> return null
+        }
+        return DocumentFinalRecommendation(
+            id = node.requiredText("id"),
+            title = title,
+            description = description,
+            discoveryIds = discoveryIds,
+            evidenceIds = suppliedEvidenceIds,
+            operations = parsedOperations,
+            reviewOnlyFindings = fallbackReviewOnly,
+            criticDispositions = parsedDispositions,
             confidence = com.entio.core.DocumentConfidenceDimensions(
                 evidence = node.requiredInteger("evidenceConfidence"),
                 modeling = node.requiredInteger("modelingConfidence"),
                 ontologyFit = node.requiredInteger("ontologyFitConfidence"),
             ),
-            status = DocumentFinalRecommendationStatus.valueOf(node.requiredText("status")),
-            blockers = node.requiredTextArray("blockers", 0, 20).sorted(),
-            individualReviewGates = individualGates.map { gate ->
-                require(gate.isObject && gate.fieldNames().asSequence().toSet() == FINAL_INDIVIDUAL_GATE_FIELDS)
-                DocumentIndividualReviewGate(
-                    operationId = gate.requiredText("operationId"),
-                    classification = DocumentIndividualClassification.valueOf(gate.requiredText("classification")),
-                    creationConfirmed = gate.path("creationConfirmed").booleanValue(),
-                    productionClassificationConfirmed = gate.path("productionClassificationConfirmed").booleanValue(),
-                )
-            }.sortedBy(DocumentIndividualReviewGate::operationId),
+            status = canonicalStatus,
+            blockers = parsedBlockers,
+            individualReviewGates = parsedIndividualGates,
         )
     }
 
@@ -1559,10 +2398,61 @@ internal class OpenAiDocumentAnalysisClient(
                     else -> throw IllegalArgumentException("Unsupported final-plan operand kind.")
                 }
             },
-            dependsOnOperationIds = node.requiredTextArray("dependsOnOperationIds", 0, 20).sorted(),
+            dependsOnOperationIds = node.requiredTextArray("dependsOnOperationIds", 0, 20).distinct().sorted(),
             expandedTypedEditCount = node.requiredInteger("expandedTypedEditCount"),
             optionalLeaf = node.path("optionalLeaf").booleanValue(),
         )
+    }
+
+    private fun canonicalizeFinalOperations(operations: List<DocumentPlanOperation>): List<DocumentPlanOperation> {
+        val uniqueIds = operations.groupBy(DocumentPlanOperation::id)
+            .filterValues { it.size == 1 }
+            .keys
+        val uniqueDeclarations = operations.mapNotNull { operation ->
+            operation.declaration?.let { it to operation.id }
+        }.groupBy({ it.first }, { it.second })
+            .filterValues { it.size == 1 }
+            .mapValues { it.value.single() }
+        var retained = operations.filter { operation ->
+            operation.id in uniqueIds &&
+                (operation.declaration == null || operation.declaration in uniqueDeclarations)
+        }
+        while (true) {
+            val retainedIds = retained.map(DocumentPlanOperation::id).toSet()
+            val retainedDeclarations = retained.mapNotNull(DocumentPlanOperation::declaration).toSet()
+            val next = retained.filter { operation ->
+                operation.dependsOnOperationIds.all(retainedIds::contains) &&
+                    operation.referencedTemporaryEntities.all(retainedDeclarations::contains)
+            }
+            if (next.size == retained.size) break
+            retained = next
+        }
+        val byId = retained.associateBy(DocumentPlanOperation::id)
+        val declarationByReference = retained.mapNotNull { operation ->
+            operation.declaration?.let { it to operation.id }
+        }.toMap()
+        val dependencies = retained.associate { operation ->
+            val temporaryDependencies = operation.referencedTemporaryEntities.mapNotNull(declarationByReference::get)
+            operation.id to (operation.dependsOnOperationIds + temporaryDependencies).distinct().sorted()
+        }
+        val remaining = dependencies.mapValuesTo(mutableMapOf()) { (_, values) -> values.toMutableSet() }
+        val ordered = mutableListOf<DocumentPlanOperation>()
+        while (remaining.isNotEmpty()) {
+            val ready = remaining.filterValues(Set<String>::isEmpty).keys
+                .sortedWith(compareBy({ byId.getValue(it).order }, { it }))
+            if (ready.isEmpty()) break
+            ready.forEach { id ->
+                ordered += byId.getValue(id)
+                remaining.remove(id)
+                remaining.values.forEach { it.remove(id) }
+            }
+        }
+        return ordered.mapIndexed { index, operation ->
+            operation.copy(
+                order = index,
+                dependsOnOperationIds = dependencies.getValue(operation.id),
+            )
+        }
     }
 
     private fun JsonNode.requiredText(name: String): String =
@@ -1599,6 +2489,15 @@ internal class OpenAiDocumentAnalysisClient(
         const val RESPONSE_SCHEMA_VERSION: String = "phase-11-document-analysis-response-v4"
         const val MAX_PROVIDER_RESPONSE_CHARACTERS: Int = 1_000_000
         const val MAX_PROVIDER_ERROR_CHARACTERS: Int = 64_000
+        const val MAX_DOCUMENT_PROVIDER_OUTPUT_TOKENS: Int = 8_000
+        const val MAX_DOCUMENT_DISCOVERY_OUTPUT_TOKENS: Int = 16_000
+        const val MIN_DOCUMENT_ALIGNMENT_OUTPUT_TOKENS: Int = 4_000
+        const val DOCUMENT_ALIGNMENT_TOKENS_PER_MODEL_ITEM: Int = 500
+        const val MAX_DOCUMENT_ALIGNMENT_OUTPUT_TOKENS: Int = 16_000
+        const val MIN_DOCUMENT_FINAL_PLAN_OUTPUT_TOKENS: Int = 6_000
+        const val DOCUMENT_FINAL_PLAN_TOKENS_PER_MODEL_ITEM: Int = 1_000
+        const val MAX_DOCUMENT_FINAL_PLAN_OUTPUT_TOKENS: Int = 16_000
+        const val MAX_FINAL_EVIDENCE_IDS: Int = 8
         val OPENAI_SCHEMA_PARAMETERS: Set<String> = setOf(
             "response_format",
             "response_format.json_schema.schema",
@@ -1607,6 +2506,7 @@ internal class OpenAiDocumentAnalysisClient(
         )
         val EVIDENCE_FIELDS: Set<String> =
             setOf("documentId", "blockId", "startOffsetInBlock", "endOffsetInBlock", "excerpt")
+        val DISCOVERY_EVIDENCE_FIELDS: Set<String> = setOf("anchorId")
         val CANDIDATE_FIELDS: Set<String> = setOf(
             "category",
             "recommendationCategory",
@@ -1739,4 +2639,11 @@ private data class SafeHttpFailure(
 
 private class SafeProviderResponseFailure(
     val code: String,
-) : IllegalArgumentException(code)
+) : IllegalArgumentException(code) {
+    val retryable: Boolean
+        get() = code in setOf(
+            "document-provider-refusal",
+            "document-provider-empty-output",
+            "document-provider-incomplete-output",
+        )
+}

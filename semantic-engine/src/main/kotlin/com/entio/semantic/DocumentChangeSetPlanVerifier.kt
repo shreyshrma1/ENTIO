@@ -1,8 +1,11 @@
 package com.entio.semantic
 
+import com.entio.core.DocumentContentClassification
+import com.entio.core.DocumentDiscoveryKind
 import com.entio.core.DocumentFinalPlan
 import com.entio.core.DocumentFinalRecommendation
 import com.entio.core.DocumentFinalRecommendationStatus
+import com.entio.core.DocumentIndividualClassification
 import com.entio.core.DocumentPlanOperand
 import com.entio.core.DocumentPlanOperation
 import com.entio.core.DocumentPlanOperationKind
@@ -18,6 +21,9 @@ public data class DocumentPlanVerificationContext(
     val writableSourceIds: Set<String>,
     val existingEntityKinds: Map<Iri, DocumentTemporaryReferenceKind>,
     val iriNamespace: String,
+    val discoveryKinds: Map<String, DocumentDiscoveryKind> = emptyMap(),
+    val discoveryContentClassifications: Map<String, DocumentContentClassification> = emptyMap(),
+    val discoveryIndividualClassifications: Map<String, DocumentIndividualClassification?> = emptyMap(),
 ) {
     init {
         require(iriNamespace.isNotBlank())
@@ -57,7 +63,14 @@ public class DocumentChangeSetPlanVerifier {
         val finalIris = linkedMapOf<DocumentTemporaryReference, Iri>()
         val recommendations = plan.recommendations.map { recommendation ->
             if (recommendation.status == DocumentFinalRecommendationStatus.Blocked) {
-                recommendation
+                try {
+                    verifySemanticIntent(recommendation, context)
+                    recommendation
+                } catch (failure: IllegalArgumentException) {
+                    recommendation.copy(
+                        blockers = (recommendation.blockers + verificationBlocker(failure)).distinct().sorted(),
+                    )
+                }
             } else {
                 try {
                     verifyRecommendation(recommendation, context)
@@ -109,7 +122,21 @@ public class DocumentChangeSetPlanVerifier {
     private fun verificationBlocker(failure: IllegalArgumentException): String =
         when {
             failure.message?.contains("unwritable", ignoreCase = true) == true -> "unwritable-source"
+            failure.message?.contains("Administrative document metadata", ignoreCase = true) == true ->
+                "administrative-metadata-not-executable"
+            failure.message?.contains("reusable concept", ignoreCase = true) == true -> "class-evidence-required"
+            failure.message?.contains("cannot be represented only as an ontology class", ignoreCase = true) == true ->
+                "normative-meaning-modeled-as-class"
+            failure.message?.contains("particular production entity", ignoreCase = true) == true ->
+                "individual-evidence-required"
+            failure.message?.contains("explicit type operation", ignoreCase = true) == true ->
+                "individual-type-required"
+            failure.message?.contains("source", ignoreCase = true) == true -> "source-required"
             failure.message?.contains("collides", ignoreCase = true) == true -> "iri-collision"
+            failure.message?.contains("domain", ignoreCase = true) == true ||
+                failure.message?.contains("range", ignoreCase = true) == true -> "property-context-required"
+            failure.message?.contains("operand contract", ignoreCase = true) == true -> "operation-operand-invalid"
+            failure.message?.contains("connecting operation", ignoreCase = true) == true -> "disconnected-declarations"
             failure.message?.contains("kind", ignoreCase = true) == true -> "operation-kind-invalid"
             failure.message?.contains("SHACL", ignoreCase = true) == true -> "unsupported-shacl-operation"
             else -> "operation-verification-failed"
@@ -182,8 +209,10 @@ public class DocumentChangeSetPlanVerifier {
         val declaredKinds = recommendation.operations.mapNotNull { operation ->
             operation.declaration?.let { it to it.kind }
         }.toMap()
+        verifySemanticIntent(recommendation, context)
         recommendation.operations.forEach { operation ->
             verifySource(operation, context)
+            verifyOperandContract(operation)
             verifyKindCompatibility(operation, declaredKinds, context.existingEntityKinds)
             if (operation.kind == DocumentPlanOperationKind.UpdateShaclConstraint) {
                 val constraint = operation.operands.filterIsInstance<DocumentPlanOperand.TextValue>().firstOrNull()?.value
@@ -192,16 +221,189 @@ public class DocumentChangeSetPlanVerifier {
                 }
             }
         }
+        verifyCreatedPropertyContext(recommendation)
+        verifyDeclaredEntitiesAreConnected(recommendation)
+    }
+
+    private fun verifySemanticIntent(
+        recommendation: DocumentFinalRecommendation,
+        context: DocumentPlanVerificationContext,
+    ): Unit {
+        if (context.discoveryKinds.isEmpty()) return
+        val citedKinds = recommendation.discoveryIds.mapNotNull(context.discoveryKinds::get).toSet()
+        require(citedKinds.isNotEmpty()) {
+            "An executable recommendation requires known discovery context."
+        }
+        val citedContent = recommendation.discoveryIds
+            .mapNotNull(context.discoveryContentClassifications::get)
+            .toSet()
+        require(citedContent != setOf(DocumentContentClassification.AdministrativeMetadata)) {
+            "Administrative document metadata cannot directly produce ontology operations."
+        }
+
+        val createdClasses = recommendation.operations.mapNotNull { operation ->
+            operation.declaration?.takeIf { operation.kind == DocumentPlanOperationKind.CreateClass }
+        }
+        if (createdClasses.isNotEmpty()) {
+            val operationalContextEvidence =
+                citedKinds.any(NORMATIVE_DISCOVERY_KINDS::contains) &&
+                    citedKinds.all(OPERATIONAL_CONTEXT_DISCOVERY_KINDS::contains)
+            val createsGenericModelingCategory = createdClasses.any { declaration ->
+                normalizedClassLabelTokens(declaration.localName)
+                    .joinToString(" ") in GENERIC_MODELING_CLASS_LABELS
+            }
+            val createsNormativeWrapper = createdClasses.any { declaration ->
+                normalizedClassLabelTokens(declaration.localName)
+                    .any(NON_ENTITY_CLASS_TOKENS::contains)
+            }
+            require(!createsGenericModelingCategory) {
+                "A class declaration requires evidence for a reusable concept, definition, or role."
+            }
+            require(
+                !createsNormativeWrapper ||
+                    recommendation.operations.any { it.kind in SHACL_OPERATIONS },
+            ) {
+                "A requirement or control cannot be represented only as an ontology class."
+            }
+            require(
+                citedKinds.any(CLASS_SUPPORTING_DISCOVERY_KINDS::contains) ||
+                    operationalContextEvidence &&
+                    createdClasses.all { looksLikeOperationalClassLabel(it.localName) },
+            ) {
+                "A class declaration requires evidence for a reusable concept, definition, or role."
+            }
+        }
+
+        val createdIndividuals = recommendation.operations.mapNotNull { operation ->
+            operation.declaration?.takeIf { operation.kind == DocumentPlanOperationKind.CreateIndividual }
+        }
+        if (createdIndividuals.isNotEmpty()) {
+            require(
+                recommendation.discoveryIds.any { discoveryId ->
+                    context.discoveryKinds[discoveryId] == DocumentDiscoveryKind.Individual &&
+                        context.discoveryIndividualClassifications[discoveryId] ==
+                        DocumentIndividualClassification.Production
+                },
+            ) {
+                "An individual declaration requires evidence for a particular production entity, not a generic role."
+            }
+            createdIndividuals.forEach { individual ->
+                require(recommendation.operations.any { operation ->
+                    operation.kind == DocumentPlanOperationKind.AssignType &&
+                        operation.operands.firstOrNull() == DocumentPlanOperand.TemporaryEntity(individual)
+                }) {
+                    "A newly created individual requires an explicit type operation."
+                }
+            }
+        }
+    }
+
+    private fun looksLikeOperationalClassLabel(value: String): Boolean {
+        val tokens = normalizedClassLabelTokens(value)
+        return tokens.isNotEmpty() &&
+            tokens.size <= MAX_OPERATIONAL_CLASS_LABEL_TOKENS &&
+            tokens.none(NON_ENTITY_CLASS_TOKENS::contains) &&
+            tokens.joinToString(" ") !in GENERIC_MODELING_CLASS_LABELS
+    }
+
+    private fun normalizedClassLabelTokens(value: String): List<String> =
+        value
+            .replace(Regex("([a-z0-9])([A-Z])"), "$1 $2")
+            .lowercase()
+            .split(Regex("[^a-z0-9]+"))
+            .filter(String::isNotBlank)
+            .map(::canonicalClassToken)
+
+    private fun canonicalClassToken(token: String): String = when {
+        token.length > 4 && token.endsWith("ies") -> token.dropLast(3) + "y"
+        token.length > 3 && token.endsWith("s") && !token.endsWith("ss") -> token.dropLast(1)
+        else -> token
+    }
+
+    private fun verifyOperandContract(operation: DocumentPlanOperation): Unit {
+        val values = operation.operands.filterNot { it is DocumentPlanOperand.SourceId }
+        fun isEntity(value: DocumentPlanOperand): Boolean =
+            value is DocumentPlanOperand.ExistingEntity || value is DocumentPlanOperand.TemporaryEntity
+        fun requireEntities(count: Int): Unit {
+            require(values.size == count && values.all(::isEntity)) {
+                "The document-plan operation has an invalid operand contract."
+            }
+        }
+        when (operation.kind) {
+            DocumentPlanOperationKind.CreateClass,
+            DocumentPlanOperationKind.CreateObjectProperty,
+            DocumentPlanOperationKind.CreateDatatypeProperty,
+            DocumentPlanOperationKind.CreateAnnotationProperty,
+            DocumentPlanOperationKind.CreateIndividual,
+            -> require(
+                values.size <= 1 &&
+                    values.all { value -> value is DocumentPlanOperand.TextValue },
+            ) {
+                "The declaration operation has an invalid operand contract; it accepts only one optional text label."
+            }
+            DocumentPlanOperationKind.AddSuperclass,
+            DocumentPlanOperationKind.RemoveSuperclass,
+            DocumentPlanOperationKind.SetPropertyDomain,
+            DocumentPlanOperationKind.RemovePropertyDomain,
+            DocumentPlanOperationKind.SetPropertyRange,
+            DocumentPlanOperationKind.RemovePropertyRange,
+            DocumentPlanOperationKind.AssignType,
+            -> requireEntities(2)
+            DocumentPlanOperationKind.AddObjectPropertyAssertion -> requireEntities(3)
+            else -> Unit
+        }
     }
 
     private fun verifySource(
         operation: DocumentPlanOperation,
         context: DocumentPlanVerificationContext,
     ): Unit {
-        operation.operands.filterIsInstance<DocumentPlanOperand.SourceId>().forEach { source ->
-            require(source.value in context.writableSourceIds) {
-                "The document plan targets an unwritable ontology source."
+        val sources = operation.operands.filterIsInstance<DocumentPlanOperand.SourceId>()
+        require(sources.size == 1) {
+            "Every document-plan operation requires exactly one source."
+        }
+        require(sources.single().value in context.writableSourceIds) {
+            "The document plan targets an unwritable ontology source."
+        }
+    }
+
+    private fun verifyCreatedPropertyContext(recommendation: DocumentFinalRecommendation): Unit {
+        val createdProperties = recommendation.operations.mapNotNull { operation ->
+            operation.declaration?.takeIf {
+                operation.kind in setOf(
+                    DocumentPlanOperationKind.CreateObjectProperty,
+                    DocumentPlanOperationKind.CreateDatatypeProperty,
+                )
             }
+        }
+        createdProperties.forEach { property ->
+            val propertyOperand = DocumentPlanOperand.TemporaryEntity(property)
+            require(recommendation.operations.any { operation ->
+                operation.kind == DocumentPlanOperationKind.SetPropertyDomain &&
+                    propertyOperand in operation.operands
+            }) {
+                "A newly created property requires a domain operation."
+            }
+            require(recommendation.operations.any { operation ->
+                operation.kind == DocumentPlanOperationKind.SetPropertyRange &&
+                    propertyOperand in operation.operands
+            }) {
+                "A newly created property requires a range operation."
+            }
+        }
+    }
+
+    private fun verifyDeclaredEntitiesAreConnected(recommendation: DocumentFinalRecommendation): Unit {
+        val declarations = recommendation.operations.mapNotNull(DocumentPlanOperation::declaration).toSet()
+        if (declarations.size <= 1) return
+        val hasConnectingOperation = recommendation.operations.any { operation ->
+            (operation.referencedTemporaryEntities + listOfNotNull(operation.declaration))
+                .filter(declarations::contains)
+                .distinct()
+                .size >= 2
+        }
+        require(hasConnectingOperation) {
+            "A recommendation with multiple declarations requires a connecting operation."
         }
     }
 
@@ -276,6 +478,60 @@ public class DocumentChangeSetPlanVerifier {
             DocumentPlanOperationKind.RemoveShaclConstraint,
             DocumentPlanOperationKind.UpdateShapeLabel,
             DocumentPlanOperationKind.DeleteShape,
+        )
+        val CLASS_SUPPORTING_DISCOVERY_KINDS: Set<DocumentDiscoveryKind> = setOf(
+            DocumentDiscoveryKind.Concept,
+            DocumentDiscoveryKind.Definition,
+            DocumentDiscoveryKind.Role,
+        )
+        val NORMATIVE_DISCOVERY_KINDS: Set<DocumentDiscoveryKind> = setOf(
+            DocumentDiscoveryKind.Requirement,
+            DocumentDiscoveryKind.Control,
+            DocumentDiscoveryKind.ConditionalRule,
+        )
+        val OPERATIONAL_CONTEXT_DISCOVERY_KINDS: Set<DocumentDiscoveryKind> =
+            NORMATIVE_DISCOVERY_KINDS + setOf(
+                DocumentDiscoveryKind.Relationship,
+                DocumentDiscoveryKind.Attribute,
+                DocumentDiscoveryKind.Value,
+            )
+        const val MAX_OPERATIONAL_CLASS_LABEL_TOKENS: Int = 4
+        val NON_ENTITY_CLASS_TOKENS: Set<String> = setOf(
+            "ambiguity",
+            "conflict",
+            "constraint",
+            "control",
+            "definition",
+            "enforcement",
+            "exception",
+            "guideline",
+            "mandate",
+            "management",
+            "obligation",
+            "policy",
+            "procedure",
+            "reconciliation",
+            "requirement",
+            "resolution",
+            "retention",
+            "review",
+            "rule",
+            "separation",
+            "standard",
+            "threshold",
+            "timing",
+            "validation",
+        )
+        val GENERIC_MODELING_CLASS_LABELS: Set<String> = setOf(
+            "ambiguity",
+            "conflict",
+            "control",
+            "definition",
+            "exception",
+            "policy",
+            "requirement",
+            "rule",
+            "standard",
         )
         val SUPPORTED_SHACL_CONSTRAINTS: Set<String> = setOf(
             "MinCount",

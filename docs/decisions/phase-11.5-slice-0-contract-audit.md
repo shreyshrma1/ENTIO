@@ -64,7 +64,7 @@ outside the supplied input fail the complete stage response.
 
 | Stage | Prompt | Request schema | Response schema |
 | --- | --- | --- | --- |
-| Discovery | `phase-11-5-document-discovery-v1` | `phase-11-5-document-discovery-request-v1` | `phase-11-5-document-discovery-response-v1` |
+| Discovery | `phase-11-5-document-discovery-v2` | `phase-11-5-document-discovery-request-v2` | `phase-11-5-document-discovery-response-v2` |
 | Connected modeling | `phase-11-5-connected-model-v1` | `phase-11-5-connected-model-request-v1` | `phase-11-5-connected-model-response-v1` |
 | Model consolidation | `phase-11-5-model-consolidation-v1` | `phase-11-5-model-consolidation-request-v1` | `phase-11-5-model-consolidation-response-v1` |
 | Reconciliation | `phase-11-5-reconciliation-v1` | `phase-11-5-reconciliation-request-v1` | `phase-11-5-reconciliation-response-v1` |

@@ -1,13 +1,16 @@
 package com.entio.semantic
 
 import com.entio.core.DocumentAnalysisWorkKey
+import com.entio.core.DocumentContentClassification
 import com.entio.core.DocumentConfidenceDimensions
 import com.entio.core.DocumentCoverageDisposition
 import com.entio.core.DocumentCoverageDispositionKind
+import com.entio.core.DocumentDiscoveryKind
 import com.entio.core.DocumentEvidenceId
 import com.entio.core.DocumentFinalPlan
 import com.entio.core.DocumentFinalRecommendation
 import com.entio.core.DocumentFinalRecommendationStatus
+import com.entio.core.DocumentIndividualClassification
 import com.entio.core.DocumentPlanOperand
 import com.entio.core.DocumentPlanOperation
 import com.entio.core.DocumentPlanOperationKind
@@ -87,6 +90,32 @@ class DocumentChangeSetPlanVerifierTest {
     fun rejectsUnwritableStaleCollidingAndKindInvalidPlans(): Unit {
         val customer = DocumentTemporaryReference("new:class:Customer")
         val property = DocumentTemporaryReference("new:objectProperty:ownsAccount")
+        val missingSource = DocumentPlanOperation(
+            id = "customer-without-source",
+            kind = DocumentPlanOperationKind.CreateClass,
+            order = 0,
+            declaration = customer,
+            expandedTypedEditCount = 1,
+        )
+        assertEquals(
+            listOf("source-required"),
+            verifier.verify(
+                plan(recommendation(listOf(missingSource))),
+                context(),
+            ).plan.recommendations.single().blockers,
+        )
+        assertEquals(
+            listOf("property-context-required"),
+            verifier.verify(
+                plan(recommendation(listOf(create(
+                    "property",
+                    0,
+                    DocumentPlanOperationKind.CreateObjectProperty,
+                    property,
+                )))),
+                context(),
+            ).plan.recommendations.single().blockers,
+        )
         val invalidKind = recommendation(
             listOf(
                 create("customer", 0, DocumentPlanOperationKind.CreateClass, customer),
@@ -207,11 +236,217 @@ class DocumentChangeSetPlanVerifierTest {
         assertEquals("https://example.com/simple#Account", verified.finalIris.getValue(account).value)
     }
 
+    @Test
+    fun blocksAPropertyRangeThatUsesTextInsteadOfAnEntityReference(): Unit {
+        val payment = DocumentTemporaryReference("new:class:Payment")
+        val purpose = DocumentTemporaryReference("new:datatypeProperty:hasBusinessPurpose")
+        val recommendation = recommendation(
+            listOf(
+                create("payment", 0, DocumentPlanOperationKind.CreateClass, payment),
+                create("purpose", 1, DocumentPlanOperationKind.CreateDatatypeProperty, purpose),
+                operation(
+                    "domain",
+                    2,
+                    DocumentPlanOperationKind.SetPropertyDomain,
+                    listOf(temp(purpose), temp(payment)),
+                    listOf("payment", "purpose"),
+                ),
+                operation(
+                    "range",
+                    3,
+                    DocumentPlanOperationKind.SetPropertyRange,
+                    listOf(temp(purpose), DocumentPlanOperand.TextValue("string")),
+                    listOf("purpose"),
+                ),
+            ),
+        )
+
+        val verified = verifier.verify(plan(recommendation), context())
+
+        assertEquals(
+            DocumentFinalRecommendationStatus.Blocked,
+            verified.plan.recommendations.single().status,
+        )
+        assertEquals(
+            listOf("operation-operand-invalid"),
+            verified.plan.recommendations.single().blockers,
+        )
+    }
+
+    @Test
+    fun blocksAPropertyDeclarationThatCarriesDomainAndRangeAsDeclarationOperands(): Unit {
+        val property = DocumentTemporaryReference("new:objectProperty:hasAccount")
+        val recommendation = recommendation(
+            listOf(
+                DocumentPlanOperation(
+                    id = "property",
+                    kind = DocumentPlanOperationKind.CreateObjectProperty,
+                    order = 0,
+                    declaration = property,
+                    operands = listOf(
+                        DocumentPlanOperand.ExistingEntity(Iri("https://example.com/simple#Customer")),
+                        DocumentPlanOperand.ExistingEntity(Iri("https://example.com/simple#Account")),
+                        DocumentPlanOperand.SourceId("simple"),
+                    ),
+                    expandedTypedEditCount = 1,
+                ),
+            ),
+        )
+
+        val verified = verifier.verify(plan(recommendation), context())
+
+        assertEquals(DocumentFinalRecommendationStatus.Blocked, verified.plan.recommendations.single().status)
+        assertEquals(listOf("operation-operand-invalid"), verified.plan.recommendations.single().blockers)
+    }
+
+    @Test
+    fun blocksMultipleDeclarationsThatHaveNoConnectingOperation(): Unit {
+        val payment = DocumentTemporaryReference("new:class:Payment")
+        val control = DocumentTemporaryReference("new:class:PaymentControl")
+        val recommendation = recommendation(
+            listOf(
+                create("payment", 0, DocumentPlanOperationKind.CreateClass, payment),
+                create("control", 1, DocumentPlanOperationKind.CreateClass, control),
+                operation(
+                    "label",
+                    2,
+                    DocumentPlanOperationKind.SetEntityLabel,
+                    listOf(temp(control), DocumentPlanOperand.TextValue("Payment Authorization Control")),
+                    listOf("control"),
+                ),
+            ),
+        )
+
+        val verified = verifier.verify(plan(recommendation), context())
+
+        assertEquals(
+            DocumentFinalRecommendationStatus.Blocked,
+            verified.plan.recommendations.single().status,
+        )
+        assertEquals(
+            listOf("disconnected-declarations"),
+            verified.plan.recommendations.single().blockers,
+        )
+    }
+
+    @Test
+    fun blocksAdministrativeMetadataAndNormativeStatementsModeledAsClasses(): Unit {
+        val policy = DocumentTemporaryReference("new:class:CommercialAccountPolicy")
+        val policyRecommendation = recommendation(
+            listOf(create("policy", 0, DocumentPlanOperationKind.CreateClass, policy)),
+        )
+        val administrative = verifier.verify(
+            plan(policyRecommendation),
+            context(
+                discoveryKind = DocumentDiscoveryKind.Metadata,
+                contentClassification = DocumentContentClassification.AdministrativeMetadata,
+            ),
+        )
+        assertEquals(
+            listOf("administrative-metadata-not-executable"),
+            administrative.plan.recommendations.single().blockers,
+        )
+
+        val control = DocumentTemporaryReference("new:class:PaymentPurposeControl")
+        val normative = verifier.verify(
+            plan(recommendation(listOf(create("control", 0, DocumentPlanOperationKind.CreateClass, control)))),
+            context(discoveryKind = DocumentDiscoveryKind.Requirement),
+        )
+        assertEquals(
+            listOf("normative-meaning-modeled-as-class"),
+            normative.plan.recommendations.single().blockers,
+        )
+
+        val payment = DocumentTemporaryReference("new:class:Payment")
+        val normativePayment = verifier.verify(
+            plan(recommendation(listOf(create("payment", 0, DocumentPlanOperationKind.CreateClass, payment)))),
+            context(discoveryKind = DocumentDiscoveryKind.Requirement),
+        )
+        assertEquals(DocumentFinalRecommendationStatus.Executable, normativePayment.plan.recommendations.single().status)
+        assertTrue(normativePayment.plan.recommendations.single().blockers.isEmpty())
+
+        val operationalConcept = verifier.verify(
+            plan(recommendation(listOf(create("payment", 0, DocumentPlanOperationKind.CreateClass, payment)))),
+            context(discoveryKind = DocumentDiscoveryKind.Concept),
+        )
+        assertEquals(DocumentFinalRecommendationStatus.Executable, operationalConcept.plan.recommendations.single().status)
+        assertTrue(operationalConcept.plan.recommendations.single().blockers.isEmpty())
+
+        val validation = DocumentTemporaryReference("new:class:ElectronicSignaturesValidation")
+        val normativeProcess = verifier.verify(
+            plan(recommendation(listOf(create("validation", 0, DocumentPlanOperationKind.CreateClass, validation)))),
+            context(discoveryKind = DocumentDiscoveryKind.Requirement),
+        )
+        assertEquals(
+            listOf("normative-meaning-modeled-as-class"),
+            normativeProcess.plan.recommendations.single().blockers,
+        )
+
+        val genericDefinition = DocumentTemporaryReference("new:class:Definition")
+        val genericCategory = verifier.verify(
+            plan(recommendation(listOf(create("definition", 0, DocumentPlanOperationKind.CreateClass, genericDefinition)))),
+            context(discoveryKind = DocumentDiscoveryKind.Definition),
+        )
+        assertEquals(
+            listOf("class-evidence-required"),
+            genericCategory.plan.recommendations.single().blockers,
+        )
+
+        val pluralControl = DocumentTemporaryReference("new:class:ComplianceControls")
+        val pluralGenericCategory = verifier.verify(
+            plan(recommendation(listOf(create("controls", 0, DocumentPlanOperationKind.CreateClass, pluralControl)))),
+            context(discoveryKind = DocumentDiscoveryKind.Concept),
+        )
+        assertEquals(
+            listOf("normative-meaning-modeled-as-class"),
+            pluralGenericCategory.plan.recommendations.single().blockers,
+        )
+    }
+
+    @Test
+    fun requiresParticularProductionEvidenceAndAnExplicitTypeForNewIndividuals(): Unit {
+        val analyst = DocumentTemporaryReference("new:individual:ComplianceTestingAnalyst")
+        val roleResult = verifier.verify(
+            plan(recommendation(listOf(create(
+                "analyst",
+                0,
+                DocumentPlanOperationKind.CreateIndividual,
+                analyst,
+            )))),
+            context(discoveryKind = DocumentDiscoveryKind.Role),
+        )
+        assertEquals(
+            listOf("individual-evidence-required"),
+            roleResult.plan.recommendations.single().blockers,
+        )
+
+        val namedPerson = DocumentTemporaryReference("new:individual:MariaChen")
+        val untypedResult = verifier.verify(
+            plan(recommendation(listOf(create(
+                "person",
+                0,
+                DocumentPlanOperationKind.CreateIndividual,
+                namedPerson,
+            )))),
+            context(
+                discoveryKind = DocumentDiscoveryKind.Individual,
+                individualClassification = DocumentIndividualClassification.Production,
+            ),
+        )
+        assertEquals(
+            listOf("individual-type-required"),
+            untypedResult.plan.recommendations.single().blockers,
+        )
+    }
+
     private val verifier = DocumentChangeSetPlanVerifier()
 
     private fun context(
         existing: Map<Iri, DocumentTemporaryReferenceKind> = emptyMap(),
         current: String = "ontology",
+        discoveryKind: DocumentDiscoveryKind? = null,
+        contentClassification: DocumentContentClassification = DocumentContentClassification.BusinessContent,
+        individualClassification: DocumentIndividualClassification? = null,
     ): DocumentPlanVerificationContext = DocumentPlanVerificationContext(
         expectedOntologyFingerprint = "ontology",
         currentOntologyFingerprint = current,
@@ -220,6 +455,13 @@ class DocumentChangeSetPlanVerifierTest {
         writableSourceIds = setOf("simple"),
         existingEntityKinds = existing,
         iriNamespace = "https://example.com/simple",
+        discoveryKinds = discoveryKind?.let { mapOf("discovery-1" to it) }.orEmpty(),
+        discoveryContentClassifications = discoveryKind?.let {
+            mapOf("discovery-1" to contentClassification)
+        }.orEmpty(),
+        discoveryIndividualClassifications = discoveryKind?.let {
+            mapOf("discovery-1" to individualClassification)
+        }.orEmpty(),
     )
 
     private fun plan(recommendation: DocumentFinalRecommendation): DocumentFinalPlan = DocumentFinalPlan(
@@ -281,7 +523,11 @@ class DocumentChangeSetPlanVerifierTest {
         id,
         kind,
         order,
-        operands = operands,
+        operands = if (operands.any { it is DocumentPlanOperand.SourceId }) {
+            operands
+        } else {
+            operands + DocumentPlanOperand.SourceId("simple")
+        },
         dependsOnOperationIds = dependencies.sorted(),
         expandedTypedEditCount = 1,
         optionalLeaf = optional,

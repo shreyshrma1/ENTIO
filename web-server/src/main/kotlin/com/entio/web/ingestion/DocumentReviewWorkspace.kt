@@ -286,23 +286,44 @@ internal class DocumentReviewWorkspaceStore(
         extractedDocuments: List<ExtractedDocument>,
         discoveries: List<DocumentDiscovery>,
     ): Unit {
-        require(plan.plan.workKey.sha256 == workKey)
-        require(graphFingerprint.isNotBlank())
+        if (plan.plan.workKey.sha256 != workKey) {
+            throw DocumentAnalysisFailure(
+                "document-review-work-key-mismatch",
+                "The verified plan does not match the review work key.",
+            )
+        }
+        if (graphFingerprint.isBlank()) {
+            throw DocumentAnalysisFailure(
+                "document-review-graph-fingerprint-missing",
+                "The verified plan is missing its ontology fingerprint.",
+            )
+        }
         val blocks = extractedDocuments.flatMap(ExtractedDocument::blocks).associateBy { it.id.value }
         val evidence = discoveries
             .flatMap(DocumentDiscovery::evidence)
             .associateBy { it.id.value }
-        require(plan.plan.recommendations.flatMap { it.evidenceIds }.all { it.value in evidence })
-        require(evidence.values.flatMap(DocumentEvidence::references).all { reference ->
-            blocks[reference.blockId.value]?.documentId == reference.documentId
-        })
+        if (plan.plan.recommendations.flatMap { it.evidenceIds }.any { it.value !in evidence }) {
+            throw DocumentAnalysisFailure(
+                "document-final-plan-evidence-invalid",
+                "A final recommendation cited evidence outside the verified discovery inventory.",
+            )
+        }
+        if (evidence.values.flatMap(DocumentEvidence::references).any { reference ->
+                blocks[reference.blockId.value]?.documentId != reference.documentId
+            }
+        ) {
+            throw DocumentAnalysisFailure(
+                "document-final-plan-evidence-stale",
+                "Verified evidence no longer matches the extracted document blocks.",
+            )
+        }
         verifiedPlans[task.taskId] = StoredVerifiedPlan(
             projectId = task.projectId,
             ownerUserId = task.ownerUserId,
             workKey = workKey,
             graphFingerprint = graphFingerprint,
             plan = plan,
-            taskDocuments = task.documents,
+            taskDocuments = task.documents.map { it.copy(status = "awaiting-review") },
             blocks = blocks,
             evidence = evidence,
             analysisStages = task.analysisStages,

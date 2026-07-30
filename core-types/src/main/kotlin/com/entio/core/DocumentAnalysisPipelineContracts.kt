@@ -12,16 +12,14 @@ public const val MAX_DOCUMENT_PLANNED_LOGICAL_CALLS: Int = 15
 public const val MAX_DOCUMENT_PROVIDER_ATTEMPTS: Int = 20
 public const val MAX_DOCUMENT_AUTOMATIC_RETRY_ATTEMPTS: Int = 3
 public const val MAX_DOCUMENT_RECONSIDERATION_ATTEMPTS: Int = 2
-public const val MAX_DOCUMENT_PROVIDER_TIMEOUT_SECONDS: Long = 120
-public const val MAX_DOCUMENT_ANALYSIS_WALL_TIME_SECONDS: Long = 30 * 60
 public const val MAX_DOCUMENT_STAGE_PROMPT_CHARACTERS: Int = 60_000
 public const val MAX_DOCUMENT_PROVIDER_RESPONSE_CHARACTERS: Int = 1_000_000
 
 /** Version constants shared by neutral task records and server-side stage adapters. */
 public object DocumentAnalysisPipelineVersions {
-    public const val DISCOVERY_PROMPT: String = "phase-11-5-document-discovery-v1"
-    public const val DISCOVERY_REQUEST: String = "phase-11-5-document-discovery-request-v1"
-    public const val DISCOVERY_RESPONSE: String = "phase-11-5-document-discovery-response-v1"
+    public const val DISCOVERY_PROMPT: String = "phase-11-5-document-discovery-v2"
+    public const val DISCOVERY_REQUEST: String = "phase-11-5-document-discovery-request-v2"
+    public const val DISCOVERY_RESPONSE: String = "phase-11-5-document-discovery-response-v2"
     public const val CONNECTED_MODEL_PROMPT: String = "phase-11-5-connected-model-v1"
     public const val CONNECTED_MODEL_REQUEST: String = "phase-11-5-connected-model-request-v1"
     public const val CONNECTED_MODEL_RESPONSE: String = "phase-11-5-connected-model-response-v1"
@@ -198,6 +196,7 @@ public enum class DocumentDiscoveryKind {
     ConditionalRule,
     Conflict,
     Ambiguity,
+    Role,
     Metadata,
 }
 
@@ -396,7 +395,7 @@ public data class DocumentConnectedModel(
     public val items: List<DocumentConnectedModelItem>,
 ) {
     init {
-        require(items.isNotEmpty() && items.size <= MAX_DOCUMENT_CONNECTED_MODEL_ITEMS) {
+        require(items.size <= MAX_DOCUMENT_CONNECTED_MODEL_ITEMS) {
             "A connected document model requires bounded items."
         }
         require(items == items.sortedBy(DocumentConnectedModelItem::order)) {

@@ -170,6 +170,7 @@ export interface WebDocumentIngestionProgress {
   totalDocuments: number;
   percent: number;
   message: string;
+  details?: string[];
 }
 
 export interface WebDocumentIngestionStatusUpdate extends WebDocumentIngestionProgress {

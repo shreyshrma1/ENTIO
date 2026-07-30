@@ -3,11 +3,18 @@
 Phase 11.5, Multi-Stage AI Modeling and Connected Ontology Change Sets, was
 implemented and verified on 2026-07-27.
 
+On 2026-07-29, the provider path was consolidated after throughput testing.
+Per-document discovery remains separate, connected modeling now owns
+cross-document semantic synthesis, and one ontology-aware recommendation-planning
+call owns alignment, modeling review, and final grouped planning. This removes
+three unconditional provider calls while preserving deterministic verification
+and human review.
+
 ## Delivered
 
-- Replaced the production single-stage document-analysis path with separate
-  discovery, connected-modeling, reconciliation, ontology-alignment, critic,
-  and final-planning calls.
+- Replaced the production single-stage document-analysis path with
+  per-document discovery, connected semantic synthesis, and ontology-aware
+  recommendation planning.
 - Kept discovery ontology-blind so the current ontology cannot prematurely
   narrow what a document says.
 - Added connected model items for ontology structure, individuals, facts,
@@ -17,7 +24,7 @@ implemented and verified on 2026-07-27.
   letting dates or the model resolve conflicts or supersession automatically.
 - Added bounded current-ontology alignment across local, imported, current-work,
   retained provenance, and approved pinned FIBO scopes.
-- Added a separate modeling critic for metadata promotion, weak domain or range,
+- Added modeling review for metadata promotion, weak domain or range,
   missing support, flattened rules, illustrative individuals, and unjustified
   ontology links.
 - Added independent evidence, modeling, and ontology-fit confidence values.

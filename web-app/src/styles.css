@@ -1142,6 +1142,12 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .document-task-list progress { width: 100%; }
 .document-task-actions, .document-review-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .document-task-actions button, .document-review-actions button { padding: 6px 9px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-2); }
+.document-status-modal { height: min(900px, calc(100dvh - 48px)); }
+.document-status-modal > header, .document-status-modal > .button { flex: 0 0 auto; }
+.document-status-scroll-region { display: grid; min-height: 0; gap: 16px; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; scrollbar-gutter: stable; }
+.document-status-scroll-region:focus-visible { outline: 2px solid var(--primary-600); outline-offset: 2px; }
+.document-status-scroll-region > p { margin: 0; }
+.document-status-scroll-region .ai-status-list { min-height: auto; flex: none; overflow: visible; }
 .document-status-details { display: block; margin-top: 3px; color: var(--text-muted); }
 .document-stage-timeline { display: grid; gap: 8px; }
 .document-stage-timeline h3 { margin: 0; }

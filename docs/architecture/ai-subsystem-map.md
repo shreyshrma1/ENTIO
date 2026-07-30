@@ -122,11 +122,8 @@ Phase 11.5 implements:
 ```text
 verified extracted text
 → per-document discovery
-→ connected domain modeling and consolidation
-→ document and prior-evidence reconciliation
-→ current-ontology alignment
-→ separate modeling critique
-→ connected atomic change-set planning
+→ connected cross-document semantic synthesis and conditional consolidation
+→ ontology-aware recommendation planning and modeling review
 → Kotlin verification
 → grouped human review
 → existing typed private-draft and proposal workflow
