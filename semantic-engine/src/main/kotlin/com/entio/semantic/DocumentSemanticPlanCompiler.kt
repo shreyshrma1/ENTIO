@@ -133,7 +133,7 @@ public class DocumentSemanticPlanCompiler {
                     group.confidence.ontologyFit,
                 )
             }
-            val items = group.itemIds.map(itemsById::getValue)
+            val items = dependencyClosure(group.itemIds, itemsById)
             try {
                 compileGroup(group.id, items, context)
             } catch (failure: CompilationBlocked) {
@@ -165,6 +165,30 @@ public class DocumentSemanticPlanCompiler {
             }.sortedBy(DocumentCompiledRecommendationResult::groupId)
         }
         return compiled
+    }
+
+    /**
+     * A semantic group names its intended work. Explicit item references name
+     * the declarations required to compile that work, so include their
+     * transitive closure without inferring any additional ontology meaning.
+     */
+    private fun dependencyClosure(
+        seedItemIds: List<String>,
+        itemsById: Map<String, DocumentSemanticPlanItem>,
+    ): List<DocumentSemanticPlanItem> {
+        val pending = ArrayDeque(seedItemIds.sorted())
+        val included = linkedSetOf<String>()
+        while (pending.isNotEmpty()) {
+            val itemId = pending.removeFirst()
+            if (!included.add(itemId)) continue
+            val item = itemsById[itemId]
+                ?: throw CompilationBlocked(itemId, "semantic-reference-unresolved", "A semantic item is unavailable.")
+            item.referencedItemIds
+                .filterNot(included::contains)
+                .sorted()
+                .forEach(pending::addLast)
+        }
+        return included.map(itemsById::getValue)
     }
 
     private fun compileGroup(

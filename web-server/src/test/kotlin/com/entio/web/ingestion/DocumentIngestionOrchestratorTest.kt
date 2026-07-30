@@ -254,7 +254,7 @@ class DocumentIngestionOrchestratorTest {
     }
 
     @Test
-    fun retriesFinalPlanningOnceWithTheSameVerifiedInput(): Unit = runBlocking {
+    fun regeneratesAnInvalidSemanticReferenceOnceWithTheSameVerifiedInput(): Unit = runBlocking {
         val fixture = fixture(readyModel = true, retryFinalPlanningOnce = true)
         val taskId = fixture.manager.begin("simple", "alice", 1)
         val directory = fixture.manager.directory(taskId, "simple", "alice")
@@ -277,6 +277,15 @@ class DocumentIngestionOrchestratorTest {
         assertEquals(
             2,
             task.analysisStages.single { it.stage == DocumentAnalysisStage.FinalPlanning }.providerAttemptCount,
+        )
+        assertContains(fixture.provider.finalPlanningInstructions.first(), "reuse its exact item ID")
+        assertContains(
+            fixture.provider.finalPlanningInstructions.last(),
+            "One bounded full-plan regeneration is required",
+        )
+        assertContains(
+            fixture.provider.finalPlanningInstructions.last(),
+            "document-semantic-plan-reference-invalid",
         )
         fixture.close()
     }
@@ -1021,7 +1030,7 @@ class DocumentIngestionOrchestratorTest {
             if (retryFinalPlanningOnce && finalPlanningCalls == 1) {
                 return DocumentSemanticPlanningProviderResult.Failed(
                     retryable = true,
-                    safeCode = "document-provider-malformed-output",
+                    safeCode = "document-semantic-plan-reference-invalid",
                 )
             }
             val discoveries = request.discoveries.sortedBy(DocumentDiscovery::stableOrderingKey)

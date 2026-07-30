@@ -12,7 +12,6 @@ public const val MAX_DOCUMENT_PLANNED_LOGICAL_CALLS: Int = 15
 public const val MAX_DOCUMENT_PROVIDER_ATTEMPTS: Int = 20
 public const val MAX_DOCUMENT_AUTOMATIC_RETRY_ATTEMPTS: Int = 3
 public const val MAX_DOCUMENT_RECONSIDERATION_ATTEMPTS: Int = 2
-public const val MAX_DOCUMENT_STAGE_PROMPT_CHARACTERS: Int = 60_000
 public const val MAX_DOCUMENT_PROVIDER_RESPONSE_CHARACTERS: Int = 1_000_000
 
 /** Version constants shared by neutral task records and server-side stage adapters. */

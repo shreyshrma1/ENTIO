@@ -6,6 +6,7 @@ import com.entio.core.DocumentAnalysisWorkKey
 import com.entio.core.DocumentAnalysisPipelineVersions
 import com.entio.core.DocumentAssertionClassification
 import com.entio.core.DocumentContentClassification
+import com.entio.core.DocumentConnectedModelItem
 import com.entio.core.DocumentConnectedModelItemKind
 import com.entio.core.DocumentConnectedModelReferenceRole
 import com.entio.core.DocumentConfidenceDimensions
@@ -463,7 +464,11 @@ internal class OpenAiDocumentAnalysisClient(
         } catch (_: IOException) {
             DocumentSemanticPlanningProviderResult.Failed(true, "document-provider-unavailable")
         } catch (failure: IllegalArgumentException) {
-            DocumentSemanticPlanningProviderResult.Failed(false, classifySemanticPlanParseFailure(failure))
+            val safeCode = classifySemanticPlanParseFailure(failure)
+            DocumentSemanticPlanningProviderResult.Failed(
+                retryable = safeCode in RETRYABLE_SEMANTIC_PLAN_SAFE_CODES,
+                safeCode = safeCode,
+            )
         } catch (_: Exception) {
             DocumentSemanticPlanningProviderResult.Failed(true, "document-provider-malformed-output")
         }
@@ -473,10 +478,13 @@ internal class OpenAiDocumentAnalysisClient(
 
     private suspend fun classifyHttpFailure(response: HttpResponse): SafeHttpFailure {
         val status = response.status.value
+        val responseBody = runCatching {
+            response.bodyAsText().takeIf { it.length <= MAX_PROVIDER_ERROR_CHARACTERS }
+        }.getOrNull()
+        diagnostic("http-failure status=$status body=${responseBody.orEmpty()}")
         val providerError = if (status in 400..499) {
             runCatching {
-                response.bodyAsText()
-                    .takeIf { it.length <= MAX_PROVIDER_ERROR_CHARACTERS }
+                responseBody
                     ?.let(objectMapper::readTree)
                     ?.path("error")
             }.getOrNull()
@@ -505,6 +513,12 @@ internal class OpenAiDocumentAnalysisClient(
             retryable = safeCode == "document-provider-rate-limited" || status >= 500,
             safeCode = safeCode,
         )
+    }
+
+    private fun diagnostic(message: String): Unit {
+        if (System.getenv("ENTIO_DOCUMENT_ANALYSIS_DEBUG") == "true") {
+            System.err.println("entio-document-analysis $message")
+        }
     }
 
     private fun classifyFinalPlanParseFailure(failure: IllegalArgumentException): String {
@@ -546,13 +560,13 @@ internal class OpenAiDocumentAnalysisClient(
                 "document-semantic-plan-critic-invalid"
             message.contains("group", ignoreCase = true) ->
                 "document-semantic-plan-group-invalid"
-            message.contains("item", ignoreCase = true) ||
-                message.contains("semantic", ignoreCase = true) ->
-                "document-semantic-plan-item-invalid"
             message.contains("unknown", ignoreCase = true) ||
                 message.contains("field", ignoreCase = true) ||
                 message.contains("schema", ignoreCase = true) ->
                 "document-semantic-plan-schema-invalid"
+            message.contains("item", ignoreCase = true) ||
+                message.contains("semantic", ignoreCase = true) ->
+                "document-semantic-plan-item-invalid"
             else -> "document-semantic-plan-invalid"
         }
     }
@@ -570,18 +584,25 @@ internal class OpenAiDocumentAnalysisClient(
             return DocumentConnectedModelProviderResult.Failed(false, "document-provider-authorization")
         }
         return try {
+            val requestBody = connectedModelRequestBody(
+                selectedModelId,
+                systemInstruction,
+                request,
+                responseSchemaVersion,
+                formatName,
+            )
+            if (request is DocumentConnectedModelRequest) {
+                diagnostic(
+                    "connected-model request chunk=${request.chunkIndex} " +
+                        "discoveries=${request.discoveries.size} characters=${requestBody.length}",
+                )
+            }
             val response = client.post(configuration.endpoint) {
                 header(HttpHeaders.Authorization, "Bearer ${apiKey.trim()}")
                 accept(ContentType.Application.Json)
                 setBody(
                     TextContent(
-                        connectedModelRequestBody(
-                            selectedModelId,
-                            systemInstruction,
-                            request,
-                            responseSchemaVersion,
-                            formatName,
-                        ),
+                        requestBody,
                         ContentType.Application.Json,
                     ),
                 )
@@ -604,7 +625,8 @@ internal class OpenAiDocumentAnalysisClient(
             throw failure
         } catch (_: HttpRequestTimeoutException) {
             DocumentConnectedModelProviderResult.Failed(true, "document-provider-timeout")
-        } catch (_: IOException) {
+        } catch (failure: IOException) {
+            diagnostic("connected-model io-failure=${failure::class.simpleName} message=${failure.message.orEmpty()}")
             DocumentConnectedModelProviderResult.Failed(true, "document-provider-unavailable")
         } catch (_: Exception) {
             DocumentConnectedModelProviderResult.Failed(true, "document-provider-malformed-output")
@@ -738,7 +760,7 @@ internal class OpenAiDocumentAnalysisClient(
         root.putArray("tools")
         root.put("instructions", instruction)
         root.put("input", objectMapper.writeValueAsString(request.toPromptPayload()))
-        root.set<JsonNode>("text", strictSemanticPlanningTextFormat())
+        root.set<JsonNode>("text", strictSemanticPlanningTextFormat(request))
         return objectMapper.writeValueAsString(root)
     }
 
@@ -752,7 +774,7 @@ internal class OpenAiDocumentAnalysisClient(
             ) * DOCUMENT_FINAL_PLAN_TOKENS_PER_MODEL_ITEM)
             .coerceAtMost(MAX_DOCUMENT_FINAL_PLAN_OUTPUT_TOKENS)
 
-    private fun strictSemanticPlanningTextFormat(): JsonNode {
+    private fun strictSemanticPlanningTextFormat(request: DocumentFinalPlanningRequest): JsonNode {
         fun objectSchema(fields: Set<String>, properties: JsonNode): JsonNode =
             objectMapper.createObjectNode().apply {
                 put("type", "object")
@@ -793,7 +815,13 @@ internal class OpenAiDocumentAnalysisClient(
         val item = objectSchema(
             SEMANTIC_ITEM_FIELDS,
             objectMapper.createObjectNode().apply {
-                putObject("id").put("type", "string").put("minLength", 1).put("maxLength", 200)
+                set<JsonNode>(
+                    "id",
+                    stringEnum(
+                        request.connectedModel.items.map(DocumentConnectedModelItem::id).distinct().sorted(),
+                        "Exact retained connected-model item ID.",
+                    ),
+                )
                 set<JsonNode>("kind", stringEnum(DocumentSemanticItemKind.entries.map { it.name }, "Semantic item kind."))
                 putObject("label").put("type", "string").put("minLength", 1).put("maxLength", 500)
                 set<JsonNode>("definition", nullableString(2_000, "Optional definition."))
@@ -860,11 +888,13 @@ internal class OpenAiDocumentAnalysisClient(
                 set<JsonNode>("criticFindingIds", strings())
                 set<JsonNode>("items", objectMapper.createObjectNode().apply {
                     put("type", "array")
-                    put("maxItems", MAX_DOCUMENT_CONNECTED_MODEL_ITEMS)
+                    put("minItems", request.connectedModel.items.size)
+                    put("maxItems", request.connectedModel.items.size)
                     set<JsonNode>("items", item)
                 })
                 set<JsonNode>("groups", objectMapper.createObjectNode().apply {
                     put("type", "array")
+                    put("minItems", if (request.connectedModel.items.isEmpty()) 0 else 1)
                     put("maxItems", 100)
                     set<JsonNode>("items", group)
                 })
@@ -878,7 +908,8 @@ internal class OpenAiDocumentAnalysisClient(
                 set<JsonNode>("plan", plan)
                 set<JsonNode>("coverage", objectMapper.createObjectNode().apply {
                     put("type", "array")
-                    put("maxItems", 500)
+                    put("minItems", request.discoveries.size)
+                    put("maxItems", request.discoveries.size)
                     set<JsonNode>("items", coverage)
                 })
             },
@@ -1991,17 +2022,29 @@ internal class OpenAiDocumentAnalysisClient(
         request: DocumentFinalPlanningRequest,
     ): DocumentSemanticPlanningResponse {
         val root = objectMapper.readTree(value)
-        require(root.isObject && root.fieldNames().asSequence().toSet() == setOf("schemaVersion", "plan", "coverage"))
-        require(root.requiredText("schemaVersion") == DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_RESPONSE)
+        require(root.isObject && root.fieldNames().asSequence().toSet() == setOf("schemaVersion", "plan", "coverage")) {
+            "Semantic plan response schema is invalid."
+        }
+        require(root.requiredText("schemaVersion") == DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_RESPONSE) {
+            "Semantic plan response schema version is invalid."
+        }
         val planNode = root.path("plan")
-        require(planNode.isObject && planNode.fieldNames().asSequence().toSet() == SEMANTIC_PLAN_FIELDS)
-        require(planNode.requiredText("workKey") == request.workKey.sha256)
+        require(planNode.isObject && planNode.fieldNames().asSequence().toSet() == SEMANTIC_PLAN_FIELDS) {
+            "Semantic plan schema fields are invalid."
+        }
+        require(planNode.requiredText("workKey") == request.workKey.sha256) {
+            "Semantic plan work key is invalid."
+        }
         val knownDiscoveryIds = request.discoveries.map(DocumentDiscovery::id).toSet()
         val knownEvidenceIds = request.discoveries.flatMap(DocumentDiscovery::evidence)
             .map { it.id.value }
             .toSet()
         val knownAlignmentIds = request.alignments.map { it.id }.toSet()
         val knownCriticIds = request.criticFindings.map { it.id }.toSet()
+        val connectedItemsById = request.connectedModel.items.associateBy(DocumentConnectedModelItem::id)
+        val evidenceIdsByDiscovery = request.discoveries.associate { discovery ->
+            discovery.id to discovery.evidence.map { it.id.value }
+        }
 
         fun criticDisposition(node: JsonNode): DocumentCriticDisposition {
             require(node.isObject &&
@@ -2042,17 +2085,16 @@ internal class OpenAiDocumentAnalysisClient(
                 )
             }.sortedBy(DocumentSemanticReference::stableOrderingKey)
         }
-        fun evidenceIds(node: JsonNode): List<DocumentEvidenceId> =
-            node.requiredTextArray("evidenceIds", 1, 8)
-                .onEach { require(it in knownEvidenceIds) { "Unknown semantic evidence reference." } }
+        fun canonicalDiscoveryIds(itemIds: List<String>): List<String> =
+            itemIds.flatMap { connectedItemsById.getValue(it).discoveryIds }
                 .distinct()
                 .sorted()
+        fun canonicalEvidenceIds(discoveryIds: List<String>): List<DocumentEvidenceId> =
+            discoveryIds.flatMap { evidenceIdsByDiscovery[it].orEmpty() }
+                .distinct()
+                .sorted()
+                .take(MAX_FINAL_EVIDENCE_IDS)
                 .map(::DocumentEvidenceId)
-        fun discoveryIds(node: JsonNode): List<String> =
-            node.requiredTextArray("discoveryIds", 1, 500)
-                .onEach { require(it in knownDiscoveryIds) { "Unknown semantic discovery reference." } }
-                .distinct()
-                .sorted()
         fun literal(node: JsonNode): RdfLiteral? {
             val literal = node.path("literalValue")
             if (literal.isNull) return null
@@ -2066,22 +2108,32 @@ internal class OpenAiDocumentAnalysisClient(
 
         val itemsNode = planNode.path("items")
         require(itemsNode.isArray && itemsNode.size() <= MAX_DOCUMENT_CONNECTED_MODEL_ITEMS)
+        val suppliedItemIds = itemsNode.map { it.requiredText("id") }
+        require(
+            suppliedItemIds.size == connectedItemsById.size &&
+                suppliedItemIds.toSet() == connectedItemsById.keys &&
+                suppliedItemIds.distinct().size == suppliedItemIds.size,
+        ) {
+            "Semantic plan must contain every retained connected-model item exactly once."
+        }
         val items = itemsNode.map { node ->
             require(node.isObject && node.fieldNames().asSequence().toSet() == SEMANTIC_ITEM_FIELDS) {
                 "Unknown semantic item field."
             }
             val criticDispositions = node.path("criticDispositions")
             require(criticDispositions.isArray)
+            val itemId = node.requiredText("id")
+            val canonicalDiscoveryIds = canonicalDiscoveryIds(listOf(itemId))
             DocumentSemanticPlanItem(
-                id = node.requiredText("id"),
+                id = itemId,
                 kind = DocumentSemanticItemKind.valueOf(node.requiredText("kind")),
                 label = node.requiredText("label"),
                 definition = node.optionalText("definition"),
                 literalValue = literal(node),
                 datatypeIntent = node.optionalText("datatypeIntent"),
                 references = references(node),
-                discoveryIds = discoveryIds(node),
-                evidenceIds = evidenceIds(node),
+                discoveryIds = canonicalDiscoveryIds,
+                evidenceIds = canonicalEvidenceIds(canonicalDiscoveryIds),
                 rationale = node.requiredText("rationale"),
                 outcome = DocumentSemanticOutcome.valueOf(node.requiredText("outcome")),
                 ambiguity = node.optionalText("ambiguity"),
@@ -2090,22 +2142,53 @@ internal class OpenAiDocumentAnalysisClient(
                 confidence = confidence(node),
             )
         }.sortedBy(DocumentSemanticPlanItem::stableOrderingKey)
+        val semanticItemsById = items.associateBy(DocumentSemanticPlanItem::id)
+        fun dependencyClosure(seedItemIds: List<String>): List<String> {
+            val pending = ArrayDeque(seedItemIds.sorted())
+            val included = linkedSetOf<String>()
+            while (pending.isNotEmpty()) {
+                val itemId = pending.removeFirst()
+                if (!included.add(itemId)) continue
+                semanticItemsById.getValue(itemId).referencedItemIds
+                    .filterNot(included::contains)
+                    .sorted()
+                    .forEach(pending::addLast)
+            }
+            return included.sorted()
+        }
+        fun weakestOutcome(
+            declared: DocumentSemanticOutcome,
+            itemIds: List<String>,
+        ): DocumentSemanticOutcome {
+            val outcomes = itemIds.map { semanticItemsById.getValue(it).outcome } + declared
+            return when {
+                DocumentSemanticOutcome.Blocked in outcomes -> DocumentSemanticOutcome.Blocked
+                DocumentSemanticOutcome.ReviewOnly in outcomes -> DocumentSemanticOutcome.ReviewOnly
+                else -> DocumentSemanticOutcome.Executable
+            }
+        }
         val groupsNode = planNode.path("groups")
         require(groupsNode.isArray && groupsNode.size() <= 100)
-        val groups = groupsNode.map { node ->
+        val suppliedGroups = groupsNode.map { node ->
             require(node.isObject && node.fieldNames().asSequence().toSet() == SEMANTIC_GROUP_FIELDS) {
                 "Unknown semantic group field."
             }
             val criticDispositions = node.path("criticDispositions")
             require(criticDispositions.isArray)
+            val itemIds = node.requiredTextArray("itemIds", 1, MAX_DOCUMENT_CONNECTED_MODEL_ITEMS)
+                .distinct()
+                .sorted()
+            require(itemIds.all(connectedItemsById::containsKey)) {
+                "Semantic group contains an unknown retained item."
+            }
+            val canonicalDiscoveryIds = canonicalDiscoveryIds(itemIds)
             DocumentSemanticRecommendationGroup(
                 id = node.requiredText("id"),
                 title = node.requiredText("title"),
                 description = node.requiredText("description"),
-                itemIds = node.requiredTextArray("itemIds", 1, MAX_DOCUMENT_CONNECTED_MODEL_ITEMS)
-                    .distinct().sorted(),
-                discoveryIds = discoveryIds(node),
-                evidenceIds = evidenceIds(node),
+                itemIds = itemIds,
+                discoveryIds = canonicalDiscoveryIds,
+                evidenceIds = canonicalEvidenceIds(canonicalDiscoveryIds),
                 outcome = DocumentSemanticOutcome.valueOf(node.requiredText("outcome")),
                 rationale = node.requiredText("rationale"),
                 criticDispositions = criticDispositions.map(::criticDisposition)
@@ -2113,13 +2196,65 @@ internal class OpenAiDocumentAnalysisClient(
                     .sortedBy(DocumentCriticDisposition::stableOrderingKey),
                 confidence = confidence(node),
             )
-        }.sortedBy(DocumentSemanticRecommendationGroup::stableOrderingKey)
-        val verifiedDiscoveryIds = planNode.requiredTextArray("verifiedDiscoveryIds", 1, 500)
-            .distinct().sorted()
-        require(verifiedDiscoveryIds == knownDiscoveryIds.sorted())
-        val criticFindingIds = planNode.requiredTextArray("criticFindingIds", 0, 600)
-            .distinct().sorted()
-        require(criticFindingIds == knownCriticIds.sorted())
+        }
+        val expandedGroups = suppliedGroups.map { group ->
+            val itemIds = dependencyClosure(group.itemIds)
+            val discoveryIds = canonicalDiscoveryIds(itemIds)
+            val itemConfidence = itemIds.map { semanticItemsById.getValue(it).confidence }
+            group.copy(
+                itemIds = itemIds,
+                discoveryIds = discoveryIds,
+                evidenceIds = canonicalEvidenceIds(discoveryIds),
+                outcome = weakestOutcome(group.outcome, itemIds),
+                confidence = DocumentConfidenceDimensions(
+                    evidence = minOf(group.confidence.evidence, itemConfidence.minOf { it.evidence }),
+                    modeling = minOf(group.confidence.modeling, itemConfidence.minOf { it.modeling }),
+                    ontologyFit = minOf(group.confidence.ontologyFit, itemConfidence.minOf { it.ontologyFit }),
+                ),
+            )
+        }
+        val completedGroups = expandedGroups.toMutableList()
+        val coveredItemIds = expandedGroups.flatMap(DocumentSemanticRecommendationGroup::itemIds).toMutableSet()
+        val usedGroupIds = expandedGroups.map(DocumentSemanticRecommendationGroup::id).toMutableSet()
+        val disposedCriticIds = expandedGroups
+            .flatMap(DocumentSemanticRecommendationGroup::criticDispositions)
+            .map(DocumentCriticDisposition::findingId)
+            .toMutableSet()
+        items.sortedBy(DocumentSemanticPlanItem::stableOrderingKey).forEach { rootItem ->
+            if (rootItem.id in coveredItemIds) return@forEach
+            val itemIds = dependencyClosure(listOf(rootItem.id))
+            val discoveryIds = canonicalDiscoveryIds(itemIds)
+            val closureItems = itemIds.map(semanticItemsById::getValue)
+            val groupIdBase = "generated-group-${rootItem.id}".take(200)
+            val groupId = generateSequence(groupIdBase) { previous -> "$previous-x".take(200) }
+                .first(usedGroupIds::add)
+            val criticDispositions = closureItems
+                .flatMap(DocumentSemanticPlanItem::criticDispositions)
+                .filter { it.findingId !in disposedCriticIds }
+                .distinctBy(DocumentCriticDisposition::findingId)
+                .sortedBy(DocumentCriticDisposition::stableOrderingKey)
+            disposedCriticIds += criticDispositions.map(DocumentCriticDisposition::findingId)
+            completedGroups += DocumentSemanticRecommendationGroup(
+                id = groupId,
+                title = "Complete ${rootItem.label}".take(500),
+                description = "Deterministically includes the explicit prerequisites required by ${rootItem.label}.".take(2_000),
+                itemIds = itemIds,
+                discoveryIds = discoveryIds,
+                evidenceIds = canonicalEvidenceIds(discoveryIds),
+                outcome = weakestOutcome(rootItem.outcome, itemIds),
+                rationale = "This standalone unit preserves an ungrouped semantic item and only its explicit dependencies.",
+                criticDispositions = criticDispositions,
+                confidence = DocumentConfidenceDimensions(
+                    evidence = closureItems.minOf { it.confidence.evidence },
+                    modeling = closureItems.minOf { it.confidence.modeling },
+                    ontologyFit = closureItems.minOf { it.confidence.ontologyFit },
+                ),
+            )
+            coveredItemIds += itemIds
+        }
+        val groups = completedGroups.sortedBy(DocumentSemanticRecommendationGroup::stableOrderingKey)
+        val verifiedDiscoveryIds = knownDiscoveryIds.sorted()
+        val criticFindingIds = knownCriticIds.sorted()
         val plan = DocumentSemanticPlan(
             workKey = request.workKey,
             verifiedDiscoveryIds = verifiedDiscoveryIds,
@@ -2128,18 +2263,56 @@ internal class OpenAiDocumentAnalysisClient(
             groups = groups,
         )
         val coverageNode = root.path("coverage")
-        require(coverageNode.isArray && coverageNode.size() <= 500)
-        val coverage = coverageNode.map { node ->
+        require(coverageNode.isArray && coverageNode.size() <= 500) {
+            "Semantic plan coverage array is invalid."
+        }
+        coverageNode.forEach { node ->
             require(node.isObject && node.fieldNames().asSequence().toSet() == SEMANTIC_COVERAGE_FIELDS) {
                 "Unknown semantic coverage field."
             }
+        }
+        val groupsByDiscovery = groups
+            .flatMap { group -> group.discoveryIds.map { discoveryId -> discoveryId to group } }
+            .groupBy({ it.first }, { it.second })
+        val discoveriesById = request.discoveries.associateBy(DocumentDiscovery::id)
+        val coverage = verifiedDiscoveryIds.map { discoveryId ->
+            val discovery = discoveriesById.getValue(discoveryId)
+            val group = groupsByDiscovery[discoveryId].orEmpty().sortedWith(
+                compareBy<DocumentSemanticRecommendationGroup>(
+                    {
+                        when (it.outcome) {
+                            DocumentSemanticOutcome.Executable -> 0
+                            DocumentSemanticOutcome.ReviewOnly -> 1
+                            DocumentSemanticOutcome.Blocked -> 2
+                        }
+                    },
+                    DocumentSemanticRecommendationGroup::stableOrderingKey,
+                ),
+            ).firstOrNull()
+            val kind = when {
+                discovery.contentClassification == DocumentContentClassification.AdministrativeMetadata ->
+                    DocumentCoverageDispositionKind.AdministrativeMetadata
+                discovery.assertionClassification == DocumentAssertionClassification.IllustrativeExample ||
+                    discovery.individualClassification == DocumentIndividualClassification.Illustrative ->
+                    DocumentCoverageDispositionKind.IllustrativeExample
+                group?.outcome == DocumentSemanticOutcome.Executable ->
+                    DocumentCoverageDispositionKind.ExecutableRecommendation
+                group?.outcome == DocumentSemanticOutcome.ReviewOnly ->
+                    DocumentCoverageDispositionKind.ReviewOnlyFinding
+                group?.outcome == DocumentSemanticOutcome.Blocked ->
+                    DocumentCoverageDispositionKind.Blocked
+                else -> DocumentCoverageDispositionKind.Unsupported
+            }
             DocumentCoverageDisposition(
-                discoveryId = node.requiredText("discoveryId"),
-                kind = DocumentCoverageDispositionKind.valueOf(node.requiredText("kind")),
-                recommendationId = node.optionalText("recommendationId"),
-                relatedDiscoveryId = node.optionalText("relatedDiscoveryId"),
-                alignmentId = node.optionalText("alignmentId"),
-                rationale = node.optionalText("rationale"),
+                discoveryId = discoveryId,
+                kind = kind,
+                recommendationId = group?.id?.takeIf {
+                    kind in setOf(
+                        DocumentCoverageDispositionKind.ExecutableRecommendation,
+                        DocumentCoverageDispositionKind.ReviewOnlyFinding,
+                    )
+                },
+                rationale = group?.rationale?.takeIf { kind == DocumentCoverageDispositionKind.Blocked },
             )
         }.sortedBy(DocumentCoverageDisposition::stableOrderingKey)
         return DocumentSemanticPlanningResponse(plan = plan, coverage = coverage)
@@ -2935,6 +3108,15 @@ internal class OpenAiDocumentAnalysisClient(
             "relatedDiscoveryId",
             "alignmentId",
             "rationale",
+        )
+        val RETRYABLE_SEMANTIC_PLAN_SAFE_CODES: Set<String> = setOf(
+            "document-semantic-plan-coverage-invalid",
+            "document-semantic-plan-reference-invalid",
+            "document-semantic-plan-critic-invalid",
+            "document-semantic-plan-group-invalid",
+            "document-semantic-plan-item-invalid",
+            "document-semantic-plan-schema-invalid",
+            "document-semantic-plan-invalid",
         )
         const val MAX_FINAL_EVIDENCE_IDS: Int = 8
         val OPENAI_SCHEMA_PARAMETERS: Set<String> = setOf(
