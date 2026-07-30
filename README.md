@@ -18,11 +18,13 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository contains the implemented Entio foundation through Phase 11.5. Phase 11, AI-Powered Document Ingestion and Ontology Evolution, was implemented and verified on 2026-07-24. Phase 11.5, Multi-Stage AI Modeling and Connected Ontology Change Sets, is the current active phase and was implemented and verified on 2026-07-27.
+This repository contains the implemented Entio foundation through Phase 11.5. Phase 11, AI-Powered Document Ingestion and Ontology Evolution, was implemented and verified on 2026-07-24. Phase 11.5, Multi-Stage AI Modeling and Connected Ontology Change Sets, was implemented and verified on 2026-07-27.
+
+Phase 11.5+ planning is approved. It will move exact final-operation formatting out of the model and introduce deterministic Kotlin compilation of connected semantic plans. Phase 11.5+ is not yet implemented; Phase 11.5 remains the current implemented product boundary.
 
 The current product includes a native OpenAI-backed ontology assistant. Users can hold project-scoped conversations, ask ontology questions, generate structured review-only edits, inspect validation results, remove edits, and stage valid proposals into the existing human-review workflow. Assistant runs remain in memory, the UI polls for status, and the assistant cannot execute arbitrary tools, approve or apply changes, or write ontology sources directly. Phase 11 extends this active foundation with bounded, evidence-grounded document analysis.
 
-Phase 11.5 replaces only the document-ingestion analysis contract with separate discovery, connected modeling, reconciliation, ontology alignment, critic, and final-planning stages. Phase 11 remains the upload, extraction, evidence, authorization, review, proposal, apply, rollback, and applied-provenance foundation.
+Phase 11.5 replaces only the document-ingestion analysis contract with bounded discovery, connected modeling, ontology-aware planning, deterministic verification, and human review responsibilities. Phase 11 remains the upload, extraction, evidence, authorization, review, proposal, apply, rollback, and applied-provenance foundation.
 
 Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because the core work is ontology loading, RDF/Turtle parsing, deterministic validation, semantic diffing, and CLI behavior.
 
@@ -237,9 +239,9 @@ Phase 2 should not include:
 - OWL reasoning or full SHACL validation.
 - Schema RAG, embeddings, external ontology retrieval, and AI-generated ontology edits.
 
-## Current Active Phase
+## Current Implemented And Planned Phase
 
-Phase 11.5 is implemented and is the current active phase. New document-ingestion tasks use this bounded analysis sequence:
+Phase 11.5 is implemented and complete. New document-ingestion tasks currently use this bounded analysis sequence:
 
 ```text
 verified extracted text
@@ -265,6 +267,24 @@ Phase 11 remains the foundation and preserves these boundaries:
 Phases 7, 7.5, and 8 remain historical delivery records, but the current codebase includes the bounded native ontology assistant described above. Phase 11 extends that assistant and provider foundation only with the implemented document-ingestion workflow described by its scope, spec, ExecPlan, and phase summary.
 
 Phase 11.5 does not add automatic approval, raw RDF, unrestricted agents, a second apply path, or new CLI and VS Code ingestion surfaces. Complex rules that current typed operations cannot express remain visible and review-only.
+
+Phase 11.5+ is the approved planned phase. It will preserve the implemented
+Phase 11 and Phase 11.5 boundaries while changing the final planning handoff:
+
+```text
+verified connected document model
+→ model-produced semantic plan
+→ Kotlin completeness check
+→ deterministic Kotlin compilation
+→ existing semantic previews and human review
+```
+
+The model will describe intended meaning rather than final IRIs or exact Entio
+operations. Kotlin will own supported pattern selection, reference resolution,
+IRI generation, dependency ordering, expanded edit counting, and typed-edit
+compilation. Unsupported complex meaning will remain review-only. The existing
+private-draft, proposal, approval, apply, reload, and rollback workflow remains
+the only ontology write path.
 
 ## Technical Principle
 
@@ -292,6 +312,7 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 10.5 Scope](docs/architecture/phase-10.5-scope.md)
 - [Phase 11 Scope](docs/architecture/phase-11-scope.md)
 - [Phase 11.5 Scope](docs/architecture/phase-11.5-scope.md)
+- [Phase 11.5+ Scope](docs/architecture/phase-11.5-plus-scope.md)
 - [Technical Approach](docs/architecture/002-technical-approach.md)
 - [Kotlin Engine Guidelines](docs/architecture/003-kotlin-engine-guidelines.md)
 - [Phase 1.5 Spec](docs/specs/0002-phase-1.5-core-semantic-engine-stabilization.md)
@@ -333,3 +354,5 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 11.5 Spec](docs/specs/0021-phase-11.5-multi-stage-ai-modeling-and-connected-ontology-change-sets.md)
 - [Phase 11.5 ExecPlan](docs/execplans/0021-phase-11.5-multi-stage-ai-modeling-and-connected-ontology-change-sets.md)
 - [Phase 11.5 Implementation Summary](docs/phase-summaries/phase-11.5-summary.md)
+- [Phase 11.5+ Spec](docs/specs/0022-phase-11.5-plus-deterministic-compilation-of-connected-document-models.md)
+- [Phase 11.5+ ExecPlan](docs/execplans/0022-phase-11.5-plus-deterministic-compilation-of-connected-document-models.md)
