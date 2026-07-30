@@ -462,8 +462,8 @@ internal class OpenAiDocumentAnalysisClient(
             DocumentSemanticPlanningProviderResult.Failed(true, "document-provider-timeout")
         } catch (_: IOException) {
             DocumentSemanticPlanningProviderResult.Failed(true, "document-provider-unavailable")
-        } catch (_: IllegalArgumentException) {
-            DocumentSemanticPlanningProviderResult.Failed(false, "document-semantic-plan-invalid")
+        } catch (failure: IllegalArgumentException) {
+            DocumentSemanticPlanningProviderResult.Failed(false, classifySemanticPlanParseFailure(failure))
         } catch (_: Exception) {
             DocumentSemanticPlanningProviderResult.Failed(true, "document-provider-malformed-output")
         }
@@ -531,6 +531,29 @@ internal class OpenAiDocumentAnalysisClient(
             message.contains("recommendation", ignoreCase = true) ->
                 "document-final-plan-recommendation-invalid"
             else -> "document-final-plan-schema-invalid"
+        }
+    }
+
+    private fun classifySemanticPlanParseFailure(failure: IllegalArgumentException): String {
+        val message = failure.message.orEmpty()
+        return when {
+            message.contains("coverage", ignoreCase = true) ||
+                message.contains("verified discovery", ignoreCase = true) ->
+                "document-semantic-plan-coverage-invalid"
+            message.contains("reference", ignoreCase = true) ->
+                "document-semantic-plan-reference-invalid"
+            message.contains("critic", ignoreCase = true) ->
+                "document-semantic-plan-critic-invalid"
+            message.contains("group", ignoreCase = true) ->
+                "document-semantic-plan-group-invalid"
+            message.contains("item", ignoreCase = true) ||
+                message.contains("semantic", ignoreCase = true) ->
+                "document-semantic-plan-item-invalid"
+            message.contains("unknown", ignoreCase = true) ||
+                message.contains("field", ignoreCase = true) ||
+                message.contains("schema", ignoreCase = true) ->
+                "document-semantic-plan-schema-invalid"
+            else -> "document-semantic-plan-invalid"
         }
     }
 

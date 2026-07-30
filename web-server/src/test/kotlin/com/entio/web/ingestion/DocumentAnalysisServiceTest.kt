@@ -103,6 +103,16 @@ class DocumentAnalysisServiceTest {
             assertTrue(extracted.contains(individual.asText().lowercase()))
         }
         assertEquals(4, manifest["requiredReviewOnlyMeanings"].size())
+        assertEquals(13, manifest["requiredPositiveConcepts"].size())
+        assertEquals(6, manifest["requiredMajorRelationships"].size())
+        assertEquals(10, manifest["thresholds"]["runCount"].asInt())
+        assertEquals(9, manifest["thresholds"]["coreConceptMinimumRuns"].asInt())
+        assertEquals(8, manifest["thresholds"]["majorRelationshipMinimumRuns"].asInt())
+        assertEquals(95, manifest["thresholds"]["supportedCompilationMinimumPercent"].asInt())
+        assertEquals(
+            DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_RESPONSE,
+            manifest["controlledProvider"]["expectedContractVersion"].asText(),
+        )
 
         val ontology = Files.readString(project.resolve("ontology/simple.ttl")).lowercase()
         assertTrue(!ontology.contains("compliance status"))
