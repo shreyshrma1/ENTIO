@@ -1,10 +1,10 @@
 # Agent Guidance For Entio
 
-This repository contains the implemented Entio foundation through Phase 11.5. Phase 11 was implemented and verified on 2026-07-24. Phase 11.5 was implemented and verified on 2026-07-27. Phase 11.5+ planning is approved, but Phase 11.5+ is not yet implemented. Phases 1 through 8 are retained as historical delivery records, and the repository is no longer documentation-only.
+This repository contains the implemented Entio foundation through Phase 11.5+. Phase 11 was implemented and verified on 2026-07-24. Phase 11.5 was implemented and verified on 2026-07-27. Phase 11.5+ was implemented and verified on 2026-07-30. Phases 1 through 8 are retained as historical delivery records, and the repository is no longer documentation-only.
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
-Phases 1 through 8 are preserved as historical delivery records. Phase 9 is complete and adds bounded, read-only interactive ontology graph visualization. Phase 10's inferred-materialization delivery remains historical; the current Reasoning workspace exposes bounded read-only asserted and inferred fact browsers. Phase 10.5 is complete and adds optional, read-only applied and proposal inferred-fact overlays to Explore and the ontology map. The current product also includes a native OpenAI-backed ontology assistant with project-scoped conversations, ontology-aware answers, review-only edit proposals, deterministic validation, and staging into the existing human-review workflow. Phase 11 extends that active AI foundation with bounded document ingestion, evidence-grounded analysis, cross-workflow provenance, and human-reviewed typed drafts. Phase 11.5 replaces only the document-analysis portion with a bounded multi-stage modeling pipeline, connected atomic recommendations, deterministic verification, and the same human-review boundary. Phase 11.5+ is the approved next planning boundary: the model will produce connected semantic plans and Kotlin will deterministically compile supported meaning into existing typed operations. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
+Phases 1 through 8 are preserved as historical delivery records. Phase 9 is complete and adds bounded, read-only interactive ontology graph visualization. Phase 10's inferred-materialization delivery remains historical; the current Reasoning workspace exposes bounded read-only asserted and inferred fact browsers. Phase 10.5 is complete and adds optional, read-only applied and proposal inferred-fact overlays to Explore and the ontology map. The current product also includes a native OpenAI-backed ontology assistant with project-scoped conversations, ontology-aware answers, review-only edit proposals, deterministic validation, and staging into the existing human-review workflow. Phase 11 extends that active AI foundation with bounded document ingestion, evidence-grounded analysis, cross-workflow provenance, and human-reviewed typed drafts. Phase 11.5 replaces only the document-analysis portion with a bounded multi-stage modeling pipeline, connected atomic recommendations, deterministic verification, and the same human-review boundary. Phase 11.5+ replaces the final low-level model-planning handoff with connected semantic plans that Kotlin deterministically compiles into existing typed operations. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
 
 ## Product Context
 
@@ -188,21 +188,18 @@ Phase 11.5 is complete and summarized in `docs/phase-summaries/phase-11.5-summar
 
 Phase 11.5 replaces Phase 11's single-stage document-analysis contract with separate discovery, connected modeling, reconciliation, ontology alignment, critic, and final-planning calls. Connected recommendations remain bounded, deterministically verified by Kotlin, and subject to the existing private-draft, proposal, human-approval, apply, reload, and rollback workflow. Phase 11 remains the ingestion, extraction, evidence, authorization, and applied-provenance foundation.
 
-Phase 11.5+ is approved for planning but is not implemented. Its approved
+Phase 11.5+ is complete and summarized in
+`docs/phase-summaries/phase-11.5-plus-summary.md`. Its approved and implemented
 planning documents are:
 
 - `docs/architecture/phase-11.5-plus-scope.md`
 - `docs/specs/0022-phase-11.5-plus-deterministic-compilation-of-connected-document-models.md`
 - `docs/execplans/0022-phase-11.5-plus-deterministic-compilation-of-connected-document-models.md`
 
-The Phase 11.5+ ExecPlan is the most recent planning document and is
-authoritative for delivery order, affected files, implementation slices,
-verification commands, and stop conditions. Phase 11.5+ will replace only the
-final low-level model-planning boundary with a semantic plan and deterministic
-Kotlin compiler. It does not authorize implementation until the approved
-ExecPlan is followed, and it does not add automatic approval, raw RDF, a second
-apply path, unrestricted agents, new persistence, or CLI and VS Code ingestion
-surfaces.
+Phase 11.5+ replaces only the final low-level model-planning boundary with a
+semantic plan and deterministic Kotlin compiler. It does not add automatic
+approval, raw RDF, a second apply path, unrestricted agents, new persistence,
+or CLI and VS Code ingestion surfaces.
 
 ## Software Architecture Rules
 
