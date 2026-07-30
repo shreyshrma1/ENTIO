@@ -18,9 +18,9 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository contains the implemented Entio foundation through Phase 11.5. Phase 11, AI-Powered Document Ingestion and Ontology Evolution, was implemented and verified on 2026-07-24. Phase 11.5, Multi-Stage AI Modeling and Connected Ontology Change Sets, was implemented and verified on 2026-07-27.
+This repository contains the implemented Entio foundation through Phase 11.5+. Phase 11, AI-Powered Document Ingestion and Ontology Evolution, was implemented and verified on 2026-07-24. Phase 11.5, Multi-Stage AI Modeling and Connected Ontology Change Sets, was implemented and verified on 2026-07-27. Phase 11.5+, Deterministic Compilation of Connected Document Models, was implemented and verified on 2026-07-30.
 
-Phase 11.5+ planning is approved. It will move exact final-operation formatting out of the model and introduce deterministic Kotlin compilation of connected semantic plans. Phase 11.5+ is not yet implemented; Phase 11.5 remains the current implemented product boundary.
+Phase 11.5+ moves exact final-operation formatting out of the model. The model produces a connected semantic plan, and Kotlin verifies completeness and deterministically compiles supported meaning into existing typed operations.
 
 The current product includes a native OpenAI-backed ontology assistant. Users can hold project-scoped conversations, ask ontology questions, generate structured review-only edits, inspect validation results, remove edits, and stage valid proposals into the existing human-review workflow. Assistant runs remain in memory, the UI polls for status, and the assistant cannot execute arbitrary tools, approve or apply changes, or write ontology sources directly. Phase 11 extends this active foundation with bounded, evidence-grounded document analysis.
 
@@ -91,6 +91,8 @@ The current implementation supports:
 - Producing bounded AI-assisted summaries and candidates, then verifying evidence and matching against local, imported, current-work, prior-provenance, and pinned FIBO scopes in Kotlin.
 - Reviewing confirm, extend, revise, split, merge, conflict, and supersede recommendations before converting accepted items into supported typed draft batches.
 - Retaining narrowly scoped provenance only for successfully applied document-derived changes while keeping uploads, OCR images, incomplete tasks, and review workspaces temporary.
+- Producing connected semantic plans without final IRIs or low-level Entio operations, then verifying completeness and compiling supported classes, properties, assertions, annotations, and approved SHACL patterns deterministically in Kotlin.
+- Keeping unsupported complex rules review-only, showing compilation and coverage separately, and preserving grouped evidence, confidence, blockers, exact previews, and retained provenance through human review.
 - Opening a project-scoped ontology map from Explore to inspect bounded local classes, properties, individuals, and asserted relationships without modifying ontology data.
 - Expanding, searching, filtering, dragging, panning, scrolling, zooming, and navigating the map while retaining temporary state only for the open tab.
 - Rejecting stale or invalid graph continuations through fingerprint-aware, authorized Ktor read contracts.
@@ -268,8 +270,8 @@ Phases 7, 7.5, and 8 remain historical delivery records, but the current codebas
 
 Phase 11.5 does not add automatic approval, raw RDF, unrestricted agents, a second apply path, or new CLI and VS Code ingestion surfaces. Complex rules that current typed operations cannot express remain visible and review-only.
 
-Phase 11.5+ is the approved planned phase. It will preserve the implemented
-Phase 11 and Phase 11.5 boundaries while changing the final planning handoff:
+Phase 11.5+ preserves the implemented Phase 11 and Phase 11.5 boundaries while
+changing the final planning handoff:
 
 ```text
 verified connected document model
@@ -279,7 +281,7 @@ verified connected document model
 → existing semantic previews and human review
 ```
 
-The model will describe intended meaning rather than final IRIs or exact Entio
+The model describes intended meaning rather than final IRIs or exact Entio
 operations. Kotlin will own supported pattern selection, reference resolution,
 IRI generation, dependency ordering, expanded edit counting, and typed-edit
 compilation. Unsupported complex meaning will remain review-only. The existing
@@ -356,3 +358,4 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 11.5 Implementation Summary](docs/phase-summaries/phase-11.5-summary.md)
 - [Phase 11.5+ Spec](docs/specs/0022-phase-11.5-plus-deterministic-compilation-of-connected-document-models.md)
 - [Phase 11.5+ ExecPlan](docs/execplans/0022-phase-11.5-plus-deterministic-compilation-of-connected-document-models.md)
+- [Phase 11.5+ Implementation Summary](docs/phase-summaries/phase-11.5-plus-summary.md)

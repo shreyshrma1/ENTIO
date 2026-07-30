@@ -6,10 +6,9 @@
 
 ## Status
 
-Approved for planning on 2026-07-29.
+Implemented and verified on 2026-07-30.
 
-Phase 11.5 remains implemented and verified. Phase 11.5+ is approved for future
-implementation through its feature spec and ExecPlan; it is not yet implemented.
+Phase 11.5 remains the implemented foundation for Phase 11.5+.
 
 ## Purpose
 
