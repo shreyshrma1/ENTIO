@@ -14,11 +14,15 @@ import com.entio.core.OntologyEntityDescriptor
 import java.security.MessageDigest
 import java.util.Locale
 
+private val FIBO_CAMEL_CASE = Regex("([a-z0-9])([A-Z])")
+private val FIBO_NON_ALPHANUMERIC = Regex("[^A-Za-z0-9]+")
+private val FIBO_WHITESPACE = Regex("\\s+")
+
 private fun normalizeValue(value: String): String = value.trim()
-    .replace(Regex("([a-z0-9])([A-Z])"), "$1 $2")
-    .replace(Regex("[^A-Za-z0-9]+"), " ")
+    .replace(FIBO_CAMEL_CASE, "$1 $2")
+    .replace(FIBO_NON_ALPHANUMERIC, " ")
     .trim()
-    .replace(Regex("\\s+"), " ")
+    .replace(FIBO_WHITESPACE, " ")
     .lowercase(Locale.ROOT)
 
 /** Deterministic, index-only schema retrieval for the approved FIBO search model. */

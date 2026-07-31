@@ -93,11 +93,35 @@ class DocumentGroundedAnalysisServiceTest {
             error("must not run")
         }
         assertFailsWith<CancellationException> {
-            DocumentGroundedAnalysisService(provider) { true }.analyze(
+            DocumentGroundedAnalysisService(provider, isCancelled = { true }).analyze(
                 "secret", "verified-model", "task-1", listOf(candidate(1)), listOf(retrieval("candidate-01")),
             )
         }
         assertEquals(0, calls)
+    }
+
+    @Test
+    fun `scales planned groups with promoted candidates instead of applying a task-wide ceiling`(): Unit = runBlocking {
+        val candidates = (1..601).map(::candidate).sortedBy(DocumentGroundedCandidate::stableOrderingKey)
+        val progress = mutableListOf<Pair<Int, Int>>()
+        val provider = DocumentGroundedAnalysisProvider { _, _, _, request ->
+            DocumentGroundedAnalysisProviderResult.Completed(result(request.candidates))
+        }
+
+        val completed = DocumentGroundedAnalysisService(provider, onProgress = { done, planned ->
+            progress += done to planned
+        }).analyze(
+            "secret",
+            "verified-model",
+            "task-1",
+            candidates,
+            candidates.map { retrieval(it.id) },
+        )
+
+        assertEquals(16, completed.logicalCallCount)
+        assertEquals(16, completed.providerAttemptCount)
+        assertEquals(601, completed.results.flatMap { it.coverage }.size)
+        assertEquals(16 to 16, progress.last())
     }
 
     private fun result(candidates: List<DocumentGroundedCandidate>, selection: String? = null): DocumentGroundedAnalysisResult {

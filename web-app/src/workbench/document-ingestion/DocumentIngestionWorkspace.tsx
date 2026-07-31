@@ -269,6 +269,18 @@ function DocumentReview({ projectId, taskId, ready }: { projectId: string; taskI
         {draft.isSuccess ? <span role="status">{draft.data.stagedEditCount} typed edit{draft.data.stagedEditCount === 1 ? "" : "s"} added to the shared proposal.</span> : null}
         {draft.isError ? <span role="alert">Accepted items could not be drafted. Resolve stale or blocked recommendations and retry.</span> : null}
       </div>
+      {workspace.analysisCounts ? <div
+        className="document-quality-metrics"
+        aria-label="Document analysis funnel"
+      >
+        <strong>Document analysis funnel</strong>
+        <span>
+          {workspace.analysisCounts.evidenceMentions} evidence mentions → {workspace.analysisCounts.groupedCandidates} grouped candidates → {workspace.analysisCounts.ontologyBearingCandidates} ontology-bearing candidates
+        </span>
+        <small>
+          {workspace.analysisCounts.documentOnlyMentions} document-only mentions and {workspace.analysisCounts.supportingValueMentions} supporting values remain in coverage without creating review cards.
+        </small>
+      </div> : null}
       {workspace.semanticCoverage || workspace.compilationSuccess ? <div
         className="document-quality-metrics"
         aria-label="Semantic coverage and compilation metrics"

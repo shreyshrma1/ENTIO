@@ -50,6 +50,7 @@ internal data class CompletedDocumentGroundedAnalysis(
 internal class DocumentGroundedAnalysisService(
     private val provider: DocumentGroundedAnalysisProvider,
     private val isCancelled: () -> Boolean = { false },
+    private val onProgress: (completedGroups: Int, plannedGroups: Int) -> Unit = { _, _ -> },
 ) {
     suspend fun analyze(
         apiKey: String,
@@ -62,11 +63,12 @@ internal class DocumentGroundedAnalysisService(
         val results = mutableListOf<DocumentGroundedAnalysisResult>()
         var logicalCalls = 0
         var attempts = 0
+        var plannedGroups = candidates.chunked(MAX_CANDIDATES_PER_GROUP).size
+        var completedGroups = 0
 
         suspend fun process(group: List<DocumentGroundedCandidate>, suffix: String): Unit {
             if (isCancelled()) throw CancellationException("Grounded document analysis was cancelled.")
             logicalCalls += 1
-            require(logicalCalls <= MAX_LOGICAL_CALLS) { "document-grounded-incomplete-work" }
             val ids = group.map(DocumentGroundedCandidate::id).toSet()
             val request = DocumentGroundedAnalysisRequest(
                 taskId = taskId,
@@ -79,7 +81,6 @@ internal class DocumentGroundedAnalysisService(
             while (true) {
                 if (isCancelled()) throw CancellationException("Grounded document analysis was cancelled.")
                 attempts += 1
-                require(attempts <= MAX_PROVIDER_ATTEMPTS) { "document-grounded-incomplete-work" }
                 response = provider.analyzeGrounded(
                     apiKey,
                     selectedModelId,
@@ -93,9 +94,12 @@ internal class DocumentGroundedAnalysisService(
                 is DocumentGroundedAnalysisProviderResult.Completed -> {
                     validate(request, response.response)
                     results += response.response
+                    completedGroups += 1
+                    onProgress(completedGroups, plannedGroups)
                 }
                 is DocumentGroundedAnalysisProviderResult.Failed -> {
                     if (response.safeCode in SPLITTABLE_CODES && group.size > 1) {
+                        plannedGroups += 1
                         val midpoint = group.size / 2
                         process(group.take(midpoint), "${suffix}a")
                         process(group.drop(midpoint), "${suffix}b")
@@ -129,8 +133,6 @@ internal class DocumentGroundedAnalysisService(
 
     private companion object {
         private const val MAX_CANDIDATES_PER_GROUP = 40
-        private const val MAX_LOGICAL_CALLS = 15
-        private const val MAX_PROVIDER_ATTEMPTS = 20
         private val SPLITTABLE_CODES = setOf(
             "document-provider-response-limit",
             "document-provider-output-limit",

@@ -53,7 +53,7 @@ class DocumentIngestionOrchestratorTest {
         val directory = fixture.manager.directory(taskId, "simple", "alice")
         val upload = fixture.intake.accept(
             taskId, directory, "simple", "alice", metadata(),
-            ByteArrayInputStream("Payment policy governs approved accounts.".toByteArray()),
+            ByteArrayInputStream("novel payment policy means a settlement convention.".toByteArray()),
         )
         fixture.manager.addDocument(taskId, "simple", "alice", upload)
         fixture.manager.completeIntake(taskId, "simple", "alice")
@@ -62,7 +62,11 @@ class DocumentIngestionOrchestratorTest {
         fixture.orchestrator.await(taskId.value)
 
         val task = fixture.manager.find(taskId, "simple", "alice")
-        assertEquals("awaiting-review", task.status, task.updates.joinToString(" | ") { it.message })
+        assertEquals(
+            "awaiting-review",
+            task.status,
+            task.updates.joinToString(" | ") { it.message } + " DETAILS=" + task.progress.details.joinToString(" | "),
+        )
         assertTrue(fixture.provider.groundedCalls > 0)
         assertEquals(0, fixture.provider.discoveryCalls)
         assertEquals(0, fixture.provider.connectedModelCalls)
@@ -727,14 +731,30 @@ class DocumentIngestionOrchestratorTest {
             request: DocumentGroundedAnalysisRequest,
         ): DocumentGroundedAnalysisProviderResult {
             groundedCalls += 1
+            val retrievalByCandidate = request.retrieval.associateBy { it.candidateId }
             val items = request.candidates.map { candidate ->
+                val selection = retrievalByCandidate.getValue(candidate.id).selections.firstOrNull()
+                    ?.takeUnless { candidate.category == com.entio.core.DocumentCandidateExtractionCategory.RelationshipPhrase }
                 com.entio.core.DocumentGroundedSemanticItem(
                     id = "item-${candidate.id}",
-                    kind = DocumentSemanticItemKind.Class,
+                    kind = when {
+                        candidate.category == com.entio.core.DocumentCandidateExtractionCategory.RelationshipPhrase ->
+                            DocumentSemanticItemKind.ComplexRule
+                        selection?.kind == com.entio.core.SemanticDescriptorKind.Individual -> DocumentSemanticItemKind.Individual
+                        selection?.kind == com.entio.core.SemanticDescriptorKind.ObjectProperty -> DocumentSemanticItemKind.ObjectProperty
+                        selection?.kind == com.entio.core.SemanticDescriptorKind.DatatypeProperty -> DocumentSemanticItemKind.DatatypeProperty
+                        selection?.kind == com.entio.core.SemanticDescriptorKind.AnnotationProperty -> DocumentSemanticItemKind.AnnotationProperty
+                        else -> DocumentSemanticItemKind.Class
+                    },
                     label = candidate.displayText,
                     candidateIds = listOf(candidate.id),
                     evidenceIds = candidate.evidenceSpans.map { it.evidenceId }.distinct().sortedBy { it.value },
-                    disposition = com.entio.core.DocumentGroundedDisposition.ProposeNew,
+                    disposition = if (selection == null) {
+                        com.entio.core.DocumentGroundedDisposition.ProposeNew
+                    } else {
+                        com.entio.core.DocumentGroundedDisposition.ReuseExisting
+                    },
+                    selectionId = selection?.selectionId,
                     rationale = "The exact candidate evidence supports a reviewable concept.",
                     confidence = DocumentConfidenceDimensions(95, 90, 85),
                 )
@@ -747,7 +767,7 @@ class DocumentIngestionOrchestratorTest {
                         com.entio.core.DocumentGroundedCoverageDisposition(
                             candidate.id,
                             "item-${candidate.id}",
-                            com.entio.core.DocumentGroundedDisposition.ProposeNew,
+                            items.single { candidate.id in it.candidateIds }.disposition,
                             "The candidate has a complete disposition.",
                         )
                     }.sortedBy { it.stableOrderingKey },
