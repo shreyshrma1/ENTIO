@@ -335,15 +335,29 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
     operations: [],
     blockingReason: "Reload the review workspace to retrieve an exact change preview.",
   };
+  const editableOperations = changePreview.operations.filter((operation) =>
+    operation.operationId && (operation.editableLabel != null || operation.editableIri != null));
+  const [operationValues, setOperationValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(editableOperations.map((operation) => [
+      operation.operationId!,
+      operation.editableLabel ?? operation.editableIri!,
+    ])));
   const clarificationRequired = recommendation.mandatoryClarificationReasons.length > 0;
-  return <article className="document-recommendation-card">
-    <header>
+  const recommendationName = recommendation.proposedLabel ?? humanize(recommendation.action);
+  return <details className="document-recommendation-card">
+    <summary
+      className="document-recommendation-summary"
+      aria-label={`${recommendationName} recommendation details`}
+    >
       <div><span>{humanize(recommendation.type)}</span><h3>{recommendation.proposedLabel ?? humanize(recommendation.action)}</h3></div>
       <div className="document-recommendation-badges">
         <span>{humanize(recommendation.connectedStatus ?? recommendation.reviewStatus)}</span>
         <span>{recommendation.confidence}% confidence</span>
+        <span className="document-recommendation-arrow" aria-hidden="true">⌄</span>
       </div>
-    </header>
+    </summary>
+
+    <div className="document-recommendation-content">
 
     <section className="document-change-description">
       <h4>Semantic intent</h4>
@@ -356,6 +370,9 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
       {changePreview.operations.length ? <ol>{changePreview.operations.map((operation, index) =>
         <li key={`${operation.operation}-${index}`}>
           <strong>{operation.operation}</strong>
+          {operation.semanticRole ? <small>{operation.semanticRole}</small> : null}
+          {operation.modelRecommended ? <small>Model-recommended prerequisite</small> : null}
+          {operation.reviewerInputRequired ? <small>Reviewer input required</small> : null}
           <span>{operation.description}</span>
           {operation.dependsOnOperationIds?.length ? <small>Depends on: {operation.dependsOnOperationIds.join(", ")}</small> : null}
           {operation.targetSourceId ? <small>Ontology source: {operation.targetSourceId}</small> : null}
@@ -431,7 +448,7 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
     </section> : null}
 
     {recommendation.conflicts.map((conflict) => <div className="document-conflict" key={conflict.id}><strong>Conflicting evidence needs a decision</strong><ul>{conflict.alternatives.map((alternative) => <li key={alternative}>{alternative}</li>)}</ul></div>)}
-    {recommendation.mandatoryClarificationReasons.length ? <div role="note"><strong>Clarification required</strong><ul>{recommendation.mandatoryClarificationReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></div> : null}
+    {recommendation.mandatoryClarificationReasons.length ? <div role="note"><strong>Clarification required</strong><ul>{recommendation.mandatoryClarificationReasons.map((reason) => <li key={reason}>{clarificationReasonLabel(reason)}</li>)}</ul></div> : null}
 
     <div className="document-review-actions">
       {changePreview.draftable ? <button className="button primary" type="button" disabled={busy || (clarificationRequired && !clarification.trim())} onClick={() => onDecision({ action: "accept", clarification })}>Approve for proposal</button> : null}
@@ -460,7 +477,33 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
             {duplicateOptions.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.proposedLabel ?? candidate.id}</option>)}
           </select>
         </label> : null}
-      </div> : <label>Reviewer note<textarea value={clarification} maxLength={2000} onChange={(event) => setClarification(event.target.value)} /></label>}
+      </div> : <div className="document-review-fields">
+        {editableOperations.length ? <fieldset>
+          <legend>Editable ontology fields</legend>
+          <p>
+            Review every field. Model-recommended values express implied context; fields marked
+            review needed are conservative placeholders that Entio supplied after the model omitted
+            required context.
+          </p>
+          {editableOperations.map((operation) => <label key={operation.operationId}>
+            {operation.semanticRole ?? operation.operation}
+            {operation.modelRecommended
+              ? " (model recommended)"
+              : operation.reviewerInputRequired
+                ? " (review needed)"
+                : ""}
+            <input
+              value={operationValues[operation.operationId!] ?? ""}
+              maxLength={500}
+              onChange={(event) => setOperationValues((current) => ({
+                ...current,
+                [operation.operationId!]: event.target.value,
+              }))}
+            />
+          </label>)}
+        </fieldset> : null}
+        <label>Reviewer note<textarea value={clarification} maxLength={2000} onChange={(event) => setClarification(event.target.value)} /></label>
+      </div>}
       <dl>
         <div><dt>Recommendation</dt><dd>{humanize(recommendation.action)}</dd></div>
         <div><dt>Model</dt><dd>{recommendation.modelId ?? "Deterministic Entio analysis"}</dd></div>
@@ -469,13 +512,27 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
       <p>{recommendation.rationale}</p>
       <div className="document-review-actions">
         {!recommendation.connectedStatus ? <button type="button" disabled={busy || !label.trim()} onClick={() => onDecision({ action: "edit", proposedLabel: label, targetSourceId, clarification })}>Save review edits</button> : null}
+        {recommendation.connectedStatus && editableOperations.length ? <button
+          type="button"
+          disabled={busy || editableOperations.some((operation) => !operationValues[operation.operationId!]?.trim())}
+          onClick={() => onDecision({
+            action: "edit-operations",
+            operationEdits: editableOperations.map((operation) => ({
+              operationId: operation.operationId!,
+              ...(operation.editableLabel != null
+                ? { label: operationValues[operation.operationId!].trim() }
+                : { entityIri: operationValues[operation.operationId!].trim() }),
+            })),
+          })}
+        >Save ontology fields</button> : null}
         <button type="button" disabled={busy || !clarification.trim()} onClick={() => onDecision({ action: "clarify", clarification })}>Mark as needing clarification</button>
         <button type="button" disabled={busy || !clarification.trim() || recommendation.reconsiderationCount >= 3} onClick={() => onDecision({ action: "reconsider", clarification })}>Ask Entio to reconsider</button>
         {recommendation.connectedStatus ? <button type="button" disabled={busy || !clarification.trim()} onClick={() => onDecision({ action: "split", clarification })}>Request a safe split</button> : null}
         {duplicateOptions.length ? <button type="button" disabled={busy || !duplicateId} onClick={() => onDecision({ action: "merge", mergedRecommendationIds: [duplicateId] })}>Merge same-label duplicate</button> : null}
       </div>
     </details>
-  </article>;
+    </div>
+  </details>;
 }
 
 function humanize(value: string): string {
@@ -483,6 +540,10 @@ function humanize(value: string): string {
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function clarificationReasonLabel(value: string): string {
+  return value === "reviewer-input-required" ? "Reviewer input required." : value;
 }
 
 function shortExcerpt(value: string): string {

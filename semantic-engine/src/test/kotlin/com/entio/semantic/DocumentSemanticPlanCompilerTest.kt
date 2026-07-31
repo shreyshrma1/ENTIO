@@ -24,6 +24,46 @@ import kotlin.test.assertTrue
 
 class DocumentSemanticPlanCompilerTest {
     @Test
+    fun `compiles a recommended datatype range and preserves its review marker`(): Unit {
+        val payment = item("payment", DocumentSemanticItemKind.Class, "Payment")
+        val reference = item("reference", DocumentSemanticItemKind.DatatypeProperty, "servicing reference")
+        val domain = item(
+            "reference-domain",
+            DocumentSemanticItemKind.DatatypePropertyDomain,
+            "servicing reference domain",
+            refs(
+                DocumentSemanticReferenceRole.Property to reference.id,
+                DocumentSemanticReferenceRole.Domain to payment.id,
+            ),
+        )
+        val range = item(
+            "reference-range",
+            DocumentSemanticItemKind.DatatypePropertyRange,
+            "servicing reference datatype",
+            refs(DocumentSemanticReferenceRole.Property to reference.id),
+            datatypeIntent = "http://www.w3.org/2001/XMLSchema#string",
+            modelRecommended = true,
+            reviewerInputRequired = true,
+        )
+
+        val result = compile(payment, reference, domain, range)
+
+        assertEquals(DocumentCompilationStatus.Compiled, result.status, result.failures.toString())
+        val rangeOperation = result.operations.single {
+            it.kind == DocumentPlanOperationKind.SetPropertyRange
+        }
+        assertTrue(rangeOperation.modelRecommended)
+        assertTrue(rangeOperation.reviewerInputRequired)
+        assertTrue(
+            rangeOperation.operands.any {
+                it == com.entio.core.DocumentPlanOperand.ExistingEntity(
+                    Iri("http://www.w3.org/2001/XMLSchema#string"),
+                )
+            },
+        )
+    }
+
+    @Test
     fun `compiles connected classes and an object property with domain and range`(): Unit {
         val customer = item("customer", DocumentSemanticItemKind.Class, "Customer")
         val account = item("account", DocumentSemanticItemKind.Class, "Account")
@@ -93,6 +133,52 @@ class DocumentSemanticPlanCompilerTest {
         )
         assertEquals(DocumentPlanOperationKind.SetPropertyDomain, result.operations.last().kind)
         assertTrue(result.operations.last().dependsOnOperationIds.size == 2)
+    }
+
+    @Test
+    fun `compiles supported work while retaining unsupported meaning in its bundle`(): Unit {
+        val report = item(
+            "complaint-report",
+            DocumentSemanticItemKind.Class,
+            "Complaint Trend Report",
+            modelRecommended = true,
+            reviewerInputRequired = true,
+        )
+        val rule = item(
+            "complaint-rule",
+            DocumentSemanticItemKind.ComplexRule,
+            "Monthly complaint review rule",
+            refs(DocumentSemanticReferenceRole.Related to report.id),
+            outcome = DocumentSemanticOutcome.ReviewOnly,
+        )
+        val orderedItems = listOf(report, rule).sortedBy(DocumentSemanticPlanItem::stableOrderingKey)
+        val plan = DocumentSemanticPlan(
+            workKey = DocumentAnalysisWorkKey("a".repeat(64)),
+            verifiedDiscoveryIds = listOf("discovery-1"),
+            criticFindingIds = emptyList(),
+            items = orderedItems,
+            groups = listOf(
+                DocumentSemanticRecommendationGroup(
+                    id = "complaint-bundle",
+                    title = "Model Complaint Trend Report",
+                    description = "Compile supported work and retain the rule.",
+                    itemIds = orderedItems.map(DocumentSemanticPlanItem::id).sorted(),
+                    reviewOnlyItemIds = listOf(rule.id),
+                    discoveryIds = listOf("discovery-1"),
+                    evidenceIds = listOf(evidenceId),
+                    outcome = DocumentSemanticOutcome.Executable,
+                    rationale = "The class is editable and the unsupported rule remains visible.",
+                    confidence = DocumentConfidenceDimensions(90, 85, 80),
+                ),
+            ),
+        )
+
+        val result = compiler.compile(plan, context()).single()
+
+        assertEquals(DocumentCompilationStatus.Compiled, result.status, result.failures.toString())
+        assertEquals(listOf(DocumentPlanOperationKind.CreateClass), result.operations.map(DocumentPlanOperation::kind))
+        assertTrue(result.operations.single().modelRecommended)
+        assertTrue(result.operations.single().reviewerInputRequired)
     }
 
     @Test
@@ -513,7 +599,7 @@ class DocumentSemanticPlanCompilerTest {
     }
 
     @Test
-    fun `blocks stale fingerprints duplicate current work and task limit overflow`(): Unit {
+    fun `blocks stale fingerprints and duplicate current work while compiling large tasks`(): Unit {
         val customer = item("customer", DocumentSemanticItemKind.Class, "Customer")
         val staleOntology = compile(
             customer,
@@ -554,10 +640,12 @@ class DocumentSemanticPlanCompilerTest {
             items.sortedBy(DocumentSemanticPlanItem::stableOrderingKey),
             groups.sortedBy(DocumentSemanticRecommendationGroup::stableOrderingKey),
         )
-        val limited = compiler.compile(taskPlan, context())
+        val compiled = compiler.compile(taskPlan, context())
 
-        assertTrue(limited.all { it.status == DocumentCompilationStatus.Blocked })
-        assertTrue(limited.all { it.failures.single().safeCode == "task-edit-limit-exceeded" })
+        assertEquals(6, compiled.size)
+        assertTrue(compiled.all { it.status == DocumentCompilationStatus.Compiled })
+        assertEquals(101, compiled.sumOf { it.expandedTypedEditCount })
+        assertTrue(compiled.all { it.expandedTypedEditCount <= 20 })
     }
 
     private val compiler = DocumentSemanticPlanCompiler()
@@ -609,6 +697,8 @@ class DocumentSemanticPlanCompilerTest {
         literal: RdfLiteral? = null,
         datatypeIntent: String? = null,
         outcome: DocumentSemanticOutcome = DocumentSemanticOutcome.Executable,
+        modelRecommended: Boolean = false,
+        reviewerInputRequired: Boolean = false,
     ): DocumentSemanticPlanItem = DocumentSemanticPlanItem(
         id = id,
         kind = kind,
@@ -622,6 +712,8 @@ class DocumentSemanticPlanCompilerTest {
         rationale = "The evidence supports this semantic item.",
         outcome = outcome,
         confidence = DocumentConfidenceDimensions(90, 85, 80),
+        modelRecommended = modelRecommended,
+        reviewerInputRequired = reviewerInputRequired,
     )
 
     private fun refs(

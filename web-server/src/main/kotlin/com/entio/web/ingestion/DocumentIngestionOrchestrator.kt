@@ -270,10 +270,7 @@ internal class DocumentIngestionOrchestrator(
             writableSourceIds,
         )
         checkCancellation(input)
-        require(remainingLogicalCalls >= 1) {
-            "Ontology-aware recommendation planning cannot fit the approved logical-call budget."
-        }
-        announce(input, 76, "Planning ontology-aware grouped recommendations and exact change sets.")
+        announce(input, 76, "Compiling connected meaning into grouped recommendations and exact change sets.")
         val workKey = workKey(input, ontologyFingerprint)
         val finalResult = finalPlanning.planStreamlined(
             input.ownerUserId,
@@ -637,6 +634,12 @@ internal class DocumentIngestionOrchestrator(
                 safeAnalysisFailureDetails(failure),
             )
         } else {
+            if (System.getenv("ENTIO_DOCUMENT_ANALYSIS_DEBUG") == "true") {
+                System.err.println(
+                    "entio-document-analysis unexpected-pipeline-failure=${failure::class.simpleName} " +
+                        "message=${failure.message.orEmpty()}",
+                )
+            }
             tasks.fail(id, projectId, userId, "Document processing failed safely.")
         }
     }
@@ -740,7 +743,7 @@ internal class DocumentIngestionOrchestrator(
         const val MAX_ONTOLOGY_CONTEXT_TEXT: Int = 500
         const val MAX_ONTOLOGY_CONTEXT_TOKENS: Int = 5_000
         const val MAX_ALIGNMENT_ENTRIES: Int = 20_000
-        const val REQUIRED_POST_DISCOVERY_LOGICAL_CALLS: Int = 2
+        const val REQUIRED_POST_DISCOVERY_LOGICAL_CALLS: Int = 1
         val ONTOLOGY_CONTEXT_STOP_WORDS: Set<String> = setOf(
             "and",
             "are",
@@ -805,6 +808,16 @@ private class BudgetedDocumentPipelineProvider(
     ): DocumentConnectedModelProviderResult {
         reserve(request.taskId, "consolidate", request)
         return delegate.consolidate(apiKey, selectedModelId, systemInstruction, request)
+    }
+
+    override suspend fun completePrerequisites(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentPrerequisiteCompletionRequest,
+    ): DocumentConnectedModelProviderResult {
+        reserve(request.taskId, "prerequisite", request)
+        return delegate.completePrerequisites(apiKey, selectedModelId, systemInstruction, request)
     }
 
     override suspend fun reconcile(

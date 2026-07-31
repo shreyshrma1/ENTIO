@@ -42,6 +42,10 @@ describe("document ingestion review workspace", () => {
     expect(document.querySelector("script")).toBeNull();
     expect(screen.queryByRole("link", { name: /unsafe/ })).not.toBeInTheDocument();
     expect(screen.getByText("92% confidence")).toBeInTheDocument();
+    const recommendationSummary = screen.getByLabelText("Customer recommendation details");
+    expect(recommendationSummary.closest("details")).not.toHaveAttribute("open");
+    fireEvent.click(recommendationSummary);
+    expect(recommendationSummary.closest("details")).toHaveAttribute("open");
     expect(screen.getByRole("region", { name: "Exact proposed changes" })).toHaveTextContent("Create class");
     expect(screen.getByRole("region", { name: "Exact proposed changes" })).toHaveTextContent("https://example.com/Customer");
     expect(screen.getAllByText("policy.txt")).toHaveLength(2);
@@ -142,6 +146,7 @@ describe("document ingestion review workspace", () => {
 
     renderWorkspace();
     expect(await screen.findByRole("heading", { name: "Business facts" })).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Customer recommendation details"));
     fireEvent.click(screen.getByText("Review options and technical details"));
     fireEvent.change(screen.getByLabelText("Matched ontology item"), { target: { value: "https://example.com/Customer" } });
     fireEvent.change(screen.getByLabelText("Proposed label"), { target: { value: "Customer record" } });
@@ -218,6 +223,7 @@ describe("document ingestion review workspace", () => {
 
     renderWorkspace();
 
+    fireEvent.click(await screen.findByLabelText("Account closure definition recommendation details"));
     const preview = await screen.findByRole("region", { name: "Exact proposed changes" });
     expect(preview).toHaveTextContent("No ontology change can be created");
     expect(preview).toHaveTextContent("This recommendation remains review-only");
@@ -235,6 +241,7 @@ describe("document ingestion review workspace", () => {
       confidenceDimensions: { evidence: 94, modeling: 82, ontologyFit: 76, compilation: 100, overall: 76 },
       semanticIntent: "Create the Account closure concept and preserve its connected rule.",
       generatedIris: ["https://example.com/AccountClosure"],
+      mandatoryClarificationReasons: ["reviewer-input-required"],
       changePreview: {
         draftable: true,
         summary: "2 ordered typed changes will be added as one atomic recommendation.",
@@ -246,6 +253,9 @@ describe("document ingestion review workspace", () => {
             operationId: "create-account-closure",
             dependsOnOperationIds: [],
             optionalLeaf: false,
+            editableLabel: "Account closure",
+            semanticRole: "Domain class",
+            reviewerInputRequired: true,
           },
           {
             operation: "Add definition",
@@ -254,6 +264,17 @@ describe("document ingestion review workspace", () => {
             operationId: "define-account-closure",
             dependsOnOperationIds: ["create-account-closure"],
             optionalLeaf: true,
+          },
+          {
+            operation: "Set property range",
+            description: "Use the recommended text datatype.",
+            targetSourceId: "ontology",
+            operationId: "set-reference-range",
+            dependsOnOperationIds: ["create-account-closure"],
+            optionalLeaf: false,
+            editableIri: "http://www.w3.org/2001/XMLSchema#string",
+            semanticRole: "Range assignment",
+            modelRecommended: true,
           },
         ],
         blockingReason: null,
@@ -290,6 +311,7 @@ describe("document ingestion review workspace", () => {
     renderWorkspace();
 
     expect(await screen.findByText("Mixed")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Customer recommendation details"));
     expect(screen.getByLabelText("Confidence details")).toHaveTextContent("Evidence94%");
     expect(screen.getByLabelText("Confidence details")).toHaveTextContent("Compilation100%");
     expect(screen.getByLabelText("Semantic coverage and compilation metrics")).toHaveTextContent(
@@ -301,6 +323,13 @@ describe("document ingestion review workspace", () => {
     expect(screen.getByRole("region", { name: "Exact proposed changes" })).toHaveTextContent(
       "https://example.com/AccountClosure",
     );
+    expect(screen.getByRole("region", { name: "Exact proposed changes" })).toHaveTextContent(
+      "Model-recommended prerequisite",
+    );
+    expect(screen.getByRole("region", { name: "Exact proposed changes" })).toHaveTextContent(
+      "Reviewer input required",
+    );
+    expect(screen.getByRole("note")).toHaveTextContent("Reviewer input required.");
     expect(screen.getByLabelText("Review-only findings")).toHaveTextContent("Separation of duties rule");
     expect(screen.getByText("Modeling critique")).toBeInTheDocument();
     expect(screen.getByLabelText("Individual confirmations")).toHaveTextContent("Illustrative");
@@ -314,6 +343,24 @@ describe("document ingestion review workspace", () => {
     await waitFor(() => expect(decisions[1]).toMatchObject({
       action: "exclude-optional",
       operationIds: ["define-account-closure"],
+    }));
+    fireEvent.click(screen.getByText("Review options and technical details"));
+    fireEvent.change(screen.getByLabelText("Domain class (review needed)"), {
+      target: { value: "Account termination" },
+    });
+    fireEvent.change(screen.getByLabelText("Range assignment (model recommended)"), {
+      target: { value: "http://www.w3.org/2001/XMLSchema#token" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save ontology fields" }));
+    await waitFor(() => expect(decisions[2]).toMatchObject({
+      action: "edit-operations",
+      operationEdits: [{
+        operationId: "create-account-closure",
+        label: "Account termination",
+      }, {
+        operationId: "set-reference-range",
+        entityIri: "http://www.w3.org/2001/XMLSchema#token",
+      }],
     }));
   });
 
@@ -356,6 +403,7 @@ describe("document ingestion review workspace", () => {
 
     renderWorkspace();
 
+    fireEvent.click(await screen.findByLabelText("Customer recommendation details"));
     expect(await screen.findByLabelText("Confidence details")).toHaveTextContent("CompilationNot applicable");
     fireEvent.click(screen.getByRole("button", { name: "Retain as documented rule" }));
     await waitFor(() => expect(decisions).toHaveLength(1));

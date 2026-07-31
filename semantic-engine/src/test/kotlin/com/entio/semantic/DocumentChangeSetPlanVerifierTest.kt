@@ -439,6 +439,122 @@ class DocumentChangeSetPlanVerifierTest {
         )
     }
 
+    @Test
+    fun allowsAnExplicitReviewerPlaceholderToCompleteAnIndividualType(): Unit {
+        val organization = DocumentTemporaryReference("new:class:Organization")
+        val bank = DocumentTemporaryReference("new:individual:MeridianCommunityBank")
+        val operations = listOf(
+            create(
+                "organization",
+                0,
+                DocumentPlanOperationKind.CreateClass,
+                organization,
+            ).copy(reviewerInputRequired = true),
+            create(
+                "bank",
+                1,
+                DocumentPlanOperationKind.CreateIndividual,
+                bank,
+            ),
+            operation(
+                "bank-type",
+                2,
+                DocumentPlanOperationKind.AssignType,
+                listOf(temp(bank), temp(organization)),
+                listOf("bank", "organization"),
+            ).copy(reviewerInputRequired = true),
+        )
+
+        val verified = verifier.verify(
+            plan(recommendation(operations)),
+            context(
+                discoveryKind = DocumentDiscoveryKind.Individual,
+                individualClassification = DocumentIndividualClassification.Production,
+            ),
+        )
+
+        assertTrue(verified.plan.recommendations.single().blockers.isEmpty())
+    }
+
+    @Test
+    fun allowsAnAttachedModelRecommendedClassWithoutStrictClassEvidence(): Unit {
+        val approvalDecision = DocumentTemporaryReference("new:class:ApprovalDecision")
+        val createsDecision = DocumentTemporaryReference("new:objectProperty:createsApprovalDecision")
+        val meridianPay = Iri("https://example.com/simple#MeridianPay")
+        val connected = listOf(
+            create(
+                "approval-decision",
+                0,
+                DocumentPlanOperationKind.CreateClass,
+                approvalDecision,
+            ).copy(modelRecommended = true),
+            create(
+                "creates-decision",
+                1,
+                DocumentPlanOperationKind.CreateObjectProperty,
+                createsDecision,
+            ),
+            operation(
+                "decision-domain",
+                2,
+                DocumentPlanOperationKind.SetPropertyDomain,
+                listOf(temp(createsDecision), DocumentPlanOperand.ExistingEntity(meridianPay)),
+                listOf("creates-decision"),
+            ),
+            operation(
+                "decision-range",
+                3,
+                DocumentPlanOperationKind.SetPropertyRange,
+                listOf(temp(createsDecision), temp(approvalDecision)),
+                listOf("approval-decision", "creates-decision"),
+            ).copy(modelRecommended = true),
+        )
+
+        val verified = verifier.verify(
+            plan(recommendation(connected)),
+            context(
+                existing = mapOf(meridianPay to DocumentTemporaryReferenceKind.Class),
+                discoveryKind = DocumentDiscoveryKind.Relationship,
+            ),
+        )
+
+        assertEquals(DocumentFinalRecommendationStatus.Executable, verified.plan.recommendations.single().status)
+        assertTrue(verified.plan.recommendations.single().blockers.isEmpty())
+
+        val unattached = verifier.verify(
+            plan(recommendation(listOf(
+                create(
+                    "approval-decision",
+                    0,
+                    DocumentPlanOperationKind.CreateClass,
+                    approvalDecision,
+                ).copy(modelRecommended = true),
+            ))),
+            context(discoveryKind = DocumentDiscoveryKind.Relationship),
+        )
+        assertEquals(
+            listOf("model-recommended-prerequisite-unattached"),
+            unattached.plan.recommendations.single().blockers,
+        )
+
+        val editableRecommendation = verifier.verify(
+            plan(recommendation(listOf(
+                create(
+                    "approval-decision",
+                    0,
+                    DocumentPlanOperationKind.CreateClass,
+                    approvalDecision,
+                ).copy(modelRecommended = true, reviewerInputRequired = true),
+            ))),
+            context(discoveryKind = DocumentDiscoveryKind.Relationship),
+        )
+        assertEquals(
+            DocumentFinalRecommendationStatus.Executable,
+            editableRecommendation.plan.recommendations.single().status,
+        )
+        assertTrue(editableRecommendation.plan.recommendations.single().blockers.isEmpty())
+    }
+
     private val verifier = DocumentChangeSetPlanVerifier()
 
     private fun context(

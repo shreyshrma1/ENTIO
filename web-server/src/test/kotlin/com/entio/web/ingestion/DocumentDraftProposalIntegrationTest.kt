@@ -109,6 +109,28 @@ class DocumentDraftProposalIntegrationTest {
     }
 
     @Test
+    fun stagesMoreThanOneHundredEditsAcrossBoundedBatches(): Unit {
+        val fixture = fixture()
+        val service = StagingWorkflowService(fixture.registry)
+        val batches = packAtomicDocumentRecommendationGroups((1..120).map(::prepared))
+
+        assertEquals(6, batches.size)
+        assertTrue(batches.all { it.size == 20 })
+
+        batches.forEachIndexed { index, batch ->
+            service.stageDocumentBatch(
+                projectId = "simple",
+                userId = "alice",
+                taskId = "task-1",
+                idempotencyKey = "batch-${index + 1}",
+                items = batch,
+            )
+        }
+
+        assertEquals(120, service.snapshot("simple").entries.size)
+    }
+
+    @Test
     fun validatesEveryItemBeforeMutationAndRejectsUnrelatedSharedStaging(): Unit {
         val fixture = fixture()
         val service = StagingWorkflowService(fixture.registry)

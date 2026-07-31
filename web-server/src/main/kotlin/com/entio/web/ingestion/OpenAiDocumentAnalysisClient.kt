@@ -40,7 +40,7 @@ import com.entio.core.DocumentSemanticReferenceTarget
 import com.entio.core.DocumentTemporaryReference
 import com.entio.core.DocumentReconciliationKind
 import com.entio.core.MAX_DOCUMENT_DISCOVERIES_PER_DOCUMENT
-import com.entio.core.MAX_DOCUMENT_CONNECTED_MODEL_ITEMS
+import com.entio.core.MAX_DOCUMENT_CONNECTED_MODEL_ITEMS_PER_PROVIDER_RESPONSE
 import com.entio.core.MAX_DOCUMENT_PROVIDER_RESPONSE_CHARACTERS
 import com.entio.core.DocumentRecommendationCategory
 import com.entio.core.Iri
@@ -231,6 +231,25 @@ internal class OpenAiDocumentAnalysisClient(
         ) { response ->
             DocumentConnectedModelProviderResult.CompletedConsolidation(
                 DocumentModelConsolidationResponse(items = response),
+            )
+        }
+
+    override suspend fun completePrerequisites(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentPrerequisiteCompletionRequest,
+    ): DocumentConnectedModelProviderResult =
+        connectedModelCall(
+            apiKey = apiKey,
+            selectedModelId = selectedModelId,
+            systemInstruction = systemInstruction,
+            request = request,
+            responseSchemaVersion = DocumentAnalysisPipelineVersions.PREREQUISITE_COMPLETION_RESPONSE,
+            formatName = "phase_11_5_document_prerequisite_completion",
+        ) { response ->
+            DocumentConnectedModelProviderResult.CompletedPrerequisites(
+                DocumentPrerequisiteCompletionResponse(items = response),
             )
         }
 
@@ -596,6 +615,11 @@ internal class OpenAiDocumentAnalysisClient(
                     "connected-model request chunk=${request.chunkIndex} " +
                         "discoveries=${request.discoveries.size} characters=${requestBody.length}",
                 )
+            } else if (request is DocumentPrerequisiteCompletionRequest) {
+                diagnostic(
+                    "prerequisite-completion request missing=${request.missingPrerequisites.size} " +
+                        "discoveries=${request.discoveries.size} characters=${requestBody.length}",
+                )
             }
             val response = client.post(configuration.endpoint) {
                 header(HttpHeaders.Authorization, "Bearer ${apiKey.trim()}")
@@ -615,11 +639,27 @@ internal class OpenAiDocumentAnalysisClient(
                 )
             }
             val responseText = response.bodyAsText()
+            val outputText = extractOutputText(responseText)
+            when (request) {
+                is DocumentConnectedModelRequest -> diagnostic(
+                    "connected-model response chunk=${request.chunkIndex} characters=${responseText.length} " +
+                        "outputCharacters=${outputText.length}",
+                )
+                is DocumentModelConsolidationRequest -> diagnostic(
+                    "model-consolidation response characters=${responseText.length} " +
+                        "outputCharacters=${outputText.length}",
+                )
+                is DocumentPrerequisiteCompletionRequest -> diagnostic(
+                    "prerequisite-completion response characters=${responseText.length} " +
+                        "outputCharacters=${outputText.length}",
+                )
+            }
             if (responseText.length > MAX_DOCUMENT_PROVIDER_RESPONSE_CHARACTERS) {
                 return DocumentConnectedModelProviderResult.Failed(false, "document-provider-response-limit")
             }
-            completed(parseStrictConnectedModelResponse(extractOutputText(responseText), responseSchemaVersion))
+            completed(parseStrictConnectedModelResponse(outputText, responseSchemaVersion))
         } catch (failure: SafeProviderResponseFailure) {
+            diagnostic("connected-model response-failure code=${failure.code}")
             DocumentConnectedModelProviderResult.Failed(failure.retryable, failure.code)
         } catch (failure: CancellationException) {
             throw failure
@@ -628,7 +668,11 @@ internal class OpenAiDocumentAnalysisClient(
         } catch (failure: IOException) {
             diagnostic("connected-model io-failure=${failure::class.simpleName} message=${failure.message.orEmpty()}")
             DocumentConnectedModelProviderResult.Failed(true, "document-provider-unavailable")
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
+            diagnostic(
+                "connected-model unexpected-failure=${failure::class.simpleName} " +
+                    "message=${failure.message.orEmpty()}",
+            )
             DocumentConnectedModelProviderResult.Failed(true, "document-provider-malformed-output")
         }
     }
@@ -671,10 +715,21 @@ internal class OpenAiDocumentAnalysisClient(
         val root = objectMapper.createObjectNode()
         root.put("model", modelId)
         root.put("store", false)
-        root.put("max_output_tokens", MAX_DOCUMENT_PROVIDER_OUTPUT_TOKENS)
+        root.put(
+            "max_output_tokens",
+            when (request) {
+                is DocumentModelConsolidationRequest -> MAX_DOCUMENT_MODEL_CONSOLIDATION_OUTPUT_TOKENS
+                is DocumentPrerequisiteCompletionRequest -> MAX_DOCUMENT_PREREQUISITE_OUTPUT_TOKENS
+                else -> MAX_DOCUMENT_CONNECTED_MODEL_OUTPUT_TOKENS
+            },
+        )
         root.putArray("tools")
         root.put("instructions", instruction)
-        root.put("input", objectMapper.writeValueAsString(request))
+        val promptPayload = when (request) {
+            is DocumentConnectedModelRequest -> request.toPromptPayload()
+            else -> request
+        }
+        root.put("input", objectMapper.writeValueAsString(promptPayload))
         root.set<JsonNode>("text", strictConnectedModelTextFormat(responseSchemaVersion, formatName))
         return objectMapper.writeValueAsString(root)
     }
@@ -1337,8 +1392,6 @@ internal class OpenAiDocumentAnalysisClient(
         responseSchemaVersion: String,
         formatName: String,
     ): JsonNode {
-        fun nullSchema(description: String): JsonNode =
-            objectMapper.createObjectNode().put("type", "null").put("description", description)
         fun reference(roles: List<DocumentConnectedModelReferenceRole>): JsonNode =
             objectMapper.createObjectNode().apply {
                 put("type", "object")
@@ -1362,8 +1415,6 @@ internal class OpenAiDocumentAnalysisClient(
             roles: List<DocumentConnectedModelReferenceRole>,
             minimumReferences: Int,
             maximumReferences: Int,
-            literalRequired: Boolean = false,
-            reviewOnlyRequired: Boolean = false,
         ): JsonNode = objectMapper.createObjectNode().apply {
             put("type", "object")
             put("additionalProperties", false)
@@ -1392,143 +1443,30 @@ internal class OpenAiDocumentAnalysisClient(
                 })
                 set<JsonNode>(
                     "literalLexicalForm",
-                    if (literalRequired) {
-                        objectMapper.createObjectNode()
-                            .put("type", "string")
-                            .put("minLength", 1)
-                            .put("maxLength", 8_000)
-                            .put("description", "The exact literal lexical form.")
-                    } else {
-                        nullSchema("Null because this item is not a datatype-value assertion.")
-                    },
+                    nullableString(8_000, "A datatype assertion's lexical form; otherwise null."),
                 )
                 set<JsonNode>(
                     "literalDatatypeIri",
-                    if (literalRequired) {
-                        nullableString(2_000, "The literal datatype IRI when explicitly supported, otherwise null.")
-                    } else {
-                        nullSchema("Null because this item is not a datatype-value assertion.")
-                    },
+                    nullableString(
+                        2_000,
+                        "A datatype assertion's explicit datatype or a datatype range's reviewed XSD IRI; otherwise null.",
+                    ),
                 )
                 set<JsonNode>(
                     "literalLanguageTag",
-                    if (literalRequired) {
-                        nullableString(100, "The literal language tag when explicitly supported, otherwise null.")
-                    } else {
-                        nullSchema("Null because this item is not a datatype-value assertion.")
-                    },
+                    nullableString(100, "An explicitly supported literal language tag; otherwise null."),
                 )
                 putObject("order").put("type", "integer").put("minimum", 0)
-                if (reviewOnlyRequired) {
-                    putObject("reviewOnlyEligible")
-                        .put("type", "boolean")
-                        .put("const", true)
-                        .put("description", "Complex rules must remain review-only eligible.")
-                } else {
-                    putObject("reviewOnlyEligible").put("type", "boolean")
-                }
+                putObject("reviewOnlyEligible").put("type", "boolean")
+                putObject("modelRecommended").put("type", "boolean")
             })
         }
-        val item = objectMapper.createObjectNode().apply {
-            set<JsonNode>("anyOf", objectMapper.createArrayNode().apply {
-                add(item(
-                    listOf(
-                        DocumentConnectedModelItemKind.Class,
-                        DocumentConnectedModelItemKind.ObjectProperty,
-                        DocumentConnectedModelItemKind.DatatypeProperty,
-                        DocumentConnectedModelItemKind.AnnotationProperty,
-                        DocumentConnectedModelItemKind.Individual,
-                    ),
-                    emptyList(),
-                    0,
-                    0,
-                ))
-                add(item(
-                    listOf(DocumentConnectedModelItemKind.SubclassRelationship),
-                    listOf(
-                        DocumentConnectedModelReferenceRole.Subclass,
-                        DocumentConnectedModelReferenceRole.Superclass,
-                    ),
-                    2,
-                    2,
-                ))
-                add(item(
-                    listOf(DocumentConnectedModelItemKind.DomainAssignment),
-                    listOf(
-                        DocumentConnectedModelReferenceRole.Property,
-                        DocumentConnectedModelReferenceRole.Domain,
-                    ),
-                    2,
-                    2,
-                ))
-                add(item(
-                    listOf(DocumentConnectedModelItemKind.RangeAssignment),
-                    listOf(
-                        DocumentConnectedModelReferenceRole.Property,
-                        DocumentConnectedModelReferenceRole.Range,
-                    ),
-                    2,
-                    2,
-                ))
-                add(item(
-                    listOf(DocumentConnectedModelItemKind.TypeAssertion),
-                    listOf(
-                        DocumentConnectedModelReferenceRole.Individual,
-                        DocumentConnectedModelReferenceRole.Type,
-                    ),
-                    2,
-                    2,
-                ))
-                add(item(
-                    listOf(DocumentConnectedModelItemKind.ObjectPropertyAssertion),
-                    listOf(
-                        DocumentConnectedModelReferenceRole.Subject,
-                        DocumentConnectedModelReferenceRole.Predicate,
-                        DocumentConnectedModelReferenceRole.Object,
-                    ),
-                    3,
-                    3,
-                ))
-                add(item(
-                    listOf(DocumentConnectedModelItemKind.DatatypeValueAssertion),
-                    listOf(
-                        DocumentConnectedModelReferenceRole.Subject,
-                        DocumentConnectedModelReferenceRole.Predicate,
-                    ),
-                    2,
-                    2,
-                    literalRequired = true,
-                ))
-                add(item(
-                    listOf(DocumentConnectedModelItemKind.NodeShape),
-                    listOf(DocumentConnectedModelReferenceRole.TargetClass),
-                    1,
-                    1,
-                ))
-                add(item(
-                    listOf(DocumentConnectedModelItemKind.PropertyShape),
-                    listOf(
-                        DocumentConnectedModelReferenceRole.Shape,
-                        DocumentConnectedModelReferenceRole.Path,
-                    ),
-                    2,
-                    2,
-                ))
-                add(item(
-                    listOf(DocumentConnectedModelItemKind.Constraint),
-                    listOf(DocumentConnectedModelReferenceRole.ConstraintTarget),
-                    1,
-                    1,
-                ))
-                add(item(
-                    listOf(DocumentConnectedModelItemKind.ComplexRule),
-                    listOf(DocumentConnectedModelReferenceRole.Related),
-                    1,
-                    20,
-                    reviewOnlyRequired = true,
-                ))
-            })
-        }
+        val item = item(
+            DocumentConnectedModelItemKind.entries,
+            DocumentConnectedModelReferenceRole.entries,
+            0,
+            20,
+        )
         val schema = objectMapper.createObjectNode().apply {
             put("type", "object")
             put("additionalProperties", false)
@@ -1538,7 +1476,7 @@ internal class OpenAiDocumentAnalysisClient(
                 set<JsonNode>("items", objectMapper.createObjectNode().apply {
                     put("type", "array")
                     put("minItems", 1)
-                    put("maxItems", MAX_DOCUMENT_CONNECTED_MODEL_ITEMS)
+                    put("maxItems", MAX_DOCUMENT_CONNECTED_MODEL_ITEMS_PER_PROVIDER_RESPONSE)
                     set<JsonNode>("items", item)
                 })
             })
@@ -1912,7 +1850,7 @@ internal class OpenAiDocumentAnalysisClient(
         require(root.isObject && root.fieldNames().asSequence().toSet() == setOf("schemaVersion", "items"))
         require(root.path("schemaVersion").asText() == responseSchemaVersion)
         val items = root.path("items")
-        require(items.isArray && items.size() in 1..MAX_DOCUMENT_CONNECTED_MODEL_ITEMS)
+        require(items.isArray && items.size() in 1..MAX_DOCUMENT_CONNECTED_MODEL_ITEMS_PER_PROVIDER_RESPONSE)
         return items.map { item ->
             require(item.isObject && item.fieldNames().asSequence().toSet() == CONNECTED_MODEL_FIELDS)
             val discoveryIds = item.path("discoveryIds")
@@ -1943,6 +1881,8 @@ internal class OpenAiDocumentAnalysisClient(
                 literalLanguageTag = item.optionalText("literalLanguageTag"),
                 order = item.requiredInteger("order"),
                 reviewOnlyEligible = item.path("reviewOnlyEligible").takeIf(JsonNode::isBoolean)?.booleanValue()
+                    ?: throw IllegalArgumentException("Missing required boolean."),
+                modelRecommended = item.path("modelRecommended").takeIf(JsonNode::isBoolean)?.booleanValue()
                     ?: throw IllegalArgumentException("Missing required boolean."),
             )
         }
@@ -2107,7 +2047,7 @@ internal class OpenAiDocumentAnalysisClient(
         }
 
         val itemsNode = planNode.path("items")
-        require(itemsNode.isArray && itemsNode.size() <= MAX_DOCUMENT_CONNECTED_MODEL_ITEMS)
+        require(itemsNode.isArray)
         val suppliedItemIds = itemsNode.map { it.requiredText("id") }
         require(
             suppliedItemIds.size == connectedItemsById.size &&
@@ -2168,14 +2108,14 @@ internal class OpenAiDocumentAnalysisClient(
             }
         }
         val groupsNode = planNode.path("groups")
-        require(groupsNode.isArray && groupsNode.size() <= 100)
+        require(groupsNode.isArray && groupsNode.size() <= connectedItemsById.size.coerceAtLeast(1))
         val suppliedGroups = groupsNode.map { node ->
             require(node.isObject && node.fieldNames().asSequence().toSet() == SEMANTIC_GROUP_FIELDS) {
                 "Unknown semantic group field."
             }
             val criticDispositions = node.path("criticDispositions")
             require(criticDispositions.isArray)
-            val itemIds = node.requiredTextArray("itemIds", 1, MAX_DOCUMENT_CONNECTED_MODEL_ITEMS)
+            val itemIds = node.requiredTextArray("itemIds", 1, connectedItemsById.size.coerceAtLeast(1))
                 .distinct()
                 .sorted()
             require(itemIds.all(connectedItemsById::containsKey)) {
@@ -2329,7 +2269,7 @@ internal class OpenAiDocumentAnalysisClient(
         require(planNode.isObject && planNode.fieldNames().asSequence().toSet() == FINAL_PLAN_FIELDS)
         val recommendations = planNode.path("recommendations")
         val coverage = planNode.path("coverage")
-        require(recommendations.isArray && recommendations.size() <= 100)
+        require(recommendations.isArray)
         require(coverage.isArray)
         val verifiedDiscoveryIds = request.discoveries.map(DocumentDiscovery::id).sorted()
         val discoveryById = request.discoveries.associateBy(DocumentDiscovery::id)
@@ -3058,6 +2998,9 @@ internal class OpenAiDocumentAnalysisClient(
         const val MAX_PROVIDER_ERROR_CHARACTERS: Int = 64_000
         const val MAX_DOCUMENT_PROVIDER_OUTPUT_TOKENS: Int = 8_000
         const val MAX_DOCUMENT_DISCOVERY_OUTPUT_TOKENS: Int = 16_000
+        const val MAX_DOCUMENT_CONNECTED_MODEL_OUTPUT_TOKENS: Int = 16_000
+        const val MAX_DOCUMENT_MODEL_CONSOLIDATION_OUTPUT_TOKENS: Int = 32_000
+        const val MAX_DOCUMENT_PREREQUISITE_OUTPUT_TOKENS: Int = 8_000
         const val MIN_DOCUMENT_ALIGNMENT_OUTPUT_TOKENS: Int = 4_000
         const val DOCUMENT_ALIGNMENT_TOKENS_PER_MODEL_ITEM: Int = 500
         const val MAX_DOCUMENT_ALIGNMENT_OUTPUT_TOKENS: Int = 16_000
@@ -3171,6 +3114,7 @@ internal class OpenAiDocumentAnalysisClient(
             "literalLanguageTag",
             "order",
             "reviewOnlyEligible",
+            "modelRecommended",
         )
         val RECONCILIATION_FIELDS: Set<String> = setOf(
             "providerId",

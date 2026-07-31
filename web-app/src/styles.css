@@ -1162,13 +1162,19 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .document-review-summary article, .document-draft-impact, .document-recommendation-card { padding: 13px; border: 1px solid var(--border-subtle); border-radius: 10px; }
 .document-review-summary article h3, .document-review-summary article p { margin: 0 0 6px; }
 .document-draft-impact { display: grid; gap: 4px; background: var(--surface-2); }
-.document-recommendation-card { display: grid; gap: 14px; padding: 18px; }
-.document-recommendation-card > header { display: flex; min-width: 0; justify-content: space-between; gap: 16px; }
-.document-recommendation-card > header > * { min-width: 0; }
+.document-recommendation-card { padding: 0; overflow: hidden; }
+.document-recommendation-summary { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 16px; padding: 18px; cursor: pointer; list-style: none; }
+.document-recommendation-summary::-webkit-details-marker { display: none; }
+.document-recommendation-summary > * { min-width: 0; }
+.document-recommendation-summary:hover { background: var(--surface-2); }
+.document-recommendation-summary:focus-visible { outline: 2px solid var(--primary-600); outline-offset: -2px; }
+.document-recommendation-content { display: grid; gap: 14px; padding: 0 18px 18px; }
 .document-recommendation-card h3, .document-recommendation-card h4, .document-recommendation-card p { margin: 0; }
 .document-recommendation-card h4 { font-size: 13px; }
-.document-recommendation-badges { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-end; gap: 6px; }
-.document-recommendation-badges span { padding: 3px 8px; border-radius: 999px; background: var(--surface-2); color: var(--text-secondary); font-size: 11px; font-weight: 700; }
+.document-recommendation-badges { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
+.document-recommendation-badges > span:not(.document-recommendation-arrow) { padding: 3px 8px; border-radius: 999px; background: var(--surface-2); color: var(--text-secondary); font-size: 11px; font-weight: 700; }
+.document-recommendation-arrow { display: inline-grid; width: 24px; height: 24px; place-items: center; color: var(--text-secondary); font-size: 18px; transition: transform 120ms ease; }
+.document-recommendation-card[open] .document-recommendation-arrow { transform: rotate(180deg); }
 .document-change-description, .document-change-preview, .document-provenance { display: grid; min-width: 0; max-width: 100%; gap: 8px; }
 .document-change-preview { padding: 13px; border: 1px solid var(--primary-100); border-radius: 9px; background: var(--primary-50); }
 .document-change-preview.blocked { border-color: var(--border-default); background: var(--surface-2); }

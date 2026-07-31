@@ -18,7 +18,6 @@ import com.entio.core.DocumentTemporaryReference
 import com.entio.core.DocumentTemporaryReferenceKind
 import com.entio.core.Iri
 import com.entio.core.MAX_DOCUMENT_EXPANDED_TYPED_EDITS_PER_RECOMMENDATION
-import com.entio.core.MAX_DOCUMENT_EXPANDED_TYPED_EDITS_PER_TASK
 
 public data class DocumentCompilerEntity(
     public val iri: Iri,
@@ -133,7 +132,7 @@ public class DocumentSemanticPlanCompiler {
                     group.confidence.ontologyFit,
                 )
             }
-            val items = dependencyClosure(group.itemIds, itemsById)
+            val items = dependencyClosure(group.executableItemIds, itemsById)
             try {
                 compileGroup(group.id, items, context)
             } catch (failure: CompilationBlocked) {
@@ -149,21 +148,6 @@ public class DocumentSemanticPlanCompiler {
             }
         }.flatMap(::splitSafely)
             .sortedBy(DocumentCompiledRecommendationResult::groupId)
-        if (compiled.sumOf(DocumentCompiledRecommendationResult::expandedTypedEditCount) >
-            MAX_DOCUMENT_EXPANDED_TYPED_EDITS_PER_TASK
-        ) {
-            return plan.groups.map { group ->
-                blocked(
-                    group.id,
-                    group.itemIds.first(),
-                    "task-edit-limit-exceeded",
-                    "The compiled task exceeds the approved typed-edit limit.",
-                    group.confidence.evidence,
-                    group.confidence.modeling,
-                    group.confidence.ontologyFit,
-                )
-            }.sortedBy(DocumentCompiledRecommendationResult::groupId)
-        }
         return compiled
     }
 
@@ -322,7 +306,10 @@ public class DocumentSemanticPlanCompiler {
                 )
                 DocumentSemanticItemKind.DatatypePropertyRange -> listOf(
                     resolve(item, DocumentSemanticReferenceRole.Property, DocumentTemporaryReferenceKind.DatatypeProperty),
-                    resolve(item, DocumentSemanticReferenceRole.Range),
+                    item.datatypeIntent
+                        ?.let(::Iri)
+                        ?.let(DocumentPlanOperand::ExistingEntity)
+                        ?: resolve(item, DocumentSemanticReferenceRole.Range),
                 )
                 DocumentSemanticItemKind.IndividualType ->
                     listOf(
@@ -571,6 +558,8 @@ public class DocumentSemanticPlanCompiler {
         declaration = declaration,
         operands = operands + DocumentPlanOperand.SourceId(context.targetSourceId),
         expandedTypedEditCount = 1,
+        modelRecommended = item.modelRecommended,
+        reviewerInputRequired = item.reviewerInputRequired,
     )
 
     private fun blocked(

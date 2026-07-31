@@ -3,7 +3,6 @@ package com.entio.core
 import java.time.Instant
 
 public const val MAX_DOCUMENT_CANDIDATES: Int = 2_000
-public const val MAX_ACCEPTED_DOCUMENT_EDITS: Int = 100
 public const val MAX_DOCUMENT_DRAFT_BATCH_SIZE: Int = 20
 
 public enum class DocumentCandidateCategory {

@@ -243,6 +243,11 @@ export interface WebDocumentReviewRecommendation {
       operationId?: string | null;
       dependsOnOperationIds?: string[];
       optionalLeaf?: boolean;
+      editableLabel?: string | null;
+      editableIri?: string | null;
+      semanticRole?: string | null;
+      modelRecommended?: boolean;
+      reviewerInputRequired?: boolean;
     }>;
     blockingReason: string | null;
   };
@@ -307,7 +312,7 @@ export interface WebDocumentEvidenceView {
 }
 
 export interface WebDocumentReviewDecision {
-  action: "accept" | "retain" | "reject" | "clarify" | "edit" | "rematch" | "merge" | "reconsider" | "split" | "exclude-optional" | "confirm-individual";
+  action: "accept" | "retain" | "reject" | "clarify" | "edit" | "rematch" | "merge" | "reconsider" | "split" | "exclude-optional" | "confirm-individual" | "edit-operations";
   expectedWorkKey: string;
   expectedGraphFingerprint: string;
   proposedLabel?: string;
@@ -318,6 +323,7 @@ export interface WebDocumentReviewDecision {
   operationIds?: string[];
   operationId?: string;
   confirmProductionClassification?: boolean;
+  operationEdits?: Array<{ operationId: string; label?: string; entityIri?: string }>;
 }
 
 export interface WebHierarchyItem {

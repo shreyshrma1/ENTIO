@@ -263,6 +263,15 @@ public class DocumentIngestionWebService(
                     request.expectedWorkKey,
                     request.expectedGraphFingerprint,
                 )
+                "edit-operations" -> reviews.editVerifiedOperations(
+                    projectId,
+                    taskId,
+                    recommendationId,
+                    request.operationEdits,
+                    userId,
+                    request.expectedWorkKey,
+                    request.expectedGraphFingerprint,
+                )
                 "clarify" -> reviews.requestVerifiedReview(
                     projectId,
                     taskId,
@@ -414,20 +423,11 @@ public class DocumentIngestionWebService(
                 )
             }
         }
-        if (editOperations.size > com.entio.core.MAX_ACCEPTED_DOCUMENT_EDITS) {
-            throw DocumentIngestionFailure("document-draft-task-limit", "A document task cannot stage more than 100 edits.")
-        }
         val (schemaOperations, factOperations) = editOperations.partition {
             it.provenance.recommendationId in schemaRecommendationIds
         }
         val orderedBatches = packAtomicDocumentRecommendationGroups(schemaOperations) +
             packAtomicDocumentRecommendationGroups(factOperations)
-        if (orderedBatches.size > MAX_DOCUMENT_DRAFT_BATCHES) {
-            throw DocumentIngestionFailure(
-                "document-draft-batch-count-limit",
-                "Schema and fact edits require more than the approved five ordered batches.",
-            )
-        }
         var response: WebStagingResponse? = null
         orderedBatches.forEachIndexed { index, batch ->
             response = workflow.stageDocumentBatch(
@@ -560,9 +560,6 @@ public class DocumentIngestionWebService(
                 )
             }
         }
-        if (items.size > com.entio.core.MAX_ACCEPTED_DOCUMENT_EDITS) {
-            throw DocumentIngestionFailure("document-draft-task-limit", "A document task cannot stage more than 100 edits.")
-        }
         provenanceCoordinator.registerConnected(
             projectId,
             accepted.map { candidate ->
@@ -581,12 +578,6 @@ public class DocumentIngestionWebService(
             },
         )
         val batches = packAtomicDocumentRecommendationGroups(items)
-        if (batches.size > MAX_DOCUMENT_DRAFT_BATCHES) {
-            throw DocumentIngestionFailure(
-                "document-draft-batch-count-limit",
-                "Connected recommendations require more than the approved five batches.",
-            )
-        }
         var response: WebStagingResponse? = null
         batches.forEachIndexed { index, batch ->
             response = workflow.stageDocumentBatch(
@@ -610,10 +601,13 @@ public class DocumentIngestionWebService(
         DocumentAnalysisStage.Discovery -> DocumentAnalysisPipelineVersions.DISCOVERY_PROMPT
         DocumentAnalysisStage.ConnectedModeling -> DocumentAnalysisPipelineVersions.CONNECTED_MODEL_PROMPT
         DocumentAnalysisStage.ModelConsolidation -> DocumentAnalysisPipelineVersions.MODEL_CONSOLIDATION_PROMPT
+        DocumentAnalysisStage.PrerequisiteCompletion ->
+            DocumentAnalysisPipelineVersions.PREREQUISITE_COMPLETION_PROMPT
         DocumentAnalysisStage.Reconciliation -> DocumentAnalysisPipelineVersions.RECONCILIATION_PROMPT
         DocumentAnalysisStage.OntologyAlignment -> DocumentAnalysisPipelineVersions.ONTOLOGY_ALIGNMENT_PROMPT
         DocumentAnalysisStage.ModelingCritic -> DocumentAnalysisPipelineVersions.MODELING_CRITIC_PROMPT
         DocumentAnalysisStage.FinalPlanning -> DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_PROMPT
+        DocumentAnalysisStage.SemanticAssembly,
         DocumentAnalysisStage.DeterministicVerification,
         DocumentAnalysisStage.AwaitingReview,
         -> null
@@ -677,7 +671,6 @@ public class DocumentIngestionWebService(
     private companion object {
         const val FILE_PART_PREFIX: String = "document."
         const val MAX_METADATA_CHARACTERS: Int = 50_000
-        const val MAX_DOCUMENT_DRAFT_BATCHES: Int = 5
     }
 }
 
