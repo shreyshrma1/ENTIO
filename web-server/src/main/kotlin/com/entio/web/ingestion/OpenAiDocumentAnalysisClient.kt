@@ -23,6 +23,9 @@ import com.entio.core.DocumentEvidenceId
 import com.entio.core.DocumentFinalPlan
 import com.entio.core.DocumentFinalRecommendation
 import com.entio.core.DocumentFinalRecommendationStatus
+import com.entio.core.DocumentGroundedAnalysisResult
+import com.entio.core.DocumentGroundedDisposition
+import com.entio.core.DocumentPrerequisiteOrigin
 import com.entio.core.DocumentIndividualReviewGate
 import com.entio.core.DocumentIndividualClassification
 import com.entio.core.DocumentPlanOperand
@@ -45,6 +48,7 @@ import com.entio.core.MAX_DOCUMENT_PROVIDER_RESPONSE_CHARACTERS
 import com.entio.core.DocumentRecommendationCategory
 import com.entio.core.Iri
 import com.entio.core.RdfLiteral
+import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.ktor.client.HttpClient
@@ -90,6 +94,7 @@ internal class OpenAiDocumentAnalysisClient(
     private val objectMapper: ObjectMapper = ObjectMapper().findAndRegisterModules(),
     engine: HttpClientEngine? = null,
 ) : DocumentPipelineProvider,
+    DocumentGroundedAnalysisProvider,
     AutoCloseable {
     private val client = if (engine == null) {
         HttpClient(CIO) {
@@ -147,6 +152,47 @@ internal class OpenAiDocumentAnalysisClient(
             DocumentAnalysisProviderResult.Failed(true, "document-provider-unavailable")
         } catch (_: Exception) {
             DocumentAnalysisProviderResult.Failed(true, "document-provider-malformed-output")
+        }
+    }
+
+    override suspend fun analyzeGrounded(
+        apiKey: String,
+        selectedModelId: String,
+        systemInstruction: String,
+        request: DocumentGroundedAnalysisRequest,
+    ): DocumentGroundedAnalysisProviderResult {
+        if (apiKey.isBlank() || selectedModelId.isBlank()) {
+            return DocumentGroundedAnalysisProviderResult.Failed(false, "document-provider-authorization")
+        }
+        return try {
+            val response = client.post(configuration.endpoint) {
+                header(HttpHeaders.Authorization, "Bearer ${apiKey.trim()}")
+                accept(ContentType.Application.Json)
+                setBody(TextContent(groundedRequestBody(selectedModelId, systemInstruction, request), ContentType.Application.Json))
+            }
+            if (!response.status.isSuccess()) {
+                val failure = classifyHttpFailure(response)
+                return DocumentGroundedAnalysisProviderResult.Failed(failure.retryable, failure.safeCode)
+            }
+            val responseText = response.bodyAsText()
+            if (responseText.length > MAX_DOCUMENT_PROVIDER_RESPONSE_CHARACTERS) {
+                return DocumentGroundedAnalysisProviderResult.Failed(false, "document-provider-response-limit")
+            }
+            DocumentGroundedAnalysisProviderResult.Completed(
+                objectMapper.readValue(extractOutputText(responseText), DocumentGroundedAnalysisResult::class.java),
+            )
+        } catch (failure: SafeProviderResponseFailure) {
+            DocumentGroundedAnalysisProviderResult.Failed(failure.retryable, failure.code)
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (_: HttpRequestTimeoutException) {
+            DocumentGroundedAnalysisProviderResult.Failed(true, "document-provider-timeout")
+        } catch (_: JsonProcessingException) {
+            DocumentGroundedAnalysisProviderResult.Failed(true, "document-provider-malformed-output")
+        } catch (_: IOException) {
+            DocumentGroundedAnalysisProviderResult.Failed(true, "document-provider-unavailable")
+        } catch (_: Exception) {
+            DocumentGroundedAnalysisProviderResult.Failed(true, "document-provider-malformed-output")
         }
     }
 
@@ -687,6 +733,106 @@ internal class OpenAiDocumentAnalysisClient(
         root.put("input", objectMapper.writeValueAsString(request))
         root.set<JsonNode>("text", strictTextFormat())
         return objectMapper.writeValueAsString(root)
+    }
+
+    private fun groundedRequestBody(
+        modelId: String,
+        instruction: String,
+        request: DocumentGroundedAnalysisRequest,
+    ): String {
+        val root = objectMapper.createObjectNode()
+        root.put("model", modelId)
+        root.put("store", false)
+        root.put("max_output_tokens", MAX_DOCUMENT_PROVIDER_OUTPUT_TOKENS)
+        root.putArray("tools")
+        root.put("instructions", instruction)
+        root.put("input", objectMapper.writeValueAsString(request))
+        root.set<JsonNode>("text", strictGroundedTextFormat(request))
+        return objectMapper.writeValueAsString(root)
+    }
+
+    private fun strictGroundedTextFormat(request: DocumentGroundedAnalysisRequest): JsonNode {
+        fun objectSchema(required: List<String>, properties: com.fasterxml.jackson.databind.node.ObjectNode): JsonNode =
+            objectMapper.createObjectNode().apply {
+                put("type", "object")
+                put("additionalProperties", false)
+                set<JsonNode>("required", objectMapper.valueToTree(required.sorted()))
+                set<JsonNode>("properties", properties)
+            }
+        fun nullableString(max: Int): JsonNode = objectMapper.createObjectNode().apply {
+            set<JsonNode>("type", objectMapper.valueToTree(listOf("string", "null")))
+            put("maxLength", max)
+        }
+        fun stringArray(values: List<String>, max: Int): JsonNode = objectMapper.createObjectNode().apply {
+            put("type", "array")
+            put("minItems", 1)
+            put("maxItems", max)
+            set<JsonNode>("items", stringEnum(values, "Exact server-issued ID."))
+        }
+        val candidateIds = request.candidates.map { it.id }
+        val evidenceIds = request.candidates.flatMap { it.evidenceSpans }.map { it.evidenceId.value }.distinct().sorted()
+        val selectionIds = request.retrieval.flatMap { it.selections }.map { it.selectionId }.distinct().sorted()
+        val reference = objectSchema(
+            listOf("prerequisiteOrigin", "role", "targetItemId"),
+            objectMapper.createObjectNode().apply {
+                set<JsonNode>("role", stringEnum(com.entio.core.DocumentSemanticReferenceRole.entries.map { it.name }, "Reference role."))
+                putObject("targetItemId").put("type", "string").put("minLength", 1).put("maxLength", 200)
+                set<JsonNode>("prerequisiteOrigin", stringEnum(DocumentPrerequisiteOrigin.entries.map { it.name }, "Prerequisite origin."))
+            },
+        )
+        val confidence = objectSchema(
+            listOf("evidenceConfidence", "modelingConfidence", "ontologyFitConfidence"),
+            objectMapper.createObjectNode().apply {
+                listOf("evidenceConfidence", "modelingConfidence", "ontologyFitConfidence").forEach {
+                    putObject(it).put("type", "integer").put("minimum", 0).put("maximum", 100)
+                }
+            },
+        )
+        val item = objectSchema(
+            listOf("ambiguity", "candidateIds", "confidence", "definition", "disposition", "evidenceIds", "id", "kind", "label", "rationale", "references", "selectionId"),
+            objectMapper.createObjectNode().apply {
+                putObject("id").put("type", "string").put("minLength", 1).put("maxLength", 200)
+                set<JsonNode>("kind", stringEnum(com.entio.core.DocumentSemanticItemKind.entries.map { it.name }, "Semantic kind."))
+                putObject("label").put("type", "string").put("minLength", 1).put("maxLength", 500)
+                set<JsonNode>("definition", nullableString(2_000))
+                set<JsonNode>("candidateIds", stringArray(candidateIds, candidateIds.size))
+                set<JsonNode>("evidenceIds", stringArray(evidenceIds, evidenceIds.size))
+                set<JsonNode>("disposition", stringEnum(DocumentGroundedDisposition.entries.map { it.name }, "Grounded disposition."))
+                set<JsonNode>("selectionId", if (selectionIds.isEmpty()) objectMapper.createObjectNode().put("type", "null") else objectMapper.createObjectNode().apply {
+                    set<JsonNode>("anyOf", objectMapper.valueToTree(listOf(stringEnum(selectionIds, "Exact selection ID."), objectMapper.createObjectNode().put("type", "null"))))
+                })
+                set<JsonNode>("references", objectMapper.createObjectNode().apply { put("type", "array"); put("maxItems", 20); set<JsonNode>("items", reference) })
+                putObject("rationale").put("type", "string").put("minLength", 1).put("maxLength", 2_000)
+                set<JsonNode>("confidence", confidence)
+                set<JsonNode>("ambiguity", nullableString(2_000))
+            },
+        )
+        val coverage = objectSchema(
+            listOf("candidateId", "disposition", "itemId", "rationale"),
+            objectMapper.createObjectNode().apply {
+                set<JsonNode>("candidateId", stringEnum(candidateIds, "Exact candidate ID."))
+                set<JsonNode>("itemId", nullableString(200))
+                set<JsonNode>("disposition", stringEnum(DocumentGroundedDisposition.entries.map { it.name }, "Coverage disposition."))
+                putObject("rationale").put("type", "string").put("minLength", 1).put("maxLength", 1_000)
+            },
+        )
+        val schema = objectSchema(
+            listOf("coverage", "items", "responseVersion"),
+            objectMapper.createObjectNode().apply {
+                putObject("responseVersion").put("type", "string").put("const", DocumentAnalysisPipelineVersions.GROUNDED_RESPONSE)
+                set<JsonNode>("items", objectMapper.createObjectNode().apply { put("type", "array"); put("maxItems", 80); set<JsonNode>("items", item) })
+                set<JsonNode>("coverage", objectMapper.createObjectNode().apply { put("type", "array"); put("minItems", candidateIds.size); put("maxItems", candidateIds.size); set<JsonNode>("items", coverage) })
+            },
+        )
+        return objectMapper.createObjectNode().set<JsonNode>(
+            "format",
+            objectMapper.createObjectNode().apply {
+                put("type", "json_schema")
+                put("name", "phase_12_grounded_document_analysis")
+                put("strict", true)
+                set<JsonNode>("schema", schema)
+            },
+        )
     }
 
     private fun discoveryRequestBody(
