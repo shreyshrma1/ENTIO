@@ -4,10 +4,8 @@ import java.time.Instant
 
 public const val MAX_DOCUMENT_DISCOVERIES_PER_DOCUMENT: Int = 200
 public const val MAX_DOCUMENT_DISCOVERIES_PER_TASK: Int = 2_000
-public const val MAX_DOCUMENT_CONNECTED_MODEL_ITEMS: Int = 300
-public const val MAX_DOCUMENT_FINAL_RECOMMENDATIONS: Int = 100
+public const val MAX_DOCUMENT_CONNECTED_MODEL_ITEMS_PER_PROVIDER_RESPONSE: Int = 300
 public const val MAX_DOCUMENT_EXPANDED_TYPED_EDITS_PER_RECOMMENDATION: Int = 20
-public const val MAX_DOCUMENT_EXPANDED_TYPED_EDITS_PER_TASK: Int = 100
 public const val MAX_DOCUMENT_PLANNED_LOGICAL_CALLS: Int = 15
 public const val MAX_DOCUMENT_PROVIDER_ATTEMPTS: Int = 20
 public const val MAX_DOCUMENT_AUTOMATIC_RETRY_ATTEMPTS: Int = 3
@@ -19,12 +17,15 @@ public object DocumentAnalysisPipelineVersions {
     public const val DISCOVERY_PROMPT: String = "phase-11-5-document-discovery-v2"
     public const val DISCOVERY_REQUEST: String = "phase-11-5-document-discovery-request-v2"
     public const val DISCOVERY_RESPONSE: String = "phase-11-5-document-discovery-response-v2"
-    public const val CONNECTED_MODEL_PROMPT: String = "phase-11-5-connected-model-v1"
+    public const val CONNECTED_MODEL_PROMPT: String = "phase-11-5-connected-model-v2"
     public const val CONNECTED_MODEL_REQUEST: String = "phase-11-5-connected-model-request-v1"
-    public const val CONNECTED_MODEL_RESPONSE: String = "phase-11-5-connected-model-response-v1"
-    public const val MODEL_CONSOLIDATION_PROMPT: String = "phase-11-5-model-consolidation-v1"
-    public const val MODEL_CONSOLIDATION_REQUEST: String = "phase-11-5-model-consolidation-request-v1"
-    public const val MODEL_CONSOLIDATION_RESPONSE: String = "phase-11-5-model-consolidation-response-v1"
+    public const val CONNECTED_MODEL_RESPONSE: String = "phase-11-5-connected-model-response-v2"
+    public const val MODEL_CONSOLIDATION_PROMPT: String = "phase-11-5-model-consolidation-v2"
+    public const val MODEL_CONSOLIDATION_REQUEST: String = "phase-11-5-model-consolidation-request-v2"
+    public const val MODEL_CONSOLIDATION_RESPONSE: String = "phase-11-5-model-consolidation-response-v2"
+    public const val PREREQUISITE_COMPLETION_PROMPT: String = "phase-11-5-prerequisite-completion-v1"
+    public const val PREREQUISITE_COMPLETION_REQUEST: String = "phase-11-5-prerequisite-completion-request-v1"
+    public const val PREREQUISITE_COMPLETION_RESPONSE: String = "phase-11-5-prerequisite-completion-response-v1"
     public const val RECONCILIATION_PROMPT: String = "phase-11-5-reconciliation-v1"
     public const val RECONCILIATION_REQUEST: String = "phase-11-5-reconciliation-request-v1"
     public const val RECONCILIATION_RESPONSE: String = "phase-11-5-reconciliation-response-v1"
@@ -56,10 +57,12 @@ public enum class DocumentAnalysisStage(public val providerBacked: Boolean) {
     Discovery(true),
     ConnectedModeling(true),
     ModelConsolidation(true),
+    PrerequisiteCompletion(true),
     Reconciliation(true),
     OntologyAlignment(true),
     ModelingCritic(true),
     FinalPlanning(true),
+    SemanticAssembly(false),
     DeterministicVerification(false),
     AwaitingReview(false),
 }
@@ -320,8 +323,11 @@ public data class DocumentConnectedModelItem(
     public val discoveryIds: List<String>,
     public val references: List<DocumentConnectedModelReference> = emptyList(),
     public val literalValue: RdfLiteral? = null,
+    public val datatypeIntent: String? = null,
     public val order: Int,
     public val reviewOnlyEligible: Boolean = false,
+    public val modelRecommended: Boolean = false,
+    public val reviewerInputRequired: Boolean = false,
 ) {
     init {
         requireOpaqueDocumentId(id, "Connected model item ID")
@@ -344,6 +350,10 @@ public data class DocumentConnectedModelItem(
         require((kind == DocumentConnectedModelItemKind.DatatypeValueAssertion) == (literalValue != null)) {
             "Only a datatype-value assertion requires a literal value."
         }
+        require(datatypeIntent == null || kind == DocumentConnectedModelItemKind.RangeAssignment) {
+            "Only a datatype range assignment may carry datatype intent."
+        }
+        datatypeIntent?.let(::Iri)
         requireReferenceRoles()
     }
 
@@ -352,6 +362,19 @@ public data class DocumentConnectedModelItem(
 
     private fun requireReferenceRoles(): Unit {
         val roles = references.map(DocumentConnectedModelReference::role)
+        if (kind == DocumentConnectedModelItemKind.RangeAssignment && datatypeIntent != null) {
+            val allowed = listOf(
+                listOf(DocumentConnectedModelReferenceRole.Property),
+                listOf(DocumentConnectedModelReferenceRole.Property, DocumentConnectedModelReferenceRole.Range),
+            )
+            require(allowed.any { expected ->
+                roles.sortedBy(DocumentConnectedModelReferenceRole::ordinal) ==
+                    expected.sortedBy(DocumentConnectedModelReferenceRole::ordinal)
+            }) {
+                "A datatype range requires a property reference and may retain its grounded range item."
+            }
+            return
+        }
         val expectedRoles = when (kind) {
             DocumentConnectedModelItemKind.SubclassRelationship ->
                 listOf(DocumentConnectedModelReferenceRole.Subclass, DocumentConnectedModelReferenceRole.Superclass)
@@ -400,9 +423,6 @@ public data class DocumentConnectedModel(
     public val items: List<DocumentConnectedModelItem>,
 ) {
     init {
-        require(items.size <= MAX_DOCUMENT_CONNECTED_MODEL_ITEMS) {
-            "A connected document model requires bounded items."
-        }
         require(items == items.sortedBy(DocumentConnectedModelItem::order)) {
             "Connected model items must use deterministic order."
         }
@@ -722,6 +742,8 @@ public data class DocumentPlanOperation(
     public val dependsOnOperationIds: List<String> = emptyList(),
     public val expandedTypedEditCount: Int,
     public val optionalLeaf: Boolean = false,
+    public val modelRecommended: Boolean = false,
+    public val reviewerInputRequired: Boolean = false,
 ) {
     init {
         requireOpaqueDocumentId(id, "Document plan operation ID")
@@ -1030,21 +1052,16 @@ public data class DocumentFinalPlan(
         }
         criticFindingIds.forEach { requireOpaqueDocumentId(it, "Final plan critic finding ID") }
         require(
-            recommendations.size <= MAX_DOCUMENT_FINAL_RECOMMENDATIONS &&
-                recommendations == recommendations.sortedBy(DocumentFinalRecommendation::stableOrderingKey) &&
+            recommendations == recommendations.sortedBy(DocumentFinalRecommendation::stableOrderingKey) &&
                 recommendations.map(DocumentFinalRecommendation::id).distinct().size == recommendations.size,
         ) {
-            "Final plan recommendations must be bounded, sorted, and unique."
+            "Final plan recommendations must be sorted and unique."
         }
         require(coverage == coverage.sortedBy(DocumentCoverageDisposition::stableOrderingKey)) {
             "Final plan coverage must use deterministic discovery order."
         }
         require(coverage.map(DocumentCoverageDisposition::discoveryId) == verifiedDiscoveryIds) {
             "Every verified discovery must have exactly one coverage disposition."
-        }
-        require(recommendations.sumOf(DocumentFinalRecommendation::expandedTypedEditCount) <=
-            MAX_DOCUMENT_EXPANDED_TYPED_EDITS_PER_TASK) {
-            "Final plan expanded edit count exceeds the approved task bound."
         }
         val recommendationIds = recommendations.map(DocumentFinalRecommendation::id).toSet()
         require(coverage.mapNotNull(DocumentCoverageDisposition::recommendationId).all(recommendationIds::contains)) {
@@ -1155,6 +1172,8 @@ public data class DocumentSemanticPlanItem(
     public val ambiguity: String? = null,
     public val criticDispositions: List<DocumentCriticDisposition> = emptyList(),
     public val confidence: DocumentConfidenceDimensions,
+    public val modelRecommended: Boolean = false,
+    public val reviewerInputRequired: Boolean = false,
 ) {
     init {
         requireOpaqueDocumentId(id, "Document semantic item ID")
@@ -1215,15 +1234,29 @@ public data class DocumentSemanticPlanItem(
 
     private fun requireReferenceRoles(): Unit {
         val roles = references.map(DocumentSemanticReference::role)
+        if (kind == DocumentSemanticItemKind.DatatypePropertyRange && datatypeIntent != null) {
+            val allowed = listOf(
+                listOf(DocumentSemanticReferenceRole.Property),
+                listOf(DocumentSemanticReferenceRole.Property, DocumentSemanticReferenceRole.Range),
+            )
+            require(allowed.any { expected ->
+                roles.sortedBy(DocumentSemanticReferenceRole::ordinal) ==
+                    expected.sortedBy(DocumentSemanticReferenceRole::ordinal)
+            }) {
+                "A datatype semantic range requires a property reference and may retain its grounded range item."
+            }
+            return
+        }
         val expected = when (kind) {
             DocumentSemanticItemKind.SubclassRelationship ->
                 listOf(DocumentSemanticReferenceRole.Subclass, DocumentSemanticReferenceRole.Superclass)
             DocumentSemanticItemKind.ObjectPropertyDomain,
             DocumentSemanticItemKind.DatatypePropertyDomain,
             -> listOf(DocumentSemanticReferenceRole.Property, DocumentSemanticReferenceRole.Domain)
-            DocumentSemanticItemKind.ObjectPropertyRange,
-            DocumentSemanticItemKind.DatatypePropertyRange,
-            -> listOf(DocumentSemanticReferenceRole.Property, DocumentSemanticReferenceRole.Range)
+            DocumentSemanticItemKind.ObjectPropertyRange ->
+                listOf(DocumentSemanticReferenceRole.Property, DocumentSemanticReferenceRole.Range)
+            DocumentSemanticItemKind.DatatypePropertyRange ->
+                listOf(DocumentSemanticReferenceRole.Property, DocumentSemanticReferenceRole.Range)
             DocumentSemanticItemKind.IndividualType ->
                 listOf(DocumentSemanticReferenceRole.Individual, DocumentSemanticReferenceRole.Type)
             DocumentSemanticItemKind.ObjectPropertyAssertion ->
@@ -1278,6 +1311,7 @@ public data class DocumentSemanticRecommendationGroup(
     public val title: String,
     public val description: String,
     public val itemIds: List<String>,
+    public val reviewOnlyItemIds: List<String> = emptyList(),
     public val discoveryIds: List<String>,
     public val evidenceIds: List<DocumentEvidenceId>,
     public val outcome: DocumentSemanticOutcome,
@@ -1294,6 +1328,13 @@ public data class DocumentSemanticRecommendationGroup(
             "Document semantic group item IDs must be sorted, unique, and nonempty."
         }
         itemIds.forEach { requireOpaqueDocumentId(it, "Document semantic group item ID") }
+        require(
+            reviewOnlyItemIds == reviewOnlyItemIds.distinct().sorted() &&
+                reviewOnlyItemIds.all(itemIds::contains),
+        ) {
+            "Document semantic group review-only item IDs must be sorted, unique, and belong to the group."
+        }
+        reviewOnlyItemIds.forEach { requireOpaqueDocumentId(it, "Document semantic group review-only item ID") }
         require(discoveryIds.isNotEmpty() && discoveryIds == discoveryIds.distinct().sorted()) {
             "Document semantic group discovery IDs must be sorted, unique, and nonempty."
         }
@@ -1315,6 +1356,22 @@ public data class DocumentSemanticRecommendationGroup(
 
     public val stableOrderingKey: String
         get() = "${outcome.name}:$title:$id"
+
+    /** Items that Kotlin may compile while retaining the rest as review context. */
+    public val executableItemIds: List<String>
+        get() = if (outcome == DocumentSemanticOutcome.ReviewOnly) {
+            emptyList()
+        } else {
+            itemIds.filterNot(reviewOnlyItemIds::contains)
+        }
+
+    /** Review context retained with this group, including legacy review-only groups. */
+    public val retainedReviewOnlyItemIds: List<String>
+        get() = if (outcome == DocumentSemanticOutcome.ReviewOnly && reviewOnlyItemIds.isEmpty()) {
+            itemIds
+        } else {
+            reviewOnlyItemIds
+        }
 }
 
 public data class DocumentSemanticPlan(
@@ -1337,17 +1394,11 @@ public data class DocumentSemanticPlan(
             "Document semantic plan critic finding IDs must be sorted and unique."
         }
         criticFindingIds.forEach { requireOpaqueDocumentId(it, "Document semantic plan critic finding ID") }
-        require(items.size <= MAX_DOCUMENT_CONNECTED_MODEL_ITEMS) {
-            "Document semantic plan items exceed the approved bound."
-        }
         require(items == items.sortedBy(DocumentSemanticPlanItem::stableOrderingKey)) {
             "Document semantic plan items must use deterministic order."
         }
         require(items.map(DocumentSemanticPlanItem::id).distinct().size == items.size) {
             "Document semantic plan item IDs must be unique."
-        }
-        require(groups.size <= MAX_DOCUMENT_FINAL_RECOMMENDATIONS) {
-            "Document semantic plan groups exceed the approved bound."
         }
         require(
             groups == groups.sortedBy(DocumentSemanticRecommendationGroup::stableOrderingKey) &&

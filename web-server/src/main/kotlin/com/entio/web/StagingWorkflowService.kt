@@ -431,13 +431,6 @@ public class StagingWorkflowService(
                 "Shared staging must be empty or contain only entries from this document task.",
             )
         }
-        val existingDocumentItems = session.entries.count { it.staged.documentDraftProvenance?.taskId?.value == taskId }
-        if (existingDocumentItems + items.size > com.entio.core.MAX_ACCEPTED_DOCUMENT_EDITS) {
-            throw WebWorkflowFailure("document-draft-task-limit", "A document task cannot stage more than 100 edits.")
-        }
-        if (session.documentBatchCounts.getOrDefault(taskId, 0) >= 5) {
-            throw WebWorkflowFailure("document-draft-batch-count-limit", "A document task cannot stage more than five batches.")
-        }
         if (items.any { it.provenance.taskId.value != taskId || it.targetSourceId != it.provenance.targetSourceId }) {
             throw WebWorkflowFailure("document-draft-provenance-mismatch", "Document draft provenance does not match its task or target.")
         }

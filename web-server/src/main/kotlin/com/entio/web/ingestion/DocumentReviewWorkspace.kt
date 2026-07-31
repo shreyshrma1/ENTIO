@@ -133,6 +133,11 @@ public data class DocumentReviewProposedOperation(
     val operationId: String? = null,
     val dependsOnOperationIds: List<String> = emptyList(),
     val optionalLeaf: Boolean = false,
+    val editableLabel: String? = null,
+    val editableIri: String? = null,
+    val semanticRole: String? = null,
+    val modelRecommended: Boolean = false,
+    val reviewerInputRequired: Boolean = false,
 )
 
 public data class DocumentReviewEvidenceSummary(
@@ -198,6 +203,13 @@ public data class DocumentReviewDecisionRequest(
     val operationIds: List<String> = emptyList(),
     val operationId: String? = null,
     val confirmProductionClassification: Boolean = false,
+    val operationEdits: List<DocumentReviewOperationEdit> = emptyList(),
+)
+
+public data class DocumentReviewOperationEdit(
+    val operationId: String,
+    val label: String? = null,
+    val entityIri: String? = null,
 )
 
 internal data class DocumentReviewWorkspaceInput(
@@ -415,6 +427,11 @@ internal class DocumentReviewWorkspaceStore(
                     operationId = operation.id,
                     dependsOnOperationIds = operation.dependsOnOperationIds,
                     optionalLeaf = operation.optionalLeaf,
+                    editableLabel = operation.editableDeclarationLabel(),
+                    editableIri = operation.editableEntityIri(),
+                    semanticRole = operation.semanticRole(recommendation.operations),
+                    modelRecommended = operation.modelRecommended,
+                    reviewerInputRequired = operation.reviewerInputRequired,
                 )
             }
             val draftable = recommendation.status in setOf(
@@ -480,7 +497,14 @@ internal class DocumentReviewWorkspaceStore(
                 matches = emptyList(),
                 selectedMatchIri = null,
                 conflicts = emptyList(),
-                mandatoryClarificationReasons = recommendation.blockers,
+                mandatoryClarificationReasons = (
+                    recommendation.blockers +
+                        if (recommendation.operations.any { it.reviewerInputRequired }) {
+                            listOf(REVIEWER_INPUT_REQUIRED_REASON)
+                        } else {
+                            emptyList()
+                        }
+                    ).distinct().sorted(),
                 clarification = review.clarification,
                 targetSourceId = operations.mapNotNull(DocumentReviewProposedOperation::targetSourceId).distinct().singleOrNull(),
                 reconsiderationCount = 0,
@@ -652,6 +676,12 @@ internal class DocumentReviewWorkspaceStore(
             )
         }
         val safeClarification = safeOptionalText(clarification)
+        if (recommendation.operations.any { it.reviewerInputRequired } && safeClarification == null) {
+            throw DocumentIngestionFailure(
+                "document-reviewer-input-acknowledgement-required",
+                "A reviewer note is required when accepting Entio-supplied prerequisite placeholders.",
+            )
+        }
         if (recommendation.confidence.overall < 60 && safeClarification == null) {
             throw DocumentIngestionFailure(
                 "document-clarification-required",
@@ -888,6 +918,112 @@ internal class DocumentReviewWorkspaceStore(
                 )
             }
         replaceVerifiedRecommendation(stored, updated)
+        stored.reviews.getValue(recommendationId).apply {
+            kind = DocumentGroupedDecisionKind.Pending
+            decision = null
+        }
+        stored.updatedAt = Instant.now(clock)
+    }
+
+    @Synchronized
+    fun editVerifiedOperations(
+        projectId: String,
+        taskId: String,
+        recommendationId: String,
+        edits: List<DocumentReviewOperationEdit>,
+        userId: String,
+        expectedWorkKey: String,
+        expectedGraphFingerprint: String,
+    ): Unit {
+        val stored = ownedVerified(projectId, taskId, userId)
+        requireVerifiedCurrent(stored, expectedWorkKey, expectedGraphFingerprint)
+        if (edits.isEmpty() || edits.size > MAX_OPERATION_EDITS ||
+            edits.map(DocumentReviewOperationEdit::operationId).distinct().size != edits.size
+        ) {
+            throw DocumentIngestionFailure(
+                "document-operation-edit-invalid",
+                "Choose one or more distinct editable fields.",
+            )
+        }
+        val recommendation = stored.plan.plan.recommendations.singleOrNull { it.id == recommendationId }
+            ?: throw DocumentIngestionFailure(
+                "document-recommendation-not-found",
+                "The requested grouped recommendation was not found.",
+            )
+        val editsById = edits.associateBy(DocumentReviewOperationEdit::operationId)
+        val unknownIds = editsById.keys - recommendation.operations.map { it.id }.toSet()
+        if (unknownIds.isNotEmpty()) {
+            throw DocumentIngestionFailure(
+                "document-operation-edit-invalid",
+                "An edited field no longer exists. Reload the review workspace.",
+            )
+        }
+        val editedDeclarationReferences = recommendation.operations.mapNotNull { operation ->
+            operation.declaration?.takeIf {
+                editsById[operation.id]?.label != null
+            }
+        }.toSet()
+        val updatedOperations = recommendation.operations.map { operation ->
+            val edit = editsById[operation.id] ?: return@map operation
+            if ((edit.label == null) == (edit.entityIri == null)) {
+                throw DocumentIngestionFailure(
+                    "document-operation-edit-invalid",
+                    "Each edited field must supply exactly one label or entity IRI.",
+                )
+            }
+            if (edit.label != null) {
+                val label = safeRequiredText(edit.label, "Operation label", MAX_EDITABLE_LABEL_CHARACTERS)
+                if (operation.kind !in EDITABLE_DECLARATION_OPERATIONS || operation.declaration == null ||
+                    operation.operands.filterIsInstance<com.entio.core.DocumentPlanOperand.TextValue>().size != 1
+                ) {
+                    throw DocumentIngestionFailure(
+                        "document-operation-edit-invalid",
+                        "The selected operation does not expose an editable label.",
+                    )
+                }
+                operation.copy(
+                    operands = operation.operands.map { operand ->
+                        if (operand is com.entio.core.DocumentPlanOperand.TextValue) {
+                            com.entio.core.DocumentPlanOperand.TextValue(label)
+                        } else {
+                            operand
+                        }
+                    },
+                    reviewerInputRequired = false,
+                )
+            } else {
+                val iri = runCatching { com.entio.core.Iri(checkNotNull(edit.entityIri).trim()) }
+                    .getOrElse {
+                        throw DocumentIngestionFailure(
+                            "document-operation-edit-invalid",
+                            "The edited ontology reference must be a valid absolute IRI.",
+                        )
+                    }
+                if (operation.kind !in EDITABLE_REFERENCE_OPERATIONS ||
+                    operation.operands.getOrNull(1) !is com.entio.core.DocumentPlanOperand.ExistingEntity
+                ) {
+                    throw DocumentIngestionFailure(
+                        "document-operation-edit-invalid",
+                        "The selected operation does not expose an editable ontology reference.",
+                    )
+                }
+                operation.copy(
+                    operands = operation.operands.mapIndexed { index, operand ->
+                        if (index == 1) com.entio.core.DocumentPlanOperand.ExistingEntity(iri) else operand
+                    },
+                    reviewerInputRequired = false,
+                )
+            }
+        }.map { operation ->
+            if (operation.reviewerInputRequired &&
+                operation.referencedTemporaryEntities.any(editedDeclarationReferences::contains)
+            ) {
+                operation.copy(reviewerInputRequired = false)
+            } else {
+                operation
+            }
+        }
+        replaceVerifiedRecommendation(stored, recommendation.copy(operations = updatedOperations))
         stored.reviews.getValue(recommendationId).apply {
             kind = DocumentGroupedDecisionKind.Pending
             decision = null
@@ -1356,6 +1492,53 @@ internal class DocumentReviewWorkspaceStore(
         }
     }
 
+    private fun com.entio.core.DocumentPlanOperation.editableDeclarationLabel(): String? =
+        takeIf { it.kind in EDITABLE_DECLARATION_OPERATIONS && it.declaration != null }
+            ?.operands
+            ?.filterIsInstance<com.entio.core.DocumentPlanOperand.TextValue>()
+            ?.singleOrNull()
+            ?.value
+
+    private fun com.entio.core.DocumentPlanOperation.editableEntityIri(): String? =
+        takeIf { it.kind in EDITABLE_REFERENCE_OPERATIONS }
+            ?.operands
+            ?.getOrNull(1)
+            ?.let { it as? com.entio.core.DocumentPlanOperand.ExistingEntity }
+            ?.iri
+            ?.value
+
+    private fun com.entio.core.DocumentPlanOperation.semanticRole(
+        operations: List<com.entio.core.DocumentPlanOperation>,
+    ): String? {
+        val declarationReference = declaration ?: return when (kind) {
+            com.entio.core.DocumentPlanOperationKind.SetPropertyDomain -> "Domain assignment"
+            com.entio.core.DocumentPlanOperationKind.SetPropertyRange -> "Range assignment"
+            com.entio.core.DocumentPlanOperationKind.AssignType -> "Type assignment"
+            else -> null
+        }
+        val referencedAs = operations.mapNotNull { candidate ->
+            val entities = candidate.operands.filterIsInstance<com.entio.core.DocumentPlanOperand.TemporaryEntity>()
+            when {
+                candidate.kind == com.entio.core.DocumentPlanOperationKind.SetPropertyDomain &&
+                    entities.getOrNull(1)?.reference == declaration -> "Domain class"
+                candidate.kind == com.entio.core.DocumentPlanOperationKind.SetPropertyRange &&
+                    entities.getOrNull(1)?.reference == declaration -> "Range class"
+                candidate.kind == com.entio.core.DocumentPlanOperationKind.AssignType &&
+                    entities.getOrNull(1)?.reference == declaration -> "Type class"
+                else -> null
+            }
+        }.distinct()
+        return referencedAs.joinToString(" and ").ifBlank {
+            when (kind) {
+                com.entio.core.DocumentPlanOperationKind.CreateObjectProperty -> "Object property"
+                com.entio.core.DocumentPlanOperationKind.CreateDatatypeProperty -> "Datatype property"
+                com.entio.core.DocumentPlanOperationKind.CreateClass -> "Class"
+                com.entio.core.DocumentPlanOperationKind.CreateIndividual -> "Individual"
+                else -> ""
+            }
+        }.ifBlank { null }
+    }
+
     private fun humanizeOperation(value: String): String =
         value.replace(Regex("([a-z0-9])([A-Z])"), "$1 $2")
 
@@ -1400,7 +1583,21 @@ internal class DocumentReviewWorkspaceStore(
         const val MAX_HIGHLIGHTS: Int = 100
         const val EVIDENCE_CONTEXT_CHARACTERS: Int = 2_000
         const val MAX_EVIDENCE_VIEW_CHARACTERS: Int = 8_000
+        const val MAX_OPERATION_EDITS: Int = 100
+        const val MAX_EDITABLE_LABEL_CHARACTERS: Int = 500
         const val INDIVIDUAL_CONFIRMATION_BLOCKER: String = "individual-confirmation-required"
+        const val REVIEWER_INPUT_REQUIRED_REASON: String = "reviewer-input-required"
+        val EDITABLE_DECLARATION_OPERATIONS: Set<com.entio.core.DocumentPlanOperationKind> = setOf(
+            com.entio.core.DocumentPlanOperationKind.CreateClass,
+            com.entio.core.DocumentPlanOperationKind.CreateObjectProperty,
+            com.entio.core.DocumentPlanOperationKind.CreateDatatypeProperty,
+            com.entio.core.DocumentPlanOperationKind.CreateIndividual,
+        )
+        val EDITABLE_REFERENCE_OPERATIONS: Set<com.entio.core.DocumentPlanOperationKind> = setOf(
+            com.entio.core.DocumentPlanOperationKind.SetPropertyDomain,
+            com.entio.core.DocumentPlanOperationKind.SetPropertyRange,
+            com.entio.core.DocumentPlanOperationKind.AssignType,
+        )
         val BUSINESS_FACT_OPERATIONS: Set<com.entio.core.DocumentPlanOperationKind> = setOf(
             com.entio.core.DocumentPlanOperationKind.CreateIndividual,
             com.entio.core.DocumentPlanOperationKind.AssignType,

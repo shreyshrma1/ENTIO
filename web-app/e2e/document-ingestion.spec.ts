@@ -117,6 +117,7 @@ test("completes the accessible document review and proposal workflow", async ({ 
   for (const filename of ["text.pdf", "scan.pdf", "mixed.pdf", "policy.docx", "policy.txt", "amendment.md"]) {
     expect(multipartBody).toContain(filename);
   }
+  await page.getByLabel("Supplier recommendation details").click();
   await expect(page.getByText("Conflicting evidence needs a decision")).toBeVisible();
   await expect(page.getByText("Earlier Entio records: applied-document-change-1")).toBeVisible();
   await expect(page.getByRole("region", { name: "Exact proposed changes" })).toContainText("Add definition");

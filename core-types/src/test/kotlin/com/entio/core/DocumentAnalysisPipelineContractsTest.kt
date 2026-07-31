@@ -306,16 +306,6 @@ class DocumentAnalysisPipelineContractsTest {
         assertFailsWith<IllegalArgumentException> {
             discovery().copy(evidenceConfidence = 101)
         }
-        assertFailsWith<IllegalArgumentException> {
-            DocumentConnectedModel(
-                (0..MAX_DOCUMENT_CONNECTED_MODEL_ITEMS).map { index ->
-                    connectedItem(
-                        id = "item-${index.toString().padStart(3, '0')}",
-                        order = index,
-                    )
-                },
-            )
-        }
         val excessiveDiscoveryIds = (0..MAX_DOCUMENT_DISCOVERIES_PER_TASK).map { index ->
             "discovery-${index.toString().padStart(4, '0')}"
         }
@@ -328,30 +318,6 @@ class DocumentAnalysisPipelineContractsTest {
                 coverage = excessiveDiscoveryIds.map {
                     DocumentCoverageDisposition(it, DocumentCoverageDispositionKind.Unsupported)
                 },
-            )
-        }
-        val excessiveRecommendations = (0..MAX_DOCUMENT_FINAL_RECOMMENDATIONS).map { index ->
-            val suffix = index.toString().padStart(3, '0')
-            recommendation(
-                id = "recommendation-$suffix",
-                title = "Blocked recommendation $suffix",
-                operations = emptyList(),
-                status = DocumentFinalRecommendationStatus.Blocked,
-                blockers = listOf("blocked"),
-            )
-        }
-        assertFailsWith<IllegalArgumentException> {
-            DocumentFinalPlan(
-                workKey = DocumentAnalysisWorkKey("b".repeat(64)),
-                verifiedDiscoveryIds = listOf("discovery-1"),
-                criticFindingIds = emptyList(),
-                recommendations = excessiveRecommendations,
-                coverage = listOf(
-                    DocumentCoverageDisposition(
-                        "discovery-1",
-                        DocumentCoverageDispositionKind.Unsupported,
-                    ),
-                ),
             )
         }
     }

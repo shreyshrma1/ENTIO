@@ -19,9 +19,11 @@ import com.entio.core.DocumentCandidateCategory
 import com.entio.core.DocumentConnectedModelItemKind
 import com.entio.core.DocumentConnectedModel
 import com.entio.core.DocumentConnectedModelItem
+import com.entio.core.DocumentConnectedModelReference
 import com.entio.core.DocumentConnectedModelReferenceRole
 import com.entio.core.DocumentContentClassification
 import com.entio.core.DocumentConfidenceDimensions
+import com.entio.core.DocumentCompilationStatus
 import com.entio.core.DocumentCriticAction
 import com.entio.core.DocumentDiscovery
 import com.entio.core.DocumentDiscoveryKind
@@ -38,11 +40,16 @@ import com.entio.core.DocumentProcessingStatus
 import com.entio.core.DocumentRecommendationAction
 import com.entio.core.DocumentRecommendationReviewStatus
 import com.entio.core.DocumentReconciliationKind
+import com.entio.core.DocumentSemanticItemKind
+import com.entio.core.DocumentSemanticOutcome
+import com.entio.core.DocumentSemanticPlanItem
 import com.entio.core.DocumentTaskId
 import com.entio.core.DocumentTextBlockId
 import com.entio.core.IngestionDocument
 import com.entio.core.LocatedDocumentTextBlock
 import com.entio.core.MAX_DOCUMENT_PROVIDER_ATTEMPTS
+import com.entio.semantic.DocumentSemanticCompilerContext
+import com.entio.semantic.DocumentSemanticPlanCompiler
 import com.entio.web.ai.InMemoryAiCredentialStore
 import com.entio.web.ai.models.AiModelCompatibilityState
 import com.entio.web.ai.models.AiModelDiscoveryStatus
@@ -70,6 +77,548 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
 class DocumentAnalysisServiceTest {
+    @Test
+    fun assemblesExplicitConnectedStructureWithoutAnotherModelDecision(): Unit {
+        val discovery = connectedDiscovery(
+            "discovery-payment",
+            "A payment must have an approval record.",
+            DocumentDiscoveryKind.Requirement,
+        )
+        val items = listOf(
+            DocumentConnectedModelItem(
+                id = "item-payment",
+                kind = DocumentConnectedModelItemKind.Class,
+                label = "Payment",
+                rationale = "The requirement names the governed payment.",
+                discoveryIds = listOf(discovery.id),
+                order = 0,
+            ),
+            DocumentConnectedModelItem(
+                id = "item-approval-record",
+                kind = DocumentConnectedModelItemKind.Class,
+                label = "Payment approval record",
+                rationale = "The requirement names an approval record.",
+                discoveryIds = listOf(discovery.id),
+                order = 1,
+            ),
+            DocumentConnectedModelItem(
+                id = "item-has-approval",
+                kind = DocumentConnectedModelItemKind.ObjectProperty,
+                label = "has approval record",
+                rationale = "The requirement explicitly connects the payment and approval record.",
+                discoveryIds = listOf(discovery.id),
+                order = 2,
+            ),
+            DocumentConnectedModelItem(
+                id = "item-has-approval-domain",
+                kind = DocumentConnectedModelItemKind.DomainAssignment,
+                label = "has approval record domain",
+                rationale = "Payment is the explicit relationship subject.",
+                discoveryIds = listOf(discovery.id),
+                references = listOf(
+                    DocumentConnectedModelReference(
+                        DocumentConnectedModelReferenceRole.Property,
+                        "item-has-approval",
+                    ),
+                    DocumentConnectedModelReference(
+                        DocumentConnectedModelReferenceRole.Domain,
+                        "item-payment",
+                    ),
+                ),
+                order = 3,
+            ),
+            DocumentConnectedModelItem(
+                id = "item-has-approval-range",
+                kind = DocumentConnectedModelItemKind.RangeAssignment,
+                label = "has approval record range",
+                rationale = "Payment approval record is the explicit relationship object.",
+                discoveryIds = listOf(discovery.id),
+                references = listOf(
+                    DocumentConnectedModelReference(
+                        DocumentConnectedModelReferenceRole.Property,
+                        "item-has-approval",
+                    ),
+                    DocumentConnectedModelReference(
+                        DocumentConnectedModelReferenceRole.Range,
+                        "item-approval-record",
+                    ),
+                ),
+                order = 4,
+            ),
+            DocumentConnectedModelItem(
+                id = "item-complex-rule",
+                kind = DocumentConnectedModelItemKind.ComplexRule,
+                label = "Approval timing rule",
+                rationale = "The timing condition is not a supported atomic pattern.",
+                discoveryIds = listOf(discovery.id),
+                references = listOf(
+                    DocumentConnectedModelReference(
+                        DocumentConnectedModelReferenceRole.Related,
+                        "item-payment",
+                    ),
+                ),
+                order = 5,
+                reviewOnlyEligible = true,
+            ),
+        )
+        val request = DocumentFinalPlanningRequest(
+            taskId = "task-assembler",
+            workKey = DocumentAnalysisWorkKey("a".repeat(64)),
+            discoveries = listOf(discovery),
+            connectedModel = DocumentConnectedModel(items),
+            reconciliation = emptyList(),
+            alignments = emptyList(),
+            criticFindings = emptyList(),
+            confidenceByTarget = emptyMap(),
+            ontologySnapshot = DocumentOntologyAlignmentSnapshot(
+                projectId = "project-a",
+                ontologyFingerprint = "ontology",
+                currentWorkFingerprint = "current-work",
+                entries = emptyList(),
+                writableSourceIds = listOf("simple"),
+            ),
+        )
+
+        val response = DeterministicDocumentSemanticPlanAssembler().assemble(request)
+
+        assertEquals(
+            DocumentSemanticItemKind.ObjectPropertyDomain,
+            response.plan.items.single { it.id == "item-has-approval-domain" }.kind,
+        )
+        assertEquals(
+            DocumentSemanticItemKind.ObjectPropertyRange,
+            response.plan.items.single { it.id == "item-has-approval-range" }.kind,
+        )
+        val bundle = response.plan.groups.single()
+        assertEquals(DocumentSemanticOutcome.Executable, bundle.outcome)
+        assertEquals(listOf("item-complex-rule"), bundle.reviewOnlyItemIds)
+        assertTrue(bundle.executableItemIds.contains("item-has-approval"))
+        assertEquals(
+            com.entio.core.DocumentCoverageDispositionKind.ExecutableRecommendation,
+            response.coverage.single().kind,
+        )
+
+        val finalResult = SemanticCompilingDocumentFinalPlanningProvider(
+            DocumentSemanticPlanningProvider { _, _, _, _ ->
+                DocumentSemanticPlanningProviderResult.Failed(false, "unused-provider")
+            },
+        ).planDeterministically(
+            request.copy(
+                compilerContext = DocumentSemanticCompilerContext(
+                    targetSourceId = "simple",
+                    iriNamespace = "https://example.com/bundles",
+                    existingEntities = emptyMap(),
+                    alignedEntities = emptyMap(),
+                ),
+            ),
+        ) as DocumentFinalPlanningProviderResult.Completed
+        val recommendation = finalResult.response.plan.recommendations.single()
+        assertEquals(com.entio.core.DocumentFinalRecommendationStatus.Mixed, recommendation.status)
+        assertEquals(1, recommendation.reviewOnlyFindings.size)
+        assertTrue(recommendation.operations.isNotEmpty())
+    }
+
+    @Test
+    fun canonicalizesExactChunkDuplicatesWithoutRetainingAWeakerReviewMarker(): Unit {
+        val discovery = connectedDiscovery(
+            "discovery-payment-record",
+            "A payment record is retained.",
+            DocumentDiscoveryKind.Concept,
+        )
+        val explicit = DocumentConnectedModelItem(
+            id = "item-payment-record-explicit",
+            kind = DocumentConnectedModelItemKind.Class,
+            label = "Payment Record",
+            rationale = "The evidence names the concept.",
+            discoveryIds = listOf(discovery.id),
+            order = 0,
+        )
+        val recommendedDuplicate = explicit.copy(
+            id = "item-payment-record-recommended",
+            label = "payment-record",
+            rationale = "A second chunk recommended the same concept.",
+            order = 1,
+            modelRecommended = true,
+            reviewerInputRequired = true,
+        )
+
+        val canonical = DeterministicDocumentSemanticPlanAssembler()
+            .canonicalizeConnectedModel(listOf(explicit, recommendedDuplicate))
+
+        assertEquals(1, canonical.items.size)
+        assertTrue(!canonical.items.single().modelRecommended)
+        assertTrue(!canonical.items.single().reviewerInputRequired)
+    }
+
+    @Test
+    fun groupsRecommendedPrerequisitesUnderTheExplicitMainEntity(): Unit {
+        val discovery = connectedDiscovery(
+            "discovery-meridian-decision",
+            "MeridianPay creates and stores an approval decision.",
+            DocumentDiscoveryKind.Concept,
+        )
+        val items = listOf(
+            DocumentConnectedModelItem(
+                id = "item-meridian-pay",
+                kind = DocumentConnectedModelItemKind.Class,
+                label = "MeridianPay",
+                rationale = "The evidence names the system.",
+                discoveryIds = listOf(discovery.id),
+                order = 0,
+            ),
+            DocumentConnectedModelItem(
+                id = "item-approval-decision",
+                kind = DocumentConnectedModelItemKind.Class,
+                label = "Approval Decision",
+                rationale = "The model recommends the relationship endpoint.",
+                discoveryIds = listOf(discovery.id),
+                order = 1,
+                modelRecommended = true,
+            ),
+            DocumentConnectedModelItem(
+                id = "item-unused-prerequisite",
+                kind = DocumentConnectedModelItemKind.Class,
+                label = "Unused Prerequisite",
+                rationale = "This recommendation is not attached to another item.",
+                discoveryIds = listOf(discovery.id),
+                order = 2,
+                modelRecommended = true,
+            ),
+            DocumentConnectedModelItem(
+                id = "item-creates-decision",
+                kind = DocumentConnectedModelItemKind.ObjectProperty,
+                label = "creates approval decision",
+                rationale = "The evidence states the relationship.",
+                discoveryIds = listOf(discovery.id),
+                order = 3,
+            ),
+            DocumentConnectedModelItem(
+                id = "item-creates-decision-domain",
+                kind = DocumentConnectedModelItemKind.DomainAssignment,
+                label = "creates approval decision domain",
+                rationale = "MeridianPay performs the relationship.",
+                discoveryIds = listOf(discovery.id),
+                references = listOf(
+                    DocumentConnectedModelReference(
+                        DocumentConnectedModelReferenceRole.Domain,
+                        "item-meridian-pay",
+                    ),
+                    DocumentConnectedModelReference(
+                        DocumentConnectedModelReferenceRole.Property,
+                        "item-creates-decision",
+                    ),
+                ).sortedBy(DocumentConnectedModelReference::stableOrderingKey),
+                order = 4,
+            ),
+            DocumentConnectedModelItem(
+                id = "item-creates-decision-range",
+                kind = DocumentConnectedModelItemKind.RangeAssignment,
+                label = "creates approval decision range",
+                rationale = "The model recommends the relationship endpoint.",
+                discoveryIds = listOf(discovery.id),
+                references = listOf(
+                    DocumentConnectedModelReference(
+                        DocumentConnectedModelReferenceRole.Property,
+                        "item-creates-decision",
+                    ),
+                    DocumentConnectedModelReference(
+                        DocumentConnectedModelReferenceRole.Range,
+                        "item-approval-decision",
+                    ),
+                ).sortedBy(DocumentConnectedModelReference::stableOrderingKey),
+                order = 5,
+                modelRecommended = true,
+            ),
+        )
+        val response = DeterministicDocumentSemanticPlanAssembler().assemble(
+            DocumentFinalPlanningRequest(
+                taskId = "task-group-prerequisites",
+                workKey = DocumentAnalysisWorkKey("d".repeat(64)),
+                discoveries = listOf(discovery),
+                connectedModel = DocumentConnectedModel(items),
+                reconciliation = emptyList(),
+                alignments = emptyList(),
+                criticFindings = emptyList(),
+                confidenceByTarget = emptyMap(),
+                ontologySnapshot = DocumentOntologyAlignmentSnapshot(
+                    projectId = "project-a",
+                    ontologyFingerprint = "ontology",
+                    currentWorkFingerprint = "current-work",
+                    entries = emptyList(),
+                    writableSourceIds = listOf("simple"),
+                ),
+            ),
+        )
+
+        val group = response.plan.groups.single()
+        assertEquals("Model MeridianPay", group.title)
+        assertTrue("item-approval-decision" in group.itemIds)
+        assertTrue("item-creates-decision-range" in group.itemIds)
+        assertTrue("item-unused-prerequisite" !in response.plan.items.map(DocumentSemanticPlanItem::id))
+    }
+
+    @Test
+    fun suppliesEditablePrerequisitesWhenCorrectedConnectedModelStillOmitsThem(): Unit {
+        val propertyDiscoveries = listOf(
+            connectedDiscovery(
+                "discovery-finding-status",
+                "Each finding records its status.",
+                DocumentDiscoveryKind.Attribute,
+            ),
+            connectedDiscovery(
+                "discovery-finding-details",
+                "Each finding records its details.",
+                DocumentDiscoveryKind.Attribute,
+            ),
+            connectedDiscovery(
+                "discovery-remediation-status",
+                "Each remediation records its status.",
+                DocumentDiscoveryKind.Attribute,
+            ),
+        )
+        val bankDiscovery = connectedDiscovery(
+            "discovery-bank",
+            "Meridian Community Bank owns the compliance program.",
+            DocumentDiscoveryKind.Individual,
+        ).copy(individualClassification = DocumentIndividualClassification.Production)
+        val items = buildList {
+            propertyDiscoveries.forEachIndexed { index, discovery ->
+                val propertyId = "item-${discovery.id.removePrefix("discovery-")}"
+                add(
+                    DocumentConnectedModelItem(
+                        id = propertyId,
+                        kind = DocumentConnectedModelItemKind.DatatypeProperty,
+                        label = discovery.id.removePrefix("discovery-").replace('-', ' '),
+                        rationale = "The evidence names this recorded value.",
+                        discoveryIds = listOf(discovery.id),
+                        order = size,
+                    ),
+                )
+                add(
+                    DocumentConnectedModelItem(
+                        id = "$propertyId-range",
+                        kind = DocumentConnectedModelItemKind.RangeAssignment,
+                        label = "${discovery.id.removePrefix("discovery-")} range",
+                        rationale = "The value is represented as text.",
+                        discoveryIds = listOf(discovery.id),
+                        references = listOf(
+                            DocumentConnectedModelReference(
+                                DocumentConnectedModelReferenceRole.Property,
+                                propertyId,
+                            ),
+                        ),
+                        datatypeIntent = "http://www.w3.org/2001/XMLSchema#string",
+                        order = size,
+                    ),
+                )
+            }
+            add(
+                DocumentConnectedModelItem(
+                    id = "item-bank",
+                    kind = DocumentConnectedModelItemKind.Individual,
+                    label = "Meridian Community Bank",
+                    rationale = "The evidence names a production organization.",
+                    discoveryIds = listOf(bankDiscovery.id),
+                    order = size,
+                ),
+            )
+        }
+        val discoveries = (propertyDiscoveries + bankDiscovery).sortedBy(DocumentDiscovery::stableOrderingKey)
+        val response = DeterministicDocumentSemanticPlanAssembler().assemble(
+            DocumentFinalPlanningRequest(
+                taskId = "task-prerequisite-fallback",
+                workKey = DocumentAnalysisWorkKey("b".repeat(64)),
+                discoveries = discoveries,
+                connectedModel = DocumentConnectedModel(items),
+                reconciliation = emptyList(),
+                alignments = emptyList(),
+                criticFindings = emptyList(),
+                confidenceByTarget = emptyMap(),
+                ontologySnapshot = DocumentOntologyAlignmentSnapshot(
+                    projectId = "project-a",
+                    ontologyFingerprint = "ontology",
+                    currentWorkFingerprint = "current-work",
+                    entries = emptyList(),
+                    writableSourceIds = listOf("simple"),
+                ),
+            ),
+        )
+
+        val reviewerItems = response.plan.items.filter { it.reviewerInputRequired }
+        assertEquals(
+            setOf("Finding", "Remediation", "Organization"),
+            reviewerItems
+                .filter { it.kind == DocumentSemanticItemKind.Class }
+                .map(DocumentSemanticPlanItem::label)
+                .toSet(),
+        )
+        assertEquals(
+            3,
+            reviewerItems.count { it.kind == DocumentSemanticItemKind.DatatypePropertyDomain },
+        )
+        assertEquals(
+            1,
+            reviewerItems.count { it.kind == DocumentSemanticItemKind.IndividualType },
+        )
+        assertTrue(reviewerItems.all { !it.modelRecommended })
+    }
+
+    @Test
+    fun replacesWrongKindPropertyContextWithAnEditableBundlePlaceholder(): Unit {
+        val discovery = connectedDiscovery(
+            "discovery-payment-record-link",
+            "A payment has a supporting record.",
+            DocumentDiscoveryKind.Relationship,
+        )
+        val items = listOf(
+            DocumentConnectedModelItem(
+                id = "item-payment",
+                kind = DocumentConnectedModelItemKind.Class,
+                label = "Payment",
+                rationale = "The evidence names the relationship subject.",
+                discoveryIds = listOf(discovery.id),
+                order = 0,
+            ),
+            DocumentConnectedModelItem(
+                id = "item-has-record",
+                kind = DocumentConnectedModelItemKind.ObjectProperty,
+                label = "has supporting record",
+                rationale = "The evidence names the relationship.",
+                discoveryIds = listOf(discovery.id),
+                order = 1,
+            ),
+            DocumentConnectedModelItem(
+                id = "item-has-record-domain",
+                kind = DocumentConnectedModelItemKind.DomainAssignment,
+                label = "has supporting record domain",
+                rationale = "Payment is the subject.",
+                discoveryIds = listOf(discovery.id),
+                references = listOf(
+                    DocumentConnectedModelReference(DocumentConnectedModelReferenceRole.Domain, "item-payment"),
+                    DocumentConnectedModelReference(DocumentConnectedModelReferenceRole.Property, "item-has-record"),
+                ).sortedBy(DocumentConnectedModelReference::stableOrderingKey),
+                order = 2,
+            ),
+            DocumentConnectedModelItem(
+                id = "item-has-record-bad-range",
+                kind = DocumentConnectedModelItemKind.RangeAssignment,
+                label = "has supporting record range",
+                rationale = "The provider used the property itself as the range.",
+                discoveryIds = listOf(discovery.id),
+                references = listOf(
+                    DocumentConnectedModelReference(DocumentConnectedModelReferenceRole.Property, "item-has-record"),
+                    DocumentConnectedModelReference(DocumentConnectedModelReferenceRole.Range, "item-has-record"),
+                ).sortedBy(DocumentConnectedModelReference::stableOrderingKey),
+                order = 3,
+            ),
+        )
+        val response = DeterministicDocumentSemanticPlanAssembler().assemble(
+            DocumentFinalPlanningRequest(
+                taskId = "task-wrong-kind-context",
+                workKey = DocumentAnalysisWorkKey("e".repeat(64)),
+                discoveries = listOf(discovery),
+                connectedModel = DocumentConnectedModel(items),
+                reconciliation = emptyList(),
+                alignments = emptyList(),
+                criticFindings = emptyList(),
+                confidenceByTarget = emptyMap(),
+                ontologySnapshot = DocumentOntologyAlignmentSnapshot(
+                    projectId = "project-a",
+                    ontologyFingerprint = "ontology",
+                    currentWorkFingerprint = "current-work",
+                    entries = emptyList(),
+                    writableSourceIds = listOf("simple"),
+                ),
+            ),
+        )
+
+        val bundle = response.plan.groups.single()
+        assertEquals(listOf("item-has-record-bad-range"), bundle.reviewOnlyItemIds)
+        assertTrue(response.plan.items.any {
+            it.kind == DocumentSemanticItemKind.Class &&
+                it.reviewerInputRequired &&
+                it.label == "Supporting Record"
+        })
+        val compiled = DocumentSemanticPlanCompiler().compile(
+            response.plan,
+            DocumentSemanticCompilerContext(
+                targetSourceId = "simple",
+                iriNamespace = "https://example.com/wrong-kind",
+                existingEntities = emptyMap(),
+                alignedEntities = emptyMap(),
+            ),
+        ).single()
+        assertEquals(DocumentCompilationStatus.Compiled, compiled.status, compiled.failures.toString())
+    }
+
+    @Test
+    fun suppliesContextForEveryPropertyWhenFallbackExpansionExceedsOneProviderResponse(): Unit {
+        val discoveries = (1..80).map { index ->
+            connectedDiscovery(
+                "discovery-purpose-${index.toString().padStart(3, '0')}",
+                "A payment has business purpose $index.",
+                DocumentDiscoveryKind.Relationship,
+            )
+        }
+        val properties = discoveries.mapIndexed { index, discovery ->
+            DocumentConnectedModelItem(
+                id = "property-purpose-${index.toString().padStart(3, '0')}",
+                kind = DocumentConnectedModelItemKind.ObjectProperty,
+                label = "has business purpose $index",
+                rationale = "The evidence names this relationship.",
+                discoveryIds = listOf(discovery.id),
+                order = index,
+            )
+        }
+        val response = DeterministicDocumentSemanticPlanAssembler().assemble(
+            DocumentFinalPlanningRequest(
+                taskId = "task-large-prerequisite-fallback",
+                workKey = DocumentAnalysisWorkKey("c".repeat(64)),
+                discoveries = discoveries.sortedBy(DocumentDiscovery::stableOrderingKey),
+                connectedModel = DocumentConnectedModel(properties),
+                reconciliation = emptyList(),
+                alignments = emptyList(),
+                criticFindings = emptyList(),
+                confidenceByTarget = emptyMap(),
+                ontologySnapshot = DocumentOntologyAlignmentSnapshot(
+                    projectId = "project-a",
+                    ontologyFingerprint = "ontology",
+                    currentWorkFingerprint = "current-work",
+                    entries = emptyList(),
+                    writableSourceIds = listOf("simple"),
+                ),
+            ),
+        )
+
+        assertEquals(400, response.plan.items.size)
+        properties.forEach { property ->
+            val assignments = response.plan.items.filter { item ->
+                item.references.any { reference ->
+                    val target = reference.target as? com.entio.core.DocumentSemanticReferenceTarget.SemanticItem
+                    target?.itemId == property.id
+                }
+            }
+            assertEquals(
+                setOf(
+                    DocumentSemanticItemKind.ObjectPropertyDomain,
+                    DocumentSemanticItemKind.ObjectPropertyRange,
+                ),
+                assignments.map(DocumentSemanticPlanItem::kind).toSet(),
+            )
+        }
+        val compiled = DocumentSemanticPlanCompiler().compile(
+            response.plan,
+            DocumentSemanticCompilerContext(
+                targetSourceId = "simple",
+                iriNamespace = "https://example.com/large-fallback",
+                existingEntities = emptyMap(),
+                alignedEntities = emptyMap(),
+            ),
+        )
+        assertEquals(80, compiled.size)
+        assertTrue(compiled.all { it.status == DocumentCompilationStatus.Compiled }, compiled.toString())
+    }
+
     @Test
     fun permanentTwoPdfBenchmarkManifestMatchesEvidenceAndOntologyBoundaries(): Unit {
         val mapper = ObjectMapper().findAndRegisterModules()
@@ -1446,12 +1995,365 @@ class DocumentAnalysisServiceTest {
         assertTrue(!serializedRequest.contains("writableSourceIds"))
         assertTrue(!serializedRequest.contains("targetSource"))
         assertTrue(!serializedRequest.contains("http://"))
-        assertTrue(suppliedInstruction.contains("without receiving, guessing, or targeting the current ontology"))
-        assertTrue(suppliedInstruction.contains("Never put 'discovery-payment' in providerItemId"))
-        assertTrue(suppliedInstruction.contains("first model the reusable business entity"))
-        assertTrue(suppliedInstruction.contains("never a replacement class"))
+        assertTrue(suppliedInstruction.contains("without using or guessing the current ontology"))
+        assertTrue(suppliedInstruction.contains("Every providerItemId must equal a providerId"))
+        assertTrue(suppliedInstruction.contains("one DomainAssignment, and one RangeAssignment"))
+        assertTrue(suppliedInstruction.contains("modelRecommended=true"))
+        assertTrue(suppliedInstruction.contains("named system or organization"))
+        assertTrue(suppliedInstruction.contains("never return it as a standalone item"))
+        assertTrue(suppliedInstruction.contains("Preserve unsupported meaning as review-only"))
         assertEquals(1, result.providerCalls)
         assertEquals(DocumentAnalysisPipelineVersions.CONNECTED_MODEL_PROMPT, result.stageRecords.single().promptVersion)
+    }
+
+    @Test
+    fun repairsMissingObjectPropertyContextAndPreservesModelRecommendedPrerequisites(): Unit = runBlocking {
+        val fixture = fixture()
+        val relationship = connectedDiscovery(
+            "discovery-review-decision",
+            "MeridianPay creates a review decision",
+            DocumentDiscoveryKind.Relationship,
+        )
+        var modelCalls = 0
+        var prerequisiteCalls = 0
+        var prerequisiteInstruction = ""
+        val provider = connectedProvider(
+            onModel = { _, _, _ ->
+                modelCalls += 1
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(
+                            connectedItem(
+                                "creates-review-decision",
+                                0,
+                                "ObjectProperty",
+                                "creates review decision",
+                                relationship.id,
+                            ),
+                        ),
+                    ),
+                )
+            },
+            onPrerequisites = { _, instruction, request ->
+                prerequisiteCalls += 1
+                prerequisiteInstruction = instruction
+                assertEquals(
+                    listOf(DocumentPrerequisiteKind.Domain, DocumentPrerequisiteKind.Range),
+                    request.missingPrerequisites.single().missing,
+                )
+                DocumentConnectedModelProviderResult.CompletedPrerequisites(
+                    DocumentPrerequisiteCompletionResponse(
+                        items = listOf(
+                            connectedItem(
+                                "payment-system",
+                                0,
+                                "Class",
+                                "Payment system",
+                                relationship.id,
+                                modelRecommended = true,
+                            ),
+                            connectedItem(
+                                "review-decision",
+                                1,
+                                "Class",
+                                "Review decision",
+                                relationship.id,
+                                modelRecommended = true,
+                            ),
+                            connectedItem(
+                                "creates-review-decision",
+                                2,
+                                "ObjectProperty",
+                                "creates review decision",
+                                relationship.id,
+                            ),
+                            connectedItem(
+                                "creates-review-decision-domain",
+                                3,
+                                "DomainAssignment",
+                                "creates review decision domain",
+                                relationship.id,
+                                references = listOf(
+                                    ProviderConnectedModelReference("Domain", "payment-system"),
+                                    ProviderConnectedModelReference("Property", "creates-review-decision"),
+                                ),
+                                modelRecommended = true,
+                            ),
+                            connectedItem(
+                                "creates-review-decision-range",
+                                4,
+                                "RangeAssignment",
+                                "creates review decision range",
+                                relationship.id,
+                                references = listOf(
+                                    ProviderConnectedModelReference("Property", "creates-review-decision"),
+                                    ProviderConnectedModelReference("Range", "review-decision"),
+                                ),
+                                modelRecommended = true,
+                            ),
+                        ),
+                    ),
+                )
+            },
+        )
+
+        val result = fixture.connectedModelService(provider)
+            .model("alice", "task-property-context-repair", connectedDiscoveryStage(listOf(relationship)))
+
+        assertEquals(1, modelCalls)
+        assertEquals(1, prerequisiteCalls)
+        assertTrue(prerequisiteInstruction.contains("Fill only the listed missing"))
+        assertTrue(prerequisiteInstruction.contains("never return it as a standalone item"))
+        assertEquals(
+            PipelineDocumentAnalysisStage.PrerequisiteCompletion,
+            result.stageRecords.last().stage,
+        )
+        assertEquals(
+            setOf("Payment system", "Review decision", "creates review decision domain", "creates review decision range"),
+            result.model.items.filter(DocumentConnectedModelItem::modelRecommended).map { it.label }.toSet(),
+        )
+    }
+
+    @Test
+    fun correctsAStructurallyValidPrerequisiteResponseThatStillOmitsRequestedContext(): Unit = runBlocking {
+        val fixture = fixture()
+        val relationship = connectedDiscovery(
+            "discovery-source-account",
+            "A payment identifies the account from which funds are drawn.",
+            DocumentDiscoveryKind.Relationship,
+        )
+        var prerequisiteCalls = 0
+        val provider = connectedProvider(
+            onModel = { _, _, _ ->
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(
+                            connectedItem(
+                                "has-source-account",
+                                0,
+                                "ObjectProperty",
+                                "has source account",
+                                relationship.id,
+                            ),
+                        ),
+                    ),
+                )
+            },
+            onPrerequisites = { _, instruction, request ->
+                prerequisiteCalls += 1
+                if (prerequisiteCalls == 1) {
+                    DocumentConnectedModelProviderResult.CompletedPrerequisites(
+                        DocumentPrerequisiteCompletionResponse(
+                            items = listOf(
+                                connectedItem(
+                                    "has-source-account",
+                                    0,
+                                    "ObjectProperty",
+                                    "has source account",
+                                    relationship.id,
+                                ),
+                            ),
+                        ),
+                    )
+                } else {
+                    assertTrue(instruction.contains("structurally valid but still left"))
+                    assertEquals(
+                        listOf(DocumentPrerequisiteKind.Domain, DocumentPrerequisiteKind.Range),
+                        request.missingPrerequisites.single().missing,
+                    )
+                    DocumentConnectedModelProviderResult.CompletedPrerequisites(
+                        DocumentPrerequisiteCompletionResponse(
+                            items = listOf(
+                                connectedItem(
+                                    "payment",
+                                    0,
+                                    "Class",
+                                    "Payment",
+                                    relationship.id,
+                                    modelRecommended = true,
+                                ),
+                                connectedItem(
+                                    "account",
+                                    1,
+                                    "Class",
+                                    "Account",
+                                    relationship.id,
+                                    modelRecommended = true,
+                                ),
+                                connectedItem(
+                                    "has-source-account",
+                                    2,
+                                    "ObjectProperty",
+                                    "has source account",
+                                    relationship.id,
+                                ),
+                                connectedItem(
+                                    "has-source-account-domain",
+                                    3,
+                                    "DomainAssignment",
+                                    "has source account domain",
+                                    relationship.id,
+                                    references = listOf(
+                                        ProviderConnectedModelReference("Domain", "payment"),
+                                        ProviderConnectedModelReference("Property", "has-source-account"),
+                                    ),
+                                    modelRecommended = true,
+                                ),
+                                connectedItem(
+                                    "has-source-account-range",
+                                    4,
+                                    "RangeAssignment",
+                                    "has source account range",
+                                    relationship.id,
+                                    references = listOf(
+                                        ProviderConnectedModelReference("Property", "has-source-account"),
+                                        ProviderConnectedModelReference("Range", "account"),
+                                    ),
+                                    modelRecommended = true,
+                                ),
+                            ),
+                        ),
+                    )
+                }
+            },
+        )
+
+        val result = fixture.connectedModelService(provider)
+            .model("alice", "task-property-context-correction", connectedDiscoveryStage(listOf(relationship)))
+
+        assertEquals(2, prerequisiteCalls)
+        assertEquals(2, result.stageRecords.last().providerAttemptCount)
+        val propertyId = result.model.items.single {
+            it.kind == DocumentConnectedModelItemKind.ObjectProperty && it.label == "has source account"
+        }.id
+        assertEquals(
+            setOf(DocumentConnectedModelItemKind.DomainAssignment, DocumentConnectedModelItemKind.RangeAssignment),
+            result.model.items.filter { item ->
+                item.references.any { reference -> reference.itemId == propertyId }
+            }.map(DocumentConnectedModelItem::kind).toSet(),
+        )
+        assertTrue(result.skippedItems.none { it.providerId == "prerequisite-completion" })
+    }
+
+    @Test
+    fun preservesUsefulConnectedMeaningWhenFocusedPrerequisiteCallIsUnavailable(): Unit = runBlocking {
+        val fixture = fixture()
+        val relationship = connectedDiscovery(
+            "discovery-review-decision-fallback",
+            "MeridianPay creates a review decision",
+            DocumentDiscoveryKind.Relationship,
+        )
+        var calls = 0
+        val provider = connectedProvider(
+            onModel = { _, _, _ ->
+                calls += 1
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(
+                            connectedItem(
+                                "creates-review-decision",
+                                0,
+                                "ObjectProperty",
+                                "creates review decision",
+                                relationship.id,
+                            ),
+                        ),
+                    ),
+                )
+            },
+        )
+
+        val result = fixture.connectedModelService(provider).model(
+            "alice",
+            "task-property-context-fallback",
+            connectedDiscoveryStage(listOf(relationship)),
+        )
+
+        assertEquals(1, calls)
+        assertEquals(
+            listOf("creates review decision"),
+            result.model.items.map(DocumentConnectedModelItem::label),
+        )
+        assertEquals(
+            PipelineDocumentAnalysisStage.PrerequisiteCompletion,
+            result.stageRecords.last().stage,
+        )
+        assertTrue(result.skippedItems.any { it.providerId == "prerequisite-completion" })
+    }
+
+    @Test
+    fun focusedPrerequisiteCallCanRecommendATypeForAProductionIndividual(): Unit = runBlocking {
+        val fixture = fixture()
+        val bank = connectedDiscovery(
+            "discovery-meridian-bank",
+            "Meridian Community Bank owns the compliance program.",
+            DocumentDiscoveryKind.Individual,
+        ).copy(individualClassification = DocumentIndividualClassification.Production)
+        val provider = connectedProvider(
+            onModel = { _, _, _ ->
+                DocumentConnectedModelProviderResult.CompletedModel(
+                    DocumentConnectedModelResponse(
+                        items = listOf(
+                            connectedItem(
+                                "meridian-bank",
+                                0,
+                                "Individual",
+                                "Meridian Community Bank",
+                                bank.id,
+                            ),
+                        ),
+                    ),
+                )
+            },
+            onPrerequisites = { _, _, request ->
+                assertEquals(listOf(DocumentPrerequisiteKind.Type), request.missingPrerequisites.single().missing)
+                DocumentConnectedModelProviderResult.CompletedPrerequisites(
+                    DocumentPrerequisiteCompletionResponse(
+                        items = listOf(
+                            connectedItem(
+                                "meridian-bank",
+                                0,
+                                "Individual",
+                                "Meridian Community Bank",
+                                bank.id,
+                            ),
+                            connectedItem(
+                                "organization",
+                                1,
+                                "Class",
+                                "Organization",
+                                bank.id,
+                                modelRecommended = true,
+                            ),
+                            connectedItem(
+                                "meridian-bank-type",
+                                2,
+                                "TypeAssertion",
+                                "Meridian Community Bank type",
+                                bank.id,
+                                references = listOf(
+                                    ProviderConnectedModelReference("Individual", "meridian-bank"),
+                                    ProviderConnectedModelReference("Type", "organization"),
+                                ),
+                                modelRecommended = true,
+                            ),
+                        ),
+                    ),
+                )
+            },
+        )
+
+        val result = fixture.connectedModelService(provider).model(
+            "alice",
+            "task-individual-type-completion",
+            connectedDiscoveryStage(listOf(bank)),
+        )
+
+        assertEquals(
+            setOf("Organization", "Meridian Community Bank type"),
+            result.model.items.filter(DocumentConnectedModelItem::modelRecommended).map { it.label }.toSet(),
+        )
+        assertTrue(result.skippedItems.none { it.providerId == "prerequisite-completion" })
     }
 
     @Test
@@ -1763,6 +2665,19 @@ class DocumentAnalysisServiceTest {
                             connectedItem("has-approval", 20, "ObjectProperty", "has approval", relationship.id),
                             connectedItem("payment", 10, "Class", "Payment", payment.id),
                             connectedItem("approval", 10, "Class", "Payment Approval", approval.id),
+                            connectedItem(
+                                "range",
+                                40,
+                                "RangeAssignment",
+                                "has approval range",
+                                relationship.id,
+                                references = listOf(
+                                    ProviderConnectedModelReference("Property", "has-approval"),
+                                    ProviderConnectedModelReference("Range", "approval"),
+                                ),
+                            ).copy(
+                                discoveryIds = listOf(approval.id, relationship.id),
+                            ),
                         ),
                     ),
                 )
@@ -1778,10 +2693,10 @@ class DocumentAnalysisServiceTest {
 
         assertEquals(result.model.items.indices.toList(), result.model.items.map { it.order })
         assertEquals(
-            listOf("Payment Approval", "Payment", "has approval", "has approval domain"),
+            listOf("Payment Approval", "Payment", "has approval", "has approval domain", "has approval range"),
             result.model.items.map { it.label },
         )
-        val domain = result.model.items.last()
+        val domain = result.model.items.single { it.kind == DocumentConnectedModelItemKind.DomainAssignment }
         assertEquals(listOf(payment.id, relationship.id), domain.discoveryIds)
         assertEquals(
             setOf(DocumentConnectedModelReferenceRole.Domain, DocumentConnectedModelReferenceRole.Property),
@@ -2255,19 +3170,50 @@ class DocumentAnalysisServiceTest {
         val canonicalized = fixture.connectedModelService(repeatedTransportIdProvider)
             .model("alice", "task-repeated-transport-id", connectedDiscoveryStage(listOf(business)))
         assertEquals(1, canonicalized.model.items.size)
+        var partiallyInvalidCalls = 0
         val partiallyInvalidProvider = connectedProvider(
             onModel = { _, _, _ ->
+                partiallyInvalidCalls += 1
                 DocumentConnectedModelProviderResult.CompletedModel(
                     DocumentConnectedModelResponse(
                         items = listOf(
                             declaration,
                             connectedItem(
-                                "malformed-property",
+                                "valid-property",
                                 1,
+                                "ObjectProperty",
+                                "has payment",
+                                business.id,
+                            ),
+                            connectedItem(
+                                "malformed-property",
+                                2,
                                 "ObjectProperty",
                                 "Malformed property",
                                 business.id,
                                 listOf(ProviderConnectedModelReference("Related", "payment")),
+                            ),
+                            connectedItem(
+                                "valid-property-domain",
+                                3,
+                                "DomainAssignment",
+                                "has payment domain",
+                                business.id,
+                                listOf(
+                                    ProviderConnectedModelReference("Domain", "payment"),
+                                    ProviderConnectedModelReference("Property", "valid-property"),
+                                ),
+                            ),
+                            connectedItem(
+                                "valid-property-range",
+                                4,
+                                "RangeAssignment",
+                                "has payment range",
+                                business.id,
+                                listOf(
+                                    ProviderConnectedModelReference("Property", "valid-property"),
+                                    ProviderConnectedModelReference("Range", "payment"),
+                                ),
                             ),
                         ),
                     ),
@@ -2276,11 +3222,18 @@ class DocumentAnalysisServiceTest {
         )
         val retained = fixture.connectedModelService(partiallyInvalidProvider)
             .model("alice", "task-partially-invalid-model", connectedDiscoveryStage(listOf(business)))
-        assertEquals(listOf("Payment"), retained.model.items.map { it.label })
+        assertEquals(1, partiallyInvalidCalls)
+        assertEquals(
+            listOf("Payment", "has payment", "has payment domain", "has payment range"),
+            retained.model.items.map { it.label },
+        )
+        assertEquals(listOf("Malformed property"), retained.skippedItems.map { it.label })
         var structuralRepairCalls = 0
+        val structuralRepairInstructions = mutableListOf<String>()
         val structurallyRepairedProvider = connectedProvider(
-            onModel = { _, _, _ ->
+            onModel = { _, systemInstruction, _ ->
                 structuralRepairCalls += 1
+                structuralRepairInstructions += systemInstruction
                 DocumentConnectedModelProviderResult.CompletedModel(
                     DocumentConnectedModelResponse(
                         items = if (structuralRepairCalls == 1) {
@@ -2290,7 +3243,7 @@ class DocumentAnalysisServiceTest {
                                     "payment-property",
                                     1,
                                     "ObjectProperty",
-                                    "has payment requirement",
+                                    "REJECTED_RESPONSE_SENTINEL",
                                     business.id,
                                     listOf(ProviderConnectedModelReference("Related", "payment")),
                                 ),
@@ -2305,6 +3258,28 @@ class DocumentAnalysisServiceTest {
                                     "has payment requirement",
                                     business.id,
                                 ),
+                                connectedItem(
+                                    "payment-property-domain",
+                                    2,
+                                    "DomainAssignment",
+                                    "has payment requirement domain",
+                                    business.id,
+                                    listOf(
+                                        ProviderConnectedModelReference("Domain", "payment"),
+                                        ProviderConnectedModelReference("Property", "payment-property"),
+                                    ),
+                                ),
+                                connectedItem(
+                                    "payment-property-range",
+                                    3,
+                                    "RangeAssignment",
+                                    "has payment requirement range",
+                                    business.id,
+                                    listOf(
+                                        ProviderConnectedModelReference("Property", "payment-property"),
+                                        ProviderConnectedModelReference("Range", "payment"),
+                                    ),
+                                ),
                             )
                         },
                     ),
@@ -2314,8 +3289,17 @@ class DocumentAnalysisServiceTest {
         val structurallyRepaired = fixture.connectedModelService(structurallyRepairedProvider)
             .model("alice", "task-structural-repair", connectedDiscoveryStage(listOf(business)))
         assertEquals(2, structuralRepairCalls)
+        assertTrue(structuralRepairInstructions.first().length < 3_000)
+        assertTrue(structuralRepairInstructions.last().contains("document-connected-model-item-contract-invalid"))
+        assertTrue(structuralRepairInstructions.last().contains("REJECTED_RESPONSE_SENTINEL"))
+        assertTrue(structuralRepairInstructions.last().length < 4_000)
         assertEquals(
-            listOf("Payment", "has payment requirement"),
+            listOf(
+                "Payment",
+                "has payment requirement",
+                "has payment requirement domain",
+                "has payment requirement range",
+            ),
             structurallyRepaired.model.items.map { it.label },
         )
         assertTrue(structurallyRepaired.skippedItems.isEmpty())
@@ -3335,6 +4319,13 @@ class DocumentAnalysisServiceTest {
         ) -> DocumentConnectedModelProviderResult = { _, _, _ ->
             error("Consolidation was not expected.")
         },
+        onPrerequisites: suspend (
+            selectedModelId: String,
+            systemInstruction: String,
+            request: DocumentPrerequisiteCompletionRequest,
+        ) -> DocumentConnectedModelProviderResult = { _, _, _ ->
+            DocumentConnectedModelProviderResult.Failed(false, "document-prerequisite-provider-unavailable")
+        },
     ): DocumentConnectedModelProvider = object : DocumentConnectedModelProvider {
         override suspend fun model(
             apiKey: String,
@@ -3355,6 +4346,16 @@ class DocumentAnalysisServiceTest {
             assertEquals("secret-value", apiKey)
             return onConsolidate(selectedModelId, systemInstruction, request)
         }
+
+        override suspend fun completePrerequisites(
+            apiKey: String,
+            selectedModelId: String,
+            systemInstruction: String,
+            request: DocumentPrerequisiteCompletionRequest,
+        ): DocumentConnectedModelProviderResult {
+            assertEquals("secret-value", apiKey)
+            return onPrerequisites(selectedModelId, systemInstruction, request)
+        }
     }
 
     private fun connectedItem(
@@ -3365,6 +4366,7 @@ class DocumentAnalysisServiceTest {
         discoveryId: String,
         references: List<ProviderConnectedModelReference> = emptyList(),
         reviewOnly: Boolean = false,
+        modelRecommended: Boolean = false,
     ): ProviderConnectedModelItem = ProviderConnectedModelItem(
         providerId = providerId,
         kind = kind,
@@ -3379,6 +4381,7 @@ class DocumentAnalysisServiceTest {
         literalLanguageTag = null,
         order = order,
         reviewOnlyEligible = reviewOnly,
+        modelRecommended = modelRecommended,
     )
 
     private fun connectedDiscovery(

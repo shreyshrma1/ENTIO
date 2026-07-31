@@ -66,16 +66,20 @@ class DocumentIngestionOrchestratorTest {
         fixture.orchestrator.await(taskId.value)
 
         val task = fixture.manager.find(taskId, "simple", "alice")
-        assertEquals("awaiting-review", task.status)
+        assertEquals(
+            "awaiting-review",
+            task.status,
+            task.updates.joinToString(" | ") { "${it.message} ${it.details.joinToString()}" },
+        )
         assertEquals(100, task.progress.percent)
         assertTrue(task.updates.any { it.message.contains("Discovering evidence-grounded meaning") })
         assertTrue(task.updates.any { it.message.contains("Synthesizing connected meaning") })
-        assertTrue(task.updates.any { it.message.contains("Planning ontology-aware grouped recommendations") })
+        assertTrue(task.updates.any { it.message.contains("Compiling connected meaning") })
         assertEquals(
             listOf(
                 DocumentAnalysisStage.Discovery,
                 DocumentAnalysisStage.ConnectedModeling,
-                DocumentAnalysisStage.FinalPlanning,
+                DocumentAnalysisStage.SemanticAssembly,
                 DocumentAnalysisStage.DeterministicVerification,
             ),
             task.analysisStages.map { it.stage },
@@ -92,7 +96,11 @@ class DocumentIngestionOrchestratorTest {
         assertTrue(directory.path.toFile().exists())
         assertEquals(1, fixture.provider.discoveryCalls)
         assertEquals(1, fixture.provider.connectedModelCalls)
-        assertEquals(1, fixture.provider.finalPlanningCalls)
+        assertEquals(0, fixture.provider.finalPlanningCalls)
+        assertEquals(
+            0,
+            task.analysisStages.single { it.stage == DocumentAnalysisStage.SemanticAssembly }.providerAttemptCount,
+        )
         assertEquals(0, fixture.provider.reconciliationCalls)
         assertEquals(0, fixture.provider.alignmentCalls)
         assertEquals(0, fixture.provider.criticCalls)
@@ -153,7 +161,10 @@ class DocumentIngestionOrchestratorTest {
         val task = fixture.manager.find(taskId, "simple", "alice")
         assertEquals("awaiting-review", task.status, task.updates.joinToString(" | ") { it.message })
         assertEquals(10, task.analysisStages.count { it.stage == DocumentAnalysisStage.Discovery })
-        assertEquals(10, fixture.reviews.verifiedPlan("simple", taskId.value, "alice").plan.recommendations.size)
+        val plan = fixture.reviews.verifiedPlan("simple", taskId.value, "alice").plan
+        assertEquals(1, plan.recommendations.size)
+        assertEquals(10, plan.recommendations.single().discoveryIds.size)
+        assertEquals(10, plan.coverage.size)
         fixture.close()
     }
 
@@ -254,7 +265,7 @@ class DocumentIngestionOrchestratorTest {
     }
 
     @Test
-    fun regeneratesAnInvalidSemanticReferenceOnceWithTheSameVerifiedInput(): Unit = runBlocking {
+    fun finalProviderRetryConfigurationDoesNotAddAProviderCall(): Unit = runBlocking {
         val fixture = fixture(readyModel = true, retryFinalPlanningOnce = true)
         val taskId = fixture.manager.begin("simple", "alice", 1)
         val directory = fixture.manager.directory(taskId, "simple", "alice")
@@ -275,23 +286,16 @@ class DocumentIngestionOrchestratorTest {
         val task = fixture.manager.find(taskId, "simple", "alice")
         assertEquals("awaiting-review", task.status)
         assertEquals(
-            2,
-            task.analysisStages.single { it.stage == DocumentAnalysisStage.FinalPlanning }.providerAttemptCount,
+            0,
+            task.analysisStages.single { it.stage == DocumentAnalysisStage.SemanticAssembly }.providerAttemptCount,
         )
-        assertContains(fixture.provider.finalPlanningInstructions.first(), "reuse its exact item ID")
-        assertContains(
-            fixture.provider.finalPlanningInstructions.last(),
-            "One bounded full-plan regeneration is required",
-        )
-        assertContains(
-            fixture.provider.finalPlanningInstructions.last(),
-            "document-semantic-plan-reference-invalid",
-        )
+        assertEquals(0, fixture.provider.finalPlanningCalls)
+        assertTrue(fixture.provider.finalPlanningInstructions.isEmpty())
         fixture.close()
     }
 
     @Test
-    fun correctsBlockedOperationContractBeforePublishingReviewResults(): Unit = runBlocking {
+    fun compilesVerifiedConnectedMeaningWithoutCallingTheFinalModel(): Unit = runBlocking {
         val fixture = fixture(readyModel = true, invalidFinalPlanOnce = true)
         val taskId = fixture.manager.begin("simple", "alice", 1)
         val directory = fixture.manager.directory(taskId, "simple", "alice")
@@ -311,11 +315,8 @@ class DocumentIngestionOrchestratorTest {
 
         val task = fixture.manager.find(taskId, "simple", "alice")
         assertEquals("awaiting-review", task.status)
-        assertEquals(2, fixture.provider.finalPlanningCalls)
-        assertContains(fixture.provider.finalPlanningInstructions.last(), "semantic-group-blocked")
-        assertContains(fixture.provider.finalPlanningInstructions.last(), "Supplier")
-        assertContains(fixture.provider.finalPlanningInstructions.last(), "corrected semantic plan")
-        assertContains(fixture.provider.finalPlanningInstructions.last(), "Do not emit operations")
+        assertEquals(0, fixture.provider.finalPlanningCalls)
+        assertTrue(fixture.provider.finalPlanningInstructions.isEmpty())
         val recommendations = fixture.reviews
             .verifiedReviewPlan("simple", taskId.value, "alice")
             .plan
@@ -327,7 +328,7 @@ class DocumentIngestionOrchestratorTest {
     }
 
     @Test
-    fun retainsTheInitialPlanWhenTheCorrectionReducesExecutableCoverage(): Unit = runBlocking {
+    fun finalProviderCorrectionConfigurationCannotChangeDeterministicAssembly(): Unit = runBlocking {
         val fixture = fixture(readyModel = true, degradeFinalPlanCorrection = true)
         val taskId = fixture.manager.begin("simple", "alice", 1)
         val directory = fixture.manager.directory(taskId, "simple", "alice")
@@ -347,7 +348,7 @@ class DocumentIngestionOrchestratorTest {
 
         val task = fixture.manager.find(taskId, "simple", "alice")
         assertEquals("awaiting-review", task.status)
-        assertEquals(2, fixture.provider.finalPlanningCalls)
+        assertEquals(0, fixture.provider.finalPlanningCalls)
         val recommendations = fixture.reviews
             .verifiedReviewPlan("simple", taskId.value, "alice")
             .plan
@@ -416,9 +417,48 @@ class DocumentIngestionOrchestratorTest {
         )
         assertContains(
             fixture.provider.connectedModelInstructions.last(),
-            "document-connected-model-grounding-invalid",
+            "document-connected-model-item-contract-invalid",
         )
         assertContains(fixture.provider.connectedModelInstructions.last(), "unknown-discovery")
+        fixture.close()
+    }
+
+    @Test
+    fun usesAPlannedPrerequisiteCallWithoutConsumingTheRetryReserve(): Unit = runBlocking {
+        val fixture = fixture(readyModel = true, incompleteProperty = true)
+        val taskId = fixture.manager.begin("simple", "alice", 1)
+        val directory = fixture.manager.directory(taskId, "simple", "alice")
+        val upload = fixture.intake.accept(
+            taskId,
+            directory,
+            "simple",
+            "alice",
+            metadata(),
+            ByteArrayInputStream("A supplier must approve a payment.".toByteArray()),
+        )
+        fixture.manager.addDocument(taskId, "simple", "alice", upload)
+        fixture.manager.completeIntake(taskId, "simple", "alice")
+
+        fixture.orchestrator.start(taskId.value, "simple", "alice")
+        fixture.orchestrator.await(taskId.value)
+
+        val task = fixture.manager.find(taskId, "simple", "alice")
+        assertEquals(
+            "awaiting-review",
+            task.status,
+            task.updates.joinToString(" | ") { "${it.message} ${it.details.joinToString()}" },
+        )
+        assertEquals(1, fixture.provider.connectedModelCalls)
+        assertEquals(1, fixture.provider.prerequisiteCalls)
+        assertEquals(
+            1,
+            task.analysisStages.single {
+                it.stage == DocumentAnalysisStage.PrerequisiteCompletion
+            }.providerAttemptCount,
+        )
+        assertTrue(task.updates.none { update ->
+            update.details.any { it.contains("document-provider-retry-limit") }
+        })
         fixture.close()
     }
 
@@ -455,7 +495,7 @@ class DocumentIngestionOrchestratorTest {
                 .flatMap { it.details }
                 .any { it.contains("Unknown discovery IDs: unknown-discovery.") },
         )
-        assertEquals(1, fixture.provider.finalPlanningCalls)
+        assertEquals(0, fixture.provider.finalPlanningCalls)
         fixture.close()
     }
 
@@ -534,6 +574,7 @@ class DocumentIngestionOrchestratorTest {
         retryDiscoveryTimes: Int = 0,
         invalidConnectedModelOnce: Boolean = false,
         invalidConnectedModelAlways: Boolean = false,
+        incompleteProperty: Boolean = false,
         includeAdministrativeMetadataItem: Boolean = false,
         retryFinalPlanningOnce: Boolean = false,
         invalidFinalPlanOnce: Boolean = false,
@@ -592,6 +633,7 @@ class DocumentIngestionOrchestratorTest {
             retryDiscoveryTimes = retryDiscoveryTimes,
             invalidConnectedModelOnce = invalidConnectedModelOnce,
             invalidConnectedModelAlways = invalidConnectedModelAlways,
+            incompleteProperty = incompleteProperty,
             includeAdministrativeMetadataItem = includeAdministrativeMetadataItem,
             retryFinalPlanningOnce = retryFinalPlanningOnce,
             invalidFinalPlanOnce = invalidFinalPlanOnce,
@@ -621,6 +663,7 @@ class DocumentIngestionOrchestratorTest {
         private val retryDiscoveryTimes: Int,
         private val invalidConnectedModelOnce: Boolean,
         private val invalidConnectedModelAlways: Boolean,
+        private val incompleteProperty: Boolean,
         private val includeAdministrativeMetadataItem: Boolean,
         private val retryFinalPlanningOnce: Boolean,
         private val invalidFinalPlanOnce: Boolean,
@@ -634,6 +677,8 @@ class DocumentIngestionOrchestratorTest {
         var discoveryCalls: Int = 0
             private set
         var connectedModelCalls: Int = 0
+            private set
+        var prerequisiteCalls: Int = 0
             private set
         var reconciliationCalls: Int = 0
             private set
@@ -682,14 +727,18 @@ class DocumentIngestionOrchestratorTest {
                 return DocumentDiscoveryProviderResult.Failed(false, discoveryFailureCode)
             }
             val block = request.blocks.single()
-            val description = if (compoundConcept) "Account closure" else "Supplier"
-            val excerpt = if (compoundConcept) block.text else "Supplier"
+            val description = when {
+                incompleteProperty -> "A supplier must approve a payment"
+                compoundConcept -> "Account closure"
+                else -> "Supplier"
+            }
+            val excerpt = if (compoundConcept || incompleteProperty) block.text else "Supplier"
             return DocumentDiscoveryProviderResult.Completed(
                 DocumentDiscoveryResponse(
                     discoveries = listOf(
                         ProviderDocumentDiscovery(
                             providerId = "discovery-${request.documentId}",
-                            kind = "Concept",
+                            kind = if (incompleteProperty) "Requirement" else "Concept",
                             contentClassification = "BusinessContent",
                             assertionClassification = "ExplicitFact",
                             description = description,
@@ -741,8 +790,8 @@ class DocumentIngestionOrchestratorTest {
             systemInstruction: String,
             request: DocumentConnectedModelRequest,
         ): DocumentConnectedModelProviderResult {
-            assertContains(systemInstruction, "A document title is provenance, not a class")
-            assertContains(systemInstruction, "must never become individuals")
+            assertContains(systemInstruction, "document-control metadata is provenance")
+            assertContains(systemInstruction, "Generic roles are not individuals")
             connectedModelInstructions += systemInstruction
             connectedModelCalls += 1
             val businessDiscoveryIds = request.discoveries
@@ -758,9 +807,13 @@ class DocumentIngestionOrchestratorTest {
                     items = listOf(
                         ProviderConnectedModelItem(
                             providerId = "model-concept",
-                            kind = "Class",
-                            label = if (compoundConcept) "Account closure" else "Supplier",
-                            rationale = "The verified discovery describes a business concept.",
+                            kind = if (incompleteProperty) "ObjectProperty" else "Class",
+                            label = when {
+                                incompleteProperty -> "approves payment"
+                                compoundConcept -> "Account closure"
+                                else -> "Supplier"
+                            },
+                            rationale = "The verified discovery describes supported business meaning.",
                             discoveryIds = if (
                                 invalidConnectedModelAlways ||
                                 invalidConnectedModelOnce && connectedModelCalls == 1
@@ -808,6 +861,69 @@ class DocumentIngestionOrchestratorTest {
             DocumentConnectedModelProviderResult.CompletedConsolidation(
                 DocumentModelConsolidationResponse(items = request.chunkModels.flatMap { it.items }),
             )
+
+        override suspend fun completePrerequisites(
+            apiKey: String,
+            selectedModelId: String,
+            systemInstruction: String,
+            request: DocumentPrerequisiteCompletionRequest,
+        ): DocumentConnectedModelProviderResult {
+            prerequisiteCalls += 1
+            assertContains(systemInstruction, "Fill only the listed missing")
+            val discoveryIds = request.missingPrerequisites.single().discoveryIds
+            fun item(
+                providerId: String,
+                kind: String,
+                label: String,
+                order: Int,
+                references: List<ProviderConnectedModelReference> = emptyList(),
+                recommended: Boolean = false,
+            ): ProviderConnectedModelItem = ProviderConnectedModelItem(
+                providerId = providerId,
+                kind = kind,
+                label = label,
+                rationale = "The focused prerequisite call completes the supported relationship.",
+                discoveryIds = discoveryIds,
+                references = references,
+                literalLexicalForm = null,
+                literalDatatypeIri = null,
+                literalLanguageTag = null,
+                order = order,
+                reviewOnlyEligible = false,
+                modelRecommended = recommended,
+            )
+            return DocumentConnectedModelProviderResult.CompletedPrerequisites(
+                DocumentPrerequisiteCompletionResponse(
+                    items = listOf(
+                        item("approves-payment", "ObjectProperty", "approves payment", 0),
+                        item("supplier", "Class", "Supplier", 1, recommended = true),
+                        item("payment", "Class", "Payment", 2, recommended = true),
+                        item(
+                            "approves-payment-domain",
+                            "DomainAssignment",
+                            "approves payment domain",
+                            3,
+                            listOf(
+                                ProviderConnectedModelReference("Domain", "supplier"),
+                                ProviderConnectedModelReference("Property", "approves-payment"),
+                            ),
+                            recommended = true,
+                        ),
+                        item(
+                            "approves-payment-range",
+                            "RangeAssignment",
+                            "approves payment range",
+                            4,
+                            listOf(
+                                ProviderConnectedModelReference("Property", "approves-payment"),
+                                ProviderConnectedModelReference("Range", "payment"),
+                            ),
+                            recommended = true,
+                        ),
+                    ),
+                ),
+            )
+        }
 
         override suspend fun reconcile(
             apiKey: String,

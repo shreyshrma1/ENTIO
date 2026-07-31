@@ -124,6 +124,8 @@ public class DocumentChangeSetPlanVerifier {
             failure.message?.contains("unwritable", ignoreCase = true) == true -> "unwritable-source"
             failure.message?.contains("Administrative document metadata", ignoreCase = true) == true ->
                 "administrative-metadata-not-executable"
+            failure.message?.contains("model-recommended prerequisite", ignoreCase = true) == true ->
+                "model-recommended-prerequisite-unattached"
             failure.message?.contains("reusable concept", ignoreCase = true) == true -> "class-evidence-required"
             failure.message?.contains("cannot be represented only as an ontology class", ignoreCase = true) == true ->
                 "normative-meaning-modeled-as-class"
@@ -222,6 +224,7 @@ public class DocumentChangeSetPlanVerifier {
             }
         }
         verifyCreatedPropertyContext(recommendation)
+        verifyModelRecommendedPrerequisites(recommendation)
         verifyDeclaredEntitiesAreConnected(recommendation)
     }
 
@@ -242,7 +245,11 @@ public class DocumentChangeSetPlanVerifier {
         }
 
         val createdClasses = recommendation.operations.mapNotNull { operation ->
-            operation.declaration?.takeIf { operation.kind == DocumentPlanOperationKind.CreateClass }
+            operation.declaration?.takeIf {
+                operation.kind == DocumentPlanOperationKind.CreateClass &&
+                    !operation.reviewerInputRequired &&
+                    !operation.modelRecommended
+            }
         }
         if (createdClasses.isNotEmpty()) {
             val operationalContextEvidence =
@@ -389,6 +396,21 @@ public class DocumentChangeSetPlanVerifier {
                     propertyOperand in operation.operands
             }) {
                 "A newly created property requires a range operation."
+            }
+        }
+    }
+
+    private fun verifyModelRecommendedPrerequisites(recommendation: DocumentFinalRecommendation): Unit {
+        recommendation.operations.filter { operation ->
+            operation.modelRecommended &&
+                !operation.reviewerInputRequired &&
+                operation.declaration != null
+        }.forEach { prerequisite ->
+            val declaration = requireNotNull(prerequisite.declaration)
+            require(recommendation.operations.any { operation ->
+                operation.id != prerequisite.id && declaration in operation.referencedTemporaryEntities
+            }) {
+                "A model-recommended prerequisite must be attached to the operation it supports."
             }
         }
     }

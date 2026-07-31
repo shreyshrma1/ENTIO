@@ -125,28 +125,35 @@ class OpenAiDocumentAnalysisClientTest {
         val root = ObjectMapper().readTree(body)
         val format = root.path("text").path("format")
         assertOpenAiCompatibleStrictSchema(format)
-        val itemVariants = format.path("schema").path("properties").path("items").path("items").path("anyOf")
-        val itemProperties = itemVariants.first().path("properties")
+        val itemSchema = format.path("schema").path("properties").path("items").path("items")
+        val itemProperties = itemSchema.path("properties")
         assertEquals("phase_11_5_connected_document_model", format.path("name").asText())
+        assertEquals(16_000, root.path("max_output_tokens").asInt())
         assertEquals(false, format.path("schema").path("additionalProperties").asBoolean())
-        assertEquals(11, itemVariants.size())
-        assertTrue(itemVariants.any {
-            it.path("properties").path("kind").path("enum").map(JsonNode::asText).contains("ComplexRule")
-        })
-        assertTrue(
-            itemVariants.any {
-                it.path("properties").path("references").path("items").path("properties")
-                    .path("role").path("enum").map(JsonNode::asText).contains("Domain")
-            },
+        assertTrue(itemSchema.path("anyOf").isMissingNode)
+        assertEquals(
+            DocumentConnectedModelItemKind.entries.map { it.name },
+            itemProperties.path("kind").path("enum").map(JsonNode::asText),
         )
-        assertEquals("null", itemProperties.path("literalLexicalForm").path("type").asText())
-        assertTrue(itemVariants.any {
-            it.path("properties").path("literalLexicalForm").path("type").asText() == "string"
-        })
+        assertTrue(
+            itemProperties.path("references").path("items").path("properties")
+                .path("role").path("enum").map(JsonNode::asText).contains("Domain"),
+        )
+        assertEquals(20, itemProperties.path("references").path("maxItems").asInt())
+        assertEquals(
+            listOf("string", "null"),
+            itemProperties.path("literalLexicalForm").path("type").map(JsonNode::asText),
+        )
         assertTrue(root.path("tools").isEmpty)
         assertTrue(!body.contains("secret-value"))
         val input = root.path("input").asText()
         assertTrue(input.contains("Payment"))
+        assertTrue(input.contains("evidence-1"))
+        assertTrue(input.contains("\"relatedDiscoveryIds\":[]"))
+        assertTrue(!input.contains("discovery-outside-chunk"))
+        assertTrue(!input.contains("Full evidence that should remain outside connected modeling."))
+        assertTrue(!input.contains("exactExcerpt"))
+        assertTrue(!input.contains("extractionMethod"))
         assertTrue(!input.contains("ontologyContext"))
         assertTrue(!input.contains("ontologyFingerprint"))
         assertTrue(!input.contains("writableSourceIds"))
@@ -183,11 +190,79 @@ class OpenAiDocumentAnalysisClientTest {
         val format = root.path("text").path("format")
         assertOpenAiCompatibleStrictSchema(format)
         assertEquals("phase_11_5_document_model_consolidation", format.path("name").asText())
+        assertEquals(32_000, root.path("max_output_tokens").asInt())
         assertEquals(
             DocumentAnalysisPipelineVersions.MODEL_CONSOLIDATION_RESPONSE,
             format.path("schema").path("properties").path("schemaVersion").path("const").asText(),
         )
         assertTrue(root.path("input").asText().contains(DocumentAnalysisPipelineVersions.MODEL_CONSOLIDATION_REQUEST))
+    }
+
+    @Test
+    fun sendsOneFocusedPrerequisiteCompletionRequest(): Unit = runBlocking {
+        var body = ""
+        val engine = MockEngine { request ->
+            body = (request.body as TextContent).text
+            respond(
+                providerEnvelope(
+                    validConnectedModelOutput(DocumentAnalysisPipelineVersions.PREREQUISITE_COMPLETION_RESPONSE),
+                ),
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val discovery = connectedModelRequest().discoveries.single()
+        val property = DocumentConnectedModelItem(
+            id = "item-has-approval",
+            kind = DocumentConnectedModelItemKind.ObjectProperty,
+            label = "has approval",
+            rationale = "The evidence relates a payment to its approval.",
+            discoveryIds = listOf(discovery.id),
+            order = 0,
+        )
+        val request = DocumentPrerequisiteCompletionRequest(
+            taskId = "task-1",
+            missingPrerequisites = listOf(
+                DocumentMissingPrerequisite(
+                    itemId = property.id,
+                    itemKind = property.kind,
+                    label = property.label,
+                    missing = listOf(DocumentPrerequisiteKind.Domain, DocumentPrerequisiteKind.Range),
+                    discoveryIds = property.discoveryIds,
+                ),
+            ),
+            connectedItems = listOf(property),
+            discoveries = DocumentConnectedModelRequest(
+                taskId = "task-1",
+                chunkIndex = 0,
+                chunkCount = 1,
+                discoveries = listOf(discovery),
+            ).toPromptPayload().discoveries,
+        )
+
+        val result = OpenAiDocumentAnalysisClient(engine = engine).use {
+            it.completePrerequisites(
+                "secret-value",
+                "gpt-test-2026",
+                "Fill only the listed missing prerequisite slots.",
+                request,
+            )
+        }
+
+        assertIs<DocumentConnectedModelProviderResult.CompletedPrerequisites>(result)
+        val root = ObjectMapper().readTree(body)
+        val format = root.path("text").path("format")
+        assertOpenAiCompatibleStrictSchema(format)
+        assertEquals("phase_11_5_document_prerequisite_completion", format.path("name").asText())
+        assertEquals(8_000, root.path("max_output_tokens").asInt())
+        assertEquals(
+            DocumentAnalysisPipelineVersions.PREREQUISITE_COMPLETION_RESPONSE,
+            format.path("schema").path("properties").path("schemaVersion").path("const").asText(),
+        )
+        val input = root.path("input").asText()
+        assertTrue(input.contains(DocumentAnalysisPipelineVersions.PREREQUISITE_COMPLETION_REQUEST))
+        assertTrue(input.contains("\"missing\":[\"Domain\",\"Range\"]"))
+        assertTrue(input.contains("\"connectedItems\""))
+        assertTrue(!input.contains("Full evidence that should remain outside connected modeling."))
     }
 
     @Test
@@ -1343,13 +1418,14 @@ class OpenAiDocumentAnalysisClientTest {
                                     blockId = DocumentTextBlockId("block-1"),
                                     pageNumber = 1,
                                     startOffsetInBlock = 0,
-                                    endOffsetInBlock = 7,
-                                    exactExcerpt = "Payment",
+                                    endOffsetInBlock = 60,
+                                    exactExcerpt = "Full evidence that should remain outside connected modeling.",
                                     extractionMethod = DocumentExtractionMethod.EmbeddedText,
                                 ),
                             ),
                         ),
                     ),
+                    relatedDiscoveryIds = listOf("discovery-outside-chunk"),
                     evidenceConfidence = 90,
                 ),
             ),
@@ -1557,7 +1633,7 @@ class OpenAiDocumentAnalysisClientTest {
     private fun validConnectedModelOutput(
         schemaVersion: String = DocumentAnalysisPipelineVersions.CONNECTED_MODEL_RESPONSE,
     ): String =
-        """{"schemaVersion":"$schemaVersion","items":[{"providerId":"payment","kind":"Class","label":"Payment","rationale":"Payment is supported by verified discovery.","discoveryIds":["discovery-1"],"references":[],"literalLexicalForm":null,"literalDatatypeIri":null,"literalLanguageTag":null,"order":0,"reviewOnlyEligible":false},{"providerId":"has-payment","kind":"ObjectProperty","label":"has payment","rationale":"has payment is supported by verified discovery.","discoveryIds":["discovery-1"],"references":[],"literalLexicalForm":null,"literalDatatypeIri":null,"literalLanguageTag":null,"order":1,"reviewOnlyEligible":false},{"providerId":"has-payment-domain","kind":"DomainAssignment","label":"has payment domain","rationale":"The domain is supported by verified discovery.","discoveryIds":["discovery-1"],"references":[{"role":"Domain","providerItemId":"payment"},{"role":"Property","providerItemId":"has-payment"}],"literalLexicalForm":null,"literalDatatypeIri":null,"literalLanguageTag":null,"order":2,"reviewOnlyEligible":false}]}"""
+        """{"schemaVersion":"$schemaVersion","items":[{"providerId":"payment","kind":"Class","label":"Payment","rationale":"Payment is supported by verified discovery.","discoveryIds":["discovery-1"],"references":[],"literalLexicalForm":null,"literalDatatypeIri":null,"literalLanguageTag":null,"order":0,"reviewOnlyEligible":false,"modelRecommended":false},{"providerId":"has-payment","kind":"ObjectProperty","label":"has payment","rationale":"has payment is supported by verified discovery.","discoveryIds":["discovery-1"],"references":[],"literalLexicalForm":null,"literalDatatypeIri":null,"literalLanguageTag":null,"order":1,"reviewOnlyEligible":false,"modelRecommended":false},{"providerId":"has-payment-domain","kind":"DomainAssignment","label":"has payment domain","rationale":"The domain is supported by verified discovery.","discoveryIds":["discovery-1"],"references":[{"role":"Domain","providerItemId":"payment"},{"role":"Property","providerItemId":"has-payment"}],"literalLexicalForm":null,"literalDatatypeIri":null,"literalLanguageTag":null,"order":2,"reviewOnlyEligible":false,"modelRecommended":false}]}"""
 
     private fun validReconciliationOutput(): String =
         """{"schemaVersion":"phase-11-5-reconciliation-response-v1","records":[{"providerId":"same-meaning","kind":"Duplicate","participantIds":["discovery-1","discovery-2"],"evidenceIds":["evidence-1","evidence-2"],"priorProvenanceIds":[],"explanation":"Both documents describe the same payment approval meaning.","humanDecisionRequired":false}]}"""
