@@ -22,6 +22,7 @@ public data class DocumentIngestionConfiguration(
     val ocrDocumentTimeout: Duration = Duration.ofMinutes(10),
     val candidateExtractorContractVersion: String = DocumentAnalysisPipelineVersions.CANDIDATE_EXTRACTION_CONTRACT,
     val nlpResourceVersion: String = DocumentAnalysisPipelineVersions.NLP_RESOURCE_SET,
+    val groundedAnalysisEnabled: Boolean = true,
     val tesseract: TesseractConfiguration? = null,
     val clock: Clock = Clock.systemUTC(),
     val idFactory: () -> String = { UUID.randomUUID().toString() },

@@ -4984,6 +4984,89 @@ internal class SemanticCompilingDocumentFinalPlanningProvider(
     private val compiler: DocumentSemanticPlanCompiler = DocumentSemanticPlanCompiler(),
     private val assembler: DeterministicDocumentSemanticPlanAssembler = DeterministicDocumentSemanticPlanAssembler(),
 ) : DocumentFinalPlanningProvider {
+    /** Reuses the existing semantic compiler for a Kotlin-verified Phase 12 grounded plan. */
+    fun compileGrounded(
+        plan: DocumentSemanticPlan,
+        compilerContext: DocumentSemanticCompilerContext,
+    ): DocumentFinalPlanningProviderResult = try {
+        val groupsById = plan.groups.associateBy { it.id }
+        val itemsById = plan.items.associateBy(DocumentSemanticPlanItem::id)
+        val compiled = compiler.compile(plan, compilerContext)
+        val recommendations = compiled.map { result ->
+            val group = groupsById.getValue(result.sourceGroupId)
+            val retained = group.retainedReviewOnlyItemIds.map(itemsById::getValue)
+            val reviewOnly = retained.mapIndexed { index, item ->
+                DocumentReviewOnlyFinding(
+                    id = "review-${result.groupId}-${index + 1}",
+                    summary = item.label,
+                    reason = item.ambiguity ?: group.rationale,
+                    discoveryIds = item.discoveryIds,
+                    evidenceIds = item.evidenceIds,
+                    relatedOperationIds = result.operations.map(DocumentPlanOperation::id).sorted(),
+                )
+            }
+            DocumentFinalRecommendation(
+                id = result.groupId,
+                title = group.title,
+                description = group.description,
+                discoveryIds = group.discoveryIds,
+                evidenceIds = group.evidenceIds,
+                operations = result.operations,
+                reviewOnlyFindings = if (reviewOnly.isNotEmpty()) reviewOnly else if (
+                    result.status == DocumentCompilationStatus.ReviewOnly
+                ) listOf(
+                    DocumentReviewOnlyFinding(
+                        id = "review-${result.groupId}",
+                        summary = group.title,
+                        reason = group.rationale,
+                        discoveryIds = group.discoveryIds,
+                        evidenceIds = group.evidenceIds,
+                    ),
+                ) else emptyList(),
+                confidence = DocumentConfidenceDimensions(
+                    result.confidence.evidence,
+                    result.confidence.modeling,
+                    result.confidence.ontologyFit,
+                ),
+                status = when (result.status) {
+                    DocumentCompilationStatus.Compiled -> if (reviewOnly.isEmpty()) {
+                        DocumentFinalRecommendationStatus.Executable
+                    } else {
+                        DocumentFinalRecommendationStatus.Mixed
+                    }
+                    DocumentCompilationStatus.ReviewOnly -> DocumentFinalRecommendationStatus.ReviewOnly
+                    DocumentCompilationStatus.Blocked -> DocumentFinalRecommendationStatus.Blocked
+                },
+                blockers = result.failures.map { it.safeCode }.distinct().sorted(),
+            )
+        }.sortedBy(DocumentFinalRecommendation::stableOrderingKey)
+        val coverage = plan.verifiedDiscoveryIds.map { discoveryId ->
+            val recommendation = recommendations.firstOrNull { discoveryId in it.discoveryIds }
+            com.entio.core.DocumentCoverageDisposition(
+                discoveryId = discoveryId,
+                kind = when (recommendation?.status) {
+                    DocumentFinalRecommendationStatus.Executable,
+                    DocumentFinalRecommendationStatus.Mixed,
+                    -> com.entio.core.DocumentCoverageDispositionKind.ExecutableRecommendation
+                    DocumentFinalRecommendationStatus.ReviewOnly ->
+                        com.entio.core.DocumentCoverageDispositionKind.ReviewOnlyFinding
+                    else -> com.entio.core.DocumentCoverageDispositionKind.Blocked
+                },
+                recommendationId = recommendation?.takeIf {
+                    it.status != DocumentFinalRecommendationStatus.Blocked
+                }?.id,
+                rationale = recommendation?.blockers?.joinToString("; ")?.takeIf(String::isNotBlank),
+            )
+        }.sortedBy(com.entio.core.DocumentCoverageDisposition::stableOrderingKey)
+        DocumentFinalPlanningProviderResult.Completed(
+            DocumentFinalPlanningResponse(
+                plan = DocumentFinalPlan(plan.workKey, plan.verifiedDiscoveryIds, plan.criticFindingIds, recommendations, coverage),
+            ),
+        )
+    } catch (_: IllegalArgumentException) {
+        DocumentFinalPlanningProviderResult.Failed(false, "document-semantic-plan-rejected")
+    }
+
     fun planDeterministically(
         request: DocumentFinalPlanningRequest,
     ): DocumentFinalPlanningProviderResult = compile(assembler.assemble(request), request)

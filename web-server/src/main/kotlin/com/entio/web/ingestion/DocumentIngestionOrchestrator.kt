@@ -5,6 +5,16 @@ import com.entio.core.DocumentAnalysisStage
 import com.entio.core.DocumentAnalysisStageRecord
 import com.entio.core.DocumentAnalysisStageState
 import com.entio.core.DocumentAnalysisWorkKey
+import com.entio.core.DocumentAssertionClassification
+import com.entio.core.DocumentContentClassification
+import com.entio.core.DocumentDiscovery
+import com.entio.core.DocumentDiscoveryKind
+import com.entio.core.DocumentEvidence
+import com.entio.core.DocumentEvidenceReference
+import com.entio.core.DocumentEvidenceType
+import com.entio.core.DocumentExtractionMethod
+import com.entio.core.DocumentGroundedWorkKeyInputs
+import com.entio.core.DocumentIndividualClassification
 import com.entio.core.DocumentCandidateCategory
 import com.entio.core.DocumentMatchScope
 import com.entio.core.DocumentProcessingStatus
@@ -17,11 +27,16 @@ import com.entio.core.OntologyEntityDescriptor
 import com.entio.core.SemanticDescriptorKind
 import com.entio.core.ShaclGraphRole
 import com.entio.semantic.DocumentPlanVerificationContext
+import com.entio.semantic.DocumentGroundedAnalysisVerifier
+import com.entio.semantic.DocumentGroundedVerificationInput
+import com.entio.semantic.DocumentOntologyRetrievalService
+import com.entio.semantic.DocumentSemanticCompilerContext
 import com.entio.semantic.DocumentSemanticRecord
 import com.entio.semantic.ProjectLoader
 import com.entio.semantic.SemanticDescriptionService
 import com.entio.web.ai.AiCredentialStore
 import com.entio.web.ai.models.AiUserProviderSettingsStore
+import com.entio.web.ai.models.AiModelSelectionStatus
 import com.entio.web.contract.ProjectRegistry
 import com.entio.web.webGraphFingerprint
 import java.nio.charset.StandardCharsets
@@ -42,12 +57,13 @@ internal class DocumentIngestionOrchestrator(
     private val configuration: DocumentIngestionConfiguration,
     private val projectRegistry: ProjectRegistry,
     private val provenance: AppliedDocumentProvenanceRepository,
-    credentials: AiCredentialStore,
-    settings: AiUserProviderSettingsStore,
+    private val credentials: AiCredentialStore,
+    private val settings: AiUserProviderSettingsStore,
     provider: DocumentAnalysisProvider,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val projectLoader: ProjectLoader = ProjectLoader(),
     private val descriptions: SemanticDescriptionService = SemanticDescriptionService(),
+    private val stagingSnapshot: ((String) -> com.entio.web.contract.WebStagingResponse?) = { null },
 ) : AutoCloseable {
     private val jobs: MutableMap<String, Job> = linkedMapOf()
     private val processingInputs: MutableMap<String, DocumentIngestionProcessingInput> = linkedMapOf()
@@ -76,6 +92,8 @@ internal class DocumentIngestionOrchestrator(
         clock = configuration.clock,
         isCancelled = ::isCancelled,
     )
+    private val groundedProvider = provider as? DocumentGroundedAnalysisProvider
+    private val groundedCompiler = SemanticCompilingDocumentFinalPlanningProvider(boundedProvider)
 
     @Synchronized
     fun start(taskId: String, projectId: String, userId: String): Unit {
@@ -139,6 +157,10 @@ internal class DocumentIngestionOrchestrator(
                     "Extracted ${index + 1} of ${input.documents.size} documents.",
                 )
             }
+        }
+        if (configuration.groundedAnalysisEnabled) {
+            processGrounded(input, extracted, isCancelled)
+            return
         }
         val project = loadProject(input.projectId)
         val ontologyFingerprint = webGraphFingerprint(project.graph)
@@ -340,6 +362,242 @@ internal class DocumentIngestionOrchestrator(
             100,
             "Grouped evidence-linked recommendations are ready for review.",
         )
+    }
+
+    private suspend fun processGrounded(
+        input: DocumentIngestionProcessingInput,
+        extracted: List<ExtractedDocument>,
+        isCancelled: () -> Boolean,
+    ): Unit {
+        val project = loadProject(input.projectId)
+        val ontologyFingerprint = webGraphFingerprint(project.graph)
+        val candidates = extracted.sortedBy { it.document.id.value }.flatMap { document ->
+            DocumentCandidateExtractionService(configuration).extract(document.document, document.blocks)
+        }.sortedBy(com.entio.core.DocumentGroundedCandidate::stableOrderingKey)
+        require(candidates.isNotEmpty()) { "document-candidate-extraction-empty" }
+        val candidateStarted = Instant.now(configuration.clock)
+        recordGroundedStage(input, DocumentAnalysisStage.SemanticAssembly, "candidates", candidateStarted,
+            hash(extracted), hash(candidates), candidates.size, 0)
+        announce(input, 48, "Extracted ${candidates.size} deterministic ontology candidate(s).")
+        checkCancellation(input)
+
+        val retrievalContext = DocumentRetrievalContextFactory().create(
+            input.projectId,
+            project,
+            candidates,
+            ontologyFingerprint,
+            stagingSnapshot(input.projectId),
+            provenance.summaries(input.projectId),
+        )
+        val retrievalStarted = Instant.now(configuration.clock)
+        val retrieval = DocumentOntologyRetrievalService(descriptions).retrieve(retrievalContext.input)
+        recordGroundedStage(input, DocumentAnalysisStage.SemanticAssembly, "retrieval", retrievalStarted,
+            hash(candidates), hash(retrieval.results), retrieval.results.size, 0)
+        announce(input, 62, "Completed authorized ontology retrieval for ${retrieval.results.size} candidate(s).")
+        checkCancellation(input)
+
+        val refreshed = DocumentRetrievalContextFactory().create(
+            input.projectId,
+            loadProject(input.projectId),
+            candidates,
+            webGraphFingerprint(loadProject(input.projectId).graph),
+            stagingSnapshot(input.projectId),
+            provenance.summaries(input.projectId),
+        )
+        require(refreshed.fingerprints == retrievalContext.fingerprints) { "document-retrieval-stale" }
+        val selected = settings.find(input.ownerUserId)
+            ?.takeIf { it.selectionStatus == AiModelSelectionStatus.READY && !it.selectedModelId.isNullOrBlank() }
+            ?.selectedModelId
+            ?: throw DocumentAnalysisFailure("document-model-not-ready", "A verified compatible model is required.")
+        val workInputs = DocumentGroundedWorkKeyInputs(
+            DocumentAnalysisPipelineVersions.WORK_KEY,
+            input.projectId,
+            input.taskId.value,
+            hash(input.documents.map { it.document.checksumSha256 }),
+            hash(candidates.flatMap { it.evidenceSpans }),
+            hash(candidates),
+            hash(retrieval.results),
+            retrievalContext.fingerprints.ontologySha256,
+            retrievalContext.fingerprints.currentWorkSha256,
+            retrievalContext.fingerprints.provenanceSha256,
+            retrievalContext.fingerprints.catalogSha256,
+            configuration.candidateExtractorContractVersion,
+            configuration.nlpResourceVersion,
+            DocumentAnalysisPipelineVersions.RETRIEVAL_RANKING,
+            selected,
+            DocumentAnalysisPipelineVersions.GROUNDED_PROMPT,
+            DocumentAnalysisPipelineVersions.GROUNDED_RESPONSE,
+        )
+        val workKey = DocumentAnalysisWorkKey(hash(workInputs))
+        val groundedService = DocumentGroundedAnalysisService(
+            groundedProvider ?: throw DocumentAnalysisFailure(
+                "document-grounded-provider-missing",
+                "The configured provider does not support grounded document analysis.",
+            ),
+            isCancelled,
+        )
+        val modeledStarted = Instant.now(configuration.clock)
+        val modeled = credentials.withCredentialSuspending(input.ownerUserId) { _, apiKey ->
+            groundedService.analyze(apiKey, selected, input.taskId.value, candidates, retrieval.results)
+        } ?: throw DocumentAnalysisFailure("document-credential-missing", "A provider credential is required.")
+        val analysis = com.entio.core.DocumentGroundedAnalysisResult(
+            DocumentAnalysisPipelineVersions.GROUNDED_RESPONSE,
+            modeled.results.flatMap { it.items }.distinctBy { it.id }.sortedBy { it.stableOrderingKey },
+            modeled.results.flatMap { it.coverage }.distinctBy { it.candidateId }.sortedBy { it.stableOrderingKey },
+        )
+        recordGroundedStage(input, DocumentAnalysisStage.ConnectedModeling, "grounded", modeledStarted,
+            hash(retrieval.results), hash(analysis), analysis.items.size, modeled.providerAttemptCount,
+            selected, modeled.logicalCallCount)
+        checkCancellation(input)
+
+        val verified = DocumentGroundedAnalysisVerifier().verify(
+            DocumentGroundedVerificationInput(
+                workKey, candidates, retrieval.results, retrieval.fullStateMatches, analysis,
+                ontologyFingerprint, webGraphFingerprint(loadProject(input.projectId).graph),
+                retrievalContext.fingerprints.currentWorkSha256, refreshed.fingerprints.currentWorkSha256,
+            ),
+        )
+        val writableSourceIds = project.resolvedSources.filter { ShaclGraphRole.Ontology in it.roles }
+            .map { it.id }.distinct().sorted()
+        val compilerContext = DocumentSemanticCompilerContext(
+            writableSourceIds.firstOrNull() ?: throw DocumentAnalysisFailure(
+                "document-writable-source-missing", "A writable ontology source is required.",
+            ),
+            project.config.iriNamespace?.namespace?.value
+                ?: throw DocumentAnalysisFailure("document-iri-namespace-missing", "A writable ontology namespace is required."),
+            existingEntityKinds(project),
+            verified.alignedEntities,
+            verified.itemAlignmentIds,
+            expectedOntologyFingerprint = ontologyFingerprint,
+            currentOntologyFingerprint = webGraphFingerprint(loadProject(input.projectId).graph),
+            expectedCurrentWorkFingerprint = retrievalContext.fingerprints.currentWorkSha256,
+            currentWorkFingerprint = refreshed.fingerprints.currentWorkSha256,
+        )
+        val planned = when (val result = groundedCompiler.compileGrounded(verified.plan, compilerContext)) {
+            is DocumentFinalPlanningProviderResult.Completed -> result.response.plan
+            is DocumentFinalPlanningProviderResult.Failed -> throw DocumentAnalysisFailure(result.safeCode,
+                "Grounded semantic compilation failed safely.")
+        }
+        val verificationContext = DocumentPlanVerificationContext(
+            ontologyFingerprint, webGraphFingerprint(loadProject(input.projectId).graph),
+            retrievalContext.fingerprints.currentWorkSha256, refreshed.fingerprints.currentWorkSha256,
+            writableSourceIds.toSet(), existingEntityKinds(project), compilerContext.iriNamespace,
+        )
+        val finalPlan = com.entio.semantic.DocumentChangeSetPlanVerifier().verify(planned, verificationContext)
+        val discoveries = groundedDiscoveries(candidates, extracted)
+        reviews.installVerifiedPlan(
+            tasks.find(input.taskId, input.projectId, input.ownerUserId),
+            workKey.sha256,
+            ontologyFingerprint,
+            finalPlan,
+            extracted,
+            discoveries,
+        )
+        tasks.transition(input.taskId, input.projectId, input.ownerUserId, DocumentProcessingStatus.AwaitingReview,
+            input.documents.size, 100, "Grounded evidence-linked recommendations are ready for review.")
+    }
+
+    private fun recordGroundedStage(
+        input: DocumentIngestionProcessingInput,
+        stage: DocumentAnalysisStage,
+        name: String,
+        started: Instant,
+        inputHash: String,
+        outputHash: String,
+        count: Int,
+        attempts: Int,
+        modelId: String? = null,
+        logicalCalls: Int = count,
+    ): Unit {
+        val finished = Instant.now(configuration.clock)
+        recordStage(
+            input,
+            DocumentAnalysisStageRecord(
+                recordId = "phase-12-$name-${outputHash.take(24)}",
+                stage = stage,
+                state = DocumentAnalysisStageState.Succeeded,
+                scopeId = input.taskId.value,
+                startedAt = started,
+                finishedAt = finished,
+                durationMillis = java.time.Duration.between(started, finished).toMillis().coerceAtLeast(0),
+                selectedModelId = modelId,
+                promptVersion = modelId?.let { DocumentAnalysisPipelineVersions.GROUNDED_PROMPT },
+                requestSchemaVersion = modelId?.let { DocumentAnalysisPipelineVersions.GROUNDED_REQUEST },
+                responseSchemaVersion = modelId?.let { DocumentAnalysisPipelineVersions.GROUNDED_RESPONSE },
+                inputSha256 = inputHash,
+                outputSha256 = outputHash,
+                providerAttemptCount = attempts,
+                completedCount = logicalCalls,
+                totalCount = logicalCalls,
+            ),
+        )
+    }
+
+    private fun groundedDiscoveries(
+        candidates: List<com.entio.core.DocumentGroundedCandidate>,
+        extracted: List<ExtractedDocument>,
+    ): List<DocumentDiscovery> {
+        val blocks = extracted.flatMap { it.blocks }.associateBy { it.id }
+        return candidates.map { candidate ->
+            val evidence = candidate.evidenceSpans.map { span ->
+                val block = blocks.getValue(span.blockId)
+                DocumentEvidence(
+                    span.evidenceId,
+                    DocumentEvidenceType.Explicit,
+                    listOf(
+                        DocumentEvidenceReference(
+                            span.referenceId,
+                            span.documentId,
+                            span.blockId,
+                            span.pageNumber,
+                            span.section,
+                            span.startOffsetInBlock,
+                            span.endOffsetInBlock,
+                            span.exactText,
+                            block.extractionMethod,
+                            block.ocrConfidence,
+                        ),
+                    ),
+                )
+            }.sortedBy { it.id.value }
+            val kind = when (candidate.category) {
+                com.entio.core.DocumentCandidateExtractionCategory.Person,
+                com.entio.core.DocumentCandidateExtractionCategory.Organization,
+                -> DocumentDiscoveryKind.Individual
+                com.entio.core.DocumentCandidateExtractionCategory.RelationshipPhrase -> DocumentDiscoveryKind.Relationship
+                com.entio.core.DocumentCandidateExtractionCategory.AttributeValue -> DocumentDiscoveryKind.Attribute
+                com.entio.core.DocumentCandidateExtractionCategory.MonetaryAmount,
+                com.entio.core.DocumentCandidateExtractionCategory.Date,
+                com.entio.core.DocumentCandidateExtractionCategory.Identifier,
+                -> DocumentDiscoveryKind.Value
+                com.entio.core.DocumentCandidateExtractionCategory.RuleCue -> DocumentDiscoveryKind.ConditionalRule
+                com.entio.core.DocumentCandidateExtractionCategory.Administrative -> DocumentDiscoveryKind.Metadata
+                else -> DocumentDiscoveryKind.Concept
+            }
+            DocumentDiscovery(
+                candidate.id,
+                candidate.documentId,
+                kind,
+                if (candidate.category == com.entio.core.DocumentCandidateExtractionCategory.Administrative) {
+                    DocumentContentClassification.AdministrativeMetadata
+                } else {
+                    DocumentContentClassification.BusinessContent
+                },
+                if (candidate.category == com.entio.core.DocumentCandidateExtractionCategory.Illustrative) {
+                    DocumentAssertionClassification.IllustrativeExample
+                } else {
+                    DocumentAssertionClassification.ExplicitFact
+                },
+                candidate.displayText,
+                evidence,
+                evidenceConfidence = 100,
+                individualClassification = if (kind == DocumentDiscoveryKind.Individual) {
+                    DocumentIndividualClassification.Unknown
+                } else {
+                    null
+                },
+            )
+        }.sortedBy(DocumentDiscovery::stableOrderingKey)
     }
 
     private fun announce(

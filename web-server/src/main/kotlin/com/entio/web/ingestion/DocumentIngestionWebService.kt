@@ -333,6 +333,7 @@ public class DocumentIngestionWebService(
             credentials,
             settings,
             provider,
+            stagingSnapshot = { projectId -> staging?.snapshot(projectId) },
         )
     }
 
