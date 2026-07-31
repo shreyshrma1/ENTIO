@@ -46,6 +46,33 @@ import kotlinx.coroutines.withTimeout
 
 class DocumentIngestionOrchestratorTest {
     @Test
+    fun runsDeterministicCandidatesAndRetrievalBeforeGroundedModeling(): Unit = runBlocking {
+        val fixture = fixture(readyModel = true, groundedAnalysisEnabled = true)
+        val before = Files.readAllBytes(fixture.source)
+        val taskId = fixture.manager.begin("simple", "alice", 1)
+        val directory = fixture.manager.directory(taskId, "simple", "alice")
+        val upload = fixture.intake.accept(
+            taskId, directory, "simple", "alice", metadata(),
+            ByteArrayInputStream("Payment policy governs approved accounts.".toByteArray()),
+        )
+        fixture.manager.addDocument(taskId, "simple", "alice", upload)
+        fixture.manager.completeIntake(taskId, "simple", "alice")
+
+        fixture.orchestrator.start(taskId.value, "simple", "alice")
+        fixture.orchestrator.await(taskId.value)
+
+        val task = fixture.manager.find(taskId, "simple", "alice")
+        assertEquals("awaiting-review", task.status, task.updates.joinToString(" | ") { it.message })
+        assertTrue(fixture.provider.groundedCalls > 0)
+        assertEquals(0, fixture.provider.discoveryCalls)
+        assertEquals(0, fixture.provider.connectedModelCalls)
+        assertTrue(task.analysisStages.count { it.stage == DocumentAnalysisStage.SemanticAssembly && it.providerAttemptCount == 0 } >= 2)
+        assertTrue(task.analysisStages.any { it.stage == DocumentAnalysisStage.ConnectedModeling && it.providerAttemptCount > 0 })
+        assertEquals(before.toList(), Files.readAllBytes(fixture.source).toList())
+        fixture.close()
+    }
+
+    @Test
     fun connectsIntakeExtractionAnalysisMatchingAndReviewWithoutWritingOntology(): Unit = runBlocking {
         val fixture = fixture(readyModel = true)
         val before = Files.readAllBytes(fixture.source)
@@ -582,6 +609,7 @@ class DocumentIngestionOrchestratorTest {
         blockDiscovery: Boolean = false,
         providerStarted: CompletableDeferred<Unit>? = null,
         providerCancelled: CompletableDeferred<Unit>? = null,
+        groundedAnalysisEnabled: Boolean = false,
     ): Fixture {
         val now = Instant.parse("2026-07-24T12:00:00Z")
         val root = Files.createTempDirectory("entio-orchestration-projects")
@@ -618,6 +646,7 @@ class DocumentIngestionOrchestratorTest {
         val configuration = DocumentIngestionConfiguration(
             temporaryRoot = temporary,
             provenanceRoot = Files.createTempDirectory("entio-orchestration-provenance"),
+            groundedAnalysisEnabled = groundedAnalysisEnabled,
             clock = Clock.fixed(now, ZoneOffset.UTC),
             idFactory = { "id-${nextId++}" },
         )
@@ -671,7 +700,7 @@ class DocumentIngestionOrchestratorTest {
         private val blockDiscovery: Boolean,
         private val providerStarted: CompletableDeferred<Unit>?,
         private val providerCancelled: CompletableDeferred<Unit>?,
-    ) : DocumentPipelineProvider {
+    ) : DocumentPipelineProvider, DocumentGroundedAnalysisProvider {
         val connectedModelInstructions: MutableList<String> = mutableListOf()
         val finalPlanningInstructions: MutableList<String> = mutableListOf()
         var discoveryCalls: Int = 0
@@ -688,6 +717,43 @@ class DocumentIngestionOrchestratorTest {
             private set
         var finalPlanningCalls: Int = 0
             private set
+        var groundedCalls: Int = 0
+            private set
+
+        override suspend fun analyzeGrounded(
+            apiKey: String,
+            selectedModelId: String,
+            systemInstruction: String,
+            request: DocumentGroundedAnalysisRequest,
+        ): DocumentGroundedAnalysisProviderResult {
+            groundedCalls += 1
+            val items = request.candidates.map { candidate ->
+                com.entio.core.DocumentGroundedSemanticItem(
+                    id = "item-${candidate.id}",
+                    kind = DocumentSemanticItemKind.Class,
+                    label = candidate.displayText,
+                    candidateIds = listOf(candidate.id),
+                    evidenceIds = candidate.evidenceSpans.map { it.evidenceId }.distinct().sortedBy { it.value },
+                    disposition = com.entio.core.DocumentGroundedDisposition.ProposeNew,
+                    rationale = "The exact candidate evidence supports a reviewable concept.",
+                    confidence = DocumentConfidenceDimensions(95, 90, 85),
+                )
+            }.sortedBy { it.stableOrderingKey }
+            return DocumentGroundedAnalysisProviderResult.Completed(
+                com.entio.core.DocumentGroundedAnalysisResult(
+                    com.entio.core.DocumentAnalysisPipelineVersions.GROUNDED_RESPONSE,
+                    items,
+                    request.candidates.map { candidate ->
+                        com.entio.core.DocumentGroundedCoverageDisposition(
+                            candidate.id,
+                            "item-${candidate.id}",
+                            com.entio.core.DocumentGroundedDisposition.ProposeNew,
+                            "The candidate has a complete disposition.",
+                        )
+                    }.sortedBy { it.stableOrderingKey },
+                ),
+            )
+        }
 
         override suspend fun analyze(
             apiKey: String,

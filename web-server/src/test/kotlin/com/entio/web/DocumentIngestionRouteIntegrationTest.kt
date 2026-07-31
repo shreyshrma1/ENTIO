@@ -57,6 +57,7 @@ class DocumentIngestionRouteIntegrationTest {
             module(
                 WebApplicationDependencies(projectRegistry = registry),
                 DocumentIngestionConfiguration(
+                    groundedAnalysisEnabled = false,
                     temporaryRoot = temporary,
                     provenanceRoot = Files.createTempDirectory("entio-ingestion-route-provenance"),
                     idFactory = sequenceOf("one", "two", "three").iterator()::next,
