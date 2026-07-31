@@ -371,14 +371,26 @@ internal class DocumentIngestionOrchestrator(
     ): Unit {
         val project = loadProject(input.projectId)
         val ontologyFingerprint = webGraphFingerprint(project.graph)
-        val candidates = extracted.sortedBy { it.document.id.value }.flatMap { document ->
-            DocumentCandidateExtractionService(configuration).extract(document.document, document.blocks)
-        }.sortedBy(com.entio.core.DocumentGroundedCandidate::stableOrderingKey)
+        val candidateExtractor = DocumentCandidateExtractionService(configuration)
+        val mentions = extracted.sortedBy { it.document.id.value }.flatMap { document ->
+            candidateExtractor.extractMentions(document.document, document.blocks)
+        }.sortedBy(com.entio.core.DocumentEvidenceMention::stableOrderingKey)
+        val extraction = candidateExtractor.promoteCandidates(mentions, ontologyLabels(project))
+        val candidates = extraction.candidates
         require(candidates.isNotEmpty()) { "document-candidate-extraction-empty" }
         val candidateStarted = Instant.now(configuration.clock)
         recordGroundedStage(input, DocumentAnalysisStage.SemanticAssembly, "candidates", candidateStarted,
-            hash(extracted), hash(candidates), candidates.size, 0)
-        announce(input, 48, "Extracted ${candidates.size} deterministic ontology candidate(s).")
+            hash(extracted), hash(extraction), candidates.size, 0)
+        announce(
+            input,
+            48,
+            "Grouped ${mentions.size} evidence mention(s) into ${candidates.size} ontology-bearing candidate(s).",
+            listOf(
+                "Document-only mentions: ${extraction.coverage.count { it.kind == com.entio.core.DocumentMentionCoverageKind.DocumentOnly }}.",
+                "Supporting values: ${extraction.coverage.count { it.kind == com.entio.core.DocumentMentionCoverageKind.SupportingValue }}.",
+                "Rejected low-value mentions: ${extraction.coverage.count { it.kind == com.entio.core.DocumentMentionCoverageKind.Rejected }}.",
+            ),
+        )
         checkCancellation(input)
 
         val retrievalContext = DocumentRetrievalContextFactory().create(
@@ -414,7 +426,7 @@ internal class DocumentIngestionOrchestrator(
             input.projectId,
             input.taskId.value,
             hash(input.documents.map { it.document.checksumSha256 }),
-            hash(candidates.flatMap { it.evidenceSpans }),
+            hash(mentions),
             hash(candidates),
             hash(retrieval.results),
             retrievalContext.fingerprints.ontologySha256,
@@ -435,7 +447,10 @@ internal class DocumentIngestionOrchestrator(
                 "The configured provider does not support grounded document analysis.",
             ),
             isCancelled,
-        )
+        ) { completed, planned ->
+            val percent = 62 + ((completed * 16) / planned.coerceAtLeast(1)).coerceIn(0, 16)
+            announce(input, percent, "Grounded modeling completed $completed of $planned planned group(s).")
+        }
         val modeledStarted = Instant.now(configuration.clock)
         val modeled = credentials.withCredentialSuspending(input.ownerUserId) { _, apiKey ->
             groundedService.analyze(apiKey, selected, input.taskId.value, candidates, retrieval.results)
@@ -502,13 +517,25 @@ internal class DocumentIngestionOrchestrator(
             DocumentGroundedReviewContext(
                 analysis = analysis,
                 retrieval = retrieval.results,
+                mentionCoverage = extraction.coverage,
                 editableFields = verified.editableFields,
                 statusByItemId = verified.statusByItemId,
                 itemIdsByRecommendationId = itemIdsByRecommendationId,
                 counts = com.entio.core.DocumentAnalysisCounts(
                     evidenceBlocks = extracted.sumOf { it.blocks.size },
+                    evidenceMentions = mentions.size,
+                    groupedCandidates = extraction.groupedCandidateCount,
+                    ontologyBearingCandidates = candidates.size,
+                    documentOnlyMentions = extraction.coverage.count {
+                        it.kind == com.entio.core.DocumentMentionCoverageKind.DocumentOnly
+                    },
+                    supportingValueMentions = extraction.coverage.count {
+                        it.kind == com.entio.core.DocumentMentionCoverageKind.SupportingValue
+                    },
                     nlpCandidatesRetained = candidates.size,
-                    nlpCandidatesRejected = 0,
+                    nlpCandidatesRejected = extraction.coverage.count {
+                        it.kind == com.entio.core.DocumentMentionCoverageKind.Rejected
+                    },
                     groundedItemsRetained = analysis.items.size,
                     groundedItemsUnresolved = analysis.coverage.count {
                         it.disposition == com.entio.core.DocumentGroundedDisposition.Unresolved
@@ -578,28 +605,7 @@ internal class DocumentIngestionOrchestrator(
         extracted: List<ExtractedDocument>,
     ): List<DocumentDiscovery> {
         val blocks = extracted.flatMap { it.blocks }.associateBy { it.id }
-        return candidates.map { candidate ->
-            val evidence = candidate.evidenceSpans.map { span ->
-                val block = blocks.getValue(span.blockId)
-                DocumentEvidence(
-                    span.evidenceId,
-                    DocumentEvidenceType.Explicit,
-                    listOf(
-                        DocumentEvidenceReference(
-                            span.referenceId,
-                            span.documentId,
-                            span.blockId,
-                            span.pageNumber,
-                            span.section,
-                            span.startOffsetInBlock,
-                            span.endOffsetInBlock,
-                            span.exactText,
-                            block.extractionMethod,
-                            block.ocrConfidence,
-                        ),
-                    ),
-                )
-            }.sortedBy { it.id.value }
+        return candidates.flatMap { candidate ->
             val kind = when (candidate.category) {
                 com.entio.core.DocumentCandidateExtractionCategory.Person,
                 com.entio.core.DocumentCandidateExtractionCategory.Organization,
@@ -614,31 +620,62 @@ internal class DocumentIngestionOrchestrator(
                 com.entio.core.DocumentCandidateExtractionCategory.Administrative -> DocumentDiscoveryKind.Metadata
                 else -> DocumentDiscoveryKind.Concept
             }
-            DocumentDiscovery(
-                candidate.id,
-                candidate.documentId,
-                kind,
-                if (candidate.category == com.entio.core.DocumentCandidateExtractionCategory.Administrative) {
-                    DocumentContentClassification.AdministrativeMetadata
-                } else {
-                    DocumentContentClassification.BusinessContent
-                },
-                if (candidate.category == com.entio.core.DocumentCandidateExtractionCategory.Illustrative) {
-                    DocumentAssertionClassification.IllustrativeExample
-                } else {
-                    DocumentAssertionClassification.ExplicitFact
-                },
-                candidate.displayText,
-                evidence,
-                evidenceConfidence = 100,
-                individualClassification = if (kind == DocumentDiscoveryKind.Individual) {
-                    DocumentIndividualClassification.Unknown
-                } else {
-                    null
-                },
-            )
+            candidate.evidenceSpans.groupBy { it.documentId }
+                .toSortedMap(compareBy<com.entio.core.DocumentId> { it.value })
+                .entries
+                .mapIndexed { index, entry ->
+                val (documentId, spans) = entry
+                val evidence = spans.map { span ->
+                    val block = blocks.getValue(span.blockId)
+                    DocumentEvidence(
+                        span.evidenceId,
+                        DocumentEvidenceType.Explicit,
+                        listOf(
+                            DocumentEvidenceReference(
+                                span.referenceId,
+                                span.documentId,
+                                span.blockId,
+                                span.pageNumber,
+                                span.section,
+                                span.startOffsetInBlock,
+                                span.endOffsetInBlock,
+                                span.exactText,
+                                block.extractionMethod,
+                                block.ocrConfidence,
+                            ),
+                        ),
+                    )
+                }.sortedBy { it.id.value }
+                DocumentDiscovery(
+                    if (index == 0) candidate.id else "${candidate.id}-evidence-${hash(documentId.value).take(12)}",
+                    documentId,
+                    kind,
+                    DocumentContentClassification.BusinessContent,
+                    DocumentAssertionClassification.ExplicitFact,
+                    candidate.displayText,
+                    evidence,
+                    evidenceConfidence = 100,
+                    individualClassification = if (kind == DocumentDiscoveryKind.Individual) {
+                        DocumentIndividualClassification.Unknown
+                    } else {
+                        null
+                    },
+                )
+            }
         }.sortedBy(DocumentDiscovery::stableOrderingKey)
     }
+
+    private fun ontologyLabels(project: com.entio.core.EntioProject): Set<String> = descriptions.describeAll(project)
+        .flatMap { descriptor ->
+            val common = descriptor.common
+            buildList {
+                common.preferredLabel?.lexicalForm?.let(::add)
+                addAll(common.alternateLabels.map { it.lexicalForm })
+                add(common.entity.value.substringAfterLast('#').substringAfterLast('/'))
+            }
+        }
+        .filter(String::isNotBlank)
+        .toSet()
 
     private fun announce(
         input: DocumentIngestionProcessingInput,

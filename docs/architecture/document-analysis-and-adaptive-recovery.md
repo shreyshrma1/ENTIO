@@ -64,7 +64,8 @@ blocks and offsets.
 `DocumentCandidateExtractionService` analyzes the verified English text before
 any document semantic model call. It uses pinned Apache OpenNLP `2.5.11` with
 English sentence-detector, tokenizer, part-of-speech, and lemmatizer resources
-`1.3.0`, plus bounded product-specific patterns.
+`1.3.0`, plus bounded product-specific patterns. An extracted occurrence is an
+`EvidenceMention`, not automatically an ontology candidate.
 
 The extractor can retain:
 
@@ -75,10 +76,20 @@ The extractor can retain:
 - rule cues;
 - administrative and illustrative spans.
 
-Each candidate contains a stable ID, category, normalized text, document
-checksum, exact evidence offsets, extractor contract version, and NLP resource
-version. Kotlin deduplicates exact candidate identities and orders the complete
-inventory deterministically.
+Kotlin first removes or demotes repeated page boilerplate, headings,
+administrative and illustrative text, fragments, generic terms, and standalone
+dates, amounts, percentages, and identifiers. Values remain supporting
+coverage. It then groups exact or safely normalized equivalents across the
+task, so repeated occurrences share one candidate while retaining every
+mention ID. Similar terms remain separate.
+
+A grouped mention is promoted only when deterministic evidence shows a
+definition, connected relationship or rule, repeated meaningful contexts, a
+relevant named entity, or an exact strong ontology match. Each promoted
+candidate contains a stable ID, category, normalized text, representative exact
+evidence, every linked mention ID, promotion reasons, extractor contract
+version, and NLP resource version. Rejected and document-only mentions remain
+in the coverage ledger and do not become review cards.
 
 This stage does not decide whether a candidate is an ontology class, property,
 individual, assertion, or rule. It prepares evidence-linked search input.
@@ -198,6 +209,8 @@ change reaches ontology or SHACL sources.
 Phase 12 reports different counts for different stages:
 
 - evidence blocks;
+- evidence mentions, safely grouped candidates, and ontology-bearing candidates;
+- document-only mentions and supporting values;
 - retained and rejected NLP candidates;
 - retained, unresolved, and rejected grounded items;
 - executable, needs-input, review-only, and blocked recommendations;
@@ -217,10 +230,13 @@ grounded limits:
 
 - at most 20 prompt-visible retrieval choices per candidate;
 - at most 40 candidates in one grounded request group;
-- at most 15 grounded logical calls per task;
-- at most 20 grounded provider attempts per task;
 - at most one exact-input retry for one retryable grounded call;
 - at most 20 expanded typed edits in one final recommendation or staging batch.
+
+There is no task-wide group ceiling. The number of initial groups grows with
+the promoted candidate inventory. Every failed group can split only into two
+smaller groups, and splitting terminates at a single candidate, so recovery is
+finite without silently omitting later groups.
 
 If a grounded request reaches an approved response/output limit or the provider
 is temporarily unavailable, Entio can split only that candidate group into two

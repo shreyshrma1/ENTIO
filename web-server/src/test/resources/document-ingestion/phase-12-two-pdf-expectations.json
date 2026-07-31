@@ -1,5 +1,5 @@
 {
-  "contractVersion": "phase-12-two-document-benchmark-v1",
+  "contractVersion": "phase-12-two-document-benchmark-v2",
   "scoringVersion": "phase-12-benchmark-scoring-v1",
   "documents": {
     "consumer-lending-servicing-compliance-standard.pdf": "e191111a9aae8c28fce2e2505897f12c84f656aff80fd7cca4708e30ac15ddc0",
@@ -8,7 +8,7 @@
   "historicalManifestSha256": "006e9786c4eb9c1fa194b35e07ca49db539a65708e5f7b5a3f8485fb70ef6ef6",
   "ontologySourceSha256": "a7e2527970ec5211239a2988f5e7a241ba1ad456ad4d8435a624a4a81f890b72",
   "currentWorkFingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "groundedInputsSha256": "241b7734cdf11da0167fbb4e3fda520f897519d818e2a77d453c70fa55e7ed73",
+  "groundedInputsSha256": "6d11e52a3d13ffd5646cb61e5a0b256d5605471b75dcb182a2d17551d9350db2",
   "candidateLabels": [
     "Account",
     "Consumer Loan",

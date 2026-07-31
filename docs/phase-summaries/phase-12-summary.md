@@ -128,3 +128,17 @@ reload, rollback, and applied-provenance path remains the only ontology write
 path. Phase 12 adds no automatic approval, direct source write, raw RDF
 fallback, second apply path, production document/task persistence, unrestricted
 agent loop, CLI ingestion, or VS Code ingestion.
+
+## Post-completion candidate-volume correction
+
+The active implementation now distinguishes occurrence-level evidence mentions
+from ontology-bearing candidates. Exact and safely normalized mentions are
+grouped across documents, low-value and document-only content remains in a
+coverage ledger, and deterministic promotion reasons decide which groups enter
+retrieval. The review workspace reports the resulting funnel without rendering
+document-only entries as recommendation cards.
+
+Grounded requests still contain at most 40 candidates and retain one bounded
+retry plus finite adaptive splitting, but no task-wide group count limits the
+number of documents or promoted candidates. FIBO normalization is compiled once
+and FIBO search results are reused within each candidate retrieval pass.

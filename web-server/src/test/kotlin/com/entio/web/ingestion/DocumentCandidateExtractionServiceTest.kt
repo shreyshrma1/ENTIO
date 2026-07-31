@@ -3,6 +3,7 @@ package com.entio.web.ingestion
 import com.entio.core.DocumentAuthorityMetadata
 import com.entio.core.DocumentAuthorityStatus
 import com.entio.core.DocumentCandidateExtractionCategory
+import com.entio.core.DocumentCandidatePromotionReason
 import com.entio.core.DocumentExtractionMethod
 import com.entio.core.DocumentId
 import com.entio.core.DocumentMediaType
@@ -12,6 +13,7 @@ import com.entio.core.DocumentTextBlockId
 import com.entio.core.IngestionDocument
 import com.entio.core.LocatedDocumentTextBlock
 import java.nio.file.Path
+import java.nio.file.Files
 import java.time.Instant
 import kotlin.io.path.readText
 import kotlin.system.measureTimeMillis
@@ -27,8 +29,8 @@ class DocumentCandidateExtractionServiceTest {
 
     @Test
     fun `extracts required local candidate categories with exact evidence`(): Unit {
-        val candidates = DocumentCandidateExtractionService(configuration()).extract(document, listOf(block))
-        val categories = candidates.mapTo(mutableSetOf()) { it.category }
+        val mentions = DocumentCandidateExtractionService(configuration()).extractMentions(document, listOf(block))
+        val categories = mentions.mapTo(mutableSetOf()) { it.category }
 
         assertTrue(DocumentCandidateExtractionCategory.Person in categories)
         assertTrue(DocumentCandidateExtractionCategory.Organization in categories)
@@ -40,14 +42,14 @@ class DocumentCandidateExtractionServiceTest {
         assertTrue(DocumentCandidateExtractionCategory.RelationshipPhrase in categories)
         assertTrue(DocumentCandidateExtractionCategory.AttributeValue in categories)
         assertTrue(DocumentCandidateExtractionCategory.RuleCue in categories)
-        assertTrue(candidates.all { candidate ->
-            candidate.evidenceSpans.all { span ->
+        assertTrue(mentions.all { mention ->
+            listOf(mention.evidenceSpan).all { span ->
                 span.documentId == document.id &&
                     span.blockId == block.id &&
                     block.exactText.substring(span.startOffsetInBlock, span.endOffsetInBlock) == span.exactText
             }
         })
-        assertTrue(candidates.filter { it.category == DocumentCandidateExtractionCategory.RelationshipPhrase }
+        assertTrue(mentions.filter { it.category == DocumentCandidateExtractionCategory.RelationshipPhrase }
             .any { it.hints.isNotEmpty() })
     }
 
@@ -56,27 +58,30 @@ class DocumentCandidateExtractionServiceTest {
         val service = DocumentCandidateExtractionService(configuration())
         val first: List<String>
         val elapsed = measureTimeMillis {
-            first = service.extract(document, listOf(block)).map { it.id }
+            first = service.extractMentions(document, listOf(block)).map { it.id }
         }
-        val second = service.extract(document, listOf(block)).map { it.id }
+        val second = service.extractMentions(document, listOf(block)).map { it.id }
 
         assertEquals(first, second)
         assertTrue(elapsed < 2_000, "Pinned local NLP initialization and extraction exceeded the audited bound.")
     }
 
     @Test
-    fun `keeps similar business terms separate and removes exact duplicate output`(): Unit {
-        val candidates = DocumentCandidateExtractionService(configuration()).extract(document, listOf(block))
-        val concepts = candidates.filter { it.category == DocumentCandidateExtractionCategory.ConceptTerm }
-
-        assertTrue(concepts.any { it.normalizedText == "payment" })
-        assertTrue(concepts.any { it.normalizedText == "payment instruction" })
-        assertEquals(
-            candidates.size,
-            candidates.distinctBy {
-                listOf(it.category.name, it.evidenceSpans.single().stableOrderingKey, it.normalizedText)
-            }.size,
+    fun `groups safe equivalents and promotes only meaning-bearing candidates`(): Unit {
+        val repeated = listOf(
+            block(document.id, "A Payment Instruction authorizes a transfer.").copy(id = DocumentTextBlockId("block-1")),
+            block(document.id, "Payment Instructions are reviewed by an analyst.").copy(id = DocumentTextBlockId("block-2"), blockOrder = 1),
+            block(document.id, "Information appears in this section.").copy(id = DocumentTextBlockId("block-3"), blockOrder = 2),
         )
+        val service = DocumentCandidateExtractionService(configuration())
+        val mentions = service.extractMentions(document, repeated)
+        val extraction = service.promoteCandidates(mentions)
+        val paymentInstruction = extraction.candidates.single { it.normalizedText == "payment instruction" }
+
+        assertEquals(2, paymentInstruction.mentionIds.size)
+        assertTrue(DocumentCandidatePromotionReason.RepeatedMeaningfulContext in paymentInstruction.promotionReasons)
+        assertTrue(extraction.candidates.none { it.normalizedText == "information" })
+        assertTrue(extraction.coverage.any { it.reasonCode == "low-value-mention" })
     }
 
     @Test
@@ -84,13 +89,87 @@ class DocumentCandidateExtractionServiceTest {
         val administrative = block(document.id, "Revision 4 approved July 2026.", section = "Revision History")
         val illustrative = block(document.id, "For example, Elena approves invoice INV-1.", section = "Example")
             .copy(id = DocumentTextBlockId("block-illustrative"), blockOrder = 1)
-        val candidates = DocumentCandidateExtractionService(configuration()).extract(
+        val service = DocumentCandidateExtractionService(configuration())
+        val mentions = service.extractMentions(
             document,
             listOf(administrative, illustrative),
         )
+        val extraction = service.promoteCandidates(mentions)
 
-        assertTrue(candidates.any { it.category == DocumentCandidateExtractionCategory.Administrative })
-        assertTrue(candidates.any { it.category == DocumentCandidateExtractionCategory.Illustrative })
+        assertTrue(mentions.any { it.category == DocumentCandidateExtractionCategory.Administrative })
+        assertTrue(mentions.any { it.category == DocumentCandidateExtractionCategory.Illustrative })
+        assertTrue(extraction.candidates.isEmpty())
+        assertTrue(extraction.coverage.all { it.reasonCode == "document-only" })
+    }
+
+    @Test
+    fun `keeps similar concepts separate and promotes an exact ontology match`(): Unit {
+        val blocks = listOf(
+            block(document.id, "A payment instruction is available.").copy(id = DocumentTextBlockId("block-1")),
+            block(document.id, "The payment instruction remains active.").copy(id = DocumentTextBlockId("block-2"), blockOrder = 1),
+            block(document.id, "A transfer instruction is available.").copy(id = DocumentTextBlockId("block-3"), blockOrder = 2),
+            block(document.id, "The transfer instruction remains active.").copy(id = DocumentTextBlockId("block-4"), blockOrder = 3),
+            block(document.id, "settlement ledger.").copy(id = DocumentTextBlockId("block-5"), blockOrder = 4),
+        )
+        val service = DocumentCandidateExtractionService(configuration())
+        val mentions = service.extractMentions(document, blocks)
+        val extraction = service.promoteCandidates(mentions, setOf("Settlement Ledger"))
+
+        assertTrue(extraction.candidates.any { it.normalizedText == "payment instruction" })
+        assertTrue(extraction.candidates.any { it.normalizedText == "transfer instruction" })
+        assertTrue(extraction.candidates.any {
+            it.normalizedText == "settlement ledger" &&
+                DocumentCandidatePromotionReason.StrongOntologyMatch in it.promotionReasons
+        })
+    }
+
+    @Test
+    fun `retains standalone values only as supporting coverage`(): Unit {
+        val valueBlock = block(document.id, "USD 25.00 2026-07-31 REF-2026-44.")
+        val service = DocumentCandidateExtractionService(configuration())
+        val extraction = service.promoteCandidates(service.extractMentions(document, listOf(valueBlock)))
+
+        assertTrue(extraction.candidates.isEmpty())
+        assertTrue(extraction.coverage.isNotEmpty())
+        assertTrue(extraction.coverage.all { it.kind == com.entio.core.DocumentMentionCoverageKind.SupportingValue })
+    }
+
+    @Test
+    fun `reduces the frozen two document corpus before ontology retrieval`(): Unit {
+        val temporary = Files.createTempDirectory("entio-candidate-funnel-test")
+        val config = configuration().copy(temporaryRoot = temporary)
+        val directory = TemporaryTaskDirectory("task-funnel", temporary)
+        val files = listOf(
+            "consumer-lending-servicing-compliance-standard.pdf",
+            "commercial-account-and-payment-authorization-policy.pdf",
+        ).map { filename -> Path.of("../examples/simple-ontology/documents/$filename").toAbsolutePath().normalize() }
+        val extracted = files.mapIndexed { index, path ->
+            val ingestionDocument = document().copy(
+                id = DocumentId("document-${index + 1}"),
+                safeFilename = path.fileName.toString(),
+                mediaType = DocumentMediaType.Pdf,
+                byteSize = Files.size(path),
+                checksumSha256 = sha256(path),
+            )
+            DocumentExtractionService(config).extract(
+                AcceptedDocumentUpload(
+                    ingestionDocument,
+                    StoredDocumentFile(path.fileName.toString(), path, Files.size(path)),
+                ),
+                directory,
+            )
+        }
+        val service = DocumentCandidateExtractionService(config)
+        val mentions = extracted.flatMap { service.extractMentions(it.document, it.blocks) }
+            .sortedBy(com.entio.core.DocumentEvidenceMention::stableOrderingKey)
+        val extraction = service.promoteCandidates(mentions)
+
+        assertTrue(mentions.size > 100)
+        assertTrue(extraction.groupedCandidateCount < mentions.size)
+        assertTrue(extraction.candidates.size < extraction.groupedCandidateCount)
+        assertTrue(extraction.candidates.size <= 250, "The frozen two-document corpus regressed to excessive retrieval volume.")
+        assertTrue(extraction.coverage.any { it.kind == com.entio.core.DocumentMentionCoverageKind.SupportingValue })
+        assertTrue(extraction.coverage.any { it.kind == com.entio.core.DocumentMentionCoverageKind.Rejected })
     }
 
     @Test
@@ -99,10 +178,10 @@ class DocumentCandidateExtractionServiceTest {
         val crossDocument = block(DocumentId("document-2"), text)
 
         val crossFailure = assertFailsWith<DocumentIngestionFailure> {
-            service.extract(document, listOf(crossDocument))
+            service.extractMentions(document, listOf(crossDocument))
         }
         val missingFailure = assertFailsWith<DocumentIngestionFailure> {
-            service.extract(document, emptyList())
+            service.extractMentions(document, emptyList())
         }
         assertEquals("document-candidate-extraction-failed", crossFailure.code)
         assertEquals("document-candidate-extraction-failed", missingFailure.code)
@@ -117,7 +196,7 @@ class DocumentCandidateExtractionServiceTest {
         )
 
         val failure = assertFailsWith<DocumentIngestionFailure> {
-            service.extract(document, listOf(block))
+            service.extractMentions(document, listOf(block))
         }
         assertEquals("document-candidate-extraction-failed", failure.code)
         assertEquals("Local document candidate extraction resources are unavailable.", failure.message)
@@ -141,6 +220,10 @@ class DocumentCandidateExtractionServiceTest {
         authority = DocumentAuthorityMetadata(DocumentAuthorityStatus.Authoritative),
         status = DocumentProcessingStatus.Analyzing,
     )
+
+    private fun sha256(path: Path): String = java.security.MessageDigest.getInstance("SHA-256")
+        .digest(Files.readAllBytes(path))
+        .joinToString("") { "%02x".format(it) }
 
     private fun block(
         documentId: DocumentId,

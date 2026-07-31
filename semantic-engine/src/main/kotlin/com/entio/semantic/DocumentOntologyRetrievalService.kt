@@ -92,13 +92,17 @@ public class DocumentOntologyRetrievalService(
         }
         val supplied = input.importedRecords + input.currentWorkRecords + input.sameTaskRecords + input.provenanceRecords
         val baseRecords = (projectRecords + supplied).validatedDistinct()
+        val fiboRecordsByCandidateId = input.candidates.associate { candidate ->
+            candidate.id to input.fiboSession?.let {
+                searchFibo(input.projectId, candidate, it, input.fingerprints)
+            }.orEmpty()
+        }
         val results = input.candidates.map { candidate ->
-            val fiboRecords = input.fiboSession?.let { searchFibo(input.projectId, candidate, it, input.fingerprints) }.orEmpty()
+            val fiboRecords = fiboRecordsByCandidateId.getValue(candidate.id)
             result(candidate, (baseRecords + fiboRecords).validatedDistinct())
         }
         val fullStateMatches = input.candidates.flatMap { candidate ->
-            fullStateMatches(candidate, baseRecords +
-                input.fiboSession?.let { searchFibo(input.projectId, candidate, it, input.fingerprints) }.orEmpty())
+            fullStateMatches(candidate, baseRecords + fiboRecordsByCandidateId.getValue(candidate.id))
         }.sortedWith(compareBy(DocumentFullStateMatch::candidateId)
             .thenBy { it.scope.ordinal }
             .thenBy { it.canonicalIri.value }

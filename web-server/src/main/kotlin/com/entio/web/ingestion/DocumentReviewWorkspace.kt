@@ -318,6 +318,7 @@ private data class StoredVerifiedPlan(
 internal data class DocumentGroundedReviewContext(
     val analysis: DocumentGroundedAnalysisResult,
     val retrieval: List<DocumentOntologyRetrievalResult>,
+    val mentionCoverage: List<com.entio.core.DocumentMentionCoverageDisposition>,
     val editableFields: List<DocumentEditableGroundedField>,
     val statusByItemId: Map<String, DocumentGroundedRecommendationStatus>,
     val itemIdsByRecommendationId: Map<String, List<String>>,

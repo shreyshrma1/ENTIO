@@ -32,6 +32,26 @@ public enum class DocumentCandidateHintRole {
     Value,
 }
 
+public enum class DocumentCandidatePromotionReason {
+    RelationshipParticipant,
+    DefinedOrDescribed,
+    RepeatedMeaningfulContext,
+    NamedEntity,
+    StrongOntologyMatch,
+    ConnectedRelationship,
+    RuleOrRequirement,
+    RequiredPrerequisite,
+    ModelSupplement,
+}
+
+public enum class DocumentMentionCoverageKind {
+    Promoted,
+    MergedIntoCandidate,
+    SupportingValue,
+    DocumentOnly,
+    Rejected,
+}
+
 public data class DocumentGroundedEvidenceSpan(
     public val evidenceId: DocumentEvidenceId,
     public val referenceId: DocumentEvidenceId,
@@ -68,6 +88,47 @@ public data class DocumentCandidateHint(
         get() = "${role.ordinal.toString().padStart(2, '0')}:$text:${relatedCandidateId.orEmpty()}"
 }
 
+public data class DocumentEvidenceMention(
+    public val id: String,
+    public val category: DocumentCandidateExtractionCategory,
+    public val displayText: String,
+    public val normalizedText: String,
+    public val documentChecksumSha256: String,
+    public val evidenceSpan: DocumentGroundedEvidenceSpan,
+    public val hints: List<DocumentCandidateHint> = emptyList(),
+    public val promotionSignals: List<DocumentCandidatePromotionReason> = emptyList(),
+) {
+    init {
+        requireOpaqueDocumentId(id, "Document evidence mention ID")
+        requireNonBlankBounded(displayText, "Document evidence mention text", 2_000)
+        requireNonBlankBounded(normalizedText, "Document evidence mention normalized text", 2_000)
+        require(normalizedText == normalizedText.lowercase())
+        requireSha256(documentChecksumSha256, "Document evidence mention checksum")
+        require(hints == hints.distinct().sortedBy(DocumentCandidateHint::stableOrderingKey))
+        require(promotionSignals == promotionSignals.distinct().sortedBy { it.ordinal })
+    }
+
+    public val stableOrderingKey: String
+        get() = "${evidenceSpan.stableOrderingKey}:${category.ordinal.toString().padStart(2, '0')}:$id"
+}
+
+public data class DocumentMentionCoverageDisposition(
+    public val mentionId: String,
+    public val kind: DocumentMentionCoverageKind,
+    public val candidateId: String? = null,
+    public val reasonCode: String,
+) {
+    init {
+        requireOpaqueDocumentId(mentionId, "Document mention coverage ID")
+        candidateId?.let { requireOpaqueDocumentId(it, "Document mention candidate ID") }
+        requireNonBlankBounded(reasonCode, "Document mention coverage reason", 200)
+        require((kind in setOf(DocumentMentionCoverageKind.Promoted, DocumentMentionCoverageKind.MergedIntoCandidate)) ==
+            (candidateId != null))
+    }
+
+    public val stableOrderingKey: String get() = "$mentionId:${kind.ordinal}:$reasonCode"
+}
+
 public data class DocumentGroundedCandidate(
     public val id: String,
     public val origin: DocumentCandidateOrigin,
@@ -80,6 +141,8 @@ public data class DocumentGroundedCandidate(
     public val hints: List<DocumentCandidateHint> = emptyList(),
     public val extractorContractVersion: String,
     public val resourceVersion: String,
+    public val mentionIds: List<String> = emptyList(),
+    public val promotionReasons: List<DocumentCandidatePromotionReason> = emptyList(),
 ) {
     init {
         requireOpaqueDocumentId(id, "Grounded document candidate ID")
@@ -90,14 +153,58 @@ public data class DocumentGroundedCandidate(
         require(evidenceSpans.isNotEmpty())
         require(evidenceSpans == evidenceSpans.distinctBy(DocumentGroundedEvidenceSpan::referenceId)
             .sortedBy(DocumentGroundedEvidenceSpan::stableOrderingKey))
-        require(evidenceSpans.all { it.documentId == documentId })
+        require(evidenceSpans.any { it.documentId == documentId })
         require(hints == hints.distinct().sortedBy(DocumentCandidateHint::stableOrderingKey))
+        require(mentionIds == mentionIds.distinct().sorted())
+        mentionIds.forEach { requireOpaqueDocumentId(it, "Grounded candidate mention ID") }
+        require(promotionReasons == promotionReasons.distinct().sortedBy { it.ordinal })
+        require(mentionIds.isEmpty() || promotionReasons.isNotEmpty())
         requireNonBlankBounded(extractorContractVersion, "Candidate extractor contract version")
         requireNonBlankBounded(resourceVersion, "Candidate extractor resource version")
     }
 
     public val stableOrderingKey: String
-        get() = "${documentId.value}:${evidenceSpans.first().stableOrderingKey}:${category.ordinal.toString().padStart(2, '0')}:$id"
+        get() = "${normalizedText}:${category.ordinal.toString().padStart(2, '0')}:$id"
+}
+
+public data class DocumentCandidateExtractionResult(
+    public val mentions: List<DocumentEvidenceMention>,
+    public val candidates: List<DocumentGroundedCandidate>,
+    public val coverage: List<DocumentMentionCoverageDisposition>,
+) {
+    init {
+        require(mentions == mentions.distinctBy(DocumentEvidenceMention::id).sortedBy(DocumentEvidenceMention::stableOrderingKey))
+        require(candidates == candidates.distinctBy(DocumentGroundedCandidate::id).sortedBy(DocumentGroundedCandidate::stableOrderingKey))
+        require(coverage == coverage.distinctBy(DocumentMentionCoverageDisposition::mentionId)
+            .sortedBy(DocumentMentionCoverageDisposition::stableOrderingKey))
+        require(coverage.map(DocumentMentionCoverageDisposition::mentionId).toSet() == mentions.map(DocumentEvidenceMention::id).toSet())
+        val candidateIds = candidates.map(DocumentGroundedCandidate::id).toSet()
+        require(coverage.mapNotNull(DocumentMentionCoverageDisposition::candidateId).all(candidateIds::contains))
+        require(candidates.flatMap(DocumentGroundedCandidate::mentionIds).toSet() ==
+            coverage.filter { it.candidateId != null }.map(DocumentMentionCoverageDisposition::mentionId).toSet())
+    }
+
+    public val groupedCandidateCount: Int
+        get() = mentions
+            .filter { mention ->
+                mention.category !in setOf(
+                    DocumentCandidateExtractionCategory.Date,
+                    DocumentCandidateExtractionCategory.Identifier,
+                    DocumentCandidateExtractionCategory.MonetaryAmount,
+                    DocumentCandidateExtractionCategory.AttributeValue,
+                    DocumentCandidateExtractionCategory.Administrative,
+                    DocumentCandidateExtractionCategory.Illustrative,
+                )
+            }
+            .distinctBy { mention ->
+                val family = when (mention.category) {
+                    DocumentCandidateExtractionCategory.RelationshipPhrase -> "relationship"
+                    DocumentCandidateExtractionCategory.RuleCue -> "rule"
+                    else -> "entity"
+                }
+                family to mention.normalizedText
+            }
+            .size
 }
 
 public data class DocumentRetrievalFingerprints(
@@ -346,6 +453,11 @@ public data class DocumentEditableGroundedField(
 
 public data class DocumentAnalysisCounts(
     public val evidenceBlocks: Int,
+    public val evidenceMentions: Int = 0,
+    public val groupedCandidates: Int = 0,
+    public val ontologyBearingCandidates: Int = 0,
+    public val documentOnlyMentions: Int = 0,
+    public val supportingValueMentions: Int = 0,
     public val nlpCandidatesRetained: Int,
     public val nlpCandidatesRejected: Int,
     public val groundedItemsRetained: Int,
@@ -362,6 +474,11 @@ public data class DocumentAnalysisCounts(
         require(
             listOf(
                 evidenceBlocks,
+                evidenceMentions,
+                groupedCandidates,
+                ontologyBearingCandidates,
+                documentOnlyMentions,
+                supportingValueMentions,
                 nlpCandidatesRetained,
                 nlpCandidatesRejected,
                 groundedItemsRetained,

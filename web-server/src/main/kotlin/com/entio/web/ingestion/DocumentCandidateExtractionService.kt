@@ -1,13 +1,17 @@
 package com.entio.web.ingestion
 
 import com.entio.core.DocumentCandidateExtractionCategory
+import com.entio.core.DocumentCandidateExtractionResult
 import com.entio.core.DocumentCandidateHint
 import com.entio.core.DocumentCandidateHintRole
 import com.entio.core.DocumentCandidateOrigin
+import com.entio.core.DocumentCandidatePromotionReason
 import com.entio.core.DocumentEvidenceId
+import com.entio.core.DocumentEvidenceMention
 import com.entio.core.DocumentGroundedCandidate
 import com.entio.core.DocumentGroundedEvidenceSpan
-import com.entio.core.DocumentTextBlockId
+import com.entio.core.DocumentMentionCoverageDisposition
+import com.entio.core.DocumentMentionCoverageKind
 import com.entio.core.IngestionDocument
 import com.entio.core.LocatedDocumentTextBlock
 import java.nio.ByteBuffer
@@ -36,15 +40,22 @@ private data class NlpToken(
     val end: Int,
 )
 
-private data class ExtractedCandidateSpan(
+private data class ExtractedMentionSpan(
     val category: DocumentCandidateExtractionCategory,
     val displayText: String,
+    val normalizedText: String,
     val start: Int,
     val end: Int,
     val hints: List<DocumentCandidateHint> = emptyList(),
+    val promotionSignals: List<DocumentCandidatePromotionReason> = emptyList(),
 )
 
-/** Deterministic local candidate extraction over already verified English text blocks. */
+private data class DocumentTextSegment(
+    val text: String,
+    val start: Int,
+)
+
+/** Deterministic mention extraction, safe grouping, and ontology-candidate promotion. */
 internal class DocumentCandidateExtractionService(
     private val configuration: DocumentIngestionConfiguration,
     private val resourceLoader: DocumentNlpResourceLoader = DocumentNlpResourceLoader { name ->
@@ -53,166 +64,250 @@ internal class DocumentCandidateExtractionService(
 ) {
     private val pipeline: NlpPipeline by lazy(LazyThreadSafetyMode.SYNCHRONIZED, ::loadPipeline)
 
-    fun extract(document: IngestionDocument, blocks: List<LocatedDocumentTextBlock>): List<DocumentGroundedCandidate> {
+    fun extractMentions(
+        document: IngestionDocument,
+        blocks: List<LocatedDocumentTextBlock>,
+    ): List<DocumentEvidenceMention> {
         try {
             require(blocks.isNotEmpty())
             require(blocks.all { it.documentId == document.id })
             require(blocks == blocks.sortedBy(LocatedDocumentTextBlock::stableOrderingKey))
-            val raw = blocks.flatMap { block -> extractBlock(document, block) }
-            return raw.distinctBy { candidate ->
-                listOf(
-                    candidate.category.name,
-                    candidate.documentId.value,
-                    candidate.evidenceSpans.single().stableOrderingKey,
-                    candidate.normalizedText,
-                )
-            }.sortedBy(DocumentGroundedCandidate::stableOrderingKey)
+            val repeatedBoilerplate = repeatedBoilerplateLines(blocks)
+            return blocks.flatMap { block -> extractBlock(document, block, repeatedBoilerplate) }
+                .distinctBy { mention ->
+                    listOf(mention.category.name, mention.evidenceSpan.stableOrderingKey, mention.normalizedText)
+                }
+                .sortedBy(DocumentEvidenceMention::stableOrderingKey)
         } catch (failure: DocumentIngestionFailure) {
             throw failure
         } catch (_: Exception) {
             throw DocumentIngestionFailure(
                 "document-candidate-extraction-failed",
-                "Local document candidate extraction could not complete.",
+                "Local document mention extraction could not complete.",
             )
         }
+    }
+
+    fun promoteCandidates(
+        mentions: List<DocumentEvidenceMention>,
+        strongOntologyLabels: Set<String> = emptySet(),
+    ): DocumentCandidateExtractionResult {
+        require(mentions.isNotEmpty())
+        require(mentions == mentions.distinctBy(DocumentEvidenceMention::id).sortedBy(DocumentEvidenceMention::stableOrderingKey))
+        val normalizedLabels = strongOntologyLabels.map(::normalizeOntologyLabel).filter(String::isNotBlank).toSet()
+        val relationshipParticipants = mentions
+            .filter { it.category == DocumentCandidateExtractionCategory.RelationshipPhrase }
+            .flatMap { relation -> relation.hints.filter { it.role in setOf(DocumentCandidateHintRole.Subject, DocumentCandidateHintRole.Object) } }
+            .map { normalize(it.text) }
+            .toSet()
+        val grouped = mentions.groupBy { mention -> groupingFamily(mention.category) to mention.normalizedText }
+            .toSortedMap(compareBy<Pair<String, String>> { it.first }.thenBy { it.second })
+        val candidates = mutableListOf<DocumentGroundedCandidate>()
+        val coverage = mutableListOf<DocumentMentionCoverageDisposition>()
+
+        grouped.values.forEach { unsortedGroup ->
+            val group = unsortedGroup.sortedBy(DocumentEvidenceMention::stableOrderingKey)
+            val first = group.minWith(
+                compareBy<DocumentEvidenceMention> { candidateCategoryPriority.getValue(it.category) }
+                    .thenBy(DocumentEvidenceMention::stableOrderingKey),
+            )
+            val reasons = buildList {
+                addAll(group.flatMap(DocumentEvidenceMention::promotionSignals))
+                if (first.normalizedText in normalizedLabels) add(DocumentCandidatePromotionReason.StrongOntologyMatch)
+                if (first.normalizedText in relationshipParticipants) add(DocumentCandidatePromotionReason.RelationshipParticipant)
+                if (group.map { it.evidenceSpan.blockId }.distinct().size >= 2 && group.any { it.category.isMeaningBearing }) {
+                    add(DocumentCandidatePromotionReason.RepeatedMeaningfulContext)
+                }
+            }.distinct().sortedBy { it.ordinal }
+            val disposition = when {
+                group.all { it.category in supportingValueCategories } -> DocumentMentionCoverageKind.SupportingValue
+                group.all { it.category in documentOnlyCategories } -> DocumentMentionCoverageKind.DocumentOnly
+                first.isLowValue && DocumentCandidatePromotionReason.StrongOntologyMatch !in reasons ->
+                    DocumentMentionCoverageKind.Rejected
+                reasons.isEmpty() -> DocumentMentionCoverageKind.Rejected
+                else -> null
+            }
+            if (disposition != null) {
+                val reason = when (disposition) {
+                    DocumentMentionCoverageKind.SupportingValue -> "supporting-value"
+                    DocumentMentionCoverageKind.DocumentOnly -> "document-only"
+                    else -> if (first.isLowValue) "low-value-mention" else "candidate-promotion-gate-not-met"
+                }
+                group.forEach { mention -> coverage += DocumentMentionCoverageDisposition(mention.id, disposition, reasonCode = reason) }
+                return@forEach
+            }
+
+            val mentionIds = group.map(DocumentEvidenceMention::id).sorted()
+            val representativeEvidence = representativeEvidence(group)
+            val id = "candidate-${stableId(
+                first.category.name,
+                first.normalizedText,
+                mentionIds.joinToString("|"),
+                configuration.candidateExtractorContractVersion,
+                configuration.nlpResourceVersion,
+            )}"
+            candidates += DocumentGroundedCandidate(
+                id = id,
+                origin = DocumentCandidateOrigin.LocalNlp,
+                category = first.category,
+                displayText = group.first().displayText.trim(),
+                normalizedText = first.normalizedText,
+                documentId = representativeEvidence.first().documentId,
+                documentChecksumSha256 = group.first { it.evidenceSpan.documentId == representativeEvidence.first().documentId }
+                    .documentChecksumSha256,
+                evidenceSpans = representativeEvidence,
+                hints = group.flatMap(DocumentEvidenceMention::hints).distinct().sortedBy(DocumentCandidateHint::stableOrderingKey),
+                extractorContractVersion = configuration.candidateExtractorContractVersion,
+                resourceVersion = configuration.nlpResourceVersion,
+                mentionIds = mentionIds,
+                promotionReasons = reasons,
+            )
+            group.forEachIndexed { index, mention ->
+                coverage += DocumentMentionCoverageDisposition(
+                    mention.id,
+                    if (index == 0) DocumentMentionCoverageKind.Promoted else DocumentMentionCoverageKind.MergedIntoCandidate,
+                    id,
+                    if (index == 0) "candidate-promoted" else "safe-normalized-equivalent",
+                )
+            }
+        }
+        return DocumentCandidateExtractionResult(
+            mentions,
+            candidates.sortedBy(DocumentGroundedCandidate::stableOrderingKey),
+            coverage.sortedBy(DocumentMentionCoverageDisposition::stableOrderingKey),
+        )
     }
 
     private fun extractBlock(
         document: IngestionDocument,
         block: LocatedDocumentTextBlock,
-    ): List<DocumentGroundedCandidate> {
-        val candidates = mutableListOf<ExtractedCandidateSpan>()
-        pipeline.sentences(block.exactText).forEach { sentence ->
-            val sentenceText = block.exactText.substring(sentence.start, sentence.end)
-            val tokens = pipeline.tokens(sentenceText, sentence.start)
-            candidates += regexCandidates(sentenceText, sentence.start)
-            candidates += namedCandidates(tokens)
-            candidates += conceptCandidates(tokens)
-            candidates += relationshipCandidates(tokens)
-            candidates += ruleCandidates(sentenceText, sentence.start)
+        repeatedBoilerplate: Set<String>,
+    ): List<DocumentEvidenceMention> {
+        contextualClassificationMention(block)?.let { return listOf(toMention(document, block, it)) }
+        val mentions = mutableListOf<ExtractedMentionSpan>()
+        contentLines(block.exactText).forEach { line ->
+            if (normalize(line.text) in repeatedBoilerplate || isLikelyNonBodyLine(line.text)) return@forEach
+            pipeline.sentences(line.text).forEach { sentence ->
+                val sentenceText = line.text.substring(sentence.start, sentence.end)
+                val sentenceStart = line.start + sentence.start
+                val tokens = pipeline.tokens(sentenceText, sentenceStart)
+                mentions += regexMentions(sentenceText, sentenceStart)
+                mentions += namedMentions(tokens)
+                mentions += conceptMentions(tokens)
+                mentions += relationshipMentions(tokens)
+                mentions += ruleMentions(sentenceText, sentenceStart)
+            }
         }
-        candidates += contextualClassificationCandidate(block)
-        return candidates
+        val supportingRanges = mentions.filter { it.category in supportingValueCategories }.map { it.start until it.end }
+        return mentions
+            .filter { mention ->
+                mention.category in supportingValueCategories || supportingRanges.none { range ->
+                    mention.start >= range.first && mention.end <= range.last + 1
+                }
+            }
             .filter { it.start >= 0 && it.end <= block.exactText.length && it.start < it.end }
-            .map { span -> toCandidate(document, block, span) }
+            .map { span -> toMention(document, block, span) }
     }
 
-    private fun regexCandidates(text: String, baseOffset: Int): List<ExtractedCandidateSpan> = buildList {
+    private fun regexMentions(text: String, baseOffset: Int): List<ExtractedMentionSpan> = buildList {
         findAll(MONEY, text, DocumentCandidateExtractionCategory.MonetaryAmount, baseOffset, this)
         findAll(DATE, text, DocumentCandidateExtractionCategory.Date, baseOffset, this)
         findAll(IDENTIFIER, text, DocumentCandidateExtractionCategory.Identifier, baseOffset, this)
         findAll(ATTRIBUTE_VALUE, text, DocumentCandidateExtractionCategory.AttributeValue, baseOffset, this)
     }
 
-    private fun namedCandidates(tokens: List<NlpToken>): List<ExtractedCandidateSpan> = buildList {
-        var index = 0
-        while (index < tokens.size) {
-            if (tokens[index].tag !in properNounTags) {
-                index += 1
-                continue
-            }
-            val start = index
-            while (index + 1 < tokens.size && tokens[index + 1].tag in properNounTags) index += 1
-            val group = tokens.subList(start, index + 1)
-            val text = group.joinToString(" ", transform = NlpToken::text)
+    private fun namedMentions(tokens: List<NlpToken>): List<ExtractedMentionSpan> = nounPhrases(tokens)
+        .filter { group ->
+            group.all { it.tag in properNounTags } ||
+                group.any { it.lemma.lowercase(Locale.ROOT) in organizationSuffixes }
+        }
+        .map { group ->
             val category = when {
-                group.any { it.lemma.lowercase(Locale.ROOT) in organizationSuffixes } ->
-                    DocumentCandidateExtractionCategory.Organization
-                tokens.getOrNull(start - 1)?.lemma?.lowercase(Locale.ROOT) in locationPrepositions ->
+                group.any { it.lemma.lowercase(Locale.ROOT) in organizationSuffixes } -> DocumentCandidateExtractionCategory.Organization
+                tokens.getOrNull(tokens.indexOf(group.first()) - 1)?.lemma?.lowercase(Locale.ROOT) in locationPrepositions ->
                     DocumentCandidateExtractionCategory.Location
                 group.size >= 2 -> DocumentCandidateExtractionCategory.Person
                 else -> DocumentCandidateExtractionCategory.ConceptTerm
             }
-            add(ExtractedCandidateSpan(category, text, group.first().start, group.last().end))
-            index += 1
+            mention(group, category, listOf(DocumentCandidatePromotionReason.NamedEntity))
+        }
+
+    private fun conceptMentions(tokens: List<NlpToken>): List<ExtractedMentionSpan> {
+        val phrases = nounPhrases(tokens).filter { it.any(NlpToken::isNoun) && it.size <= MAX_NOUN_PHRASE_TOKENS }
+        val definitionCue = tokens.firstOrNull { it.normalizedLemma in definitionVerbs }
+        val definedSubject = definitionCue?.let { cue -> phrases.lastOrNull { it.last().end <= cue.start } }
+        return phrases.map { group ->
+            mention(
+                group,
+                DocumentCandidateExtractionCategory.ConceptTerm,
+                if (group === definedSubject) listOf(DocumentCandidatePromotionReason.DefinedOrDescribed) else emptyList(),
+            )
         }
     }
 
-    private fun conceptCandidates(tokens: List<NlpToken>): List<ExtractedCandidateSpan> = buildList {
-        var index = 0
-        while (index < tokens.size) {
-            if (!tokens[index].isNoun && !tokens[index].isAdjective) {
-                index += 1
-                continue
-            }
-            val start = index
-            while (index + 1 < tokens.size &&
-                (tokens[index + 1].isNoun || tokens[index + 1].isAdjective)
-            ) index += 1
-            val group = tokens.subList(start, index + 1)
-            if (group.any(NlpToken::isNoun)) {
-                add(
-                    ExtractedCandidateSpan(
-                        DocumentCandidateExtractionCategory.ConceptTerm,
-                        group.joinToString(" ", transform = NlpToken::text),
-                        group.first().start,
-                        group.last().end,
-                    ),
-                )
-            }
-            index += 1
+    private fun relationshipMentions(tokens: List<NlpToken>): List<ExtractedMentionSpan> {
+        val phrases = nounPhrases(tokens)
+        return tokens.mapNotNull { token ->
+            if (!token.isVerb || token.lemma.lowercase(Locale.ROOT) in genericRelationVerbs) return@mapNotNull null
+            val subject = phrases.lastOrNull { it.last().end <= token.start } ?: return@mapNotNull null
+            val target = phrases.firstOrNull { it.first().start >= token.end } ?: return@mapNotNull null
+            if (subject.size > MAX_NOUN_PHRASE_TOKENS || target.size > MAX_NOUN_PHRASE_TOKENS) return@mapNotNull null
+            if (token.start - subject.last().end > MAX_RELATIONSHIP_GAP_CHARACTERS ||
+                target.first().start - token.end > MAX_RELATIONSHIP_GAP_CHARACTERS
+            ) return@mapNotNull null
+            val predicate = token.lemma.lowercase(Locale.ROOT)
+            val objectText = target.joinToString(" ", transform = NlpToken::text)
+            ExtractedMentionSpan(
+                DocumentCandidateExtractionCategory.RelationshipPhrase,
+                token.text,
+                predicate,
+                token.start,
+                token.end,
+                listOf(
+                    DocumentCandidateHint(DocumentCandidateHintRole.Subject, subject.joinToString(" ", transform = NlpToken::text)),
+                    DocumentCandidateHint(DocumentCandidateHintRole.Predicate, predicate),
+                    DocumentCandidateHint(DocumentCandidateHintRole.Object, objectText),
+                ).sortedBy(DocumentCandidateHint::stableOrderingKey),
+                listOf(DocumentCandidatePromotionReason.ConnectedRelationship),
+            )
         }
     }
 
-    private fun relationshipCandidates(tokens: List<NlpToken>): List<ExtractedCandidateSpan> = tokens.mapIndexedNotNull { index, token ->
-        if (!token.isVerb) return@mapIndexedNotNull null
-        val subject = tokens.take(index).lastOrNull(NlpToken::isNoun)
-        val target = tokens.drop(index + 1).firstOrNull(NlpToken::isNoun)
-        val hints = listOfNotNull(
-            subject?.let { DocumentCandidateHint(DocumentCandidateHintRole.Subject, it.text) },
-            DocumentCandidateHint(DocumentCandidateHintRole.Predicate, token.lemma),
-            target?.let { DocumentCandidateHint(DocumentCandidateHintRole.Object, it.text) },
-        ).sortedBy(DocumentCandidateHint::stableOrderingKey)
-        ExtractedCandidateSpan(
-            DocumentCandidateExtractionCategory.RelationshipPhrase,
-            token.text,
-            token.start,
-            token.end,
-            hints,
-        )
-    }
-
-    private fun ruleCandidates(text: String, baseOffset: Int): List<ExtractedCandidateSpan> = RULE.findAll(text).map { match ->
+    private fun ruleMentions(text: String, baseOffset: Int): List<ExtractedMentionSpan> = RULE.findAll(text).map { match ->
         val end = text.indexOfAny(charArrayOf('.', ';'), match.range.first).let { if (it < 0) text.length else it }
-        ExtractedCandidateSpan(
+        val display = text.substring(match.range.first, end).trim()
+        ExtractedMentionSpan(
             DocumentCandidateExtractionCategory.RuleCue,
-            text.substring(match.range.first, end).trim(),
+            display,
+            normalize(display),
             baseOffset + match.range.first,
             baseOffset + end,
+            promotionSignals = listOf(DocumentCandidatePromotionReason.RuleOrRequirement),
         )
     }.toList()
 
-    private fun contextualClassificationCandidate(block: LocatedDocumentTextBlock): List<ExtractedCandidateSpan> {
-        val heading = block.sectionHeading?.lowercase(Locale.ROOT).orEmpty()
+    private fun contextualClassificationMention(block: LocatedDocumentTextBlock): ExtractedMentionSpan? {
+        val heading = normalize(block.sectionHeading.orEmpty())
         val category = when {
             heading in administrativeHeadings -> DocumentCandidateExtractionCategory.Administrative
             heading in illustrativeHeadings || block.exactText.trimStart().startsWith("For example", ignoreCase = true) ->
                 DocumentCandidateExtractionCategory.Illustrative
-            else -> return emptyList()
+            else -> return null
         }
-        return listOf(
-            ExtractedCandidateSpan(
-                category,
-                block.exactText,
-                0,
-                block.exactText.length,
-            ),
-        )
+        return ExtractedMentionSpan(category, block.exactText, normalize(block.exactText), 0, block.exactText.length)
     }
 
-    private fun toCandidate(
+    private fun toMention(
         document: IngestionDocument,
         block: LocatedDocumentTextBlock,
-        span: ExtractedCandidateSpan,
-    ): DocumentGroundedCandidate {
+        span: ExtractedMentionSpan,
+    ): DocumentEvidenceMention {
         val exact = block.exactText.substring(span.start, span.end)
-        val normalized = normalize(span.displayText)
         val referenceId = DocumentEvidenceId(
             "reference-${stableId(document.checksumSha256, block.id.value, span.start.toString(), span.end.toString(), exact)}",
         )
-        val evidenceId = DocumentEvidenceId("evidence-${stableId(document.checksumSha256, referenceId.value)}")
         val evidenceSpan = DocumentGroundedEvidenceSpan(
-            evidenceId = evidenceId,
+            evidenceId = DocumentEvidenceId("evidence-${stableId(document.checksumSha256, referenceId.value)}"),
             referenceId = referenceId,
             documentId = document.id,
             blockId = block.id,
@@ -222,35 +317,41 @@ internal class DocumentCandidateExtractionService(
             endOffsetInBlock = span.end,
             exactText = exact,
         )
-        val id = "candidate-${stableId(
-            document.checksumSha256,
-            evidenceSpan.stableOrderingKey,
-            normalized,
-            span.category.name,
-            configuration.candidateExtractorContractVersion,
-            configuration.nlpResourceVersion,
-        )}"
-        return DocumentGroundedCandidate(
-            id = id,
-            origin = DocumentCandidateOrigin.LocalNlp,
+        return DocumentEvidenceMention(
+            id = "mention-${stableId(
+                document.checksumSha256,
+                evidenceSpan.stableOrderingKey,
+                span.normalizedText,
+                span.category.name,
+                configuration.candidateExtractorContractVersion,
+                configuration.nlpResourceVersion,
+            )}",
             category = span.category,
             displayText = span.displayText.trim(),
-            normalizedText = normalized,
-            documentId = document.id,
+            normalizedText = span.normalizedText,
             documentChecksumSha256 = document.checksumSha256,
-            evidenceSpans = listOf(evidenceSpan),
+            evidenceSpan = evidenceSpan,
             hints = span.hints,
-            extractorContractVersion = configuration.candidateExtractorContractVersion,
-            resourceVersion = configuration.nlpResourceVersion,
+            promotionSignals = span.promotionSignals.sortedBy { it.ordinal },
         )
     }
 
+    private fun representativeEvidence(group: List<DocumentEvidenceMention>): List<DocumentGroundedEvidenceSpan> {
+        val ordered = group.sortedBy(DocumentEvidenceMention::stableOrderingKey)
+        val representatives = ordered.distinctBy { it.evidenceSpan.documentId to it.evidenceSpan.blockId }.take(MAX_REPRESENTATIVE_EVIDENCE)
+        return representatives.map(DocumentEvidenceMention::evidenceSpan).sortedBy(DocumentGroundedEvidenceSpan::stableOrderingKey)
+    }
+
+    private fun normalizeOntologyLabel(value: String): String = normalize(
+        pipeline.tokens(value, 0).joinToString(" ") { it.normalizedLemma },
+    )
+
     private fun loadPipeline(): NlpPipeline = try {
         NlpPipeline(
-            sentenceModel = resource(SENTENCE_MODEL) { SentenceModel(it) },
-            tokenizerModel = resource(TOKENIZER_MODEL) { TokenizerModel(it) },
-            posModel = resource(POS_MODEL) { POSModel(it) },
-            lemmatizerModel = resource(LEMMATIZER_MODEL) { LemmatizerModel(it) },
+            resource(SENTENCE_MODEL) { SentenceModel(it) },
+            resource(TOKENIZER_MODEL) { TokenizerModel(it) },
+            resource(POS_MODEL) { POSModel(it) },
+            resource(LEMMATIZER_MODEL) { LemmatizerModel(it) },
         )
     } catch (_: Exception) {
         throw DocumentIngestionFailure(
@@ -260,8 +361,7 @@ internal class DocumentCandidateExtractionService(
     }
 
     private fun <T> resource(name: String, create: (java.io.InputStream) -> T): T =
-        resourceLoader.open(name)?.use(create)
-            ?: throw IllegalStateException("Missing approved NLP resource.")
+        resourceLoader.open(name)?.use(create) ?: error("Missing approved NLP resource.")
 
     private class NlpPipeline(
         sentenceModel: SentenceModel,
@@ -274,28 +374,27 @@ internal class DocumentCandidateExtractionService(
         private val posTagger = POSTaggerME(posModel)
         private val lemmatizer = LemmatizerME(lemmatizerModel)
 
-        @Synchronized
-        fun sentences(text: String): Array<Span> = sentenceDetector.sentPosDetect(text)
+        @Synchronized fun sentences(text: String): Array<Span> = sentenceDetector.sentPosDetect(text)
 
-        @Synchronized
-        fun tokens(text: String, baseOffset: Int): List<NlpToken> {
+        @Synchronized fun tokens(text: String, baseOffset: Int): List<NlpToken> {
             val spans = tokenizer.tokenizePos(text)
             val values = spans.map { text.substring(it.start, it.end) }.toTypedArray()
             val tags = posTagger.tag(values)
             val lemmas = lemmatizer.lemmatize(values, tags)
             return spans.indices.map { index ->
                 NlpToken(
-                    text = values[index],
-                    lemma = lemmas[index].takeUnless { it == "O" } ?: values[index],
-                    tag = tags[index],
-                    start = baseOffset + spans[index].start,
-                    end = baseOffset + spans[index].end,
+                    values[index],
+                    lemmas[index].takeUnless { it == "O" } ?: values[index],
+                    tags[index],
+                    baseOffset + spans[index].start,
+                    baseOffset + spans[index].end,
                 )
             }
         }
     }
 
     private companion object {
+        private const val MAX_REPRESENTATIVE_EVIDENCE = 10
         private const val SENTENCE_MODEL = "opennlp-en-ud-ewt-sentence-1.3-2.5.4.bin"
         private const val TOKENIZER_MODEL = "opennlp-en-ud-ewt-tokens-1.3-2.5.4.bin"
         private const val POS_MODEL = "opennlp-en-ud-ewt-pos-1.3-2.5.4.bin"
@@ -305,32 +404,148 @@ internal class DocumentCandidateExtractionService(
         private val IDENTIFIER = Regex("\\b(?=[A-Z0-9-]*[A-Z])(?=[A-Z0-9-]*\\d)[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\\b")
         private val ATTRIBUTE_VALUE = Regex("\\b[A-Za-z][A-Za-z ]{1,40}:\\s*[^.;\\n]{1,80}")
         private val RULE = Regex("\\b(?:must|shall|may not|must not|prohibited|requires?|only if|at least|at most)\\b", RegexOption.IGNORE_CASE)
+        private val CAMEL_CASE = Regex("([a-z0-9])([A-Z])")
+        private val NON_ALPHANUMERIC = Regex("[^\\p{L}\\p{N}]+")
+        private val WHITESPACE = Regex("\\s+")
         private val properNounTags = setOf("NNP", "NNPS", "PROPN")
         private val organizationSuffixes = setOf("llc", "inc", "bank", "group", "company", "corporation", "association")
         private val locationPrepositions = setOf("in", "at", "from", "within")
-        private val administrativeHeadings = setOf("metadata", "document control", "revision history", "table of contents")
+        private val administrativeHeadings = setOf("metadata", "document control", "revision history", "table of contents", "contents")
         private val illustrativeHeadings = setOf("example", "examples", "illustration", "scenario")
+        private val genericTerms = setOf("information", "process", "section", "item", "thing", "data", "detail", "document", "page")
+        private val genericRelationVerbs = setOf(
+            "act", "activate", "add", "address", "administer", "age", "appear", "assess", "begin", "be", "can",
+            "capture", "change", "complete", "continue", "contract", "create", "define", "describe", "design",
+            "distinguish", "do", "enhance", "enter", "escalate", "establish", "exclude", "explain", "fail",
+            "follow", "form", "have", "identify", "include", "initiate", "intend", "interpret", "issue", "make",
+            "manage", "match", "may", "mean", "miss", "must", "obtain", "open", "operate", "place", "post",
+            "proportionate", "receive", "record", "refer", "register", "remain", "report", "resolve", "review",
+            "schedule", "screen", "separate", "should", "split", "state", "suspect", "target", "test", "treat",
+            "use", "verify",
+        )
+        private val definitionVerbs = setOf("be", "mean", "refer", "define", "describe")
+        private val tableOfContentsLine = Regex(".*(?:\\.{3,}|\\s{3,})\\s*\\d+\\s*$")
+        private val standalonePageLine = Regex("^(?:page\\s+)?\\d+(?:\\s+of\\s+\\d+)?$", RegexOption.IGNORE_CASE)
+        private const val MAX_NOUN_PHRASE_TOKENS = 6
+        private const val MAX_RELATIONSHIP_GAP_CHARACTERS = 40
+        private val supportingValueCategories = setOf(
+            DocumentCandidateExtractionCategory.Date,
+            DocumentCandidateExtractionCategory.Identifier,
+            DocumentCandidateExtractionCategory.MonetaryAmount,
+            DocumentCandidateExtractionCategory.AttributeValue,
+        )
+        private val documentOnlyCategories = setOf(
+            DocumentCandidateExtractionCategory.Administrative,
+            DocumentCandidateExtractionCategory.Illustrative,
+        )
+        private val candidateCategoryPriority = DocumentCandidateExtractionCategory.entries.associateWith { category ->
+            when (category) {
+                DocumentCandidateExtractionCategory.Organization -> 0
+                DocumentCandidateExtractionCategory.Person -> 1
+                DocumentCandidateExtractionCategory.Location -> 2
+                DocumentCandidateExtractionCategory.RelationshipPhrase -> 3
+                DocumentCandidateExtractionCategory.RuleCue -> 4
+                DocumentCandidateExtractionCategory.ConceptTerm -> 5
+                else -> 6 + category.ordinal
+            }
+        }
+
+        private fun repeatedBoilerplateLines(blocks: List<LocatedDocumentTextBlock>): Set<String> = blocks
+            .flatMap { block ->
+                val lines = contentLines(block.exactText)
+                if (lines.size < 4) {
+                    emptyList()
+                } else {
+                    (lines.take(2) + lines.takeLast(2)).distinctBy(DocumentTextSegment::start)
+                        .map { line -> normalize(line.text) to block.id }
+                }
+            }
+            .filter { (line, _) -> line.isNotBlank() && line.length <= 160 }
+            .groupBy({ it.first }, { it.second })
+            .filterValues { blockIds -> blockIds.distinct().size >= 2 }
+            .keys
+
+        private fun contentLines(text: String): List<DocumentTextSegment> {
+            val result = mutableListOf<DocumentTextSegment>()
+            var start = 0
+            text.splitToSequence('\n').forEach { raw ->
+                val leading = raw.indexOfFirst { !it.isWhitespace() }.let { if (it < 0) raw.length else it }
+                val value = raw.trim()
+                if (value.isNotEmpty()) result += DocumentTextSegment(value, start + leading)
+                start += raw.length + 1
+            }
+            return result
+        }
+
+        private fun isLikelyNonBodyLine(value: String): Boolean {
+            val trimmed = value.trim()
+            if (standalonePageLine.matches(trimmed) || tableOfContentsLine.matches(trimmed)) return true
+            val words = trimmed.split(WHITESPACE).filter(String::isNotBlank)
+            if (words.isEmpty() || words.size > 12 || trimmed.length > 120) return false
+            val letterWords = words.filter { word -> word.any(Char::isLetter) }
+            if (letterWords.isEmpty()) return true
+            val titleLike = letterWords.count { word -> word.firstOrNull(Char::isLetter)?.isUpperCase() == true }
+            return !trimmed.endsWithAny('.', '?', '!', ';') && titleLike * 4 >= letterWords.size * 3
+        }
+
+        private fun String.endsWithAny(vararg suffixes: Char): Boolean = suffixes.any(::endsWith)
+
+        private fun groupingFamily(category: DocumentCandidateExtractionCategory): String = when (category) {
+            in supportingValueCategories -> "support-${category.name}"
+            in documentOnlyCategories -> "document-${category.name}"
+            DocumentCandidateExtractionCategory.RelationshipPhrase -> "relationship"
+            DocumentCandidateExtractionCategory.RuleCue -> "rule"
+            else -> "entity"
+        }
+
+        private fun nounPhrases(tokens: List<NlpToken>): List<List<NlpToken>> = buildList {
+            var index = 0
+            while (index < tokens.size) {
+                if (!tokens[index].isNoun && !tokens[index].isAdjective) {
+                    index += 1
+                    continue
+                }
+                val start = index
+                while (index + 1 < tokens.size && (tokens[index + 1].isNoun || tokens[index + 1].isAdjective)) index += 1
+                add(tokens.subList(start, index + 1))
+                index += 1
+            }
+        }
+
+        private fun mention(
+            group: List<NlpToken>,
+            category: DocumentCandidateExtractionCategory,
+            signals: List<DocumentCandidatePromotionReason>,
+        ): ExtractedMentionSpan = ExtractedMentionSpan(
+            category,
+            group.joinToString(" ", transform = NlpToken::text),
+            normalize(group.joinToString(" ") { it.normalizedLemma }),
+            group.first().start,
+            group.last().end,
+            promotionSignals = signals,
+        )
 
         private fun findAll(
             regex: Regex,
             text: String,
             category: DocumentCandidateExtractionCategory,
             baseOffset: Int,
-            destination: MutableList<ExtractedCandidateSpan>,
+            destination: MutableList<ExtractedMentionSpan>,
         ): Unit = regex.findAll(text).forEach { match ->
-            destination += ExtractedCandidateSpan(
+            destination += ExtractedMentionSpan(
                 category,
                 match.value,
+                normalize(match.value),
                 baseOffset + match.range.first,
                 baseOffset + match.range.last + 1,
             )
         }
 
         private fun normalize(value: String): String = value
-            .replace(Regex("([a-z0-9])([A-Z])"), "$1 $2")
-            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+            .replace(CAMEL_CASE, "$1 $2")
+            .replace(NON_ALPHANUMERIC, " ")
             .trim()
-            .replace(Regex("\\s+"), " ")
+            .replace(WHITESPACE, " ")
             .lowercase(Locale.ROOT)
 
         private fun stableId(vararg values: String): String {
@@ -342,8 +557,17 @@ internal class DocumentCandidateExtractionService(
             }
             return digest.digest().joinToString("") { "%02x".format(it) }.take(32)
         }
+
+        private val DocumentEvidenceMention.isLowValue: Boolean
+            get() = normalizedText.split(' ').filter(String::isNotBlank).all { it in genericTerms }
+
+        private val DocumentCandidateExtractionCategory.isMeaningBearing: Boolean
+            get() = this !in supportingValueCategories && this !in documentOnlyCategories
     }
 }
+
+private val NlpToken.normalizedLemma: String
+    get() = lemma.lowercase(Locale.ROOT).trim()
 
 private val NlpToken.isNoun: Boolean
     get() = tag.startsWith("NN") || tag in setOf("NOUN", "PROPN")

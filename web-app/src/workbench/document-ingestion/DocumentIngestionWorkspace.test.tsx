@@ -317,6 +317,12 @@ describe("document ingestion review workspace", () => {
     expect(screen.getByLabelText("Semantic coverage and compilation metrics")).toHaveTextContent(
       "Semantic coverage: 100%",
     );
+    expect(screen.getByLabelText("Document analysis funnel")).toHaveTextContent(
+      "30 evidence mentions → 12 grouped candidates → 5 ontology-bearing candidates",
+    );
+    expect(screen.getByLabelText("Document analysis funnel")).toHaveTextContent(
+      "4 document-only mentions and 3 supporting values remain in coverage without creating review cards.",
+    );
     expect(screen.getByRole("region", { name: "Exact proposed changes" })).toHaveTextContent(
       "Depends on: create-account-closure",
     );
@@ -555,6 +561,25 @@ function workspace(status: WebDocumentReviewRecommendation["reviewStatus"]): Web
       nextOffset: null,
     },
     draftImpact: { acceptedCount: status === "Accepted" ? 1 : 0, pendingCount: status === "Pending" ? 1 : 0, blockedCount: 1, readOnly: true },
+    analysisCounts: {
+      evidenceBlocks: 8,
+      evidenceMentions: 30,
+      groupedCandidates: 12,
+      ontologyBearingCandidates: 5,
+      documentOnlyMentions: 4,
+      supportingValueMentions: 3,
+      nlpCandidatesRetained: 5,
+      nlpCandidatesRejected: 6,
+      groundedItemsRetained: 4,
+      groundedItemsUnresolved: 1,
+      groundedItemsRejected: 0,
+      recommendationsExecutable: 1,
+      recommendationsMixed: 0,
+      recommendationsNeedsInput: 0,
+      recommendationsReviewOnly: 0,
+      recommendationsBlocked: 0,
+      expandedTypedEdits: 1,
+    },
     semanticCoverage: { numerator: 1, denominator: 1, percentage: 100, failureCodes: [] },
     compilationSuccess: { numerator: 1, denominator: 1, percentage: 100, failureCodes: [] },
   };

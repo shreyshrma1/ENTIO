@@ -69,6 +69,7 @@ class DocumentSemanticProviderBenchmarkTest {
             javaClass.getResourceAsStream(MANIFEST_RESOURCE)!!.use { rawSha256(it.readAllBytes()) },
         )
         assertEquals(manifest["currentWorkFingerprint"].asText(), rawSha256(byteArrayOf()))
+        assertEquals(DocumentAnalysisPipelineVersions.BENCHMARK_MANIFEST, manifest["contractVersion"].asText())
         val groundedInputs = mapper.writeValueAsBytes(mapOf("candidates" to candidates, "retrieval" to retrieval))
         assertEquals(
             manifest["groundedInputsSha256"].asText(),

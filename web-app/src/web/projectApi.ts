@@ -305,7 +305,9 @@ export interface WebDocumentReviewWorkspace {
   recommendations: WebPage<WebDocumentReviewRecommendation>;
   draftImpact: { acceptedCount: number; pendingCount: number; blockedCount: number; readOnly: true };
   analysisCounts?: {
-    evidenceBlocks: number; nlpCandidatesRetained: number; nlpCandidatesRejected: number;
+    evidenceBlocks: number; evidenceMentions: number; groupedCandidates: number;
+    ontologyBearingCandidates: number; documentOnlyMentions: number; supportingValueMentions: number;
+    nlpCandidatesRetained: number; nlpCandidatesRejected: number;
     groundedItemsRetained: number; groundedItemsUnresolved: number; groundedItemsRejected: number;
     recommendationsExecutable: number; recommendationsMixed: number; recommendationsNeedsInput: number;
     recommendationsReviewOnly: number; recommendationsBlocked: number; expandedTypedEdits: number;
