@@ -4,6 +4,15 @@
 
 Complete and verified.
 
+The original task-wide limit recorded below was superseded on 2026-07-30.
+Document recommendations are still atomic and limited to 20 edits each, and
+each internal staging batch is still limited to 20 edits. There is no longer a
+100-edit or five-batch limit across the whole document task. Valid accepted
+recommendations are staged in as many bounded batches as they require. There is
+also no combined connected-item ceiling: the 300-item limit applies to each
+provider response, while verified task results and their deterministic
+prerequisites are retained without task-wide truncation.
+
 ## Delivered
 
 - Added a Kotlin translation matrix that converts every approved, accepted document recommendation into existing typed ontology, semantic, SHACL, or curated FIBO reuse operations.

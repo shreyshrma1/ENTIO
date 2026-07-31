@@ -38,6 +38,18 @@ meaning into the existing typed-edit workflow.
 The existing private-draft, proposal, validation, human approval, atomic apply,
 reload, and rollback path remains the only ontology write path.
 
+## Current Production Stabilization
+
+After the approved slices completed, the active new-task path was simplified to
+reduce provider context and recover missing prerequisites without discarding
+valid meaning. New tasks now use discovery, chunked connected modeling,
+conditional consolidation, focused prerequisite completion, and deterministic
+Kotlin semantic assembly and compilation. The original reconciliation,
+alignment, critic, and provider semantic-plan contracts remain for compatibility
+and historical tests but are not separate production calls. This stabilization
+does not change the completed Phase 11.5+ approval, apply, rollback, or
+provenance boundaries.
+
 ## Slice Commits
 
 | Slice | Commit | Result |

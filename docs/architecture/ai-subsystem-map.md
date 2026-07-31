@@ -19,13 +19,14 @@ The assistant does not have arbitrary tools, shell or filesystem access, direct 
 
 Phase 11 is implemented. It extends this existing assistant and provider foundation with a separate bounded document-ingestion workflow and evidence-grounded recommendations. It does not replace the conversational assistant.
 
-Phase 11.5 and Phase 11.5+ are implemented. Phase 11.5 replaces Phase 11's
-single-stage document-analysis contract with bounded discovery, connected
-modeling, reconciliation, ontology alignment, critic, and planning stages.
-Phase 11.5+ replaces the final low-level planning output with a semantic plan
-that Kotlin checks for completeness and compiles deterministically. Phase 11
-remains the upload, extraction, evidence, authorization, review, proposal,
-apply, rollback, and applied-provenance foundation.
+Phase 11.5 and Phase 11.5+ are implemented. New tasks use evidence-grounded
+per-document discovery, connected modeling over bounded chunks, optional
+consolidation, focused prerequisite completion, and deterministic Kotlin
+semantic assembly and compilation. Legacy reconciliation, ontology-alignment,
+critic, and final-planning contracts remain for compatibility but are not
+called by the production orchestrator for new tasks. Phase 11 remains the
+upload, extraction, evidence, authorization, review, proposal, apply, rollback,
+and applied-provenance foundation.
 
 ## Active Server Ownership
 
@@ -40,7 +41,7 @@ apply, rollback, and applied-provenance foundation.
 | AI proposal validation | `AiSemanticProposalValidator.kt` and existing graph/proposal services | Checks generated edits deterministically before they can be staged. |
 | Document contracts and semantic checks | `DocumentAnalysisPipelineContracts.kt`, `DocumentIngestionContracts.kt`, `DocumentRecommendationContracts.kt`, `DocumentEvidenceVerifier.kt`, `DocumentOntologyMatcher.kt`, `DocumentCompletenessMetricService.kt`, `DocumentSemanticPlanCompiler.kt`, `DocumentRecommendationDraftTranslator.kt` | Owns bounded neutral records, exact evidence verification, canonical matching, completeness, deterministic semantic compilation, collision-checked references, and conversion to existing typed edits. |
 | Document task orchestration | `web/ingestion/` | Owns authorized intake, temporary storage, extraction, selective OCR, the fixed multi-stage pipeline, task-wide call and retry budgets, grouped review state, cancellation, cleanup, typed draft handoff, and durable applied-change provenance. |
-| Document analysis adapter | `OpenAiDocumentAnalysisClient.kt` | Uses the current verified selected compatible model through separate fixed, strict-schema, no-tools requests for discovery, connected modeling, reconciliation, alignment, critique, and semantic planning. It does not ask the model for final IRIs or low-level Entio operations. |
+| Document analysis adapter | `OpenAiDocumentAnalysisClient.kt` | Uses the current verified selected compatible model through fixed, strict-schema, no-tools requests for discovery, connected modeling, optional consolidation, and focused prerequisite completion. It does not ask the model for final IRIs or low-level Entio operations. |
 | Redacted HTTP boundary | `Application.kt` and `contract/AiProposalContracts.kt` | Exposes credential/model settings and authorized project-scoped assistant proposal routes. |
 | Provider settings UI | `web-app/src/workbench/AiCredentialSettings.tsx` | Collects credentials and renders redacted provider/model status. |
 | Assistant UI | `web-app/src/workbench/AiProposalPanel.tsx`, `ProjectWorkspace.tsx` | Provides the AI sidebar, conversations, history, status, proposal review, edit removal, cancellation, rejection, and staging controls. |
@@ -102,17 +103,17 @@ DELETE /api/v1/projects/{projectId}/document-ingestion/tasks/{taskId}
 - Staging does not approve or apply a proposal.
 - Existing authorization, human review, validation, semantic diff, reasoning, SHACL, atomic apply, reload, and rollback boundaries remain authoritative.
 
-## Implemented Phase 11 And 11.5 Document Extension
+## Implemented Phase 11 Through 11.5+ Document Extension
 
 The implemented extension:
 
 - reuse the active credential, verified-model, and provider boundaries;
 - keep ordinary assistant conversations and ontology proposals working;
 - analyze supported documents through a separate bounded, evidence-verifying multi-stage workflow;
-- discover meaning without ontology context before building a connected model;
-- reconcile across documents and retained provenance before current-ontology alignment;
-- critique the model separately and verify connected atomic plans in Kotlin;
-- show grouped exact changes, evidence, critique, confidence, and review-only meaning;
+- discover meaning without ontology context before building connected models over bounded chunks;
+- consolidate successful chunk models when needed and request missing property or individual context through a focused prerequisite stage;
+- assemble semantic plans and connected recommendation groups deterministically in Kotlin;
+- show collapsed connected recommendations with exact changes, evidence, confidence, editable prerequisites, and retained review-only meaning;
 - treat documents and provider output as untrusted;
 - convert accepted recommendations only through supported typed private-draft operations;
 - keep temporary uploads, OCR artifacts, and incomplete task state out of ontology sources;
@@ -127,12 +128,14 @@ Phase 11.5 and Phase 11.5+ implement:
 
 ```text
 verified extracted text
-→ per-document discovery
-→ connected cross-document semantic synthesis and conditional consolidation
-→ ontology alignment and separate modeling critique
-→ model-produced connected semantic plan
-→ Kotlin completeness verification and deterministic compilation
-→ grouped human review
+→ one evidence-grounded discovery call per document
+→ connected modeling over bounded discovery chunks
+→ conditional consolidation
+→ focused prerequisite completion
+→ current ontology snapshot
+→ deterministic Kotlin semantic assembly
+→ deterministic verification and compilation
+→ collapsed connected human review
 → existing typed private-draft and proposal workflow
 ```
 
@@ -142,6 +145,15 @@ and durable applied-provenance boundaries. Unsupported complex rules stay
 review-only. It adds no automatic approval, direct write path, unrestricted
 agent loop, raw RDF fallback, or fallback to the retired Phase 11 single-stage
 analysis path.
+
+Phase 12 is approved for implementation but is not yet implemented. It will add
+deterministic local candidate extraction and authorized ontology retrieval
+before grounded model interpretation, without embeddings, a vector database,
+or another write path. Its approved planning documents are:
+
+- `docs/architecture/phase-12-scope.md`;
+- `docs/specs/0023-phase-12-ontology-grounded-document-analysis.md`;
+- `docs/execplans/0023-phase-12-ontology-grounded-document-analysis.md`.
 
 The approved and implemented documents are:
 

@@ -243,20 +243,27 @@ Phase 2 should not include:
 
 ## Current Implemented And Planned Phase
 
-Phase 11.5 is implemented and complete. New document-ingestion tasks currently use this bounded analysis sequence:
+Phase 11.5+ is implemented and complete. New document-ingestion tasks currently
+use this bounded analysis sequence:
 
 ```text
 verified extracted text
-→ per-document discovery
-→ connected domain modeling and consolidation
-→ document and prior-evidence reconciliation
-→ current-ontology alignment
-→ separate modeling critique
-→ connected atomic change-set planning
-→ Kotlin verification
-→ grouped human review
+→ one evidence-grounded discovery call per document
+→ connected modeling over bounded discovery chunks
+→ consolidation when multiple chunks succeed
+→ focused completion of missing property and individual prerequisites
+→ current ontology snapshot
+→ deterministic Kotlin semantic assembly
+→ deterministic compilation and verification
+→ collapsed, connected human review
 → existing typed private-draft and proposal workflow
 ```
+
+The production orchestrator no longer makes separate reconciliation, ontology
+alignment, modeling critic, or final-planning model calls. Those older contracts
+remain for compatibility and historical tests. Kotlin now assembles the
+semantic plan, keeps model-recommended prerequisites attached to the edit they
+support, and compiles supported meaning into existing typed operations.
 
 Phase 11 remains the foundation and preserves these boundaries:
 
@@ -271,22 +278,31 @@ Phases 7, 7.5, and 8 remain historical delivery records, but the current codebas
 Phase 11.5 does not add automatic approval, raw RDF, unrestricted agents, a second apply path, or new CLI and VS Code ingestion surfaces. Complex rules that current typed operations cannot express remain visible and review-only.
 
 Phase 11.5+ preserves the implemented Phase 11 and Phase 11.5 boundaries while
-changing the final planning handoff:
+making Kotlin responsible for the final planning handoff:
 
 ```text
 verified connected document model
-→ model-produced semantic plan
-→ Kotlin completeness check
+→ focused completion of missing prerequisites
+→ deterministic Kotlin semantic assembly
 → deterministic Kotlin compilation
 → existing semantic previews and human review
 ```
 
-The model describes intended meaning rather than final IRIs or exact Entio
-operations. Kotlin will own supported pattern selection, reference resolution,
+The model describes connected intended meaning and may recommend missing
+prerequisites; it does not choose final IRIs or exact Entio operations. Kotlin
+owns semantic-plan assembly, supported pattern selection, reference resolution,
 IRI generation, dependency ordering, expanded edit counting, and typed-edit
-compilation. Unsupported complex meaning will remain review-only. The existing
-private-draft, proposal, approval, apply, reload, and rollback workflow remains
-the only ontology write path.
+compilation. Unsupported complex meaning remains visible as review context. The
+existing private-draft, proposal, approval, apply, reload, and rollback workflow
+remains the only ontology write path.
+
+Phase 12 is approved for implementation but is not implemented yet. It plans to
+insert deterministic local candidate extraction and retrieval from the current
+authorized ontology scopes before model interpretation. The model will receive
+compact evidence and relevant existing-entity choices together; Kotlin will
+verify those choices and continue to own compilation and safety. Phase 12 does
+not add embeddings, a vector database, a second ontology index, automatic
+approval, or another write workflow.
 
 ## Technical Principle
 
@@ -315,6 +331,7 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 11 Scope](docs/architecture/phase-11-scope.md)
 - [Phase 11.5 Scope](docs/architecture/phase-11.5-scope.md)
 - [Phase 11.5+ Scope](docs/architecture/phase-11.5-plus-scope.md)
+- [Phase 12 Scope](docs/architecture/phase-12-scope.md)
 - [Technical Approach](docs/architecture/002-technical-approach.md)
 - [Kotlin Engine Guidelines](docs/architecture/003-kotlin-engine-guidelines.md)
 - [Phase 1.5 Spec](docs/specs/0002-phase-1.5-core-semantic-engine-stabilization.md)
@@ -359,3 +376,5 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 11.5+ Spec](docs/specs/0022-phase-11.5-plus-deterministic-compilation-of-connected-document-models.md)
 - [Phase 11.5+ ExecPlan](docs/execplans/0022-phase-11.5-plus-deterministic-compilation-of-connected-document-models.md)
 - [Phase 11.5+ Implementation Summary](docs/phase-summaries/phase-11.5-plus-summary.md)
+- [Phase 12 Spec](docs/specs/0023-phase-12-ontology-grounded-document-analysis.md)
+- [Phase 12 ExecPlan](docs/execplans/0023-phase-12-ontology-grounded-document-analysis.md)
