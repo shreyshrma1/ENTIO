@@ -2,6 +2,7 @@ package com.entio.web.ingestion
 
 import com.entio.core.MAX_INGESTION_DOCUMENT_BYTES
 import com.entio.core.MAX_INGESTION_DOCUMENTS_PER_TASK
+import com.entio.core.DocumentAnalysisPipelineVersions
 import java.nio.file.Path
 import java.time.Clock
 import java.time.Duration
@@ -19,6 +20,8 @@ public data class DocumentIngestionConfiguration(
     val maximumOcrPagesPerDocument: Int = 200,
     val maximumRenderedImageBytesPerTask: Long = 512L * 1024L * 1024L,
     val ocrDocumentTimeout: Duration = Duration.ofMinutes(10),
+    val candidateExtractorContractVersion: String = DocumentAnalysisPipelineVersions.CANDIDATE_EXTRACTION_CONTRACT,
+    val nlpResourceVersion: String = DocumentAnalysisPipelineVersions.NLP_RESOURCE_SET,
     val tesseract: TesseractConfiguration? = null,
     val clock: Clock = Clock.systemUTC(),
     val idFactory: () -> String = { UUID.randomUUID().toString() },
@@ -46,6 +49,8 @@ public data class DocumentIngestionConfiguration(
         require(!ocrDocumentTimeout.isNegative && !ocrDocumentTimeout.isZero &&
             ocrDocumentTimeout <= Duration.ofMinutes(10)
         ) { "OCR timeout exceeds the approved bound." }
+        require(candidateExtractorContractVersion == DocumentAnalysisPipelineVersions.CANDIDATE_EXTRACTION_CONTRACT)
+        require(nlpResourceVersion == DocumentAnalysisPipelineVersions.NLP_RESOURCE_SET)
     }
 }
 
