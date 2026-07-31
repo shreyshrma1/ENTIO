@@ -24,7 +24,10 @@ import com.entio.core.DocumentFinalPlan
 import com.entio.core.DocumentFinalRecommendation
 import com.entio.core.DocumentFinalRecommendationStatus
 import com.entio.core.DocumentGroundedAnalysisResult
+import com.entio.core.DocumentGroundedCoverageDisposition
 import com.entio.core.DocumentGroundedDisposition
+import com.entio.core.DocumentGroundedReference
+import com.entio.core.DocumentGroundedSemanticItem
 import com.entio.core.DocumentPrerequisiteOrigin
 import com.entio.core.DocumentIndividualReviewGate
 import com.entio.core.DocumentIndividualClassification
@@ -179,7 +182,7 @@ internal class OpenAiDocumentAnalysisClient(
                 return DocumentGroundedAnalysisProviderResult.Failed(false, "document-provider-response-limit")
             }
             DocumentGroundedAnalysisProviderResult.Completed(
-                objectMapper.readValue(extractOutputText(responseText), DocumentGroundedAnalysisResult::class.java),
+                parseStrictGroundedResponse(extractOutputText(responseText)),
             )
         } catch (failure: SafeProviderResponseFailure) {
             DocumentGroundedAnalysisProviderResult.Failed(failure.retryable, failure.code)
@@ -187,7 +190,14 @@ internal class OpenAiDocumentAnalysisClient(
             throw failure
         } catch (_: HttpRequestTimeoutException) {
             DocumentGroundedAnalysisProviderResult.Failed(true, "document-provider-timeout")
-        } catch (_: JsonProcessingException) {
+        } catch (failure: JsonProcessingException) {
+            val path = (failure as? com.fasterxml.jackson.databind.JsonMappingException)?.path
+                ?.joinToString(".") { reference -> reference.fieldName ?: "[${reference.index}]" }
+                .orEmpty()
+            diagnostic("grounded-parse-failure type=${failure::class.simpleName} path=$path")
+            DocumentGroundedAnalysisProviderResult.Failed(true, "document-provider-malformed-output")
+        } catch (failure: IllegalArgumentException) {
+            diagnostic("grounded-parse-failure type=${failure::class.simpleName}")
             DocumentGroundedAnalysisProviderResult.Failed(true, "document-provider-malformed-output")
         } catch (_: IOException) {
             DocumentGroundedAnalysisProviderResult.Failed(true, "document-provider-unavailable")
@@ -781,9 +791,9 @@ internal class OpenAiDocumentAnalysisClient(
             },
         )
         val confidence = objectSchema(
-            listOf("evidenceConfidence", "modelingConfidence", "ontologyFitConfidence"),
+            listOf("evidence", "modeling", "ontologyFit"),
             objectMapper.createObjectNode().apply {
-                listOf("evidenceConfidence", "modelingConfidence", "ontologyFitConfidence").forEach {
+                listOf("evidence", "modeling", "ontologyFit").forEach {
                     putObject(it).put("type", "integer").put("minimum", 0).put("maximum", 100)
                 }
             },
@@ -1914,6 +1924,48 @@ internal class OpenAiDocumentAnalysisClient(
         }
         return texts.joinToString("").takeIf(String::isNotBlank)
             ?: throw SafeProviderResponseFailure("document-provider-empty-output")
+    }
+
+    private fun parseStrictGroundedResponse(value: String): DocumentGroundedAnalysisResult {
+        val root = objectMapper.readTree(value)
+        require(root.isObject && root.fieldNames().asSequence().toSet() == setOf("responseVersion", "items", "coverage"))
+        val items = root.path("items").map { node ->
+            val confidence = node.path("confidence")
+            DocumentGroundedSemanticItem(
+                id = node.path("id").asText(),
+                kind = DocumentSemanticItemKind.valueOf(node.path("kind").asText()),
+                label = node.path("label").asText(),
+                definition = node.path("definition").takeUnless(JsonNode::isNull)?.asText(),
+                literalValue = node.path("literalValue").takeUnless(JsonNode::isNull)?.let {
+                    objectMapper.treeToValue(it, RdfLiteral::class.java)
+                },
+                datatypeIntent = node.path("datatypeIntent").takeUnless(JsonNode::isNull)?.asText(),
+                candidateIds = node.path("candidateIds").map(JsonNode::asText).sorted(),
+                evidenceIds = node.path("evidenceIds").map { DocumentEvidenceId(it.asText()) }
+                    .sortedBy(DocumentEvidenceId::value),
+                disposition = DocumentGroundedDisposition.valueOf(node.path("disposition").asText()),
+                selectionId = node.path("selectionId").takeUnless(JsonNode::isNull)?.asText(),
+                references = node.path("references").map {
+                    objectMapper.treeToValue(it, DocumentGroundedReference::class.java)
+                }.sortedBy(DocumentGroundedReference::stableOrderingKey),
+                rationale = node.path("rationale").asText(),
+                confidence = DocumentConfidenceDimensions(
+                    confidence.path("evidence").asInt(),
+                    confidence.path("modeling").asInt(),
+                    confidence.path("ontologyFit").asInt(),
+                ),
+                ambiguity = node.path("ambiguity").takeUnless(JsonNode::isNull)?.asText(),
+            )
+        }.sortedBy(DocumentGroundedSemanticItem::stableOrderingKey)
+        val coverage = root.path("coverage").map { node ->
+            DocumentGroundedCoverageDisposition(
+                candidateId = node.path("candidateId").asText(),
+                itemId = node.path("itemId").takeUnless(JsonNode::isNull)?.asText(),
+                disposition = DocumentGroundedDisposition.valueOf(node.path("disposition").asText()),
+                rationale = node.path("rationale").asText(),
+            )
+        }.sortedBy(DocumentGroundedCoverageDisposition::stableOrderingKey)
+        return DocumentGroundedAnalysisResult(root.path("responseVersion").asText(), items, coverage)
     }
 
     private fun parseStrictResponse(value: String): DocumentAnalysisResponse {

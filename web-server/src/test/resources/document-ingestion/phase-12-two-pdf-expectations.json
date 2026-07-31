@@ -1,0 +1,57 @@
+{
+  "contractVersion": "phase-12-two-document-benchmark-v1",
+  "scoringVersion": "phase-12-benchmark-scoring-v1",
+  "documents": {
+    "consumer-lending-servicing-compliance-standard.pdf": "e191111a9aae8c28fce2e2505897f12c84f656aff80fd7cca4708e30ac15ddc0",
+    "commercial-account-and-payment-authorization-policy.pdf": "80652a29f41d2fba4fc4ad5ec4cb9013fd607b88bf382bf617582a5b64b91fae"
+  },
+  "historicalManifestSha256": "006e9786c4eb9c1fa194b35e07ca49db539a65708e5f7b5a3f8485fb70ef6ef6",
+  "ontologySourceSha256": "a7e2527970ec5211239a2988f5e7a241ba1ad456ad4d8435a624a4a81f890b72",
+  "currentWorkFingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "groundedInputsSha256": "241b7734cdf11da0167fbb4e3fda520f897519d818e2a77d453c70fa55e7ed73",
+  "candidateLabels": [
+    "Account",
+    "Consumer Loan",
+    "Invoice",
+    "Loan Servicing",
+    "Payment",
+    "Payment Approval Record",
+    "Payment Destination",
+    "Payment Instruction",
+    "Payment Suspense",
+    "Servicing Control",
+    "Supporting Record"
+  ],
+  "expectedReuseLabels": [
+    "Account",
+    "Consumer Loan",
+    "Invoice",
+    "Loan Servicing",
+    "Payment",
+    "Payment Approval Record",
+    "Payment Destination",
+    "Payment Instruction",
+    "Payment Suspense",
+    "Servicing Control",
+    "Supporting Record"
+  ],
+  "thresholds": {
+    "runCount": 10,
+    "conceptMinimumRuns": 9,
+    "relationshipMinimumRuns": 8,
+    "expectedReuseMinimumRuns": 9,
+    "duplicateNewMaximumRuns": 0,
+    "supportedCompilationMinimumPercent": 95,
+    "prohibitedExecutableMaximumRuns": 0,
+    "provenanceMinimumRuns": 10,
+    "unsupportedReviewOnlyMinimumRuns": 10,
+    "automaticWriteMaximumRuns": 0
+  },
+  "controlledProvider": {
+    "enableEnvironmentVariable": "ENTIO_DOCUMENT_BENCHMARK",
+    "modelEnvironmentVariable": "ENTIO_DOCUMENT_BENCHMARK_MODEL",
+    "expectedModelId": "gpt-5.6-luna",
+    "expectedPromptVersion": "phase-12-grounded-model-prompt-v1",
+    "expectedResponseVersion": "phase-12-grounded-model-response-v1"
+  }
+}
