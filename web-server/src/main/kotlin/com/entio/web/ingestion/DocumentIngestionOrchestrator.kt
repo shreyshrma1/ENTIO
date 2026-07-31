@@ -485,6 +485,13 @@ internal class DocumentIngestionOrchestrator(
         )
         val finalPlan = com.entio.semantic.DocumentChangeSetPlanVerifier().verify(planned, verificationContext)
         val discoveries = groundedDiscoveries(candidates, extracted)
+        val itemIdsByRecommendationId = verified.plan.groups.associate { group ->
+            group.id to group.itemIds
+        }
+        val statuses = verified.statusByItemId.values
+        val recommendationStatuses = verified.plan.groups.map { group ->
+            group.itemIds.mapNotNull(verified.statusByItemId::get).toSet()
+        }
         reviews.installVerifiedPlan(
             tasks.find(input.taskId, input.projectId, input.ownerUserId),
             workKey.sha256,
@@ -492,6 +499,39 @@ internal class DocumentIngestionOrchestrator(
             finalPlan,
             extracted,
             discoveries,
+            DocumentGroundedReviewContext(
+                analysis = analysis,
+                retrieval = retrieval.results,
+                editableFields = verified.editableFields,
+                statusByItemId = verified.statusByItemId,
+                itemIdsByRecommendationId = itemIdsByRecommendationId,
+                counts = com.entio.core.DocumentAnalysisCounts(
+                    evidenceBlocks = extracted.sumOf { it.blocks.size },
+                    nlpCandidatesRetained = candidates.size,
+                    nlpCandidatesRejected = 0,
+                    groundedItemsRetained = analysis.items.size,
+                    groundedItemsUnresolved = analysis.coverage.count {
+                        it.disposition == com.entio.core.DocumentGroundedDisposition.Unresolved
+                    },
+                    groundedItemsRejected = 0,
+                    recommendationsExecutable = recommendationStatuses.count {
+                        it == setOf(com.entio.core.DocumentGroundedRecommendationStatus.Executable)
+                    },
+                    recommendationsMixed = recommendationStatuses.count {
+                        com.entio.core.DocumentGroundedRecommendationStatus.Executable in it && it.size > 1
+                    },
+                    recommendationsNeedsInput = statuses.count {
+                        it == com.entio.core.DocumentGroundedRecommendationStatus.NeedsInput
+                    },
+                    recommendationsReviewOnly = statuses.count {
+                        it == com.entio.core.DocumentGroundedRecommendationStatus.ReviewOnly
+                    },
+                    recommendationsBlocked = statuses.count {
+                        it == com.entio.core.DocumentGroundedRecommendationStatus.Blocked
+                    },
+                    expandedTypedEdits = finalPlan.plan.recommendations.sumOf { it.operations.size },
+                ),
+            ),
         )
         tasks.transition(input.taskId, input.projectId, input.ownerUserId, DocumentProcessingStatus.AwaitingReview,
             input.documents.size, 100, "Grounded evidence-linked recommendations are ready for review.")

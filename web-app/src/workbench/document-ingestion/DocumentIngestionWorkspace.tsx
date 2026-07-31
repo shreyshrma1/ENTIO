@@ -364,6 +364,28 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
       <p>{recommendation.semanticIntent ?? recommendation.description ?? recommendation.rationale}</p>
     </section>
 
+    {recommendation.groundedItems?.length ? <section className="document-grounded-context" aria-label="Grounded ontology decisions">
+      <h4>Grounded ontology decisions</h4>
+      {recommendation.groundedItems.map((item) => <article key={item.itemId}>
+        <h5>{humanize(item.disposition)} · {humanize(item.status)}</h5>
+        {item.alternatives.length ? <ul>{item.alternatives.map((alternative) => <li key={alternative.selectionId}>
+          <strong>{alternative.preferredLabel ?? alternative.entityIri}</strong>
+          <span>{humanize(alternative.kind)} · {humanize(alternative.scope)} · {alternative.score}%</span>
+          <small>Selection ID: {alternative.selectionId}{item.selectedSelectionId === alternative.selectionId ? " · selected" : ""}</small>
+          {alternative.definition ? <p>{alternative.definition}</p> : null}
+          <small>{alternative.matchReasons.join("; ")}</small>
+          {alternative.parents.length ? <small>Parents: {alternative.parents.join(", ")}</small> : null}
+          {alternative.domains.length ? <small>Domains: {alternative.domains.join(", ")}</small> : null}
+          {alternative.ranges.length ? <small>Ranges/datatypes: {alternative.ranges.join(", ")}</small> : null}
+          {alternative.types.length ? <small>Types: {alternative.types.join(", ")}</small> : null}
+        </li>)}</ul> : <p>No authorized ontology alternative was selected.</p>}
+        {item.prerequisiteOrigins.length ? <p>Prerequisites: {item.prerequisiteOrigins.map(humanize).join(", ")}</p> : null}
+        {item.editableFields.length ? <ul>{item.editableFields.map((field) => <li key={field.id}>
+          <strong>{humanize(field.kind)}{field.required ? " · required" : ""}</strong><span>{field.message}</span>
+        </li>)}</ul> : null}
+      </article>)}
+    </section> : null}
+
     <section className={`document-change-preview ${changePreview.draftable ? "" : "blocked"}`} aria-label="Exact proposed changes">
       <h4>Exact changes</h4>
       <p>{changePreview.summary}</p>

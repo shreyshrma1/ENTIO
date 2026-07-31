@@ -1,6 +1,6 @@
 import { expect, test, type Route } from "@playwright/test";
 
-test("completes the accessible document review and proposal workflow", async ({ page }) => {
+test("document ingestion completes the accessible review and proposal workflow", async ({ page }) => {
   await page.setViewportSize({ width: 1536, height: 864 });
   let uploaded = false;
   let accepted = false;

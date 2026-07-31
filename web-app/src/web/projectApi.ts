@@ -276,6 +276,19 @@ export interface WebDocumentReviewRecommendation {
   semanticIntent?: string | null;
   generatedIris?: string[];
   safeBlockers?: string[];
+  groundedItems?: Array<{
+    itemId: string;
+    disposition: string;
+    selectedSelectionId: string | null;
+    alternatives: Array<{
+      selectionId: string; entityIri: string; kind: string; scope: string; sourceId: string;
+      writable: boolean; preferredLabel: string | null; definition: string | null; score: number;
+      matchReasons: string[]; parents: string[]; domains: string[]; ranges: string[]; types: string[];
+    }>;
+    prerequisiteOrigins: string[];
+    editableFields: Array<{ id: string; kind: string; required: boolean; compatibleSelectionIds: string[]; message: string }>;
+    status: "Executable" | "Mixed" | "NeedsInput" | "ReviewOnly" | "Blocked";
+  }>;
 }
 
 export interface WebDocumentReviewWorkspace {
@@ -290,7 +303,13 @@ export interface WebDocumentReviewWorkspace {
   }>;
   summaries: Array<{ documentId: string; purpose: string; highlights: string[] }>;
   recommendations: WebPage<WebDocumentReviewRecommendation>;
-  draftImpact: { acceptedCount: number; pendingCount: number; blockedCount: number; maximumAcceptedEdits: number; readOnly: true };
+  draftImpact: { acceptedCount: number; pendingCount: number; blockedCount: number; readOnly: true };
+  analysisCounts?: {
+    evidenceBlocks: number; nlpCandidatesRetained: number; nlpCandidatesRejected: number;
+    groundedItemsRetained: number; groundedItemsUnresolved: number; groundedItemsRejected: number;
+    recommendationsExecutable: number; recommendationsMixed: number; recommendationsNeedsInput: number;
+    recommendationsReviewOnly: number; recommendationsBlocked: number; expandedTypedEdits: number;
+  } | null;
   semanticCoverage?: { numerator: number; denominator: number; percentage: number | null; failureCodes: string[] } | null;
   compilationSuccess?: { numerator: number; denominator: number; percentage: number | null; failureCodes: string[] } | null;
 }

@@ -554,7 +554,7 @@ function workspace(status: WebDocumentReviewRecommendation["reviewStatus"]): Web
       total: 1,
       nextOffset: null,
     },
-    draftImpact: { acceptedCount: status === "Accepted" ? 1 : 0, pendingCount: status === "Pending" ? 1 : 0, blockedCount: 1, maximumAcceptedEdits: 100, readOnly: true },
+    draftImpact: { acceptedCount: status === "Accepted" ? 1 : 0, pendingCount: status === "Pending" ? 1 : 0, blockedCount: 1, readOnly: true },
     semanticCoverage: { numerator: 1, denominator: 1, percentage: 100, failureCodes: [] },
     compilationSuccess: { numerator: 1, denominator: 1, percentage: 100, failureCodes: [] },
   };

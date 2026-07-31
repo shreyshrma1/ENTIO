@@ -10,6 +10,11 @@ import com.entio.core.DocumentGroupedDecisionKind
 import com.entio.core.DocumentGroupedRecommendationDecision
 import com.entio.core.DocumentRecommendation
 import com.entio.core.DocumentRecommendationReviewStatus
+import com.entio.core.DocumentAnalysisCounts
+import com.entio.core.DocumentEditableGroundedField
+import com.entio.core.DocumentGroundedAnalysisResult
+import com.entio.core.DocumentGroundedRecommendationStatus
+import com.entio.core.DocumentOntologyRetrievalResult
 import com.entio.core.LocatedDocumentTextBlock
 import com.entio.core.DocumentReviewDecision
 import com.entio.web.contract.WebPage
@@ -35,6 +40,7 @@ public data class DocumentReviewWorkspaceResponse(
     val draftImpact: DocumentDraftImpact,
     val semanticCoverage: DocumentReviewQualityMetric? = null,
     val compilationSuccess: DocumentReviewQualityMetric? = null,
+    val analysisCounts: DocumentAnalysisCounts? = null,
 )
 
 public data class DocumentReviewQualityMetric(
@@ -90,6 +96,42 @@ public data class DocumentReviewRecommendation(
     val semanticIntent: String? = null,
     val generatedIris: List<String> = emptyList(),
     val safeBlockers: List<String> = emptyList(),
+    val groundedItems: List<DocumentReviewGroundedItem> = emptyList(),
+)
+
+public data class DocumentReviewGroundedItem(
+    val itemId: String,
+    val disposition: String,
+    val selectedSelectionId: String?,
+    val alternatives: List<DocumentReviewGroundedAlternative>,
+    val prerequisiteOrigins: List<String>,
+    val editableFields: List<DocumentReviewGroundedEditableField>,
+    val status: String,
+)
+
+public data class DocumentReviewGroundedAlternative(
+    val selectionId: String,
+    val entityIri: String,
+    val kind: String,
+    val scope: String,
+    val sourceId: String,
+    val writable: Boolean,
+    val preferredLabel: String?,
+    val definition: String?,
+    val score: Int,
+    val matchReasons: List<String>,
+    val parents: List<String>,
+    val domains: List<String>,
+    val ranges: List<String>,
+    val types: List<String>,
+)
+
+public data class DocumentReviewGroundedEditableField(
+    val id: String,
+    val kind: String,
+    val required: Boolean,
+    val compatibleSelectionIds: List<String>,
+    val message: String,
 )
 
 public data class DocumentReviewConfidenceDimensions(
@@ -171,7 +213,6 @@ public data class DocumentDraftImpact(
     val acceptedCount: Int,
     val pendingCount: Int,
     val blockedCount: Int,
-    val maximumAcceptedEdits: Int = 100,
     val readOnly: Boolean = true,
 )
 
@@ -268,9 +309,19 @@ private data class StoredVerifiedPlan(
     val blocks: Map<String, LocatedDocumentTextBlock>,
     val evidence: Map<String, DocumentEvidence>,
     val analysisStages: List<DocumentAnalysisStageRecord>,
+    val groundedReview: DocumentGroundedReviewContext? = null,
     val reviews: LinkedHashMap<String, MutableVerifiedRecommendationReview>,
     val installedAt: Instant,
     var updatedAt: Instant,
+)
+
+internal data class DocumentGroundedReviewContext(
+    val analysis: DocumentGroundedAnalysisResult,
+    val retrieval: List<DocumentOntologyRetrievalResult>,
+    val editableFields: List<DocumentEditableGroundedField>,
+    val statusByItemId: Map<String, DocumentGroundedRecommendationStatus>,
+    val itemIdsByRecommendationId: Map<String, List<String>>,
+    val counts: DocumentAnalysisCounts,
 )
 
 private data class MutableVerifiedRecommendationReview(
@@ -317,6 +368,7 @@ internal class DocumentReviewWorkspaceStore(
         plan: DocumentVerifiedFinalPlan,
         extractedDocuments: List<ExtractedDocument>,
         discoveries: List<DocumentDiscovery>,
+        groundedReview: DocumentGroundedReviewContext? = null,
     ): Unit {
         if (plan.plan.workKey.sha256 != workKey) {
             throw DocumentAnalysisFailure(
@@ -359,6 +411,7 @@ internal class DocumentReviewWorkspaceStore(
             blocks = blocks,
             evidence = evidence,
             analysisStages = task.analysisStages,
+            groundedReview = groundedReview,
             reviews = plan.plan.recommendations.associateTo(linkedMapOf()) {
                 it.id to MutableVerifiedRecommendationReview()
             },
@@ -536,6 +589,7 @@ internal class DocumentReviewWorkspaceStore(
                 semanticIntent = recommendation.description,
                 generatedIris = generatedIris,
                 safeBlockers = recommendation.blockers,
+                groundedItems = groundedItems(stored.groundedReview, recommendation.id),
             )
         }
         val documents = stored.taskDocuments.map {
@@ -605,7 +659,56 @@ internal class DocumentReviewWorkspaceStore(
                 failureCodes = executableRecommendations.flatMap(DocumentFinalRecommendation::blockers)
                     .distinct().sorted(),
             ),
+            analysisCounts = stored.groundedReview?.counts,
         )
+    }
+
+    private fun groundedItems(
+        context: DocumentGroundedReviewContext?,
+        recommendationId: String,
+    ): List<DocumentReviewGroundedItem> {
+        context ?: return emptyList()
+        val items = context.analysis.items.associateBy { it.id }
+        val selections = context.retrieval.flatMap { it.selections }
+        val itemIds = context.itemIdsByRecommendationId[recommendationId]
+            ?: context.itemIdsByRecommendationId.entries.singleOrNull {
+                recommendationId.startsWith("${it.key}-part-")
+            }?.value
+            ?: emptyList()
+        return itemIds.mapNotNull(items::get).map { item ->
+            val candidateIds = item.candidateIds.toSet()
+            DocumentReviewGroundedItem(
+                itemId = item.id,
+                disposition = item.disposition.name,
+                selectedSelectionId = item.selectionId,
+                alternatives = selections.filter { it.candidateId in candidateIds }.map { selection ->
+                    val structure = selection.structuralContext
+                    DocumentReviewGroundedAlternative(
+                        selection.selectionId,
+                        selection.canonicalIri.value,
+                        selection.kind.name,
+                        selection.scope.name,
+                        selection.sourceId,
+                        selection.writable,
+                        selection.preferredLabel,
+                        selection.definition,
+                        selection.score,
+                        selection.matchReasons.map { "${it.kind}: ${it.detail} (+${it.points})" },
+                        structure.superclassIris.map { it.value },
+                        structure.domainIris.map { it.value },
+                        (structure.rangeIris + structure.datatypeIris).map { it.value }.distinct().sorted(),
+                        structure.assertedTypeIris.map { it.value },
+                    )
+                },
+                prerequisiteOrigins = item.references.mapNotNull { it.prerequisiteOrigin?.name }.distinct().sorted(),
+                editableFields = context.editableFields.filter { it.id.startsWith("${item.id}:") }.map {
+                    DocumentReviewGroundedEditableField(
+                        it.id, it.kind.name, it.required, it.compatibleSelectionIds, it.safeMessage,
+                    )
+                },
+                status = context.statusByItemId[item.id]?.name ?: DocumentGroundedRecommendationStatus.Blocked.name,
+            )
+        }
     }
 
     @Synchronized
