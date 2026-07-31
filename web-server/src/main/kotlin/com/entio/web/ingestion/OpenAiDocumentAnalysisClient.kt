@@ -788,13 +788,33 @@ internal class OpenAiDocumentAnalysisClient(
                 }
             },
         )
+        val iri = objectSchema(
+            listOf("value"),
+            objectMapper.createObjectNode().apply {
+                putObject("value").put("type", "string").put("minLength", 1).put("maxLength", 2_000)
+            },
+        )
+        val literal = objectSchema(
+            listOf("datatypeIri", "languageTag", "lexicalForm"),
+            objectMapper.createObjectNode().apply {
+                putObject("lexicalForm").put("type", "string").put("minLength", 1).put("maxLength", 8_000)
+                set<JsonNode>("datatypeIri", objectMapper.createObjectNode().apply {
+                    set<JsonNode>("anyOf", objectMapper.valueToTree(listOf(iri, objectMapper.createObjectNode().put("type", "null"))))
+                })
+                set<JsonNode>("languageTag", nullableString(100))
+            },
+        )
         val item = objectSchema(
-            listOf("ambiguity", "candidateIds", "confidence", "definition", "disposition", "evidenceIds", "id", "kind", "label", "rationale", "references", "selectionId"),
+            listOf("ambiguity", "candidateIds", "confidence", "datatypeIntent", "definition", "disposition", "evidenceIds", "id", "kind", "label", "literalValue", "rationale", "references", "selectionId"),
             objectMapper.createObjectNode().apply {
                 putObject("id").put("type", "string").put("minLength", 1).put("maxLength", 200)
                 set<JsonNode>("kind", stringEnum(com.entio.core.DocumentSemanticItemKind.entries.map { it.name }, "Semantic kind."))
                 putObject("label").put("type", "string").put("minLength", 1).put("maxLength", 500)
                 set<JsonNode>("definition", nullableString(2_000))
+                set<JsonNode>("literalValue", objectMapper.createObjectNode().apply {
+                    set<JsonNode>("anyOf", objectMapper.valueToTree(listOf(literal, objectMapper.createObjectNode().put("type", "null"))))
+                })
+                set<JsonNode>("datatypeIntent", nullableString(500))
                 set<JsonNode>("candidateIds", stringArray(candidateIds, candidateIds.size))
                 set<JsonNode>("evidenceIds", stringArray(evidenceIds, evidenceIds.size))
                 set<JsonNode>("disposition", stringEnum(DocumentGroundedDisposition.entries.map { it.name }, "Grounded disposition."))
