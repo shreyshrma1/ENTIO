@@ -89,6 +89,28 @@ class DocumentGroundedAnalysisContractsTest {
     }
 
     @Test
+    fun `requires explicit literal and datatype meaning for deterministic compilation`(): Unit {
+        val literal = RdfLiteral("42", Iri("http://www.w3.org/2001/XMLSchema#integer"))
+        val assertion = item(
+            id = "item-literal",
+            disposition = DocumentGroundedDisposition.ProposeNew,
+            kind = DocumentSemanticItemKind.DatatypeValueAssertion,
+            literalValue = literal,
+            datatypeIntent = "http://www.w3.org/2001/XMLSchema#integer",
+        )
+
+        assertEquals(literal, assertion.literalValue)
+        assertFailsWith<IllegalArgumentException> {
+            item(id = "missing-literal", disposition = DocumentGroundedDisposition.ProposeNew,
+                kind = DocumentSemanticItemKind.DatatypeValueAssertion)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            item(id = "wrong-intent", disposition = DocumentGroundedDisposition.ProposeNew,
+                datatypeIntent = "http://www.w3.org/2001/XMLSchema#string")
+        }
+    }
+
+    @Test
     fun `requires complete unique grounded coverage`(): Unit {
         val first = item(id = "item-1", disposition = DocumentGroundedDisposition.ProposeNew)
         val second = item(
@@ -245,14 +267,19 @@ class DocumentGroundedAnalysisContractsTest {
         evidenceIds: List<DocumentEvidenceId> = listOf(DocumentEvidenceId("evidence-1")),
         disposition: DocumentGroundedDisposition,
         selectionId: String? = null,
+        kind: DocumentSemanticItemKind = DocumentSemanticItemKind.Class,
+        literalValue: RdfLiteral? = null,
+        datatypeIntent: String? = null,
     ): DocumentGroundedSemanticItem = DocumentGroundedSemanticItem(
         id = id,
-        kind = DocumentSemanticItemKind.Class,
+        kind = kind,
         label = "Payment",
         candidateIds = candidateIds,
         evidenceIds = evidenceIds,
         disposition = disposition,
         selectionId = selectionId,
+        literalValue = literalValue,
+        datatypeIntent = datatypeIntent,
         rationale = "The evidence describes a payment.",
         confidence = DocumentConfidenceDimensions(90, 80, 70),
     )

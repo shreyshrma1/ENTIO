@@ -229,6 +229,8 @@ public data class DocumentGroundedSemanticItem(
     public val kind: DocumentSemanticItemKind,
     public val label: String,
     public val definition: String? = null,
+    public val literalValue: RdfLiteral? = null,
+    public val datatypeIntent: String? = null,
     public val candidateIds: List<String>,
     public val evidenceIds: List<DocumentEvidenceId>,
     public val disposition: DocumentGroundedDisposition,
@@ -242,6 +244,7 @@ public data class DocumentGroundedSemanticItem(
         requireOpaqueDocumentId(id, "Grounded semantic item ID")
         requireNonBlankBounded(label, "Grounded semantic item label", 500)
         requireOptionalDocumentText(definition, "Grounded semantic item definition", 2_000)
+        requireOptionalDocumentText(datatypeIntent, "Grounded semantic datatype intent", 500)
         require(candidateIds.isNotEmpty() && candidateIds == candidateIds.distinct().sorted())
         candidateIds.forEach { requireOpaqueDocumentId(it, "Grounded semantic item candidate ID") }
         require(evidenceIds.isNotEmpty() && evidenceIds == evidenceIds.distinct().sortedBy(DocumentEvidenceId::value))
@@ -254,6 +257,15 @@ public data class DocumentGroundedSemanticItem(
             require(selectionId == null) { "Only reuse and extension may carry a selection ID." }
         }
         selectionId?.let { requireOpaqueDocumentId(it, "Grounded semantic item selection ID") }
+        require((kind == DocumentSemanticItemKind.DatatypeValueAssertion) == (literalValue != null)) {
+            "Only a grounded datatype-value assertion requires an explicit literal value."
+        }
+        require(datatypeIntent == null || kind in setOf(
+            DocumentSemanticItemKind.DatatypeProperty,
+            DocumentSemanticItemKind.DatatypePropertyRange,
+            DocumentSemanticItemKind.DatatypeValueAssertion,
+            DocumentSemanticItemKind.ShaclConstraint,
+        )) { "Grounded datatype intent is supported only for datatype semantic items." }
     }
 
     public val stableOrderingKey: String get() = "${kind.ordinal.toString().padStart(2, '0')}:$label:$id"
