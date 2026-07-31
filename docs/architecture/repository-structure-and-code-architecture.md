@@ -86,11 +86,18 @@ More exactly:
 
 The native ontology assistant is active. `web-server` registers project-scoped AI proposal routes backed by the OpenAI Responses API, and `web-app` exposes conversations, history, status, review-only proposals, edit removal, staging, rejection, and cancellation. Credentials, model settings, conversations, and runs remain in-memory development state. The assistant has no arbitrary tools, direct source-write path, approval authority, or automatic apply path.
 
-Phase 11 document ingestion is active. Phase 11.5 separates discovery,
-connected modeling, reconciliation, alignment, critique, and planning. Phase
-11.5+ changes the last handoff to a model-produced semantic plan followed by
-Kotlin completeness verification and deterministic compilation. These phases do
-not change the repository's module direction or create another apply path.
+Phase 11 document ingestion is active, and Phase 11.5+ is complete. New tasks
+use evidence-grounded per-document discovery, connected modeling over bounded
+chunks, optional consolidation, focused prerequisite completion, a current
+ontology snapshot, and deterministic Kotlin semantic assembly and compilation.
+Legacy reconciliation, alignment, critique, and final-planning contracts remain
+for compatibility but are not active production stages. These phases do not
+change the repository's module direction or create another apply path.
+
+Phase 12 is approved for implementation but is not yet implemented. It plans to
+add deterministic local candidate extraction and authorized ontology retrieval
+before model interpretation while reusing the current module boundaries,
+semantic search, FIBO search, compiler, review, and apply workflow.
 
 ## Typical call paths
 
