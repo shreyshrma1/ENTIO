@@ -12,7 +12,7 @@ CLI                         ┘
 
 The Kotlin engine owns ontology meaning and validation. The server and CLI expose engine behavior. The React and VS Code clients present it to users but do not decide RDF, OWL, or SHACL semantics.
 
-The implemented repository baseline is complete through Phase 11.5+.
+The implemented repository baseline is complete through Phase 12.
 
 ## Top-level layout
 
@@ -53,7 +53,7 @@ More exactly:
 | `validation-engine` | `core-types`, `semantic-engine`, `shared` | No direct external library |
 | `graph-diff` | `core-types`, `semantic-engine`, `validation-engine`, `shared` | No direct external library |
 | `cli` | All engine modules | Picocli, Jackson |
-| `web-server` | `core-types`, `semantic-engine`, `validation-engine`, `graph-diff` | Ktor, Jackson, coroutines |
+| `web-server` | `core-types`, `semantic-engine`, `validation-engine`, `graph-diff` | Ktor, Jackson, coroutines, Apache OpenNLP and pinned English resources |
 
 `core-types` never calls higher modules. Engine modules never depend on the server, React app, or VS Code extension.
 
@@ -81,23 +81,19 @@ More exactly:
 | Read-only ontology map | `semantic-engine/OntologyGraphService` → `web-server/OntologyGraphWebService` → `web-app/src/workbench/ontology-map/` |
 | Provider credentials and model selection | `web-server/ai/`, `AiModelWebBoundary`; UI in `AiCredentialSettings` |
 | Native ontology assistant | `web-server/ai/AiProposalService`, `OpenAiProposalClient`; routes in `Application.kt`; UI in `AiProposalPanel` and `ProjectWorkspace` |
-| Document ingestion | Phase 11 intake and evidence foundations plus the Phase 11.5/11.5+ pipeline in `core-types/Document*`, `semantic-engine/Document*`, `web-server/ingestion/`, and `web-app/src/workbench/document-ingestion/`; the model produces semantic plans and Kotlin owns completeness checks and deterministic compilation |
+| Document ingestion | Phase 11 intake and evidence foundations plus Phase 12 candidates and choices in `core-types/Document*`; retrieval and grounded verification in `semantic-engine/Document*`; local NLP, work-key, provider, and task orchestration in `web-server/ingestion/`; review presentation in `web-app/src/workbench/document-ingestion/`; Kotlin owns selection validity and deterministic compilation |
 | VS Code workbench | `vscode-extension/`; semantic calls go through `engineCli.ts` to `cli/` |
 
 The native ontology assistant is active. `web-server` registers project-scoped AI proposal routes backed by the OpenAI Responses API, and `web-app` exposes conversations, history, status, review-only proposals, edit removal, staging, rejection, and cancellation. Credentials, model settings, conversations, and runs remain in-memory development state. The assistant has no arbitrary tools, direct source-write path, approval authority, or automatic apply path.
 
-Phase 11 document ingestion is active, and Phase 11.5+ is complete. New tasks
-use evidence-grounded per-document discovery, connected modeling over bounded
-chunks, optional consolidation, focused prerequisite completion, a current
-ontology snapshot, and deterministic Kotlin semantic assembly and compilation.
-Legacy reconciliation, alignment, critique, and final-planning contracts remain
-for compatibility but are not active production stages. These phases do not
-change the repository's module direction or create another apply path.
-
-Phase 12 is approved for implementation but is not yet implemented. It plans to
-add deterministic local candidate extraction and authorized ontology retrieval
-before model interpretation while reusing the current module boundaries,
-semantic search, FIBO search, compiler, review, and apply workflow.
+Phase 12 document ingestion is active. New tasks use deterministic local
+candidate extraction, authorized lexical and ontology-structural retrieval, a
+frozen grounded work key, bounded model interpretation over evidence and
+server-issued choices, Kotlin verification, and the existing deterministic
+compiler and review workflow. The Phase 11.5+ discovery, connected-modeling,
+consolidation, and prerequisite provider sequence remains only behind explicit
+compatibility configuration and historical tests. No module direction or apply
+path changed.
 
 ## Typical call paths
 
@@ -126,6 +122,27 @@ React editor
 ```
 
 The browser never writes Turtle directly.
+
+### Analyze documents into reviewable ontology changes
+
+```text
+React document workspace
+→ authorized Ktor ingestion routes
+→ located extraction and bounded OCR
+→ Apache OpenNLP candidate extraction in web-server
+→ DocumentOntologyRetrievalService in semantic-engine
+→ strict no-tools grounded provider request
+→ DocumentGroundedAnalysisVerifier
+→ existing semantic compiler and change-set verifier
+→ DocumentReviewWorkspace
+→ existing typed draft, proposal, approval, and atomic apply path
+```
+
+Retrieval reuses current project descriptors, explicit current-work and
+provenance records, same-task candidates, and the pinned FIBO catalog. It does
+not maintain embeddings, a vector store, or another ontology index. React shows
+server-owned evidence, choices, alternatives, counts, exact changes, and
+editable reviewer fields but does not decide semantic validity.
 
 ### Render the ontology map
 

@@ -18,13 +18,15 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository contains the implemented Entio foundation through Phase 11.5+. Phase 11, AI-Powered Document Ingestion and Ontology Evolution, was implemented and verified on 2026-07-24. Phase 11.5, Multi-Stage AI Modeling and Connected Ontology Change Sets, was implemented and verified on 2026-07-27. Phase 11.5+, Deterministic Compilation of Connected Document Models, was implemented and verified on 2026-07-30.
+This repository contains the implemented Entio foundation through Phase 12. Phase 11, AI-Powered Document Ingestion and Ontology Evolution, was implemented and verified on 2026-07-24. Phase 11.5, Multi-Stage AI Modeling and Connected Ontology Change Sets, was implemented and verified on 2026-07-27. Phase 11.5+, Deterministic Compilation of Connected Document Models, was implemented and verified on 2026-07-30. Phase 12, Ontology-Grounded Document Analysis, was implemented and verified on 2026-07-31.
 
 Phase 11.5+ moves exact final-operation formatting out of the model. The model produces a connected semantic plan, and Kotlin verifies completeness and deterministically compiles supported meaning into existing typed operations.
 
 The current product includes a native OpenAI-backed ontology assistant. Users can hold project-scoped conversations, ask ontology questions, generate structured review-only edits, inspect validation results, remove edits, and stage valid proposals into the existing human-review workflow. Assistant runs remain in memory, the UI polls for status, and the assistant cannot execute arbitrary tools, approve or apply changes, or write ontology sources directly. Phase 11 extends this active foundation with bounded, evidence-grounded document analysis.
 
 Phase 11.5 replaces only the document-ingestion analysis contract with bounded discovery, connected modeling, ontology-aware planning, deterministic verification, and human review responsibilities. Phase 11 remains the upload, extraction, evidence, authorization, review, proposal, apply, rollback, and applied-provenance foundation.
+
+Phase 12 changes the default analysis order. Entio now extracts stable local candidates with pinned Apache OpenNLP resources, retrieves bounded matches from authorized ontology scopes, and gives the selected model compact evidence plus server-issued choices. Kotlin verifies every grounded disposition and reuses the existing deterministic compiler and human-controlled proposal workflow. No embeddings, vector database, external retrieval service, or additional ontology write path was added.
 
 Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because the core work is ontology loading, RDF/Turtle parsing, deterministic validation, semantic diffing, and CLI behavior.
 
@@ -88,7 +90,10 @@ The current implementation supports:
 - Polling assistant run status, preserving in-memory chat history, removing proposed edits, cancelling or rejecting runs, and staging valid proposals into the shared review queue.
 - Uploading bounded PDF, DOCX, TXT, and Markdown document sets through the web workbench.
 - Extracting located text, using selective local OCR for unreliable PDF pages, and showing exact evidence with extraction method and confidence.
-- Producing bounded AI-assisted summaries and candidates, then verifying evidence and matching against local, imported, current-work, prior-provenance, and pinned FIBO scopes in Kotlin.
+- Extracting deterministic, evidence-linked candidate terms, names, relationships, values, rules, administrative text, and illustrative text locally with pinned Apache OpenNLP English resources.
+- Retrieving up to 20 deterministically ranked authorized choices per candidate from applied, imported, current-work, same-task, retained-provenance, and pinned FIBO scopes.
+- Asking the selected verified model to interpret bounded evidence and server-issued choices together, with explicit reuse, extend, propose-new, unresolved, administrative, or illustrative dispositions.
+- Verifying grounded evidence, selection IDs, entity kinds, source permissions, fingerprints, connected context, duplicates, and freshness in Kotlin before compilation.
 - Reviewing confirm, extend, revise, split, merge, conflict, and supersede recommendations before converting accepted items into supported typed draft batches.
 - Retaining narrowly scoped provenance only for successfully applied document-derived changes while keeping uploads, OCR images, incomplete tasks, and review workspaces temporary.
 - Producing connected semantic plans without final IRIs or low-level Entio operations, then verifying completeness and compiling supported classes, properties, assertions, annotations, and approved SHACL patterns deterministically in Kotlin.
@@ -241,29 +246,36 @@ Phase 2 should not include:
 - OWL reasoning or full SHACL validation.
 - Schema RAG, embeddings, external ontology retrieval, and AI-generated ontology edits.
 
-## Current Implemented And Planned Phase
+## Current Implemented Phase
 
-Phase 11.5+ is implemented and complete. New document-ingestion tasks currently
-use this bounded analysis sequence:
+Phase 12 is implemented and complete. New document-ingestion tasks use this
+bounded analysis sequence:
 
 ```text
 verified extracted text
-→ one evidence-grounded discovery call per document
-→ connected modeling over bounded discovery chunks
-→ consolidation when multiple chunks succeed
-→ focused completion of missing property and individual prerequisites
-→ current ontology snapshot
-→ deterministic Kotlin semantic assembly
+→ deterministic local candidate extraction
+→ deterministic retrieval across authorized ontology scopes
+→ bounded grounded model interpretation over evidence and server-issued choices
+→ Kotlin evidence, selection, structure, duplicate, and freshness verification
 → deterministic compilation and verification
-→ collapsed, connected human review
+→ collapsed, connected, editable human review
 → existing typed private-draft and proposal workflow
 ```
 
-The production orchestrator no longer makes separate reconciliation, ontology
-alignment, modeling critic, or final-planning model calls. Those older contracts
-remain for compatibility and historical tests. Kotlin now assembles the
-semantic plan, keeps model-recommended prerequisites attached to the edit they
-support, and compiles supported meaning into existing typed operations.
+Candidate extraction uses pinned Apache OpenNLP `2.5.11` with audited English
+sentence, token, part-of-speech, and lemmatizer resources `1.3.0`. Retrieval is
+lexical and ontology-structural; it reuses current semantic descriptions,
+current-work and provenance records, same-task candidates, and the pinned FIBO
+catalog. The default path does not use embeddings, a vector database, a second
+ontology index, or an external NLP or retrieval service.
+
+The model chooses business meaning from bounded evidence and choices but cannot
+invent a valid existing-entity selection, final IRI, raw RDF, or Entio
+operation. Kotlin owns the grounded work key, selection and freshness checks,
+semantic-plan assembly, supported pattern selection, reference resolution, IRI
+generation, dependency ordering, expanded edit counting, compilation, and
+final safety verification. Model output can still vary; the whole pipeline is
+not deterministic.
 
 Phase 11 remains the foundation and preserves these boundaries:
 
@@ -277,8 +289,10 @@ Phases 7, 7.5, and 8 remain historical delivery records, but the current codebas
 
 Phase 11.5 does not add automatic approval, raw RDF, unrestricted agents, a second apply path, or new CLI and VS Code ingestion surfaces. Complex rules that current typed operations cannot express remain visible and review-only.
 
-Phase 11.5+ preserves the implemented Phase 11 and Phase 11.5 boundaries while
-making Kotlin responsible for the final planning handoff:
+Phase 11.5 and Phase 11.5+ remain the modeling and compilation foundations. The
+older discovery, connected-modeling, consolidation, and prerequisite provider
+path remains behind explicit compatibility configuration and historical tests;
+it is not the default Phase 12 path or an automatic fallback.
 
 ```text
 verified connected document model
@@ -288,21 +302,16 @@ verified connected document model
 → existing semantic previews and human review
 ```
 
-The model describes connected intended meaning and may recommend missing
+In that compatibility path, the model describes connected intended meaning and may recommend missing
 prerequisites; it does not choose final IRIs or exact Entio operations. Kotlin
 owns semantic-plan assembly, supported pattern selection, reference resolution,
 IRI generation, dependency ordering, expanded edit counting, and typed-edit
 compilation. Unsupported complex meaning remains visible as review context. The
-existing private-draft, proposal, approval, apply, reload, and rollback workflow
-remains the only ontology write path.
+same deterministic compiler and review contracts remain authoritative.
 
-Phase 12 is approved for implementation but is not implemented yet. It plans to
-insert deterministic local candidate extraction and retrieval from the current
-authorized ontology scopes before model interpretation. The model will receive
-compact evidence and relevant existing-entity choices together; Kotlin will
-verify those choices and continue to own compilation and safety. Phase 12 does
-not add embeddings, a vector database, a second ontology index, automatic
-approval, or another write workflow.
+The existing private-draft, proposal, validation, human approval, atomic apply,
+reload, rollback, and applied-provenance workflow remains the only ontology
+write path. Phase 12 analysis and review do not write ontology or SHACL sources.
 
 ## Technical Principle
 
@@ -378,3 +387,4 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 11.5+ Implementation Summary](docs/phase-summaries/phase-11.5-plus-summary.md)
 - [Phase 12 Spec](docs/specs/0023-phase-12-ontology-grounded-document-analysis.md)
 - [Phase 12 ExecPlan](docs/execplans/0023-phase-12-ontology-grounded-document-analysis.md)
+- [Phase 12 Implementation Summary](docs/phase-summaries/phase-12-summary.md)

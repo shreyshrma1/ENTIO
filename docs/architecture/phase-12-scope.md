@@ -6,12 +6,12 @@
 
 ## Status
 
-Approved for implementation.
+Implemented and verified on 2026-07-31.
 
-Phase 12 is planned but not yet implemented. The approved specification defines
-the product behavior, and the newer Phase 12 ExecPlan is authoritative for
-implementation order, slice boundaries, allowed files, verification, and stop
-conditions.
+Phase 12 is complete. The approved specification defines the delivered product
+behavior, and the Phase 12 ExecPlan records implementation order, slice
+boundaries, allowed files, verification, and stop conditions. The verified
+delivery is summarized in `docs/phase-summaries/phase-12-summary.md`.
 
 Phase 12 builds on the implemented Phase 11, Phase 11.5, and Phase 11.5+
 document-ingestion foundations. It changes how Entio finds document candidates
@@ -592,19 +592,22 @@ Phase 12 is complete when:
 17. Offline deterministic tests and the approved controlled-provider benchmark
     pass the Phase 12 quality gates defined by the spec and ExecPlan.
 
-## Slice 0 Audit Decisions
+## Implemented Slice 0 Audit Decisions
 
-- Which established JVM-compatible NLP library and English model best meet the
-  repository's license, size, startup-time, Java-version, and determinism needs?
-- Which existing current-work and provenance adapters can be reused directly,
-  and which require a narrow retrieval facade?
-- What compact context fields give the model enough domain, range, hierarchy,
-  and definition information without repeating full ontology records?
-- Which progress and diagnostic contract version cleanly distinguishes NLP
-  candidates, grounded model items, recommendations, and typed edits?
-- What frozen ontology state and expected retrieval matches should accompany the
-  permanent two-document benchmark?
+- Local NLP uses Apache OpenNLP `2.5.11` with pinned English sentence,
+  tokenizer, part-of-speech, and lemmatizer resources `1.3.0`.
+- Existing semantic descriptions, current-work records, retained provenance,
+  same-task records, and pinned FIBO search feed one narrow deterministic
+  retrieval service; no second ontology index or persistence layer was added.
+- Compact choices carry bounded labels, definitions, hierarchy, domain, range,
+  datatype, asserted-type, reason, score, source, scope, and fingerprint data.
+- The `phase-12-...-v1` contract family distinguishes candidate, grounded-item,
+  recommendation, and expanded-edit counts and freezes the grounded work key.
+- The existing two PDFs, simple ontology, current-work state, candidate and
+  retrieval inventory, selected model, prompt/response versions, and thresholds
+  form the permanent opt-in benchmark gate.
 
-The first ExecPlan slice must record these decisions before production code
-changes. They must be resolved without adding embeddings, a vector database,
-automatic approval, a new persistence layer, or a new ontology write path.
+These decisions are recorded in
+`docs/decisions/phase-12-slice-0-contract-and-dependency-audit.md`. The
+implementation adds no embeddings, vector database, automatic approval, new
+persistence layer, external retrieval service, or new ontology write path.

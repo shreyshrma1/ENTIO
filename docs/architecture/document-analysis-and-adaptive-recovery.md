@@ -3,445 +3,321 @@
 ## Purpose
 
 Entio reads uploaded business documents and prepares evidence-linked ontology
-changes for human review.
+changes for human review. The Phase 12 production path separates four
+responsibilities:
 
-The current design separates three responsibilities:
+- local Kotlin services extract stable candidates and retrieve authorized
+  ontology choices;
+- the selected model interprets business meaning from bounded evidence and
+  those choices;
+- Kotlin verifies the result and compiles supported meaning;
+- a person edits, accepts, rejects, approves, or applies the result.
 
-- the model identifies and connects meaning in the documents;
-- Kotlin verifies evidence, completes required structure, and compiles safe
-  typed operations;
-- a person reviews, edits, accepts, or rejects the result.
-
-The model cannot approve changes, write RDF, change ontology files, or bypass
-the existing proposal workflow.
+The model cannot browse the ontology, call tools, choose arbitrary existing
+IRIs, approve changes, write RDF, change ontology files, or bypass the existing
+proposal workflow.
 
 ## Current Production Flow
 
-New document-ingestion tasks use this streamlined path:
+New document-ingestion tasks use this path by default:
 
 ```text
 upload and intake validation
 → text extraction and bounded OCR
-→ one evidence-grounded discovery call per document
-→ connected-model calls over bounded discovery chunks
-→ consolidation when more than one chunk succeeds
-→ focused prerequisite completion when context is missing
-→ current ontology snapshot
-→ deterministic Kotlin semantic assembly
-→ deterministic compilation and verification
-→ grouped human review
-→ existing draft, proposal, approval, and apply workflow
+→ deterministic local candidate extraction
+→ deterministic retrieval from authorized ontology scopes
+→ frozen grounded-analysis work key
+→ bounded grounded model interpretation
+→ Kotlin evidence, selection, structure, duplicate, and freshness verification
+→ existing deterministic semantic compilation and change-set verification
+→ connected editable human review
+→ existing draft, proposal, approval, apply, reload, rollback, and provenance workflow
 ```
 
-The current production path does **not** make separate model calls for
-reconciliation, ontology alignment, modeling critique, or final planning. Those
-older contracts remain in the codebase for compatibility and historical tests,
-but `DocumentIngestionOrchestrator` uses the streamlined path for new tasks.
+The Phase 11.5+ discovery, connected-modeling, consolidation, and prerequisite
+provider sequence remains available only through explicit compatibility
+configuration and historical tests. It is not the default Phase 12 path and is
+not an automatic fallback after a grounded-analysis failure.
 
 ## Process In Detail
 
 ### 1. Upload and intake validation
 
-The web application accepts a bounded set of PDF, DOCX, TXT, and Markdown
-documents for an authorized project. Intake checks file type, size, count,
-duplicate content, and task ownership before analysis starts.
+The web application accepts a bounded set of English PDF, DOCX, TXT, and
+Markdown documents for an authorized project. Intake checks file type, size,
+count, duplicate content, and task ownership before analysis starts.
 
 Uploaded files and incomplete tasks are temporary. They are not added to the
 ontology or retained as permanent project history.
 
-### 2. Text extraction
+### 2. Located text extraction
 
-Kotlin extracts located text blocks from each document. PDF pages with
+Kotlin extracts ordered text blocks from each document. PDF pages with
 unreliable embedded text may use bounded local OCR.
 
-Every extracted block retains its document, page or section location,
-extraction method, and exact text. Later evidence references must point back to
-these blocks.
-
-### 3. Evidence-grounded discovery
-
-The selected verified model receives one ontology-blind discovery request per
-document. It identifies possible:
-
-- concepts and roles;
-- relationships and attributes;
-- individuals and assertions;
-- requirements, controls, and conditional rules;
-- administrative or illustrative content.
-
-Each finding must cite evidence in the same document. Kotlin verifies the
-evidence IDs, block IDs, offsets, excerpts, classifications, ordering, and
-confidence values. Invalid findings are rejected individually when the valid
-remainder is still usable.
-
-At this stage the model does not see the current ontology and does not propose
-Entio operations.
-
-### 4. Connected document modeling
-
-The model next receives the verified discoveries and describes how they connect.
-For example, it may describe:
-
-- a `Payment` class;
-- a `Payment Analyst` role;
-- a `receives instruction` object property;
-- the property's domain and range;
-- an approval rule that current typed operations cannot fully express.
-
-This is the main semantic step. Kotlin does not infer these business
-relationships from labels.
-
-Large discovery inventories are divided into chunks based on the amount of
-structured output they are expected to require. A chunk contains compact
-discovery records and evidence IDs rather than repeating full evidence excerpts.
-
-When more than one chunk succeeds, one consolidation call attempts to join the
-chunk models. Kotlin accepts the consolidated result only when it preserves
-discovery coverage, core declarations, enough structure, and complete property
-and individual context. Otherwise Kotlin keeps the independently verified chunk
-models and records why consolidation was not used.
-
-### 5. Prerequisite completion
-
-Some ontology changes require additional structure:
-
-- an object property requires a domain and range;
-- a datatype property requires a domain and datatype range;
-- an individual requires a type.
-
-When connected modeling omits this context, Entio sends one focused
-prerequisite-completion request containing only the incomplete items, nearby
-connected items, and their verified discoveries. If the response is valid but
-still incomplete, Entio may make one focused correction request for the
-remaining slots.
-
-If provider completion still fails, Kotlin does not discard the useful meaning.
-It supplies a conservative, editable placeholder and marks it
-`reviewerInputRequired`. Examples include an editable `Finding` domain for
-`finding status` or an editable `Organization` type for a named bank.
-
-A placeholder is a proposed modeling choice, not a claim that the document used
-that exact term.
-
-### 6. Current ontology context
-
-After connected modeling, Kotlin reloads the current project and records:
-
-- the current ontology fingerprint;
-- the current-work fingerprint;
-- writable ontology sources;
-- existing entity IRIs and kinds;
-- the project IRI namespace;
-- retained applied-document provenance.
-
-The current streamlined path uses this context during deterministic compilation
-and stale-state checks. It does not ask the model to perform a separate ontology
-alignment pass.
-
-### 7. Deterministic semantic assembly
-
-Kotlin converts the verified connected model into a neutral semantic plan. No
-provider call occurs at this stage.
-
-Assembly performs repeatable structural work:
-
-1. join exact duplicate declarations;
-2. join exact duplicate assignments and relationships only when their kinds,
-   normalized labels, references, literals, and datatypes match;
-3. add missing editable property or individual prerequisites;
-4. retain wrong-kind domain, range, or type references as review context and
-   add a correctly typed editable placeholder;
-5. omit model-recommended declarations that are not connected to anything;
-6. propagate review-only status through explicit dependencies;
-7. build one recommendation bundle for each connected component;
-8. create a complete coverage disposition for every verified discovery.
-
-Kotlin does not merge merely similar concepts or invent new business
-relationships. Those decisions require semantic judgment.
-
-### 8. Connected recommendation bundles
-
-A connected component becomes one user-facing recommendation. Kotlin forms the
-component before separating executable and unsupported meaning, so prerequisites
-stay beside the edit they support.
-
-One bundle may contain both:
-
-- supported items that Kotlin can compile; and
-- unsupported or ambiguous meaning retained as review context.
-
-This produces a `Mixed` recommendation instead of a separate task-wide
-`Review Only` card. For example, Kotlin may compile an editable
-`Complaint Trend Report` class while retaining a complex monthly-review rule on
-the same recommendation.
-
-A clearly marked model-recommended prerequisite may be compilable even when the
-document does not explicitly name that class. It must remain editable, cite
-verified evidence for the surrounding bundle, use compatible references, pass
-deterministic checks, and receive human approval.
-
-### 9. Deterministic compilation and verification
-
-The semantic compiler converts supported items into Entio's existing typed
-operations. Supported patterns include declarations, hierarchy, property domain
-and range, individual types and assertions, labels and definitions, and bounded
-SHACL patterns.
-
-Kotlin owns:
-
-- supported pattern selection;
-- temporary-reference resolution;
-- IRI generation;
-- source selection;
-- dependency ordering;
-- duplicate and no-op checks;
-- expanded edit counting;
-- stale ontology and current-work checks;
-- final operation verification.
-
-The final recommendation is not written by the model. Kotlin assembles and
-compiles it directly from the verified connected structure.
-
-One invalid bundle does not invalidate unrelated bundles. Unsafe work remains
-blocked locally with a stable reason code.
-
-### 10. Human review and apply
-
-The review screen initially shows a compact row containing the name, edit type,
-confidence, status, and an expansion control. Expanding a row shows exact typed
-changes, evidence, confidence dimensions, model-recommended fields, reviewer
-placeholders, and retained review context.
-
-Recommendations can be:
-
-- `Executable`: all retained content compiled into typed operations;
-- `Mixed`: typed operations are available and unsupported meaning remains
-  visible on the same recommendation;
-- `ReviewOnly`: no supported ontology operation can yet represent the retained
-  meaning;
-- `Blocked`: deterministic safety checks found an unresolved problem.
-
-Users may edit exposed labels, entity references, datatypes, and prerequisite
-fields before accepting a recommendation. Editing returns it to pending review;
-it does not approve or apply it.
-
-Accepted recommendations enter the existing private-draft and proposal
-workflow. The existing approval, atomic apply, reload, rollback, and applied
-provenance paths remain the only way document-derived changes reach ontology
-sources.
-
-## Model Items, Recommendations, And Typed Edits
-
-These counts describe different things:
-
-- a **discovery** is one evidence-grounded piece of document meaning;
-- a **connected-model item** is one structural piece such as a class, property,
-  domain, range, assertion, or rule;
-- a **recommendation** is one connected user-facing bundle;
-- a **typed edit** is one concrete operation staged for the ontology.
-
-Therefore, retaining 292 connected-model items does not imply 292 review cards
-or 292 ontology edits. One property recommendation may contain a property
-declaration, two class declarations, a domain assignment, a range assignment,
-and review context. Exact duplicates and shared prerequisites can further reduce
-the final recommendation count.
-
-## Bounds
-
-The current safety bounds are local and resource-oriented:
-
-- at most 10 documents per task;
-- at most 200 discoveries per document and 2,000 per task;
-- at most 300 connected items in one provider response;
-- at most 15 planned logical provider calls per task;
-- at most 20 provider attempts per task;
-- at most 3 automatic retry attempts across a task;
-- at most 1,000,000 characters in one provider response;
-- at most 20 expanded typed edits in one final recommendation.
-
-Discovery and ordinary connected-model calls allow up to 16,000 output tokens.
-Consolidation allows up to 32,000 because it must combine multiple verified
-chunk models.
-
-There is no task-wide ceiling on retained connected items, recommendations, or
-typed edits. Large valid tasks may produce hundreds of reviewable changes.
-Accepted changes are divided into bounded internal staging batches rather than
-being discarded.
-
-## Why Chunking Exists
-
-Chunking protects provider reliability, not semantic correctness. A model can
-usually reason about a bounded subset more reliably than an inventory requiring
-a very large structured response.
-
-Chunking does not intentionally truncate extracted text or discard discoveries.
-Kotlin retains the complete verified discovery inventory and verifies coverage
-after the connected-model stage.
-
-### Adaptive splitting
-
-If a connected-model chunk reaches the provider output limit or the provider is
-temporarily unavailable:
-
-1. keep every chunk that already succeeded;
-2. split only the failed chunk into two balanced discovery sets;
-3. process the children independently;
-4. consolidate or merge the verified child results;
-5. verify retained coverage.
-
-A chunk containing one discovery cannot be split further. Entio then stops with
-a safe failure instead of weakening or deleting that discovery.
-
-## Retry And Failure Behavior
-
-### Retryable provider failure
-
-Rate limits, temporary unavailability, and network interruptions may receive a
-bounded exact-input retry. A retry is another HTTP attempt for the same logical
-call. The global task budget prevents repeated retries from growing without
-limit.
-
-For connected-model output exhaustion or provider unavailability, adaptive
-splitting is preferred over repeatedly sending the same oversized chunk.
-
-### Authorization, quota, model, or request-schema failure
-
-These failures are not repaired by chunking. The task stops or becomes blocked
-until the credential, provider account, selected model, or request contract is
-corrected.
-
-### Structurally invalid model output
-
-Kotlin may request one bounded correction when a connected-model response is
-mostly unusable. A small invalid minority can be skipped while verified items
-continue. Missing prerequisites use the focused prerequisite stage instead of
-regenerating the entire connected model.
-
-### Incomplete prerequisite response
-
-Entio may request one focused correction. If required context is still missing,
-Kotlin supplies editable reviewer placeholders and continues to review.
-
-### Deterministic compilation failure
-
-The affected bundle becomes `Blocked`; unrelated bundles remain available.
-Wrong-kind property or type context is handled specially: the invalid reference
-is retained as review context and a correctly typed editable placeholder is
-proposed in the same bundle.
-
-### HTTP 500
-
-An HTTP 500 means the provider failed while processing an accepted request. It
-does not mean Kotlin rejected the ontology plan, and it does not by itself prove
-that the API key or document is invalid.
-
-Entio classifies provider HTTP 500 responses as temporary provider
-unavailability. During connected modeling, the failed chunk may be split when
-the remaining call budget permits it.
-
-### Output-token limit
-
-An output-token-limit failure means the provider stopped before completing the
-required structured JSON. Entio does not parse or accept the partial result.
-During connected modeling it attempts smaller chunks; it does not increase the
-limit without bound.
-
-## Call Accounting
-
-Entio tracks:
-
-- a **logical call**, meaning a distinct document, chunk, consolidation, or
-  prerequisite request;
-- a **provider attempt**, meaning one HTTP request, including retries;
-- a **deterministic stage**, meaning local Kotlin work with no provider request.
-
-Discovery, connected modeling, consolidation, and prerequisite completion use
-provider calls. Semantic assembly, compilation, verification, review, and apply
-do not.
-
-Keeping these counts separate makes status and retry-limit errors easier to
-interpret.
+Every block retains its document, page or section location, extraction method,
+and exact text. Later candidate and model evidence must resolve back to these
+blocks and offsets.
+
+### 3. Deterministic local candidate extraction
+
+`DocumentCandidateExtractionService` analyzes the verified English text before
+any document semantic model call. It uses pinned Apache OpenNLP `2.5.11` with
+English sentence-detector, tokenizer, part-of-speech, and lemmatizer resources
+`1.3.0`, plus bounded product-specific patterns.
+
+The extractor can retain:
+
+- concept terms;
+- people, organizations, locations, and identifiers;
+- relationship phrases;
+- attribute values, dates, and monetary amounts;
+- rule cues;
+- administrative and illustrative spans.
+
+Each candidate contains a stable ID, category, normalized text, document
+checksum, exact evidence offsets, extractor contract version, and NLP resource
+version. Kotlin deduplicates exact candidate identities and orders the complete
+inventory deterministically.
+
+This stage does not decide whether a candidate is an ontology class, property,
+individual, assertion, or rule. It prepares evidence-linked search input.
+
+### 4. Deterministic authorized retrieval
+
+`DocumentRetrievalContextFactory` assembles an authorized snapshot, and
+`DocumentOntologyRetrievalService` searches every applicable scope:
+
+1. applied local ontology entities;
+2. imported ontology entities;
+3. private draft work;
+4. shared staging;
+5. the current proposal;
+6. same-task records;
+7. retained applied-document provenance;
+8. the pinned read-only FIBO catalog.
+
+Retrieval reuses current semantic descriptions, explicit current-work and
+provenance records, same-task records, and `FiboSchemaSearchService`. It does not
+copy the ontology, build embeddings, maintain a vector store, or call an
+external search service.
+
+Ranking uses exact normalized identity, preferred and alternate labels, IRI
+local names, bounded token overlap, kind compatibility, nearby candidate hints,
+approved scope order, canonical IRI, and source ID. A result includes a stable
+server-issued selection ID, canonical IRI, kind, scope, source, writability,
+bounded definition and labels, structural context, match reasons, score, and
+the frozen ontology/current-work/provenance/catalog fingerprints.
+
+At most 20 ranked choices are sent to the model for one candidate. Kotlin keeps
+complete authorized-state matches separately for duplicate, collision, and
+no-op checks, so the prompt bound does not weaken final verification. A
+candidate with no retrieved choices is still valid input.
+
+### 5. Frozen grounded-analysis work key
+
+Before calling the model, Kotlin re-creates the retrieval context and rejects a
+fingerprint change as stale. It then hashes the project and task identity,
+document checksums, evidence and candidate inventories, retrieval results,
+ontology/current-work/provenance/catalog fingerprints, extractor and resource
+versions, retrieval ranking, selected verified model, and grounded prompt and
+response versions.
+
+This work key makes equivalent frozen inputs repeatable and invalidates model
+selections when any relevant input changes.
+
+### 6. Bounded grounded model interpretation
+
+The selected verified model receives compact candidates, exact evidence, and
+their authorized choices in one strict no-tools request. It returns connected
+semantic items and complete candidate coverage using these dispositions:
+
+- `ReuseExisting` with an exact supplied selection ID;
+- `ExtendExisting` with an exact supplied writable selection ID;
+- `ProposeNew` when no supplied choice represents the meaning;
+- `Unresolved` when the evidence or choices do not support a safe decision;
+- explicit administrative or illustrative treatment for non-ontology content.
+
+The response can describe classes, properties, hierarchy, domains, ranges,
+assertions, values, constraints, references, confidence, and ambiguity. It
+cannot return final entity IRIs, raw RDF, Turtle, SPARQL, Entio operations,
+credentials, paths, approval, or write instructions.
+
+Model output remains judgment and can vary. Retrieval narrows the choices but
+does not prove semantic identity.
+
+### 7. Kotlin verification and compilation
+
+`DocumentGroundedAnalysisVerifier` checks:
+
+- candidate and evidence identity;
+- complete candidate coverage;
+- supplied selection IDs and their exact IRI, kind, scope, source, and
+  fingerprints;
+- extension writability;
+- connected references and compatible kinds;
+- domains, ranges, datatypes, types, and reviewer-solvable prerequisites;
+- full-state duplicates, collisions, no-ops, and stale work;
+- supported, review-only, unresolved, and blocked outcomes.
+
+Kotlin never substitutes a different retrieved entity to make a model choice
+compile. Reviewer-solvable gaps become editable `NeedsInput` fields.
+Unsupported complex meaning remains visible and non-executable. Unsafe work is
+blocked with a stable reason.
+
+The verified connected plan then enters the existing
+`DocumentSemanticPlanCompiler` and `DocumentChangeSetPlanVerifier`. Kotlin owns
+temporary-reference resolution, collision-checked IRI generation, writable
+source selection, dependency ordering, expanded edit counting, typed-operation
+construction, and final freshness checks. No second compiler or raw-RDF path
+exists.
+
+### 8. Connected editable review and apply
+
+The review workspace initially shows a compact collapsed summary with the name,
+edit type, confidence, status, and expansion control. Expanded review shows:
+
+- grounded disposition and selected or alternative server-issued choices;
+- canonical IRI, source, kind, match reasons, and structural context;
+- exact typed changes and generated IRIs;
+- evidence and confidence dimensions;
+- model-recommended and Kotlin-supplied prerequisite origins;
+- editable labels, kinds, sources, domains, ranges, datatypes, types, and
+  prerequisite fields;
+- retained review-only meaning, ambiguity, blockers, and individual gates.
+
+Reviewer edits are reverified and recompiled in Kotlin and return the
+recommendation to pending review. Accepted recommendations are translated into
+dependency-safe typed draft batches of at most 20 expanded edits. The existing
+private-draft, proposal, validation, human approval, atomic apply, reload,
+rollback, and applied-provenance workflow remains the only way a document
+change reaches ontology or SHACL sources.
+
+## Counts
+
+Phase 12 reports different counts for different stages:
+
+- evidence blocks;
+- retained and rejected NLP candidates;
+- retained, unresolved, and rejected grounded items;
+- executable, needs-input, review-only, and blocked recommendations;
+- expanded typed edits.
+
+A candidate is search input, a grounded item is modeled meaning, a
+recommendation is one connected review bundle, and a typed edit is one concrete
+operation. These counts are not interchangeable. There is no task-wide product
+ceiling that silently discards valid modeled items, recommendations, or edits;
+resource and atomic-batch safeguards remain bounded.
+
+## Bounds And Adaptive Recovery
+
+The existing document, byte, page, extracted-text, OCR, concurrency, task-life,
+provider-response, and timeout bounds remain in force. Phase 12 adds these
+grounded limits:
+
+- at most 20 prompt-visible retrieval choices per candidate;
+- at most 40 candidates in one grounded request group;
+- at most 15 grounded logical calls per task;
+- at most 20 grounded provider attempts per task;
+- at most one exact-input retry for one retryable grounded call;
+- at most 20 expanded typed edits in one final recommendation or staging batch.
+
+If a grounded request reaches an approved response/output limit or the provider
+is temporarily unavailable, Entio can split only that candidate group into two
+balanced groups while preserving the same frozen candidate and retrieval
+records. Successful groups are retained. A single-candidate group cannot split
+further and fails safely.
+
+Authorization, quota, model-access, request-schema, invented-selection,
+freshness, and deterministic verification failures are not repaired by
+switching models, widening retrieval, or falling back to ontology-blind
+analysis. Partial structured output is not accepted.
+
+## Determinism Boundary
+
+For frozen inputs, Kotlin deterministically owns:
+
+- located evidence and local candidate IDs;
+- retrieval IDs, scores, reasons, ordering, and fingerprints;
+- grounded work keys;
+- evidence and selection validation;
+- duplicate, collision, source, kind, and freshness checks;
+- semantic compilation, dependency order, typed edits, and status counts.
+
+The model still owns semantic judgment: whether evidence denotes ontology
+meaning, whether two concepts are equivalent, which plausible choice fits, and
+whether a new concept is justified. Human review still owns acceptance and
+application. Phase 12 makes the pipeline more repeatable; it does not make the
+whole pipeline deterministic.
 
 ## Responsibility Boundary
 
 | Responsibility | Owner |
 | --- | --- |
-| Understand the document's business meaning | Model |
-| Decide which discovered concepts and relationships connect | Model |
-| Recommend implied prerequisites for review | Model |
-| Identify ambiguity and complex unsupported rules | Model |
-| Verify evidence IDs, excerpts, locations, and classifications | Kotlin |
-| Verify connected references and compatible item kinds | Kotlin |
-| Detect missing domain, range, datatype, and type context | Kotlin |
-| Supply visibly editable fallback prerequisites | Kotlin |
-| Build connected recommendation bundles | Kotlin |
-| Compile semantic items into supported typed operations | Kotlin |
-| Check freshness, sources, dependencies, duplicates, and limits | Kotlin |
+| Locate and extract document text | Kotlin |
+| Extract stable evidence-linked search candidates | Kotlin with pinned local OpenNLP resources |
+| Search and rank authorized ontology choices | Kotlin |
+| Interpret business meaning from evidence and choices | Selected model |
+| Choose reuse, extension, new, or unresolved treatment | Selected model, constrained to supplied IDs for existing entities |
+| Verify evidence, choices, structure, duplicates, and freshness | Kotlin |
+| Build connected plans and compile supported typed operations | Kotlin |
+| Present evidence, alternatives, exact changes, and editable fields | React from server-owned contracts |
 | Edit, accept, reject, approve, or apply recommendations | Human reviewer |
 
-The short version is: the model supplies meaning, Kotlin supplies repeatable
-structure and safety, and a person controls ontology changes.
+The short version is: retrieval narrows the choices, the model interprets
+meaning, Kotlin supplies repeatable structure and safety, and a person controls
+ontology changes.
 
-## Planned Phase 12 Change
+## Security And Persistence
 
-Phase 12 is approved for implementation but is not part of the current
-production flow. It will insert deterministic local candidate extraction and
-retrieval from authorized ontology scopes before the model interprets business
-meaning. The model will receive compact evidence and relevant existing-entity
-choices together, while Kotlin continues to verify selections, assemble
-structure, compile typed edits, and enforce the review boundary.
+- Documents, ontology text, and provider output are always untrusted.
+- Provider credentials remain server-side and are never returned to the
+  browser or included in grounded prompts.
+- Retrieval uses only project-authorized local state, imports, workspaces,
+  provenance, and the pinned FIBO catalog.
+- The model has no tools, filesystem access, arbitrary URL access, or apply
+  authority.
+- Uploads, extracted text, OCR images, incomplete tasks, work keys, provider
+  payloads, and review workspaces remain temporary.
+- Applied document provenance is the only durable document-analysis record and
+  is stored separately from ontology source files.
+- The CLI and VS Code extension expose no document-ingestion workflow.
 
-Phase 12 adds no embeddings, vector database, second ontology index, or new
-write path. See the approved [scope](phase-12-scope.md),
-[specification](../specs/0023-phase-12-ontology-grounded-document-analysis.md),
-and [ExecPlan](../execplans/0023-phase-12-ontology-grounded-document-analysis.md).
+## No-Write Guarantee
 
-## Example
-
-Suppose a document says:
-
-> A payment analyst receives an instruction and supporting record before
-> creating an approval decision.
-
-Connected modeling may return:
-
-- `Payment Analyst` and `Instruction` classes;
-- a `receives instruction` object property;
-- domain and range assignments for that property;
-- a model-recommended `Approval Decision` class;
-- a `creates approval decision` property with its domain and range;
-- a complex timing rule that cannot be represented by current typed operations.
-
-Kotlin keeps those pieces in connected bundles, adds any missing editable
-context, orders declarations before assignments, and compiles supported
-operations. The timing rule remains visible as review context. The reviewer can
-change the recommended class, domain, range, or datatype before accepting the
-bundle.
-
-## Safety Boundaries
-
-- Documents and provider output are always untrusted.
-- Provider credentials remain server-side and are never returned to the browser.
-- The model has no tools, filesystem access, apply authority, or raw RDF path.
-- Kotlin remains authoritative for supported ontology behavior.
-- Partial structured model output is not accepted.
-- Every executable operation must pass deterministic verification.
-- Every recommendation remains subject to human review.
-- Applied document provenance is stored separately from ontology source files.
-- The CLI and VS Code extension do not expose document-ingestion workflows.
+Candidate extraction, retrieval, grounded modeling, verification, compilation,
+and review do not write ontology or SHACL sources. A reviewer must accept a
+recommendation, stage the typed draft, review the existing proposal, and
+explicitly approve it before the existing atomic apply service can write. The
+same reload, rollback, and applied-provenance guarantees remain in force.
 
 ## Implementation Guide
 
 The main implementation locations are:
 
-- `DocumentIngestionOrchestrator.kt`: active production sequence and progress;
-- `DocumentAnalysisService.kt`: discovery, connected modeling, prerequisite
-  completion, deterministic assembly, compilation coordination, and limits;
-- `OpenAiDocumentAnalysisClient.kt`: provider requests, structured schemas,
-  output limits, and safe provider failure classification;
-- `DocumentSemanticPlanCompiler.kt`: deterministic semantic-to-operation
-  compilation;
-- `DocumentChangeSetPlanVerifier.kt`: final operation safety checks;
-- `DocumentReviewWorkspace.kt`: grouped review, editing, and draft conversion;
-- `DocumentIngestionWorkspace.tsx`: upload, progress, evidence, and collapsible
-  recommendation presentation.
+- `DocumentIngestionOrchestrator.kt`: active Phase 12 sequence, work key,
+  progress, counts, and review handoff;
+- `DocumentCandidateExtractionService.kt`: pinned local OpenNLP pipeline and
+  exact evidence spans;
+- `DocumentRetrievalContextFactory.kt`: authorized scopes and fingerprints;
+- `DocumentOntologyRetrievalService.kt`: deterministic lexical/structural
+  ranking and full-state matching;
+- `DocumentGroundedAnalysisService.kt`: request grouping, retry, splitting, and
+  coverage validation;
+- `OpenAiDocumentAnalysisClient.kt`: strict no-tools provider schema, limits,
+  and safe failure classification;
+- `DocumentGroundedAnalysisVerifier.kt`: selection, structure, duplicate,
+  freshness, and editable-field verification;
+- `DocumentSemanticPlanCompiler.kt` and `DocumentChangeSetPlanVerifier.kt`:
+  deterministic compilation and final safety;
+- `DocumentReviewWorkspace.kt`: grounded review context, editing, counts, and
+  typed draft conversion;
+- `DocumentIngestionWorkspace.tsx`: upload, progress, evidence, alternatives,
+  collapsed recommendations, and explicit review actions.
+
+The approved scope, specification, ExecPlan, and verified delivery record are:
+
+- [Phase 12 scope](phase-12-scope.md)
+- [Phase 12 specification](../specs/0023-phase-12-ontology-grounded-document-analysis.md)
+- [Phase 12 ExecPlan](../execplans/0023-phase-12-ontology-grounded-document-analysis.md)
+- [Phase 12 summary](../phase-summaries/phase-12-summary.md)

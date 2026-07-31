@@ -2,19 +2,22 @@
 
 ## Status
 
-Approved for implementation.
+Implemented and verified on 2026-07-31.
 
 This specification defines Phase 12. It builds on the implemented Phase 11,
-Phase 11.5, and Phase 11.5+ document-ingestion workflow. Phase 12 is not yet
-implemented. The newer approved ExecPlan is authoritative for dependency order,
-slice ownership, allowed files, completion artifacts, verification commands,
-and stop conditions. If implementation detail here conflicts with that plan,
-the ExecPlan controls without expanding this specification's product scope.
+Phase 11.5, and Phase 11.5+ document-ingestion workflow. The approved ExecPlan
+is authoritative for dependency order, slice ownership, allowed files,
+completion artifacts, verification commands, and stop conditions. The verified
+delivery is summarized in
+`docs/phase-summaries/phase-12-summary.md`. If implementation detail here
+conflicts with the ExecPlan, the ExecPlan controls without expanding this
+specification's product scope.
 
 ## Related Documents
 
 - [Phase 12 scope](../architecture/phase-12-scope.md)
 - [Phase 12 ExecPlan](../execplans/0023-phase-12-ontology-grounded-document-analysis.md)
+- [Phase 12 implementation summary](../phase-summaries/phase-12-summary.md)
 - [Current document analysis and adaptive recovery](../architecture/document-analysis-and-adaptive-recovery.md)
 - [Phase 11 scope](../architecture/phase-11-scope.md)
 - [Phase 11 spec](0020-phase-11-ai-powered-document-ingestion-and-ontology-evolution.md)
@@ -22,7 +25,7 @@ the ExecPlan controls without expanding this specification's product scope.
 - [Phase 11.5+ scope](../architecture/phase-11.5-plus-scope.md)
 - [Phase 11.5+ spec](0022-phase-11.5-plus-deterministic-compilation-of-connected-document-models.md)
 
-## Problem
+## Pre-Implementation Problem
 
 Entio currently asks the model to understand document meaning before the model
 sees relevant entities from the current ontology. Kotlin searches, verifies,

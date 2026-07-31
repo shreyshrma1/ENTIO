@@ -2,11 +2,18 @@
 
 ## Status
 
-Approved for implementation.
+Implemented and verified on 2026-07-31.
 
-The Phase 12 scope and spec are approved. This document is authoritative for
-dependency order, allowed files, slice completion artifacts, verification
-commands, and stop conditions. Phase 12 is not yet implemented.
+Completion alignment: Slices were delivered as 0, 1, 2, 3, 4, 6, 5, 7, 8,
+and 9 after explicit authorization to establish grounded verification and the
+existing-compiler adapter before production orchestration depended on them.
+All completion records and benchmark results are collected in
+`docs/phase-summaries/phase-12-summary.md`.
+
+The Phase 12 scope and spec are approved and implemented. This document remains
+the delivery record for dependency order, allowed files, slice completion
+artifacts, verification commands, and stop conditions. The verified result is
+summarized in `docs/phase-summaries/phase-12-summary.md`.
 
 ## Goal
 
@@ -51,7 +58,7 @@ Deliver a production document-analysis path where:
 - review remains compact, collapsible, editable, and human-controlled;
 - existing safe proposal and apply behavior remains unchanged.
 
-## Current State
+## Pre-Implementation State
 
 The implementation audit found the following current behavior.
 

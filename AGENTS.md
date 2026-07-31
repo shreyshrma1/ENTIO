@@ -1,10 +1,10 @@
 # Agent Guidance For Entio
 
-This repository contains the implemented Entio foundation through Phase 11.5+. Phase 11 was implemented and verified on 2026-07-24. Phase 11.5 was implemented and verified on 2026-07-27. Phase 11.5+ was implemented and verified on 2026-07-30. Phases 1 through 8 are retained as historical delivery records, and the repository is no longer documentation-only.
+This repository contains the implemented Entio foundation through Phase 12. Phase 11 was implemented and verified on 2026-07-24. Phase 11.5 was implemented and verified on 2026-07-27. Phase 11.5+ was implemented and verified on 2026-07-30. Phase 12 was implemented and verified on 2026-07-31. Phases 1 through 8 are retained as historical delivery records, and the repository is no longer documentation-only.
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
-Phases 1 through 8 are preserved as historical delivery records. Phase 9 is complete and adds bounded, read-only interactive ontology graph visualization. Phase 10's inferred-materialization delivery remains historical; the current Reasoning workspace exposes bounded read-only asserted and inferred fact browsers. Phase 10.5 is complete and adds optional, read-only applied and proposal inferred-fact overlays to Explore and the ontology map. The current product also includes a native OpenAI-backed ontology assistant with project-scoped conversations, ontology-aware answers, review-only edit proposals, deterministic validation, and staging into the existing human-review workflow. Phase 11 extends that active AI foundation with bounded document ingestion, evidence-grounded analysis, cross-workflow provenance, and human-reviewed typed drafts. Phase 11.5 replaces only the document-analysis portion with a bounded multi-stage modeling pipeline, connected atomic recommendations, deterministic verification, and the same human-review boundary. Phase 11.5+ removes the final low-level model-planning handoff so Kotlin deterministically assembles connected semantic plans and compiles them into existing typed operations. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
+Phases 1 through 8 are preserved as historical delivery records. Phase 9 is complete and adds bounded, read-only interactive ontology graph visualization. Phase 10's inferred-materialization delivery remains historical; the current Reasoning workspace exposes bounded read-only asserted and inferred fact browsers. Phase 10.5 is complete and adds optional, read-only applied and proposal inferred-fact overlays to Explore and the ontology map. The current product also includes a native OpenAI-backed ontology assistant with project-scoped conversations, ontology-aware answers, review-only edit proposals, deterministic validation, and staging into the existing human-review workflow. Phase 11 extends that active AI foundation with bounded document ingestion, evidence-grounded analysis, cross-workflow provenance, and human-reviewed typed drafts. Phase 11.5 and Phase 11.5+ remain the historical multi-stage modeling and deterministic-compilation foundations. Phase 12 makes new document-analysis tasks ontology-grounded: Kotlin extracts stable local candidates, searches authorized ontology scopes, gives the selected model bounded evidence and server-issued choices, verifies the model's dispositions, and reuses the existing compiler and human-review workflow. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
 
 ## Product Context
 
@@ -22,7 +22,7 @@ If a task seems to require later-phase infrastructure, stop and explain why befo
 
 ## Current Scope
 
-The implemented Entio foundation is complete through Phase 11.5+. The current codebase supports:
+The implemented Entio foundation is complete through Phase 12. The current codebase supports:
 
 - Loading an Entio project.
 - Parsing small Turtle/RDF ontology files with existing libraries.
@@ -49,14 +49,15 @@ The implemented Entio foundation is complete through Phase 11.5+. The current co
 - Accepting bounded PDF, DOCX, TXT, and Markdown document sets through authorized project-scoped web routes.
 - Extracting located text, using bounded local OCR only for unreliable PDF pages, and preserving exact evidence locations, methods, and confidence.
 - Using the current user's verified selected compatible model for bounded document analysis while treating document and provider content as untrusted.
-- Matching verified candidates against local, imported, current-work, retained prior-provenance, and pinned FIBO scopes before recommending creation or change.
+- Extracting stable, evidence-linked ontology candidates locally with pinned Apache OpenNLP English resources before document semantic model calls.
+- Retrieving bounded, deterministically ranked choices from applied, imported, private-draft, shared-staging, current-proposal, same-task, retained-provenance, and pinned FIBO scopes without embeddings or a second ontology index.
+- Sending compact evidence and authorized server-issued choices together to the selected model for reuse, extend, propose-new, unresolved, administrative, or illustrative dispositions.
+- Freezing candidate, retrieval, ontology, current-work, provenance, catalog, model, prompt, and response inputs in a grounded work key.
+- Verifying grounded evidence, selections, kinds, sources, fingerprints, connected context, duplicates, and supplements in Kotlin before existing semantic compilation.
 - Presenting evidence-linked confirm, extend, revise, split, merge, conflict, and supersede recommendations for human review.
 - Converting accepted recommendations only into supported typed draft batches that use the existing proposal, approval, atomic apply, reload, and rollback workflow.
 - Retaining project-authorized provenance for successfully applied document-derived changes without storing it in ontology source files.
-- Discovering evidence-grounded meaning with one bounded ontology-blind call per document.
-- Building connected document models over bounded discovery chunks and consolidating successful chunks when needed.
-- Requesting missing property and individual prerequisites through one focused provider stage, with editable Kotlin fallbacks when safe completion is unavailable.
-- Assembling connected semantic plans deterministically in Kotlin without separate production reconciliation, alignment, critic, or final-planning model calls.
+- Assembling connected semantic plans deterministically in Kotlin without separate production discovery, reconciliation, alignment, critic, or final-planning model calls for the default Phase 12 path.
 - Compiling dependency-ordered recommendation groups with Kotlin-verified temporary references and supported typed operations.
 - Keeping model-recommended prerequisites attached to the edit they support and exposing reviewer-solvable fields for editing.
 - Presenting collapsed connected recommendations with exact changes, evidence, confidence, retained review-only meaning, and individual-creation gates for human review.
@@ -75,6 +76,7 @@ Current implementation notes:
 - The VS Code extension delegates ontology operations to the Kotlin CLI and does not write RDF directly.
 - The Ktor web server delegates ontology operations to reusable Kotlin services and does not implement a second RDF or semantic engine.
 - The React web application consumes versioned Entio HTTP and WebSocket contracts and does not decide ontology validity.
+- Document candidate extraction uses pinned Apache OpenNLP `2.5.11` with audited English model resources `1.3.0`; no embedding model, vector database, or external NLP service is present.
 - `shared` intentionally remains minimal and should not collect speculative utilities.
 
 Phase 2.5 and Phase 2.5+ implemented:
@@ -203,17 +205,18 @@ and compiles supported patterns through the existing typed operations. It does
 not add automatic approval, raw RDF, a second apply path, unrestricted agents,
 new persistence, or CLI and VS Code ingestion surfaces.
 
-Phase 12 is approved for implementation but is not yet implemented. Its
+Phase 12 is complete and summarized in
+`docs/phase-summaries/phase-12-summary.md`. Its approved and implemented
 planning documents are:
 
 - `docs/architecture/phase-12-scope.md`
 - `docs/specs/0023-phase-12-ontology-grounded-document-analysis.md`
 - `docs/execplans/0023-phase-12-ontology-grounded-document-analysis.md`
 
-Phase 12 plans to add deterministic local candidate extraction and retrieval
-from authorized ontology scopes before grounded model interpretation. It does
-not authorize embeddings, a vector database, a second ontology index,
-automatic approval, or another ontology write path.
+Phase 12 adds deterministic local candidate extraction and retrieval from
+authorized ontology scopes before grounded model interpretation. It adds no
+embeddings, vector database, second ontology index, automatic approval, or
+another ontology write path.
 
 ## Software Architecture Rules
 
