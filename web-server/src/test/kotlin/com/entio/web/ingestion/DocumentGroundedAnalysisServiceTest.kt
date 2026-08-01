@@ -37,6 +37,11 @@ class DocumentGroundedAnalysisServiceTest {
             assertTrue(instruction.contains("never use it to duplicate an exact existing match"))
             assertTrue(instruction.contains("generic nouns"))
             assertTrue(instruction.contains("including Administrative, Illustrative"))
+            assertTrue(instruction.contains("Preserve the most specific evidence-backed candidate meaning and label"))
+            assertTrue(instruction.contains("not equivalent to its unqualified head concept"))
+            assertTrue(instruction.contains("return the qualified Class as Unresolved"))
+            assertTrue(instruction.contains("connected SubclassRelationship"))
+            assertTrue(instruction.contains("a shared head noun or selected broader IRI does not establish equivalence"))
             if (calls == 1) DocumentGroundedAnalysisProviderResult.Failed(true, "document-provider-timeout")
             else DocumentGroundedAnalysisProviderResult.Completed(result(request.candidates))
         }

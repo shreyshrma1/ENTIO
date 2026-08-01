@@ -41,3 +41,31 @@ The focused run executed 32 tests. It covers exact-input retry, adaptive split,
 complete coverage, invented selection rejection, cancellation before provider
 access, strict no-tools request construction, secret exclusion, and structured
 response parsing alongside the existing OpenAI failure-classification suite.
+
+## Qualified-Meaning Correction
+
+The provider instruction was tightened after end-to-end review exposed broader
+ontology matches replacing qualified document concepts. The grounded model must
+now preserve the specific candidate label and may not treat a shared head noun
+or broader selected IRI as semantic equivalence. A stable narrower type is
+modeled with its connected superclass relationship. If the evidence does not
+safely decide between reuse and a narrower type, the qualified concept remains
+`Unresolved` with the broader class retained as a model-recommended superclass.
+
+Focused tests assert these provider-boundary requirements. No response contract,
+provider authority, compiler behavior, or write boundary changed.
+
+The correction was verified with:
+
+```text
+./gradlew :web-server:test --tests 'com.entio.web.ingestion.DocumentGroundedAnalysisServiceTest' --tests 'com.entio.web.ingestion.OpenAiDocumentAnalysisClientTest'
+./gradlew :web-server:compileKotlin
+git diff --check
+```
+
+All 37 focused tests passed. Stale generated test classes carrying a ` 2`
+filename suffix were removed from `web-server/build/`; no source or tracked file
+was deleted.
+
+Git status: committed as one focused correction on
+`fix/phase-12-qualified-grounding` and authorized for its remote branch only.
