@@ -504,7 +504,7 @@ internal class DocumentIngestionOrchestrator(
             expectedCurrentWorkFingerprint = retrievalContext.fingerprints.currentWorkSha256,
             currentWorkFingerprint = refreshed.fingerprints.currentWorkSha256,
         )
-        val nonRecommendationCoverage = analysis.coverage.mapNotNull { disposition ->
+        val nonRecommendationCoverage = verified.verifiedAnalysis.coverage.mapNotNull { disposition ->
             val kind = when (disposition.disposition) {
                 com.entio.core.DocumentGroundedDisposition.Administrative ->
                     com.entio.core.DocumentCoverageDispositionKind.AdministrativeMetadata
@@ -544,7 +544,7 @@ internal class DocumentIngestionOrchestrator(
             discoveries,
             DocumentGroundedReviewContext(
                 candidates = candidates,
-                analysis = analysis,
+                analysis = verified.verifiedAnalysis,
                 retrieval = retrieval.results,
                 fullStateMatches = retrieval.fullStateMatches,
                 compilerContext = compilerContext,
@@ -554,6 +554,7 @@ internal class DocumentIngestionOrchestrator(
                 editableFields = verified.editableFields,
                 statusByItemId = verified.statusByItemId,
                 itemIdsByRecommendationId = itemIdsByRecommendationId,
+                suggestedSuperclassSelectionIdsByItemId = verified.suggestedSuperclassSelectionIdsByItemId,
                 counts = com.entio.core.DocumentAnalysisCounts(
                     evidenceBlocks = extracted.sumOf { it.blocks.size },
                     evidenceMentions = mentions.size,
@@ -569,8 +570,8 @@ internal class DocumentIngestionOrchestrator(
                     nlpCandidatesRejected = extraction.coverage.count {
                         it.kind == com.entio.core.DocumentMentionCoverageKind.Rejected
                     },
-                    groundedItemsRetained = analysis.items.size,
-                    groundedItemsUnresolved = analysis.coverage.count {
+                    groundedItemsRetained = verified.verifiedAnalysis.items.size,
+                    groundedItemsUnresolved = verified.verifiedAnalysis.coverage.count {
                         it.disposition == com.entio.core.DocumentGroundedDisposition.Unresolved
                     },
                     groundedItemsRejected = 0,

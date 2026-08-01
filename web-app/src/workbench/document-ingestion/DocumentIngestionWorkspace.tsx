@@ -371,6 +371,9 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
   const [groundedDomainSelectionId, setGroundedDomainSelectionId] = useState("");
   const [groundedRangeSelectionId, setGroundedRangeSelectionId] = useState("");
   const [groundedTypeSelectionId, setGroundedTypeSelectionId] = useState("");
+  const [groundedSuperclassSelectionId, setGroundedSuperclassSelectionId] = useState(
+    needsInputItem?.suggestedSuperclassSelectionId ?? "",
+  );
   const [groundedDatatypeIri, setGroundedDatatypeIri] = useState("");
   const compatibleAlternatives = needsInputItem?.alternatives.filter((alternative) => alternative.kind === groundedKind) ?? [];
   const classResolutionAlternatives = needsInputItem?.resolutionAlternatives ?? [];
@@ -487,6 +490,17 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
           </select>
         </label>
       </> : null}
+      {proposingNew && groundedKind === "Class" ? <label>Superclass (optional)
+        <select value={groundedSuperclassSelectionId} onChange={(event) => setGroundedSuperclassSelectionId(event.target.value)}>
+          <option value="">Create without a superclass relationship</option>
+          {classResolutionAlternatives.map((alternative) => <option key={`superclass-${alternative.selectionId}`} value={alternative.selectionId}>
+            {alternative.preferredLabel ?? alternative.entityIri} · {alternative.score}%
+          </option>)}
+        </select>
+        {needsInputItem?.suggestedSuperclassSelectionId === groundedSuperclassSelectionId && groundedSuperclassSelectionId
+          ? <small>Recommended from the model-selected broader ontology match; reviewer confirmation is required.</small>
+          : null}
+      </label> : null}
       {proposingNew && groundedKind === "DatatypeProperty" ? <>
         <label>Domain class
           <select value={groundedDomainSelectionId} onChange={(event) => setGroundedDomainSelectionId(event.target.value)}>
@@ -536,6 +550,9 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
             ...(groundedRangeSelectionId ? { rangeSelectionId: groundedRangeSelectionId } : {}),
             ...(groundedDatatypeIri ? { datatypeIri: groundedDatatypeIri } : {}),
             ...(groundedTypeSelectionId ? { typeSelectionId: groundedTypeSelectionId } : {}),
+            ...(proposingNew && groundedKind === "Class" && groundedSuperclassSelectionId
+              ? { superclassSelectionId: groundedSuperclassSelectionId }
+              : {}),
           },
         })}
       >Verify and compile resolution</button>

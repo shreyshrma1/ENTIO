@@ -260,7 +260,23 @@ describe("document ingestion review workspace", () => {
         disposition: "Unresolved",
         selectedSelectionId: null,
         alternatives: [],
-        resolutionAlternatives: [],
+        resolutionAlternatives: [{
+          selectionId: "selection-loan",
+          entityIri: "https://example.com/Loan",
+          kind: "Class",
+          scope: "AppliedLocal",
+          sourceId: "ontology",
+          writable: true,
+          preferredLabel: "Loan",
+          definition: "A lending arrangement.",
+          score: 72,
+          matchReasons: ["token-overlap"],
+          parents: [],
+          domains: [],
+          ranges: [],
+          types: [],
+        }],
+        suggestedSuperclassSelectionId: "selection-loan",
         prerequisiteOrigins: [],
         editableFields: [
           { id: "grounded-item-policy:disposition", kind: "Disposition", required: true, compatibleSelectionIds: [], message: "Choose reuse or new." },
@@ -289,6 +305,8 @@ describe("document ingestion review workspace", () => {
     fireEvent.click(screen.getByLabelText("Customer recommendation details"));
     const resolution = screen.getByLabelText("Resolve grounded ontology item");
     fireEvent.change(within(resolution).getByLabelText("Resolution"), { target: { value: "ProposeNew" } });
+    expect(within(resolution).getByRole("combobox", { name: /Superclass/ })).toHaveValue("selection-loan");
+    expect(resolution).toHaveTextContent("Recommended from the model-selected broader ontology match");
     fireEvent.change(within(resolution).getByLabelText("Label"), { target: { value: "Loan Servicing Policy" } });
     fireEvent.click(within(resolution).getByRole("button", { name: "Verify and compile resolution" }));
 
@@ -299,6 +317,7 @@ describe("document ingestion review workspace", () => {
         disposition: "ProposeNew",
         kind: "Class",
         label: "Loan Servicing Policy",
+        superclassSelectionId: "selection-loan",
       },
     }));
   });

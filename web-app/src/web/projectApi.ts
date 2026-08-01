@@ -293,6 +293,7 @@ export interface WebDocumentReviewRecommendation {
       writable: boolean; preferredLabel: string | null; definition: string | null; score: number;
       matchReasons: string[]; parents: string[]; domains: string[]; ranges: string[]; types: string[];
     }>;
+    suggestedSuperclassSelectionId?: string | null;
     prerequisiteOrigins: string[];
     editableFields: Array<{ id: string; kind: string; required: boolean; compatibleSelectionIds: string[]; message: string }>;
     status: "Executable" | "Mixed" | "NeedsInput" | "Matched" | "Blocked";
@@ -369,7 +370,7 @@ export interface WebDocumentReviewDecision {
     itemId: string; disposition: "ReuseExisting" | "ExtendExisting" | "ProposeNew";
     kind: "Class" | "ObjectProperty" | "DatatypeProperty" | "AnnotationProperty" | "Individual";
     label: string; definition?: string; selectionId?: string; domainSelectionId?: string;
-    rangeSelectionId?: string; datatypeIri?: string; typeSelectionId?: string;
+    rangeSelectionId?: string; datatypeIri?: string; typeSelectionId?: string; superclassSelectionId?: string;
   };
 }
 

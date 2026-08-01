@@ -121,6 +121,7 @@ public data class DocumentReviewGroundedItem(
     val selectedSelectionId: String?,
     val alternatives: List<DocumentReviewGroundedAlternative>,
     val resolutionAlternatives: List<DocumentReviewGroundedAlternative> = emptyList(),
+    val suggestedSuperclassSelectionId: String? = null,
     val prerequisiteOrigins: List<String>,
     val editableFields: List<DocumentReviewGroundedEditableField>,
     val status: String,
@@ -288,6 +289,7 @@ public data class DocumentReviewGroundedItemEdit(
     val rangeSelectionId: String? = null,
     val datatypeIri: String? = null,
     val typeSelectionId: String? = null,
+    val superclassSelectionId: String? = null,
 )
 
 public data class DocumentReviewOperationEdit(
@@ -371,6 +373,7 @@ internal data class DocumentGroundedReviewContext(
     val statusByItemId: Map<String, DocumentGroundedRecommendationStatus>,
     val itemIdsByRecommendationId: Map<String, List<String>>,
     val counts: DocumentAnalysisCounts,
+    val suggestedSuperclassSelectionIdsByItemId: Map<String, String> = emptyMap(),
 )
 
 private data class MutableVerifiedRecommendationReview(
@@ -849,6 +852,7 @@ internal class DocumentReviewWorkspaceStore(
                 selectedSelectionId = item.selectionId,
                 alternatives = selections.filter { it.candidateId in candidateIds }.map(::alternative),
                 resolutionAlternatives = classResolutionAlternatives,
+                suggestedSuperclassSelectionId = context.suggestedSuperclassSelectionIdsByItemId[item.id],
                 prerequisiteOrigins = item.references.mapNotNull { it.prerequisiteOrigin?.name }.distinct().sorted(),
                 editableFields = context.editableFields.filter { it.id.startsWith("${item.id}:") }.map {
                     DocumentReviewGroundedEditableField(
@@ -1484,13 +1488,14 @@ internal class DocumentReviewWorkspaceStore(
             group.itemIds.mapNotNull(verified.statusByItemId::get).toSet()
         }
         stored.groundedReview = context.copy(
-            analysis = updatedAnalysis,
+            analysis = verified.verifiedAnalysis,
             compilerContext = compilerContext,
             editableFields = verified.editableFields,
             statusByItemId = verified.statusByItemId,
             itemIdsByRecommendationId = itemIdsByRecommendationId,
+            suggestedSuperclassSelectionIdsByItemId = verified.suggestedSuperclassSelectionIdsByItemId,
             counts = context.counts.copy(
-                groundedItemsUnresolved = updatedAnalysis.coverage.count {
+                groundedItemsUnresolved = verified.verifiedAnalysis.coverage.count {
                     it.disposition == DocumentGroundedDisposition.Unresolved
                 },
                 recommendationsExecutable = recommendationStatuses.count {
@@ -1663,9 +1668,22 @@ internal class DocumentReviewWorkspaceStore(
                     ),
                 )
             }
-            DocumentSemanticItemKind.Class,
-            DocumentSemanticItemKind.AnnotationProperty,
-            -> Unit
+            DocumentSemanticItemKind.Class -> {
+                safeOptionalText(edit.superclassSelectionId)?.let { superclassSelectionId ->
+                    val superclass = selectedClassItem(classSelection(superclassSelectionId, "superclass"), "superclass")
+                    support += superclass
+                    support += relationship(
+                        "superclass",
+                        DocumentSemanticItemKind.SubclassRelationship,
+                        "Superclass of ${item.label}",
+                        listOf(
+                            reference(com.entio.core.DocumentSemanticReferenceRole.Subclass, item.id),
+                            reference(com.entio.core.DocumentSemanticReferenceRole.Superclass, superclass.id),
+                        ),
+                    )
+                }
+            }
+            DocumentSemanticItemKind.AnnotationProperty -> Unit
             else -> throw DocumentIngestionFailure(
                 "document-grounded-kind-invalid",
                 "The selected grounded kind is not supported for reviewer resolution.",

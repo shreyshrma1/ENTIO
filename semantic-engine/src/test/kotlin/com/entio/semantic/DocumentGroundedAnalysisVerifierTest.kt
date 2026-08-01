@@ -434,6 +434,14 @@ class DocumentGroundedAnalysisVerifierTest {
         assertEquals(2, verified.plan.items.size)
         val needsInput = verified.plan.items.single { it.id == qualifiedItem.id }
         assertEquals("Loan agreement", needsInput.label)
+        assertEquals(
+            DocumentGroundedDisposition.Unresolved,
+            verified.verifiedAnalysis.items.single { it.id == qualifiedItem.id }.disposition,
+        )
+        assertEquals(
+            broaderSelection.selectionId,
+            verified.suggestedSuperclassSelectionIdsByItemId.getValue(qualifiedItem.id),
+        )
         assertEquals(com.entio.core.DocumentSemanticOutcome.Blocked, needsInput.outcome)
         assertEquals(
             com.entio.core.DocumentGroundedRecommendationStatus.NeedsInput,

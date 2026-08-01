@@ -45,6 +45,8 @@ public data class DocumentVerifiedGroundedAnalysis(
     val statusByItemId: Map<String, DocumentGroundedRecommendationStatus>,
     val alignedEntities: Map<String, DocumentCompilerEntity>,
     val itemAlignmentIds: Map<String, String>,
+    val verifiedAnalysis: DocumentGroundedAnalysisResult,
+    val suggestedSuperclassSelectionIdsByItemId: Map<String, String>,
 )
 
 /** Validates frozen grounded choices and converts only explicit meaning into the existing semantic plan. */
@@ -77,6 +79,11 @@ public class DocumentGroundedAnalysisVerifier {
             input.fullStateMatches,
         )
         val analysis = consolidateEquivalentUnresolvedItems(exactReuseAnalysis, candidates)
+        val suggestedSuperclassSelectionIds = suggestedSuperclassSelectionIds(
+            analysis,
+            candidates,
+            selectionById.values,
+        )
         val fields = mutableListOf<DocumentEditableGroundedField>()
         val statuses = linkedMapOf<String, DocumentGroundedRecommendationStatus>()
         val alignments = linkedMapOf<String, DocumentCompilerEntity>()
@@ -305,11 +312,13 @@ public class DocumentGroundedAnalysisVerifier {
             groups,
         )
         return DocumentVerifiedGroundedAnalysis(
-            plan,
-            fields.distinctBy { it.id }.sortedBy { it.id },
-            statuses.toSortedMap(),
-            alignments.toSortedMap(),
-            itemAlignmentIds.toSortedMap(),
+            plan = plan,
+            editableFields = fields.distinctBy { it.id }.sortedBy { it.id },
+            statusByItemId = statuses.toSortedMap(),
+            alignedEntities = alignments.toSortedMap(),
+            itemAlignmentIds = itemAlignmentIds.toSortedMap(),
+            verifiedAnalysis = analysis,
+            suggestedSuperclassSelectionIdsByItemId = suggestedSuperclassSelectionIds,
         )
     }
 
@@ -410,7 +419,7 @@ public class DocumentGroundedAnalysisVerifier {
                 disposition = DocumentGroundedDisposition.Unresolved,
                 selectionId = null,
                 rationale = "${item.rationale} The proposed reuse was not an exact identity match and requires reviewer resolution.",
-                ambiguity = "The selected ontology entity is broader than the evidence-backed candidate meaning.",
+                ambiguity = BROADER_REUSE_AMBIGUITY,
             )
         }
         if (normalizedItemIds.isEmpty()) return analysis
@@ -527,6 +536,33 @@ public class DocumentGroundedAnalysisVerifier {
         return normalizeIdentity(candidate.normalizedText) in normalizedLabels
     }
 
+    private fun suggestedSuperclassSelectionIds(
+        analysis: DocumentGroundedAnalysisResult,
+        candidates: Map<String, DocumentGroundedCandidate>,
+        selections: Collection<DocumentOntologyRetrievalSelection>,
+    ): Map<String, String> = analysis.items.mapNotNull { item ->
+        if (item.disposition != DocumentGroundedDisposition.Unresolved ||
+            item.kind != DocumentSemanticItemKind.Class ||
+            item.ambiguity != BROADER_REUSE_AMBIGUITY
+        ) {
+            return@mapNotNull null
+        }
+        val selection = selections.asSequence()
+            .filter { it.candidateId in item.candidateIds && it.kind == SemanticDescriptorKind.Class }
+            .filter { selected ->
+                val candidateMeaning = candidates.getValue(selected.candidateId).normalizedText
+                listOfNotNull(selected.preferredLabel).plus(selected.alternateLabels).any { label ->
+                    val normalizedLabel = normalizeIdentity(label)
+                    candidateMeaning != normalizedLabel && candidateMeaning.endsWith(" $normalizedLabel")
+                }
+            }
+            .sortedWith(compareByDescending<DocumentOntologyRetrievalSelection> { it.score }
+                .thenBy(DocumentOntologyRetrievalSelection::stableOrderingKey))
+            .firstOrNull()
+            ?: return@mapNotNull null
+        item.id to selection.selectionId
+    }.toMap().toSortedMap()
+
     private fun normalizeIdentity(value: String): String = value
         .trim()
         .replace(Regex("\\s+"), " ")
@@ -552,6 +588,11 @@ public class DocumentGroundedAnalysisVerifier {
         val kind: DocumentSemanticItemKind,
         val normalizedMeaning: String,
     )
+
+    private companion object {
+        const val BROADER_REUSE_AMBIGUITY: String =
+            "The selected ontology entity is broader than the evidence-backed candidate meaning."
+    }
 
     private fun components(items: List<DocumentSemanticPlanItem>): List<List<DocumentSemanticPlanItem>> {
         val byId = items.associateBy(DocumentSemanticPlanItem::id)
