@@ -1501,7 +1501,7 @@ internal class DocumentReviewWorkspaceStore(
             support += relationship(
                 "definition",
                 DocumentSemanticItemKind.Definition,
-                definition,
+                "Definition of ${item.label}".take(MAX_EDITABLE_LABEL_CHARACTERS),
                 listOf(reference(com.entio.core.DocumentSemanticReferenceRole.Entity, item.id)),
             ).copy(definition = definition)
         }

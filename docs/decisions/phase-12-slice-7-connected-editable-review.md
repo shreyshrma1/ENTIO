@@ -83,3 +83,13 @@ operations; resolving `Loan Operations Manager` produced class creation and
 definition operations. The connected-group anchor remains the edited
 declaration, so reviewer-provided supporting classes cannot rename the card.
 Neither exercise accepted, staged, applied, or changed ontology source data.
+
+A subsequent Luna run exposed an additional empty-group case for grounded
+`ExtendExisting` declarations that carried a distinct definition directly on
+the declaration. Kotlin now compiles that attached meaning into `Add
+Definition`; an unchanged definition remains review-only. The declaration,
+not the synthetic definition operation, remains the connected card identity.
+The validating two-PDF run produced 69 cards with 16 draftable, 44 needing
+input, 9 reuse/review-only, and zero unsafe blocked recommendations. Its
+`Commercial Account` extension was draftable with one `Add Definition`
+operation, and every input-required item exposed reviewer fields.
