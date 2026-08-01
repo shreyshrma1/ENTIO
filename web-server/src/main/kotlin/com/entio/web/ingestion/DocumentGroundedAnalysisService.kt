@@ -267,6 +267,16 @@ internal class DocumentGroundedAnalysisService(
                 "content. Use ExtendExisting only when the selected writable entity has the same core " +
                 "meaning but the document supplies a supported extension. Use ProposeNew only for a stable, reusable " +
                 "ontology entity absent from every supplied choice; never use it to duplicate an exact existing match. " +
+                "Preserve the most specific evidence-backed candidate meaning and label. A qualified term such as " +
+                "commercial account, corporate customer, legal customer, or loan agreement is not equivalent to its " +
+                "unqualified head concept merely because that broader concept is a retrieval choice. Never replace a " +
+                "qualified candidate label with the preferred label of a broader selected entity. When evidence clearly " +
+                "supports a stable narrower type, return the narrower Class, the broader ReuseExisting Class, and a " +
+                "connected SubclassRelationship. When the qualifier is important but the evidence does not safely decide " +
+                "between reuse and a narrower type, return the qualified Class as Unresolved and retain the broader class " +
+                "as a model-recommended superclass through a connected SubclassRelationship. Only consolidate candidates " +
+                "when their complete specific business meaning is equivalent; a shared head noun or selected broader IRI " +
+                "does not establish equivalence. " +
                 "Model stable entity types as Class, evidence-backed relationships as ObjectProperty, and literal-valued " +
                 "attributes as DatatypeProperty. New or extended properties must reference response items providing their " +
                 "domain and range; assertions, individuals, and constraints must include every required connected role. " +
