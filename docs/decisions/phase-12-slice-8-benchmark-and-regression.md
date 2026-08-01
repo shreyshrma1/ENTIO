@@ -18,7 +18,7 @@ historical manifest, or alternate benchmark harness was copied.
 - Empty current-work fingerprint:
   `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`
 - Combined Phase 12 candidate-inventory and retrieval-results SHA-256:
-  `241b7734cdf11da0167fbb4e3fda520f897519d818e2a77d453c70fa55e7ed73`
+  `6d11e52a3d13ffd5646cb61e5a0b256d5605471b75dcb182a2d17551d9350db2`
 
 The ordinary offline suite verifies these hashes, the grounded prompt and
 response versions, and the exact expected model ID from the single Phase 12
@@ -26,8 +26,8 @@ supplement.
 
 ## Controlled Provider Gate
 
-The selected and explicitly supplied model was `gpt-5.6-luna`. The grounded
-prompt version was `phase-12-grounded-model-prompt-v1`, the grounded response
+The selected and explicitly supplied model was `gpt-5.6-luna`. The current grounded
+prompt version is `phase-12-grounded-model-prompt-v2`, the grounded response
 version was `phase-12-grounded-model-response-v1`, and the retained semantic
 plan contract was `phase-11-5-plus-semantic-plan-response-v1`.
 
@@ -55,7 +55,7 @@ artifact.
 - Automatic ontology writes: 0/10 runs.
 - Provider attempts: one direct attempt in each of 10 runs.
 - Safe failures in the passing gate: none.
-- Durations: 8,262–11,389 ms; mean 9,698.2 ms; median 9,565 ms.
+- Durations: 8,256–45,331 ms; mean 12,919 ms; median 9,327 ms.
 - Token usage: unavailable from the current adapter.
 
 ### Retained Semantic-Compiler Results
@@ -70,7 +70,7 @@ artifact.
 - Illustrative-individual gates: 10/10 runs.
 - Automatic ontology writes: 0/10 runs.
 - Provider attempts: one attempt in each of 10 runs.
-- Durations: 17,783–26,203 ms; mean 19,599 ms; median 18,765.5 ms.
+- Durations: 17,551–22,361 ms; mean 19,968.6 ms; median 19,952.5 ms.
 - Token usage and cost: unavailable from the current adapter.
 
 ## Diagnostics And Corrections
@@ -98,6 +98,55 @@ Diagnostics contain only aggregate counts, timings, provider-attempt counts,
 and safe failure codes. No raw provider request, response, document text,
 credential, filesystem path, or secret value is retained.
 
+## Post-Completion Two-PDF Stability Correction
+
+On 2026-07-31 the two PDFs were exercised through the actual upload,
+extraction, retrieval, grounded-model, deterministic verification, compilation,
+and review path with `gpt-5.6-luna`. The credential was loaded from the
+`entio-phase12-openai` macOS Keychain item and was never printed or persisted.
+
+The live trials demonstrated and corrected four narrow Phase 12 defects:
+
+- Luna output-limit and malformed-output failures now split only the failing
+  group after one exact-input retry;
+- rejected or blocked deterministic coverage always carries the required safe
+  rationale;
+- provider-local semantic item IDs and their references are deterministically
+  namespaced before cross-group aggregation;
+- administrative and illustrative grounded dispositions stay in the coverage
+  ledger without generating recommendation cards.
+
+The final two consecutive runs both reached `awaiting-review` without a retry.
+Their deterministic funnel was identical: 698 evidence mentions, 432 grouped
+terms, 112 ontology-bearing candidates, 69 document-only mentions, 30
+supporting values, and 407 rejected low-value mentions. Each run used seven
+logical Luna calls and seven provider attempts. The review results were:
+
+| Metric | Run 1 | Run 2 |
+| --- | ---: | ---: |
+| Review cards | 59 | 47 |
+| Executable cards | 16 | 14 |
+| Reuse decisions | 9 | 10 |
+| Review-only cards | 9 | 10 |
+| Blocked cards | 34 | 23 |
+| Expanded typed edits | 16 | 14 |
+| Duration after extraction began | about 3m 30s | about 4m 01s |
+
+The model-owned recommendation labels had 36% set overlap across the two runs;
+the six stable reuse concepts were Account, Agreement, Borrower, Customer,
+Invoice, and Loan. This variability is recorded rather than described as full
+pipeline determinism. Kotlin-owned extraction counts, retrieval order, bounds,
+coverage validation, compilation, and no-write behavior remained deterministic.
+Neither run staged, approved, applied, or changed an ontology source.
+
+After these corrections, the complete controlled benchmark was rerun against
+grounded prompt v2. All three benchmark tests passed in 5m 31s. Grounded
+selection achieved complete concepts and expected reuse in 10/10 runs, zero
+duplicate-new or prohibited runs, exact provenance in 10/10 runs, and one
+provider attempt per run. The retained semantic benchmark again achieved every
+required concept, relationship, review-only meaning, and coverage ledger in
+10/10 runs with 100% supported compilation and zero automatic writes.
+
 ## Offline Verification
 
 The following commands passed after the controlled provider gate:
@@ -115,7 +164,7 @@ git status --short
 
 The web audit reported zero production vulnerabilities, 101 web unit tests and
 four browser end-to-end tests passed, and all 37 VS Code extension tests
-passed. Git status contained only the five approved Slice 8 source, test,
-supplement, and completion-artifact paths. No duplicate generated Kotlin class,
-credential, provider capture, copied fixture, ontology-source change, or
-unrelated file was present.
+passed. Git status contained only approved Phase 12 correction source, test,
+supplement, and existing completion-artifact paths. No duplicate generated
+Kotlin class, credential, provider capture, copied fixture, ontology-source
+change, or unrelated file was present.

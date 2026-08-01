@@ -42,6 +42,7 @@ import com.entio.core.DocumentRecommendationReviewStatus
 import com.entio.core.DocumentReconciliationKind
 import com.entio.core.DocumentSemanticItemKind
 import com.entio.core.DocumentSemanticOutcome
+import com.entio.core.DocumentSemanticPlan
 import com.entio.core.DocumentSemanticPlanItem
 import com.entio.core.DocumentTaskId
 import com.entio.core.DocumentTextBlockId
@@ -73,10 +74,81 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
 class DocumentAnalysisServiceTest {
+    @Test
+    fun compileGroundedRetainsBlockedCoverageForAnUngroupedDiscovery(): Unit {
+        val workKey = DocumentAnalysisWorkKey("f".repeat(64))
+        val plan = DocumentSemanticPlan(
+            workKey = workKey,
+            verifiedDiscoveryIds = listOf("discovery-ungrouped"),
+            criticFindingIds = emptyList(),
+            items = emptyList(),
+            groups = emptyList(),
+        )
+
+        val result = SemanticCompilingDocumentFinalPlanningProvider(
+            DocumentSemanticPlanningProvider { _, _, _, _ ->
+                DocumentSemanticPlanningProviderResult.Failed(false, "unused-provider")
+            },
+        ).compileGrounded(
+            plan,
+            DocumentSemanticCompilerContext(
+                targetSourceId = "simple",
+                iriNamespace = "https://example.com/ungrouped",
+                existingEntities = emptyMap(),
+                alignedEntities = emptyMap(),
+            ),
+        )
+
+        val completed = assertIs<DocumentFinalPlanningProviderResult.Completed>(result)
+        val coverage = completed.response.plan.coverage.single()
+        assertEquals(com.entio.core.DocumentCoverageDispositionKind.Blocked, coverage.kind)
+        assertEquals("No connected recommendation retained this discovery.", coverage.rationale)
+    }
+
+    @Test
+    fun compileGroundedKeepsDocumentOnlyDiscoveriesOutOfRecommendationCards(): Unit {
+        val workKey = DocumentAnalysisWorkKey("e".repeat(64))
+        val plan = DocumentSemanticPlan(
+            workKey = workKey,
+            verifiedDiscoveryIds = listOf("discovery-administrative", "discovery-illustrative"),
+            criticFindingIds = emptyList(),
+            items = emptyList(),
+            groups = emptyList(),
+        )
+        val result = SemanticCompilingDocumentFinalPlanningProvider(
+            DocumentSemanticPlanningProvider { _, _, _, _ ->
+                DocumentSemanticPlanningProviderResult.Failed(false, "unused-provider")
+            },
+        ).compileGrounded(
+            plan,
+            DocumentSemanticCompilerContext(
+                targetSourceId = "simple",
+                iriNamespace = "https://example.com/document-only",
+                existingEntities = emptyMap(),
+                alignedEntities = emptyMap(),
+            ),
+            mapOf(
+                "discovery-administrative" to com.entio.core.DocumentCoverageDispositionKind.AdministrativeMetadata,
+                "discovery-illustrative" to com.entio.core.DocumentCoverageDispositionKind.IllustrativeExample,
+            ),
+        )
+
+        val completed = assertIs<DocumentFinalPlanningProviderResult.Completed>(result)
+        assertTrue(completed.response.plan.recommendations.isEmpty())
+        assertEquals(
+            setOf(
+                com.entio.core.DocumentCoverageDispositionKind.AdministrativeMetadata,
+                com.entio.core.DocumentCoverageDispositionKind.IllustrativeExample,
+            ),
+            completed.response.plan.coverage.map { it.kind }.toSet(),
+        )
+    }
+
     @Test
     fun assemblesExplicitConnectedStructureWithoutAnotherModelDecision(): Unit {
         val discovery = connectedDiscovery(

@@ -25,7 +25,7 @@ created duplicate model work and review noise.
   ontology match.
 - Retain every non-promoted mention disposition in the coverage ledger without
   creating a recommendation card.
-- Keep the 40-candidate request bound and bounded retry/splitting behavior, but
+- Keep the 20-candidate request bound and bounded retry/splitting behavior, but
   remove task-wide logical-call and attempt ceilings. The number of groups may
   grow with the promoted inventory.
 - Report mention, group, promotion, document-only, and supporting-value counts
@@ -50,9 +50,17 @@ focused tests, active architecture description, and Phase 12 summary. It adds
 no dependency, module, ontology write path, task persistence, or browser-side
 semantic policy.
 
-The frozen two-PDF extraction regression produces 766 evidence mentions, 491
-safely grouped candidate terms, and 213 ontology-bearing candidates. These are
+The corrected frozen two-PDF extraction regression produces 698 evidence
+mentions, 432 safely grouped candidate terms, and 102 ontology-bearing
+candidates before ontology-label promotion. The live simple-ontology path
+promotes 112 after exact ontology matches are included. These are
 fixture diagnostics, not runtime ceilings.
+
+Grounded requests preserve small relationship/participant components before
+packing unrelated candidates. Provider-local semantic item IDs are
+deterministically namespaced by request group before aggregation, and
+administrative or illustrative grounded dispositions remain in coverage
+without creating review cards.
 
 Verification passed:
 

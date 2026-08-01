@@ -51,7 +51,7 @@
     "enableEnvironmentVariable": "ENTIO_DOCUMENT_BENCHMARK",
     "modelEnvironmentVariable": "ENTIO_DOCUMENT_BENCHMARK_MODEL",
     "expectedModelId": "gpt-5.6-luna",
-    "expectedPromptVersion": "phase-12-grounded-model-prompt-v1",
+    "expectedPromptVersion": "phase-12-grounded-model-prompt-v2",
     "expectedResponseVersion": "phase-12-grounded-model-response-v1"
   }
 }

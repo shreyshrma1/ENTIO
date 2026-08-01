@@ -297,12 +297,12 @@ class DocumentAnalysisPipelineContractsTest {
 
     @Test
     fun `enforces numeric and collection boundaries`(): Unit {
-        assertFailsWith<IllegalArgumentException> {
-            successfulProviderStage(
-                Instant.parse("2026-07-27T12:00:00Z"),
-                Instant.parse("2026-07-27T12:00:01Z"),
-            ).copy(providerAttemptCount = MAX_DOCUMENT_PROVIDER_ATTEMPTS + 1)
-        }
+        val scalableStage = successfulProviderStage(
+            Instant.parse("2026-07-27T12:00:00Z"),
+            Instant.parse("2026-07-27T12:00:01Z"),
+        ).copy(providerAttemptCount = MAX_DOCUMENT_PROVIDER_ATTEMPTS + 1)
+        assertEquals(MAX_DOCUMENT_PROVIDER_ATTEMPTS + 1, scalableStage.providerAttemptCount)
+        assertFailsWith<IllegalArgumentException> { scalableStage.copy(providerAttemptCount = -1) }
         assertFailsWith<IllegalArgumentException> {
             discovery().copy(evidenceConfidence = 101)
         }
