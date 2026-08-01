@@ -97,3 +97,24 @@ identities consolidate with their evidence intact, while `Loan agreement`
 cannot silently become a second `Agreement` match. The correction is isolated
 on `fix/phase-12-grounded-review-quality` for independent verification, commit,
 push, and local non-fast-forward merge.
+
+## Candidate Relevance Correction
+
+The next controlled two-PDF trial reached review but exposed one exact duplicate
+unresolved card and several standalone relationship cards. Kotlin now
+consolidates unconnected `Unresolved` items only when they have the same
+supported kind, one identical normalized candidate meaning, and a label that
+exactly preserves that meaning. Candidate and evidence provenance are unioned;
+potentially different meanings remain separate.
+
+A relationship-phrase candidate returned as an object property must participate
+in a connected semantic component as a referenced item or through explicit
+references. If it has neither, Kotlin retains it as document-only evidence
+instead of asking the reviewer to invent missing subject and object semantics.
+This is category- and structure-based; it does not hard-code benchmark words or
+discard connected relationships.
+
+Focused verifier tests cover both rules on
+`fix/phase-12-grounded-candidate-relevance`. The correction preserves the
+complete coverage ledger and does not add a candidate, recommendation, or edit
+ceiling.

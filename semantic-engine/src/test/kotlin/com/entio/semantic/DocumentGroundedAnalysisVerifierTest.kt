@@ -305,6 +305,83 @@ class DocumentGroundedAnalysisVerifierTest {
     }
 
     @Test
+    fun `consolidates duplicate unresolved items with one exact normalized meaning`(): Unit {
+        val firstCandidate = candidate().copy(
+            id = "candidate-corporate-customer-1",
+            displayText = "Corporate Customer",
+            normalizedText = "corporate customer",
+        )
+        val secondCandidate = firstCandidate.copy(
+            id = "candidate-corporate-customer-2",
+            documentId = DocumentId("document-2"),
+            evidenceSpans = listOf(DocumentGroundedEvidenceSpan(
+                DocumentEvidenceId("evidence-2"), DocumentEvidenceId("reference-2"), DocumentId("document-2"),
+                DocumentTextBlockId("block-2"), 1, null, 0, 18, "Corporate Customer",
+            )),
+        )
+        val firstItem = item(
+            "item-corporate-customer-1",
+            DocumentGroundedDisposition.Unresolved,
+        ).copy(
+            label = "corporate customer",
+            candidateIds = listOf(firstCandidate.id),
+        )
+        val secondItem = firstItem.copy(
+            id = "item-corporate-customer-2",
+            candidateIds = listOf(secondCandidate.id),
+            evidenceIds = listOf(DocumentEvidenceId("evidence-2")),
+        )
+        val verified = verifier().verify(input(
+            candidates = listOf(firstCandidate, secondCandidate),
+            items = listOf(firstItem, secondItem),
+            retrieval = listOf(
+                retrieval(firstCandidate.id, emptyList()),
+                retrieval(secondCandidate.id, emptyList()),
+            ),
+        ))
+
+        assertEquals(1, verified.plan.groups.size)
+        assertEquals(1, verified.plan.items.size)
+        assertEquals(
+            listOf(firstCandidate.id, secondCandidate.id),
+            verified.plan.items.single().discoveryIds,
+        )
+        assertEquals(
+            listOf(DocumentEvidenceId("evidence-1"), DocumentEvidenceId("evidence-2")),
+            verified.plan.items.single().evidenceIds,
+        )
+        assertEquals(
+            com.entio.core.DocumentGroundedRecommendationStatus.NeedsInput,
+            verified.statusByItemId.values.single(),
+        )
+    }
+
+    @Test
+    fun `keeps an unconnected relationship phrase in document-only coverage`(): Unit {
+        val relationshipCandidate = candidate().copy(
+            category = DocumentCandidateExtractionCategory.RelationshipPhrase,
+            displayText = "requires",
+            normalizedText = "require",
+        )
+        val relationshipItem = item(
+            "item-require",
+            DocumentGroundedDisposition.Unresolved,
+            kind = DocumentSemanticItemKind.ObjectProperty,
+        ).copy(label = "require")
+        val verified = verifier().verify(input(relationshipItem).copy(
+            candidates = listOf(relationshipCandidate),
+        ))
+
+        assertTrue(verified.plan.items.isEmpty())
+        assertTrue(verified.plan.groups.isEmpty())
+        assertTrue(verified.editableFields.isEmpty())
+        assertEquals(
+            com.entio.core.DocumentGroundedRecommendationStatus.ReviewOnly,
+            verified.statusByItemId.getValue(relationshipItem.id),
+        )
+    }
+
+    @Test
     fun `does not consolidate a qualified concept into its broader reuse target`(): Unit {
         val agreement = candidate().copy(
             id = "candidate-agreement",
