@@ -132,6 +132,27 @@ class DocumentGroundedAnalysisVerifierTest {
     }
 
     @Test
+    fun `promotes an unresolved class with no compatible ontology alternative to a new proposal`(): Unit {
+        val unresolved = item("item-service-evidence", DocumentGroundedDisposition.Unresolved)
+            .copy(label = "Service evidence", ambiguity = "No existing ontology alternative was selected.")
+        val verified = verifier().verify(input(unresolved))
+
+        assertEquals(
+            DocumentGroundedDisposition.ProposeNew,
+            verified.verifiedAnalysis.items.single().disposition,
+        )
+        assertEquals(
+            DocumentGroundedDisposition.ProposeNew,
+            verified.verifiedAnalysis.coverage.single().disposition,
+        )
+        assertEquals(
+            com.entio.core.DocumentGroundedRecommendationStatus.Executable,
+            verified.statusByItemId.getValue(unresolved.id),
+        )
+        assertTrue(verified.editableFields.isEmpty())
+    }
+
+    @Test
     fun `names connected groups for executable declarations instead of reused support classes`(): Unit {
         val property = item(
             "item-ownership-information",
@@ -351,8 +372,12 @@ class DocumentGroundedAnalysisVerifierTest {
             verified.plan.items.single().evidenceIds,
         )
         assertEquals(
-            com.entio.core.DocumentGroundedRecommendationStatus.NeedsInput,
+            com.entio.core.DocumentGroundedRecommendationStatus.Executable,
             verified.statusByItemId.values.single(),
+        )
+        assertEquals(
+            DocumentGroundedDisposition.ProposeNew,
+            verified.verifiedAnalysis.items.single().disposition,
         )
     }
 

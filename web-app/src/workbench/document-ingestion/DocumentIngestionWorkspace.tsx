@@ -363,7 +363,17 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
   const needsInputItem = recommendation.groundedItems?.find((item) => item.status === "NeedsInput");
   const supportedKinds = ["Class", "ObjectProperty", "DatatypeProperty", "AnnotationProperty", "Individual"] as const;
   const initialKind = supportedKinds.find((kind) => kind === needsInputItem?.kind) ?? "Class";
-  const [groundedDisposition, setGroundedDisposition] = useState<"" | "ReuseExisting" | "ExtendExisting" | "ProposeNew">("");
+  const initialCompatibleAlternatives = needsInputItem?.alternatives.filter(
+    (alternative) => alternative.kind === initialKind,
+  ) ?? [];
+  const initialGroundedDisposition = needsInputItem?.disposition === "ProposeNew" ||
+    (needsInputItem?.disposition === "Unresolved" &&
+      (initialCompatibleAlternatives.length === 0 || Boolean(needsInputItem.suggestedSuperclassSelectionId)))
+    ? "ProposeNew"
+    : "";
+  const [groundedDisposition, setGroundedDisposition] = useState<"" | "ReuseExisting" | "ExtendExisting" | "ProposeNew">(
+    initialGroundedDisposition,
+  );
   const [groundedSelectionId, setGroundedSelectionId] = useState("");
   const [groundedKind, setGroundedKind] = useState<(typeof supportedKinds)[number]>(initialKind);
   const [groundedLabel, setGroundedLabel] = useState(needsInputItem?.label ?? "");
@@ -378,6 +388,10 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
   const compatibleAlternatives = needsInputItem?.alternatives.filter((alternative) => alternative.kind === groundedKind) ?? [];
   const classResolutionAlternatives = needsInputItem?.resolutionAlternatives ?? [];
   const proposingNew = groundedDisposition === "ProposeNew";
+  const selectingNewEntityStructure = groundedDisposition === "" || proposingNew;
+  const selectedSuperclass = classResolutionAlternatives.find(
+    (alternative) => alternative.selectionId === groundedSuperclassSelectionId,
+  );
   const missingConnectedContext = proposingNew && (
     (groundedKind === "ObjectProperty" && (!groundedDomainSelectionId || !groundedRangeSelectionId)) ||
     (groundedKind === "DatatypeProperty" && (!groundedDomainSelectionId || !groundedDatatypeIri)) ||
@@ -472,7 +486,7 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
           {supportedKinds.map((kind) => <option key={kind} value={kind}>{humanize(kind)}</option>)}
         </select>
       </label>
-      {proposingNew && groundedKind === "ObjectProperty" ? <>
+      {selectingNewEntityStructure && groundedKind === "ObjectProperty" ? <>
         <label>Domain class
           <select value={groundedDomainSelectionId} onChange={(event) => setGroundedDomainSelectionId(event.target.value)}>
             <option value="">Choose the relationship domain</option>
@@ -490,18 +504,18 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
           </select>
         </label>
       </> : null}
-      {proposingNew && groundedKind === "Class" ? <label>Superclass (optional)
+      {selectingNewEntityStructure && groundedKind === "Class" ? <label>Superclass / subclass relationship (optional)
         <select value={groundedSuperclassSelectionId} onChange={(event) => setGroundedSuperclassSelectionId(event.target.value)}>
           <option value="">Create without a superclass relationship</option>
           {classResolutionAlternatives.map((alternative) => <option key={`superclass-${alternative.selectionId}`} value={alternative.selectionId}>
             {alternative.preferredLabel ?? alternative.entityIri} · {alternative.score}%
           </option>)}
         </select>
-        {needsInputItem?.suggestedSuperclassSelectionId === groundedSuperclassSelectionId && groundedSuperclassSelectionId
-          ? <small>Recommended from the model-selected broader ontology match; reviewer confirmation is required.</small>
-          : null}
+        {needsInputItem?.suggestedSuperclassSelectionId === groundedSuperclassSelectionId && selectedSuperclass
+          ? <small>Recommended: create {groundedLabel || "this class"} as a subclass of {selectedSuperclass.preferredLabel ?? selectedSuperclass.entityIri}. Reviewer confirmation is required.</small>
+          : <small>Selecting a superclass creates the proposed class as its subclass.</small>}
       </label> : null}
-      {proposingNew && groundedKind === "DatatypeProperty" ? <>
+      {selectingNewEntityStructure && groundedKind === "DatatypeProperty" ? <>
         <label>Domain class
           <select value={groundedDomainSelectionId} onChange={(event) => setGroundedDomainSelectionId(event.target.value)}>
             <option value="">Choose the attribute domain</option>
@@ -522,7 +536,7 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
           </select>
         </label>
       </> : null}
-      {proposingNew && groundedKind === "Individual" ? <label>Type class
+      {selectingNewEntityStructure && groundedKind === "Individual" ? <label>Type class
         <select value={groundedTypeSelectionId} onChange={(event) => setGroundedTypeSelectionId(event.target.value)}>
           <option value="">Choose the individual's type</option>
           {classResolutionAlternatives.map((alternative) => <option key={`type-${alternative.selectionId}`} value={alternative.selectionId}>

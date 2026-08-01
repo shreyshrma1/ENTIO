@@ -138,3 +138,29 @@ The focused verifier regression proves that `Loan agreement` remains
 unresolved while `Agreement` is offered as its reviewer-controlled superclass.
 The verified normalized analysis, not raw provider state, owns subsequent
 coverage counts and review resolution.
+
+## Uncontested New-Class Resolution Correction
+
+An evidence-backed unresolved class with no compatible retrieved class and no
+exact full-state identity now deterministically becomes `ProposeNew`. The
+verifier is not choosing between competing meanings in this case: it preserves
+the model-supplied class kind, label, definition, evidence, and confidence, and
+normalizes the sole remaining ontology disposition. Human acceptance and the
+existing proposal/apply boundary remain required.
+
+If any compatible class selection or exact full-state identity exists, the item
+remains `NeedsInput`. Broader qualified-class matches such as `Commercial
+Account` to `Account` therefore continue to require reviewer confirmation and
+retain the server-issued superclass suggestion.
+
+Focused verifier coverage proves both the no-alternative promotion and the
+existing ambiguity path. Duplicate unresolved occurrences are consolidated
+before promotion so one new class retains their complete evidence provenance.
+
+Modified files for this correction are the grounded verifier and its focused
+test. Verification passed with the approved Slice 6 verifier/compiler command,
+the analysis-service/orchestrator command, `:semantic-engine:build`,
+`:web-server:build`, and `git diff --check`. The correction is committed with
+the connected Slice 7 presentation change on
+`fix/phase-12-semantic-resolution-fields`; it does not change module
+dependencies, operation families, or the ontology write path.
