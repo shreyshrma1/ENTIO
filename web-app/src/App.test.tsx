@@ -293,7 +293,90 @@ describe("web workbench shell", () => {
     fireEvent.click(screen.getAllByRole("tab", { name: "Hierarchy" }).at(-1)!);
     expect(await screen.findByRole("list", { name: "Selected add asserted type" })).toHaveTextContent("Account");
   });
+
+  it("renders deeply nested staged classes without requesting unavailable applied children", async () => {
+    window.history.pushState({}, "", "/projects/simple");
+    const nestedHierarchyRequests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/summary")) return json({
+        apiVersion: "v1",
+        project: { id: "simple", displayName: "Simple ontology", name: "simple-ontology" },
+        sources: [{ id: "simple", path: "ontology/simple.ttl", format: "turtle", roles: ["ontology"], tripleCount: 0 }],
+        symbolCount: 0,
+        graphTripleCount: 0,
+      });
+      if (path.includes("/hierarchy")) {
+        if (path.includes("parentIri=")) nestedHierarchyRequests.push(path);
+        return json({ apiVersion: "v1", sourceId: "simple", parentIri: null, page: { items: [], offset: 0, limit: 50, total: 0, nextOffset: null } });
+      }
+      if (path.includes("/outline")) return json({ apiVersion: "v1", sourceId: "simple", page: { items: [], offset: 0, limit: 100, total: 0, nextOffset: null } });
+      if (path.endsWith("/staged")) return json({
+        apiVersion: "v1",
+        projectId: "simple",
+        status: "READY",
+        entries: [
+          stagedClassEntry("loan", 1, "Loan"),
+          stagedClassEntry("business-loan", 2, "Business Loan"),
+          stagedSuperclassEntry("business-loan-parent", 3, "Business Loan", "Loan"),
+          stagedClassEntry("green-business-loan", 4, "Green Business Loan"),
+          stagedSuperclassEntry("green-business-loan-parent", 5, "Green Business Loan", "Business Loan"),
+        ],
+        proposal: null,
+      });
+      if (path.includes("/sources")) return json({ items: [], offset: 0, limit: 50, total: 0, nextOffset: null });
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Expand Loan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Expand Business Loan" }));
+    expect(screen.getByRole("button", { name: "Green Business Loan, Class" })).toBeInTheDocument();
+    expect(screen.queryByText("Children unavailable.")).not.toBeInTheDocument();
+    expect(nestedHierarchyRequests).toEqual([]);
+  });
 });
+
+function stagedClassEntry(id: string, order: number, label: string) {
+  const iri = `https://example.com/entio/simple#${label.replaceAll(" ", "")}`;
+  return {
+    id,
+    order,
+    sourceId: "simple",
+    summary: `create-class · ${label}`,
+    editType: "create-class",
+    status: "STAGED",
+    authorId: "bob",
+    latestEditorId: "bob",
+    comment: null,
+    normalizedValues: { label },
+    generatedIris: [iri],
+    validationMessages: [],
+  };
+}
+
+function stagedSuperclassEntry(id: string, order: number, childLabel: string, parentLabel: string) {
+  return {
+    id,
+    order,
+    sourceId: "simple",
+    summary: `add-superclass · ${childLabel}`,
+    editType: "add-superclass",
+    status: "STAGED",
+    authorId: "bob",
+    latestEditorId: "bob",
+    comment: null,
+    normalizedValues: {
+      classIri: `https://example.com/entio/simple#${childLabel.replaceAll(" ", "")}`,
+      classLabel: childLabel,
+      superclassIri: `https://example.com/entio/simple#${parentLabel.replaceAll(" ", "")}`,
+      superclassLabel: parentLabel,
+    },
+    generatedIris: [],
+    validationMessages: [],
+  };
+}
 
 function json(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
