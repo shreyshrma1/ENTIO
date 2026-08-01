@@ -147,8 +147,30 @@ class DocumentReviewWorkspaceTest {
     }
 
     @Test
-    fun presentsExactReuseAsMatchedAndConfirmableWithoutAnOntologyEdit(): Unit {
+    fun presentsNonExactProviderReuseAsActionableNeedsInput(): Unit {
         val store = unresolvedGroundedFixture(DocumentGroundedDisposition.ReuseExisting)
+
+        val workspace = store.readVerified("project-a", "task-grounded", "alice", WebPageRequest())
+        val recommendation = workspace.recommendations.items.single()
+
+        assertEquals("NeedsInput", recommendation.connectedStatus)
+        assertEquals("NeedsInput", recommendation.type)
+        assertEquals("NeedsInput", recommendation.groundedItems.single().status)
+        assertFalse(recommendation.changePreview.draftable)
+        assertTrue(recommendation.changePreview.blockingReason?.contains("grounded ontology decision") == true)
+        assertEquals("Servicing Policy", recommendation.proposedLabel)
+        assertEquals(0, workspace.draftImpact.matchedCount)
+        assertEquals(1, workspace.draftImpact.needsInputCount)
+        assertTrue(workspace.documentOnlyFindings.isEmpty())
+    }
+
+    @Test
+    fun presentsExactProviderReuseAsMatchedAndConfirmableWithoutAnOntologyEdit(): Unit {
+        val store = unresolvedGroundedFixture(
+            disposition = DocumentGroundedDisposition.ReuseExisting,
+            selectionPreferredLabel = "Servicing Policy",
+            selectionIri = Iri("https://example.com/ontology/ServicingPolicy"),
+        )
 
         val workspace = store.readVerified("project-a", "task-grounded", "alice", WebPageRequest())
         val recommendation = workspace.recommendations.items.single()
@@ -160,8 +182,6 @@ class DocumentReviewWorkspaceTest {
         assertEquals(null, recommendation.changePreview.blockingReason)
         assertTrue(recommendation.changePreview.summary.contains("Confirm that this evidence maps"))
         assertEquals(1, workspace.draftImpact.matchedCount)
-        assertEquals(0, workspace.draftImpact.reviewOnlyCount)
-        assertTrue(workspace.documentOnlyFindings.isEmpty())
 
         val confirmed = store.retainVerifiedReviewOnly(
             "project-a",
@@ -716,6 +736,8 @@ class DocumentReviewWorkspaceTest {
         disposition: DocumentGroundedDisposition = DocumentGroundedDisposition.Unresolved,
         kind: DocumentSemanticItemKind = DocumentSemanticItemKind.Class,
         itemLabel: String = "Servicing Policy",
+        selectionPreferredLabel: String = "Loan",
+        selectionIri: Iri = Iri("https://example.com/ontology/Loan"),
     ): DocumentReviewWorkspaceStore {
         val now = Instant.parse("2026-07-31T12:00:00Z")
         val store = DocumentReviewWorkspaceStore(Clock.fixed(now, ZoneOffset.UTC))
@@ -822,12 +844,12 @@ class DocumentReviewWorkspaceTest {
                 com.entio.core.DocumentOntologyRetrievalSelection(
                     selectionId = "selection-loan",
                     candidateId = candidate.id,
-                    canonicalIri = Iri("https://example.com/ontology/Loan"),
+                    canonicalIri = selectionIri,
                     kind = com.entio.core.SemanticDescriptorKind.Class,
                     scope = DocumentMatchScope.AppliedLocal,
                     sourceId = "ontology",
                     writable = true,
-                    preferredLabel = "Loan",
+                    preferredLabel = selectionPreferredLabel,
                     score = 50,
                     matchReasons = listOf(
                         com.entio.core.DocumentRetrievalMatchReason("token-overlap", "Related lending context", 50),
@@ -846,7 +868,7 @@ class DocumentReviewWorkspaceTest {
             targetSourceId = "ontology",
             iriNamespace = "https://example.com/ontology",
             existingEntities = mapOf(
-                Iri("https://example.com/ontology/Loan") to com.entio.core.DocumentTemporaryReferenceKind.Class,
+                selectionIri to com.entio.core.DocumentTemporaryReferenceKind.Class,
             ),
             alignedEntities = emptyMap(),
             expectedOntologyFingerprint = "graph-fingerprint",

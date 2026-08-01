@@ -34,6 +34,7 @@ public data class DocumentGroundedVerificationInput(
     val currentOntologyFingerprint: String,
     val expectedCurrentWorkFingerprint: String,
     val currentCurrentWorkFingerprint: String,
+    val reviewerAuthorizedReuseItemIds: Set<String> = emptySet(),
 )
 
 public data class DocumentVerifiedGroundedAnalysis(
@@ -54,7 +55,24 @@ public class DocumentGroundedAnalysisVerifier {
         val retrieval = input.retrieval.associateBy(DocumentOntologyRetrievalResult::candidateId)
         require(retrieval.keys == candidates.keys && input.retrieval.all(DocumentOntologyRetrievalResult::completeAuthorizedScopeSearch))
         val selectionById = input.retrieval.flatMap { it.selections }.associateBy(DocumentOntologyRetrievalSelection::selectionId)
-        val analysis = consolidateExactReuseItems(input.analysis, candidates, selectionById)
+        require(input.reviewerAuthorizedReuseItemIds.all { itemId ->
+            input.analysis.items.any { item ->
+                item.id == itemId && item.disposition == DocumentGroundedDisposition.ReuseExisting
+            }
+        }) { "grounded-reviewer-reuse-authorization-invalid" }
+        val normalizedAnalysis = requireExactIdentityForReuse(
+            input.analysis,
+            candidates,
+            selectionById,
+            input.fullStateMatches,
+            input.reviewerAuthorizedReuseItemIds,
+        )
+        val analysis = consolidateExactReuseItems(
+            normalizedAnalysis,
+            candidates,
+            selectionById,
+            input.fullStateMatches,
+        )
         val fields = mutableListOf<DocumentEditableGroundedField>()
         val statuses = linkedMapOf<String, DocumentGroundedRecommendationStatus>()
         val alignments = linkedMapOf<String, DocumentCompilerEntity>()
@@ -295,6 +313,7 @@ public class DocumentGroundedAnalysisVerifier {
         analysis: DocumentGroundedAnalysisResult,
         candidates: Map<String, DocumentGroundedCandidate>,
         selections: Map<String, DocumentOntologyRetrievalSelection>,
+        fullStateMatches: List<DocumentFullStateMatch>,
     ): DocumentGroundedAnalysisResult {
         val referencedItemIds = analysis.items.flatMap { item -> item.references.map { it.targetItemId } }.toSet()
         val eligible = analysis.items.mapNotNull { item ->
@@ -303,16 +322,19 @@ public class DocumentGroundedAnalysisVerifier {
             ) {
                 return@mapNotNull null
             }
-            val normalizedCandidateMeaning = item.candidateIds
-                .map { candidates.getValue(it).normalizedText }
-                .distinct()
-                .singleOrNull()
-                ?: return@mapNotNull null
-            if (normalizeMeaning(item.label) != normalizedCandidateMeaning) return@mapNotNull null
             val selection = item.selectionId?.let(selections::get) ?: return@mapNotNull null
+            if (!item.candidateIds.all { candidateId ->
+                    isExactIdentity(
+                        candidates.getValue(candidateId),
+                        selection,
+                        fullStateMatches,
+                    )
+                }
+            ) {
+                return@mapNotNull null
+            }
             ExactReuseKey(
                 item.kind,
-                normalizedCandidateMeaning,
                 selection.canonicalIri.value,
                 selection.scope,
                 selection.sourceId,
@@ -324,7 +346,9 @@ public class DocumentGroundedAnalysisVerifier {
             if (group.size < 2) return@mapNotNull null
             val canonical = group.minBy { it.id }
             group.forEach { replacementIds[it.id] = canonical.id }
+            val selection = canonical.selectionId?.let(selections::get)
             canonical.copy(
+                label = selection?.preferredLabel ?: canonical.label,
                 candidateIds = group.flatMap { it.candidateIds }.distinct().sorted(),
                 evidenceIds = group.flatMap { it.evidenceIds }.distinct().sortedBy { it.value },
                 confidence = group.map { it.confidence }.reduce(::minimumConfidence),
@@ -343,7 +367,82 @@ public class DocumentGroundedAnalysisVerifier {
         )
     }
 
-    private fun normalizeMeaning(value: String): String = value
+    private fun requireExactIdentityForReuse(
+        analysis: DocumentGroundedAnalysisResult,
+        candidates: Map<String, DocumentGroundedCandidate>,
+        selections: Map<String, DocumentOntologyRetrievalSelection>,
+        fullStateMatches: List<DocumentFullStateMatch>,
+        reviewerAuthorizedReuseItemIds: Set<String>,
+    ): DocumentGroundedAnalysisResult {
+        val normalizedItemIds = mutableSetOf<String>()
+        val items = analysis.items.map { item ->
+            if (item.disposition != DocumentGroundedDisposition.ReuseExisting ||
+                item.id in reviewerAuthorizedReuseItemIds
+            ) {
+                return@map item
+            }
+            val selection = item.selectionId?.let(selections::get) ?: return@map item
+            val exactForEveryCandidate = item.candidateIds.all { candidateId ->
+                isExactIdentity(
+                    candidates.getValue(candidateId),
+                    selection,
+                    fullStateMatches,
+                )
+            }
+            if (exactForEveryCandidate) return@map item
+
+            normalizedItemIds += item.id
+            val evidenceLabel = item.candidateIds
+                .map(candidates::getValue)
+                .maxWithOrNull(
+                    compareBy<DocumentGroundedCandidate> { it.normalizedText.split(' ').size }
+                        .thenBy { it.normalizedText.length }
+                        .thenBy(DocumentGroundedCandidate::stableOrderingKey),
+                )
+                ?.displayText
+                ?: item.label
+            item.copy(
+                label = evidenceLabel,
+                disposition = DocumentGroundedDisposition.Unresolved,
+                selectionId = null,
+                rationale = "${item.rationale} The proposed reuse was not an exact identity match and requires reviewer resolution.",
+                ambiguity = "The selected ontology entity is broader than the evidence-backed candidate meaning.",
+            )
+        }
+        if (normalizedItemIds.isEmpty()) return analysis
+        return DocumentGroundedAnalysisResult(
+            analysis.responseVersion,
+            items.sortedBy(DocumentGroundedSemanticItem::stableOrderingKey),
+            analysis.coverage.map { coverage ->
+                if (coverage.itemId !in normalizedItemIds) coverage else coverage.copy(
+                    disposition = DocumentGroundedDisposition.Unresolved,
+                    rationale = "The proposed reuse was not an exact identity match and requires reviewer resolution.",
+                )
+            }.sortedBy { it.stableOrderingKey },
+        )
+    }
+
+    private fun isExactIdentity(
+        candidate: DocumentGroundedCandidate,
+        selection: DocumentOntologyRetrievalSelection,
+        fullStateMatches: List<DocumentFullStateMatch>,
+    ): Boolean {
+        val completeStateExact = fullStateMatches.any { match ->
+            match.candidateId == candidate.id &&
+                match.exactIdentity &&
+                match.canonicalIri == selection.canonicalIri &&
+                match.scope == selection.scope &&
+                match.sourceId == selection.sourceId
+        }
+        if (completeStateExact) return true
+        val normalizedLabels = listOfNotNull(selection.preferredLabel)
+            .plus(selection.alternateLabels)
+            .map(::normalizeIdentity)
+            .toSet()
+        return normalizeIdentity(candidate.normalizedText) in normalizedLabels
+    }
+
+    private fun normalizeIdentity(value: String): String = value
         .trim()
         .replace(Regex("\\s+"), " ")
         .lowercase()
@@ -359,7 +458,6 @@ public class DocumentGroundedAnalysisVerifier {
 
     private data class ExactReuseKey(
         val kind: DocumentSemanticItemKind,
-        val normalizedCandidateMeaning: String,
         val canonicalIri: String,
         val scope: DocumentMatchScope,
         val sourceId: String,

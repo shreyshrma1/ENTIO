@@ -55,18 +55,32 @@ class DocumentGroundedAnalysisVerifierTest {
     fun `accepts exact frozen reuse and rejects invented stale or wrong-kind selections`(): Unit {
         val selected = selection()
         val reuse = item("item-payment", DocumentGroundedDisposition.ReuseExisting, selected.selectionId)
-        val verified = verifier().verify(input(reuse, retrieval = retrieval(listOf(selected))))
+        val fullState = listOf(exactMatch("candidate-1", selected))
+        val verified = verifier().verify(input(reuse, retrieval = retrieval(listOf(selected)), fullState = fullState))
 
         assertEquals(selected.canonicalIri, verified.alignedEntities.getValue(selected.selectionId).iri)
         assertEquals(selected.selectionId, verified.itemAlignmentIds.getValue(reuse.id))
         assertFailsWith<IllegalArgumentException> {
-            verifier().verify(input(reuse.copy(selectionId = "selection-invented"), retrieval = retrieval(listOf(selected))))
+            verifier().verify(input(
+                reuse.copy(selectionId = "selection-invented"),
+                retrieval = retrieval(listOf(selected)),
+                fullState = fullState,
+            ))
         }
         assertFailsWith<IllegalArgumentException> {
-            verifier().verify(input(reuse, retrieval = retrieval(listOf(selected.copy(kind = SemanticDescriptorKind.Individual)))))
+            verifier().verify(input(
+                reuse,
+                retrieval = retrieval(listOf(selected.copy(kind = SemanticDescriptorKind.Individual))),
+                fullState = fullState,
+            ))
         }
         assertFailsWith<IllegalArgumentException> {
-            verifier().verify(input(reuse, retrieval = retrieval(listOf(selected)), currentOntology = hash('9')))
+            verifier().verify(input(
+                reuse,
+                retrieval = retrieval(listOf(selected)),
+                fullState = fullState,
+                currentOntology = hash('9'),
+            ))
         }
     }
 
@@ -201,6 +215,7 @@ class DocumentGroundedAnalysisVerifierTest {
         val reuse = verifier().verify(input(
             item("item-payment", DocumentGroundedDisposition.ReuseExisting, imported.selectionId),
             retrieval = retrieval(listOf(imported)),
+            fullState = listOf(exactMatch("candidate-1", imported)),
         ))
         assertTrue(reuse.editableFields.isEmpty())
     }
@@ -274,6 +289,10 @@ class DocumentGroundedAnalysisVerifierTest {
                 retrieval(firstCandidate.id, listOf(firstSelection)),
                 retrieval(secondCandidate.id, listOf(secondSelection)),
             ),
+            fullState = listOf(
+                exactMatch(firstCandidate.id, firstSelection),
+                exactMatch(secondCandidate.id, secondSelection),
+            ),
         ))
 
         assertEquals(1, verified.plan.groups.size)
@@ -336,6 +355,54 @@ class DocumentGroundedAnalysisVerifierTest {
 
         assertEquals(2, verified.plan.groups.size)
         assertEquals(2, verified.plan.items.size)
+        val needsInput = verified.plan.items.single { it.id == qualifiedItem.id }
+        assertEquals("Loan agreement", needsInput.label)
+        assertEquals(com.entio.core.DocumentSemanticOutcome.Blocked, needsInput.outcome)
+        assertEquals(
+            com.entio.core.DocumentGroundedRecommendationStatus.NeedsInput,
+            verified.statusByItemId.getValue(qualifiedItem.id),
+        )
+        assertTrue(qualifiedItem.id !in verified.itemAlignmentIds)
+        assertEquals(
+            setOf(
+                DocumentEditableGroundedFieldKind.Disposition,
+                DocumentEditableGroundedFieldKind.EntityKind,
+                DocumentEditableGroundedFieldKind.Label,
+                DocumentEditableGroundedFieldKind.Selection,
+            ),
+            verified.editableFields.filter { it.id.startsWith("${qualifiedItem.id}:") }.map { it.kind }.toSet(),
+        )
+    }
+
+    @Test
+    fun `allows an explicit reviewer-authorized broader reuse without treating it as provider exactness`(): Unit {
+        val selected = selection().copy(
+            canonicalIri = Iri("https://example.com/Agreement"),
+            preferredLabel = "Agreement",
+        )
+        val candidate = candidate().copy(
+            displayText = "Loan agreement",
+            normalizedText = "loan agreement",
+        )
+        val reuse = item(
+            "item-loan-agreement",
+            DocumentGroundedDisposition.ReuseExisting,
+            selected.selectionId,
+        ).copy(label = candidate.displayText)
+        val base = input(reuse, retrieval = retrieval(listOf(selected)))
+        val verified = verifier().verify(
+            base.copy(
+                candidates = listOf(candidate),
+                reviewerAuthorizedReuseItemIds = setOf(reuse.id),
+            ),
+        )
+
+        assertEquals(
+            com.entio.core.DocumentGroundedRecommendationStatus.ReviewOnly,
+            verified.statusByItemId.getValue(reuse.id),
+        )
+        assertEquals(selected.selectionId, verified.itemAlignmentIds.getValue(reuse.id))
+        assertTrue(verified.editableFields.isEmpty())
     }
 
     private fun verifier() = DocumentGroundedAnalysisVerifier()
@@ -365,11 +432,12 @@ class DocumentGroundedAnalysisVerifierTest {
         candidates: List<DocumentGroundedCandidate>,
         items: List<DocumentGroundedSemanticItem>,
         retrieval: List<DocumentOntologyRetrievalResult>,
+        fullState: List<DocumentFullStateMatch> = emptyList(),
     ): DocumentGroundedVerificationInput = DocumentGroundedVerificationInput(
         DocumentAnalysisWorkKey(hash('a')),
         candidates.sortedBy(DocumentGroundedCandidate::stableOrderingKey),
         retrieval.sortedBy { it.candidateId },
-        emptyList(),
+        fullState,
         DocumentGroundedAnalysisResult(
             DocumentAnalysisPipelineVersions.GROUNDED_RESPONSE,
             items.sortedBy(DocumentGroundedSemanticItem::stableOrderingKey),
@@ -438,6 +506,18 @@ class DocumentGroundedAnalysisVerifierTest {
         scope, "source-1", writable, "Payment", score = 100,
         matchReasons = listOf(DocumentRetrievalMatchReason("identity", "Exact normalized identity", 100)),
         fingerprints = DocumentRetrievalFingerprints(hash('1'), hash('2'), hash('3'), hash('4')),
+    )
+
+    private fun exactMatch(
+        candidateId: String,
+        selection: DocumentOntologyRetrievalSelection,
+    ) = DocumentFullStateMatch(
+        candidateId,
+        selection.scope,
+        selection.canonicalIri,
+        selection.sourceId,
+        exactIdentity = true,
+        exactTypedOperation = false,
     )
 
     private fun hash(character: Char) = character.toString().repeat(64)
