@@ -1,12 +1,14 @@
 package com.entio.semantic
 
 import com.entio.core.DocumentAnalysisWorkKey
+import com.entio.core.DocumentConfidenceDimensions
 import com.entio.core.DocumentEditableGroundedField
 import com.entio.core.DocumentEditableGroundedFieldKind
 import com.entio.core.DocumentGroundedAnalysisResult
 import com.entio.core.DocumentGroundedCandidate
 import com.entio.core.DocumentGroundedDisposition
 import com.entio.core.DocumentGroundedRecommendationStatus
+import com.entio.core.DocumentGroundedSemanticItem
 import com.entio.core.DocumentMatchScope
 import com.entio.core.DocumentOntologyRetrievalResult
 import com.entio.core.DocumentOntologyRetrievalSelection
@@ -52,12 +54,13 @@ public class DocumentGroundedAnalysisVerifier {
         val retrieval = input.retrieval.associateBy(DocumentOntologyRetrievalResult::candidateId)
         require(retrieval.keys == candidates.keys && input.retrieval.all(DocumentOntologyRetrievalResult::completeAuthorizedScopeSearch))
         val selectionById = input.retrieval.flatMap { it.selections }.associateBy(DocumentOntologyRetrievalSelection::selectionId)
+        val analysis = consolidateExactReuseItems(input.analysis, candidates, selectionById)
         val fields = mutableListOf<DocumentEditableGroundedField>()
         val statuses = linkedMapOf<String, DocumentGroundedRecommendationStatus>()
         val alignments = linkedMapOf<String, DocumentCompilerEntity>()
         val itemAlignmentIds = linkedMapOf<String, String>()
         val validItems = mutableListOf<DocumentSemanticPlanItem>()
-        val explicitlyModeledDefinitionTargets = input.analysis.items
+        val explicitlyModeledDefinitionTargets = analysis.items
             .filter { it.kind == DocumentSemanticItemKind.Definition }
             .flatMap { definition ->
                 definition.references.filter { it.role == DocumentSemanticReferenceRole.Entity }
@@ -65,7 +68,7 @@ public class DocumentGroundedAnalysisVerifier {
             }
             .toSet()
 
-        input.analysis.items.forEach { grounded ->
+        analysis.items.forEach { grounded ->
             require(grounded.candidateIds.all(candidates::containsKey))
             val candidateEvidence = grounded.candidateIds.flatMap { candidates.getValue(it).evidenceSpans }
                 .map { it.evidenceId }.toSet()
@@ -287,6 +290,80 @@ public class DocumentGroundedAnalysisVerifier {
             itemAlignmentIds.toSortedMap(),
         )
     }
+
+    private fun consolidateExactReuseItems(
+        analysis: DocumentGroundedAnalysisResult,
+        candidates: Map<String, DocumentGroundedCandidate>,
+        selections: Map<String, DocumentOntologyRetrievalSelection>,
+    ): DocumentGroundedAnalysisResult {
+        val referencedItemIds = analysis.items.flatMap { item -> item.references.map { it.targetItemId } }.toSet()
+        val eligible = analysis.items.mapNotNull { item ->
+            if (item.disposition != DocumentGroundedDisposition.ReuseExisting ||
+                item.references.isNotEmpty() || item.id in referencedItemIds
+            ) {
+                return@mapNotNull null
+            }
+            val normalizedCandidateMeaning = item.candidateIds
+                .map { candidates.getValue(it).normalizedText }
+                .distinct()
+                .singleOrNull()
+                ?: return@mapNotNull null
+            if (normalizeMeaning(item.label) != normalizedCandidateMeaning) return@mapNotNull null
+            val selection = item.selectionId?.let(selections::get) ?: return@mapNotNull null
+            ExactReuseKey(
+                item.kind,
+                normalizedCandidateMeaning,
+                selection.canonicalIri.value,
+                selection.scope,
+                selection.sourceId,
+            ) to item
+        }
+        val grouped = eligible.groupBy({ it.first }, { it.second })
+        val replacementIds = mutableMapOf<String, String>()
+        val consolidated = grouped.values.mapNotNull { group ->
+            if (group.size < 2) return@mapNotNull null
+            val canonical = group.minBy { it.id }
+            group.forEach { replacementIds[it.id] = canonical.id }
+            canonical.copy(
+                candidateIds = group.flatMap { it.candidateIds }.distinct().sorted(),
+                evidenceIds = group.flatMap { it.evidenceIds }.distinct().sortedBy { it.value },
+                confidence = group.map { it.confidence }.reduce(::minimumConfidence),
+            )
+        }
+        if (replacementIds.isEmpty()) return analysis
+        val replacedItemIds = replacementIds.keys
+        return DocumentGroundedAnalysisResult(
+            analysis.responseVersion,
+            (analysis.items.filterNot { it.id in replacedItemIds } + consolidated)
+                .sortedBy(DocumentGroundedSemanticItem::stableOrderingKey),
+            analysis.coverage.map { coverage ->
+                val replacementId = coverage.itemId?.let(replacementIds::get)
+                if (replacementId == null) coverage else coverage.copy(itemId = replacementId)
+            }.sortedBy { it.stableOrderingKey },
+        )
+    }
+
+    private fun normalizeMeaning(value: String): String = value
+        .trim()
+        .replace(Regex("\\s+"), " ")
+        .lowercase()
+
+    private fun minimumConfidence(
+        left: DocumentConfidenceDimensions,
+        right: DocumentConfidenceDimensions,
+    ): DocumentConfidenceDimensions = DocumentConfidenceDimensions(
+        minOf(left.evidence, right.evidence),
+        minOf(left.modeling, right.modeling),
+        minOf(left.ontologyFit, right.ontologyFit),
+    )
+
+    private data class ExactReuseKey(
+        val kind: DocumentSemanticItemKind,
+        val normalizedCandidateMeaning: String,
+        val canonicalIri: String,
+        val scope: DocumentMatchScope,
+        val sourceId: String,
+    )
 
     private fun components(items: List<DocumentSemanticPlanItem>): List<List<DocumentSemanticPlanItem>> {
         val byId = items.associateBy(DocumentSemanticPlanItem::id)

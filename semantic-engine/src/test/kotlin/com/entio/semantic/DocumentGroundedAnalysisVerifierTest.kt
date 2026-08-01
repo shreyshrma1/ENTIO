@@ -223,6 +223,121 @@ class DocumentGroundedAnalysisVerifierTest {
         }
     }
 
+    @Test
+    fun `consolidates only exact unconnected reuse meanings with the same canonical entity`(): Unit {
+        val firstCandidate = candidate().copy(
+            id = "candidate-customer-1",
+            displayText = "Customer",
+            normalizedText = "customer",
+        )
+        val secondCandidate = candidate().copy(
+            id = "candidate-customer-2",
+            displayText = "CUSTOMER",
+            normalizedText = "customer",
+            documentId = DocumentId("document-2"),
+            evidenceSpans = listOf(DocumentGroundedEvidenceSpan(
+                DocumentEvidenceId("evidence-2"), DocumentEvidenceId("reference-2"), DocumentId("document-2"),
+                DocumentTextBlockId("block-2"), 1, null, 0, 8, "CUSTOMER",
+            )),
+        )
+        val firstSelection = selection().copy(
+            selectionId = "selection-customer-1",
+            candidateId = firstCandidate.id,
+            canonicalIri = Iri("https://example.com/Customer"),
+            preferredLabel = "Customer",
+        )
+        val secondSelection = firstSelection.copy(
+            selectionId = "selection-customer-2",
+            candidateId = secondCandidate.id,
+        )
+        val firstItem = item(
+            "item-customer-1",
+            DocumentGroundedDisposition.ReuseExisting,
+            firstSelection.selectionId,
+        ).copy(
+            label = "Customer",
+            candidateIds = listOf(firstCandidate.id),
+        )
+        val secondItem = item(
+            "item-customer-2",
+            DocumentGroundedDisposition.ReuseExisting,
+            secondSelection.selectionId,
+        ).copy(
+            label = "Customer",
+            candidateIds = listOf(secondCandidate.id),
+            evidenceIds = listOf(DocumentEvidenceId("evidence-2")),
+        )
+        val verified = verifier().verify(input(
+            candidates = listOf(firstCandidate, secondCandidate),
+            items = listOf(firstItem, secondItem),
+            retrieval = listOf(
+                retrieval(firstCandidate.id, listOf(firstSelection)),
+                retrieval(secondCandidate.id, listOf(secondSelection)),
+            ),
+        ))
+
+        assertEquals(1, verified.plan.groups.size)
+        assertEquals(1, verified.plan.items.size)
+        assertEquals(listOf(firstCandidate.id, secondCandidate.id), verified.plan.items.single().discoveryIds)
+        assertEquals(
+            listOf(DocumentEvidenceId("evidence-1"), DocumentEvidenceId("evidence-2")),
+            verified.plan.items.single().evidenceIds,
+        )
+    }
+
+    @Test
+    fun `does not consolidate a qualified concept into its broader reuse target`(): Unit {
+        val agreement = candidate().copy(
+            id = "candidate-agreement",
+            displayText = "Agreement",
+            normalizedText = "agreement",
+        )
+        val loanAgreement = candidate().copy(
+            id = "candidate-loan-agreement",
+            displayText = "Loan agreement",
+            normalizedText = "loan agreement",
+            evidenceSpans = listOf(DocumentGroundedEvidenceSpan(
+                DocumentEvidenceId("evidence-loan"), DocumentEvidenceId("reference-loan"), DocumentId("document-1"),
+                DocumentTextBlockId("block-loan"), 1, null, 0, 14, "Loan agreement",
+            )),
+        )
+        val exactSelection = selection().copy(
+            selectionId = "selection-agreement",
+            candidateId = agreement.id,
+            canonicalIri = Iri("https://example.com/Agreement"),
+            preferredLabel = "Agreement",
+        )
+        val broaderSelection = exactSelection.copy(
+            selectionId = "selection-loan-agreement",
+            candidateId = loanAgreement.id,
+        )
+        val exactItem = item(
+            "item-agreement",
+            DocumentGroundedDisposition.ReuseExisting,
+            exactSelection.selectionId,
+        ).copy(label = "Agreement", candidateIds = listOf(agreement.id))
+        val qualifiedItem = item(
+            "item-loan-agreement",
+            DocumentGroundedDisposition.ReuseExisting,
+            broaderSelection.selectionId,
+        ).copy(
+            label = "Agreement",
+            candidateIds = listOf(loanAgreement.id),
+            evidenceIds = listOf(DocumentEvidenceId("evidence-loan")),
+        )
+        val verified = verifier().verify(input(
+            candidates = listOf(agreement, loanAgreement),
+            items = listOf(exactItem, qualifiedItem),
+            retrieval = listOf(
+                retrieval(agreement.id, listOf(exactSelection)),
+                retrieval(loanAgreement.id, listOf(broaderSelection)),
+            ),
+        ))
+
+        assertEquals(2, verified.plan.groups.size)
+        assertEquals(2, verified.plan.items.size)
+    }
+
     private fun verifier() = DocumentGroundedAnalysisVerifier()
 
     private fun input(
@@ -245,6 +360,32 @@ class DocumentGroundedAnalysisVerifierTest {
             hash('1'), currentOntology, hash('2'), hash('2'),
         )
     }
+
+    private fun input(
+        candidates: List<DocumentGroundedCandidate>,
+        items: List<DocumentGroundedSemanticItem>,
+        retrieval: List<DocumentOntologyRetrievalResult>,
+    ): DocumentGroundedVerificationInput = DocumentGroundedVerificationInput(
+        DocumentAnalysisWorkKey(hash('a')),
+        candidates.sortedBy(DocumentGroundedCandidate::stableOrderingKey),
+        retrieval.sortedBy { it.candidateId },
+        emptyList(),
+        DocumentGroundedAnalysisResult(
+            DocumentAnalysisPipelineVersions.GROUNDED_RESPONSE,
+            items.sortedBy(DocumentGroundedSemanticItem::stableOrderingKey),
+            items.flatMap { item ->
+                item.candidateIds.map { candidateId ->
+                    DocumentGroundedCoverageDisposition(
+                        candidateId,
+                        item.id,
+                        item.disposition,
+                        "Complete disposition.",
+                    )
+                }
+            }.sortedBy(DocumentGroundedCoverageDisposition::stableOrderingKey),
+        ),
+        hash('1'), hash('1'), hash('2'), hash('2'),
+    )
 
     private fun item(
         id: String,
@@ -280,8 +421,11 @@ class DocumentGroundedAnalysisVerifierTest {
     )
 
     private fun retrieval(selections: List<DocumentOntologyRetrievalSelection> = emptyList()) =
+        retrieval("candidate-1", selections)
+
+    private fun retrieval(candidateId: String, selections: List<DocumentOntologyRetrievalSelection>) =
         DocumentOntologyRetrievalResult(
-            "candidate-1", DocumentAnalysisPipelineVersions.RETRIEVAL_QUERY,
+            candidateId, DocumentAnalysisPipelineVersions.RETRIEVAL_QUERY,
             DocumentAnalysisPipelineVersions.RETRIEVAL_RANKING, DocumentAnalysisPipelineVersions.RETRIEVAL_RESULT,
             selections, true,
         )

@@ -41,3 +41,29 @@ frozen reuse, invented and wrong-kind selections, stale ontology state,
 full-state duplicates, reviewer-solvable missing roles, and imported extension
 protection. The complete Slice 6 verification commands are recorded in the
 slice commit after successful execution.
+
+## Exact-Reuse Consolidation Correction
+
+End-to-end review exposed duplicate-looking cards when several grounded items
+selected the same ontology entity. Kotlin now consolidates only unconnected
+`ReuseExisting` items whose complete normalized candidate meaning, grounded
+label, entity kind, canonical IRI, scope, and source are identical. Evidence and
+candidate provenance are unioned deterministically and the lowest confidence
+dimension is retained.
+
+Qualified candidates remain separate when their normalized meaning differs,
+even if a provider incorrectly gives them the broader entity's label and selects
+the same canonical IRI. This prevents consolidation from erasing qualifiers such
+as `loan`, `corporate`, `legal`, or `commercial`.
+
+The correction added two focused verifier tests and passed the approved Slice 6
+verifier, compiler, plan-verifier, coverage, translator, analysis-service, and
+orchestration suites. Both `:semantic-engine:build` and `:web-server:build`
+passed. The web-server build used a temporary non-synced Gradle output directory
+because the Desktop sync layer otherwise duplicated generated `.class` files
+with a ` 2` suffix; no tracked source or test fixture was changed by that
+environmental workaround.
+
+Git status: committed as one focused correction on
+`fix/phase-12-exact-reuse-consolidation` and authorized for its remote branch
+only.
