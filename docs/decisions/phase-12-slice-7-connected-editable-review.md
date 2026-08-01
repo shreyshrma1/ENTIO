@@ -119,3 +119,19 @@ grounded-item status. Focused server tests cover exact reuse confirmation and
 administrative coverage retention. Browser tests cover matched confirmation,
 the absence of document-only review cards, evidence access from the coverage
 ledger, and safety-blocked behavior.
+
+## Reviewer-Authorized Reuse Correction
+
+The exact-identity provider gate is intentionally stricter than an explicit
+review decision. When a reviewer resolves `NeedsInput` by choosing a compatible
+server-issued reuse target, or chooses an existing class as a required domain,
+range, or type, the review workspace marks only those generated reuse items as
+reviewer-authorized. Kotlin still verifies the selection, kind, source,
+fingerprints, connected roles, and complete compiled plan. This preserves the
+reviewer's ability to make a justified broader mapping without allowing model
+output to claim that mapping was an automatic exact match.
+
+The integration regression fixture now treats the provider's non-exact
+`Servicing Policy` to `Loan` mapping as actionable `NeedsInput`; the separate
+reviewer-resolution test proves that selecting `Loan` as a datatype-property
+domain remains valid and compiles through the existing review path.

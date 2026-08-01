@@ -633,7 +633,11 @@ internal class DocumentReviewWorkspaceStore(
                 id = recommendation.id,
                 category = if (isBusinessFact) "BusinessFact" else "OntologyStructure",
                 type = recommendation.operations.firstOrNull()?.kind?.name
-                    ?: if (recommendation.id in resolvedReuseIds) "ExistingOntologyReuse" else "DocumentOnly",
+                    ?: when {
+                        recommendation.id in resolvedReuseIds -> "ExistingOntologyReuse"
+                        connectedStatus == DocumentGroundedRecommendationStatus.NeedsInput.name -> "NeedsInput"
+                        else -> "DocumentOnly"
+                    },
                 action = "ConnectedChange",
                 proposedLabel = recommendation.title,
                 description = recommendation.description,
@@ -642,6 +646,8 @@ internal class DocumentReviewWorkspaceStore(
                     summary = when {
                         recommendation.id in resolvedReuseIds ->
                             "No ontology edit is needed. Confirm that this evidence maps to the selected existing entity."
+                        connectedStatus == DocumentGroundedRecommendationStatus.NeedsInput.name ->
+                            "Reviewer input is required before this evidence-backed meaning can create or reuse an ontology entity."
                         operations.isEmpty() -> "This finding is retained for review and will not create an ontology edit."
                         operations.size == 1 -> "1 exact typed change will be added as an atomic recommendation."
                         else -> "${operations.size} ordered typed changes will be added as one atomic recommendation."
@@ -1412,6 +1418,14 @@ internal class DocumentReviewWorkspaceStore(
                     context.compilerContext.currentOntologyFingerprint,
                     context.compilerContext.expectedCurrentWorkFingerprint,
                     context.compilerContext.currentWorkFingerprint,
+                    buildSet {
+                        if (updatedItem.disposition == DocumentGroundedDisposition.ReuseExisting) {
+                            add(updatedItem.id)
+                        }
+                        supportingItems.filter {
+                            it.disposition == DocumentGroundedDisposition.ReuseExisting
+                        }.mapTo(this) { it.id }
+                    },
                 ),
             )
         }.getOrElse {

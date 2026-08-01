@@ -67,3 +67,33 @@ environmental workaround.
 Git status: committed as one focused correction on
 `fix/phase-12-exact-reuse-consolidation` and authorized for its remote branch
 only.
+
+## Exact-Identity Review Quality Correction
+
+Live trials showed that a provider could select a broader retrieved class and
+rename a qualified candidate to that class even though the complete retrieval
+state did not identify an exact match. That produced duplicate-looking cards
+such as `Account` for both `Account` and `Commercial Account`, and incorrectly
+presented the qualified meaning as already matched.
+
+Kotlin now accepts `ReuseExisting` only when every candidate represented by the
+grounded item has a complete-state exact-identity match to the selected
+canonical IRI, scope, and source, or exactly matches a server-issued preferred
+or alternate identity label. A non-exact reuse is converted to actionable
+`NeedsInput`, keeps the most specific evidence-backed candidate label, exposes
+the compatible server-issued selection as a reviewer option, and cannot create
+an alignment implicitly. Exact unconnected reuse items consolidate by their
+server-proven canonical identity, so harmless casing and alias differences no
+longer create duplicate review cards.
+
+This provider gate does not take authority away from the reviewer. The review
+workspace explicitly identifies reuse items created by a reviewer resolution;
+the verifier accepts only those named items after revalidating their
+server-issued selection, kind, source, and fingerprints. Provider output cannot
+set that authorization.
+
+Focused verifier regression coverage proves both outcomes: exact repeated
+identities consolidate with their evidence intact, while `Loan agreement`
+cannot silently become a second `Agreement` match. The correction is isolated
+on `fix/phase-12-grounded-review-quality` for independent verification, commit,
+push, and local non-fast-forward merge.
