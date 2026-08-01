@@ -202,6 +202,44 @@ No credential, raw provider request or response, ontology-source change,
 copied fixture, alternate completion artifact, dependency, or unrelated file
 was introduced.
 
+## Cedar Ridge PDF Extraction Correction
+
+On 2026-08-01 the local
+`Cedar_Ridge_Small_Business_Green_Loan_Policy.pdf` input, with SHA-256
+`14eeee45e7b586f0da02cd62c7ba69fa815c830ba88a842ad555a0dc3f757390`,
+failed immediately after text extraction. OpenNLP had classified a
+single-character symbol as a concept term; deterministic normalization removed
+the symbol and produced an empty string, which correctly violated the evidence
+mention contract but was reported only as a generic safe processing failure.
+
+The extractor now discards symbol-only spans whose deterministic normalized
+form is empty before constructing evidence mentions. It also emits bounded,
+non-content diagnostics under the existing `ENTIO_DOCUMENT_ANALYSIS_DEBUG`
+flag: exception type, Entio source location, a safe failed-contract code,
+extraction category, and string lengths. It does not log document text,
+credentials, or provider content. A focused regression test mixes policy text
+with symbol-only NLP artifacts and verifies that valid meaning remains while
+every retained mention has nonblank normalized text.
+
+Two consecutive live uploads of the exact PDF were run through extraction,
+candidate promotion, authorized ontology retrieval, grounded modeling,
+deterministic verification, compilation, and review assembly with
+`gpt-5.6-luna`. The credential came from the `entio-phase12-openai` macOS
+Keychain item and was not printed or persisted. Both runs reached
+`awaiting-review` using ten logical Luna calls and ten provider attempts.
+
+- Both runs deterministically produced 557 evidence mentions, 361 grouped
+  candidates, 152 ontology-bearing candidates, 65 document-only mentions,
+  seven supporting values, and 212 rejected low-value mentions.
+- Run 1 produced 59 connected recommendations: 37 executable, four matched,
+  and 18 needing reviewer input. It retained object-property and
+  datatype-property recommendations with explicit domain, range, and datatype
+  fields and no terminally blocked review cards.
+- Run 2 produced 60 connected recommendations: 35 executable, six matched,
+  and 19 needing reviewer input. It retained 18 recommendations containing an
+  object or datatype property and no terminally blocked review cards.
+- Neither run staged, approved, applied, or changed an ontology source.
+
 ## Offline Verification
 
 The following commands passed after the controlled provider gate:

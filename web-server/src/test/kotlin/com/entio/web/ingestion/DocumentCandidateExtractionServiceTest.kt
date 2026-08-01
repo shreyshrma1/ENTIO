@@ -67,6 +67,19 @@ class DocumentCandidateExtractionServiceTest {
     }
 
     @Test
+    fun `discards symbol-only NLP artifacts without failing document extraction`(): Unit {
+        val policy = block(
+            document.id,
+            "A lender evaluates a green loan • and records the decision ✓.",
+        )
+        val mentions = DocumentCandidateExtractionService(configuration()).extractMentions(document, listOf(policy))
+
+        assertTrue(mentions.isNotEmpty())
+        assertTrue(mentions.all { it.normalizedText.isNotBlank() })
+        assertTrue(mentions.any { it.normalizedText.contains("loan") })
+    }
+
+    @Test
     fun `groups safe equivalents and promotes only meaning-bearing candidates`(): Unit {
         val repeated = listOf(
             block(document.id, "A Payment Instruction authorizes a transfer.").copy(id = DocumentTextBlockId("block-1")),
