@@ -1034,15 +1034,9 @@ function buildStagedClassHierarchy(entries: WebStagedEntry[]): StagedClassHierar
     if (!siblings.some((item) => item.iri === child.iri)) childrenByParent.set(parentIri, [...siblings, child]);
   });
 
-  const directChildCounts = new Map<string, number>();
-  childrenByParent.forEach((children, parentIri) => directChildCounts.set(parentIri, children.length));
-  childrenByParent.forEach((children, parentIri) => {
-    childrenByParent.set(parentIri, children.map((child) => ({ ...child, childCount: directChildCounts.get(child.iri) ?? 0 })));
-  });
-
   const rootItems = createdClasses
     .filter((item) => !childIris.has(item.iri))
-    .map((item) => ({ ...item, childCount: directChildCounts.get(item.iri) ?? 0 }));
+    .map((item) => ({ ...item, childCount: 0 }));
   return { rootItems, childIris, childrenByParent };
 }
 
