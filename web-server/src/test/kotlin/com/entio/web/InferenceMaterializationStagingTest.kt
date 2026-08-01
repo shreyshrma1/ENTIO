@@ -196,8 +196,8 @@ class InferenceMaterializationStagingTest {
             WebStageChangeRequest(
                 sourceId = "simple",
                 editType = "set-entity-label",
-                resourceIri = "$NS#Loan",
-                label = "Loan",
+                resourceIri = "$NS#Invoice",
+                label = "Invoice",
             ),
             "alice",
         )
@@ -213,7 +213,7 @@ class InferenceMaterializationStagingTest {
         )
         val preview = service.preview("simple", "alice")
         assertEquals(2, preview.entries.size)
-        assertEquals(true, preview.proposal?.diff.orEmpty().any { it.subject == "$NS#Loan" })
+        assertEquals(true, preview.proposal?.diff.orEmpty().any { it.subject == "$NS#Invoice" })
     }
 
     @Test
@@ -275,7 +275,7 @@ class InferenceMaterializationStagingTest {
         service.approve("simple", "bob")
         assertEquals("APPLIED", service.apply("simple", "bob").status)
         assertTrue(Files.readString(fixture.source).contains("subClassOf"))
-        assertTrue(Files.readString(fixture.secondarySource).contains("Loan123"))
+        assertTrue(Files.readString(fixture.secondarySource).contains("20874"))
         assertTrue(ProjectLoader().loadProject(fixture.root) is com.entio.core.EntioResult.Success<*>)
         assertEquals(
             "inference-already-asserted",
@@ -354,8 +354,8 @@ class InferenceMaterializationStagingTest {
         index: Int,
         kind: InferenceMaterializationKind,
         subject: Iri = when (kind) {
-            InferenceMaterializationKind.SubclassRelationship -> Iri("$NS#Loan")
-            InferenceMaterializationKind.IndividualType -> Iri("$NS#Loan123")
+            InferenceMaterializationKind.SubclassRelationship -> Iri("$NS#Invoice")
+            InferenceMaterializationKind.IndividualType -> Iri("$NS#20874")
             InferenceMaterializationKind.ObjectPropertyAssertion -> Iri("$NS#Shrey")
         },
         objectValue: Iri = when (kind) {
@@ -367,7 +367,7 @@ class InferenceMaterializationStagingTest {
         val predicate = when (kind) {
             InferenceMaterializationKind.SubclassRelationship -> RDFS_SUBCLASS
             InferenceMaterializationKind.IndividualType -> RDF_TYPE
-            InferenceMaterializationKind.ObjectPropertyAssertion -> Iri("$NS#hasLoan")
+            InferenceMaterializationKind.ObjectPropertyAssertion -> IS_BENEFICIARY_OF
         }
         val fact = InferenceMaterializationFact(kind, subject, predicate, objectValue)
         val factId = InferenceFactId("entio-reasoning-fact-v1:${index.toString(16).padStart(64, '0')}")
@@ -456,5 +456,6 @@ class InferenceMaterializationStagingTest {
         private const val NS = "https://example.com/entio/simple"
         private val RDF_TYPE = Iri("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
         private val RDFS_SUBCLASS = Iri("http://www.w3.org/2000/01/rdf-schema#subClassOf")
+        private val IS_BENEFICIARY_OF = Iri("https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/isBeneficiaryOf")
     }
 }

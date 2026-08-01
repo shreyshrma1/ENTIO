@@ -27,23 +27,16 @@ class ProjectLoaderTest {
         assertTrue(success.value.ontologies.all { it.graph.triples.isNotEmpty() })
         assertEquals(
             listOf(
-                "https://example.com/entio/shapes#BorrowerLoanShape",
                 "https://example.com/entio/shapes#CustomerNodeShape",
                 "https://example.com/entio/simple#20874",
                 "https://example.com/entio/simple#Account",
                 "https://example.com/entio/simple#Account101",
                 "https://example.com/entio/simple#Account33271",
                 "https://example.com/entio/simple#Checking",
-                "https://example.com/entio/simple#InterestRate",
                 "https://example.com/entio/simple#Invoice",
-                "https://example.com/entio/simple#Loan",
-                "https://example.com/entio/simple#Loan123",
-                "https://example.com/entio/simple#LoanAmount",
                 "https://example.com/entio/simple#Shrey",
                 "https://example.com/entio/simple#dateOpened",
-                "https://example.com/entio/simple#hasLoan",
                 "https://example.com/entio/simple#ownsAccount",
-                "https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/Borrower",
                 "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement",
                 "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Beneficiary",
                 "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/isBeneficiaryOf",
