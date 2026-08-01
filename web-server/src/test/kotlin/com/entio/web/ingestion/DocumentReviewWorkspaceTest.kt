@@ -71,6 +71,17 @@ import kotlin.test.assertTrue
 
 class DocumentReviewWorkspaceTest {
     @Test
+    fun keepsSuggestedSuperclassSelectionInTheBoundedResolutionChoices(): Unit {
+        val item = unresolvedGroundedFixture(suggestedSuperclass = true)
+            .readVerified("project-a", "task-grounded", "alice", WebPageRequest())
+            .recommendations.items.single().groundedItems.single()
+
+        assertEquals("selection-loan", item.suggestedSuperclassSelectionId)
+        assertEquals("selection-loan", item.resolutionAlternatives.first().selectionId)
+        assertEquals(1, item.resolutionAlternatives.count { it.entityIri == "https://example.com/ontology/Loan" })
+    }
+
+    @Test
     fun resolvesUnresolvedGroundedClassThroughServerReverificationAndCompilation(): Unit {
         val store = unresolvedGroundedFixture()
         val before = store.readVerified("project-a", "task-grounded", "alice", WebPageRequest())
@@ -740,6 +751,7 @@ class DocumentReviewWorkspaceTest {
         itemLabel: String = "Servicing Policy",
         selectionPreferredLabel: String = "Loan",
         selectionIri: Iri = Iri("https://example.com/ontology/Loan"),
+        suggestedSuperclass: Boolean = false,
     ): DocumentReviewWorkspaceStore {
         val now = Instant.parse("2026-07-31T12:00:00Z")
         val store = DocumentReviewWorkspaceStore(Clock.fixed(now, ZoneOffset.UTC))
@@ -959,7 +971,11 @@ class DocumentReviewWorkspaceTest {
                 editableFields = verified.editableFields,
                 statusByItemId = verified.statusByItemId,
                 itemIdsByRecommendationId = verified.plan.groups.associate { it.id to it.itemIds },
-                suggestedSuperclassSelectionIdsByItemId = verified.suggestedSuperclassSelectionIdsByItemId,
+                suggestedSuperclassSelectionIdsByItemId = if (suggestedSuperclass) {
+                    mapOf(item.id to "selection-loan")
+                } else {
+                    verified.suggestedSuperclassSelectionIdsByItemId
+                },
                 counts = DocumentAnalysisCounts(
                     evidenceBlocks = 1,
                     evidenceMentions = 1,

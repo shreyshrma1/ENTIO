@@ -155,3 +155,10 @@ ontology operations or infer hierarchy.
 Focused server coverage compiles a new class plus an existing superclass and
 definition. Browser coverage verifies the suggested superclass is visible,
 preselected, optional, and included in the explicit resolution request.
+
+The bounded class-choice adapter always places the exact suggested selection ID
+before canonical-IRI deduplication. If another candidate produced a higher-score
+selection for the same canonical class, it cannot replace the item-specific
+suggestion and leave the browser with a selected value that is absent from the
+dropdown. The suggestion still counts once toward the existing bounded choice
+limit.

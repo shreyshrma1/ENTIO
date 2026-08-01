@@ -830,19 +830,25 @@ internal class DocumentReviewWorkspaceStore(
                 structure.assertedTypeIris.map { it.value },
             )
         }
-        val classResolutionAlternatives = selections
+        val classResolutionSelections = selections
             .filter { it.kind == SemanticDescriptorKind.Class }
             .sortedWith(compareByDescending<com.entio.core.DocumentOntologyRetrievalSelection> { it.score }
                 .thenBy { it.stableOrderingKey })
             .distinctBy { "${it.scope}:${it.sourceId}:${it.canonicalIri.value}" }
             .take(MAX_GROUNDED_RESOLUTION_ALTERNATIVES)
-            .map(::alternative)
         val itemIds = context.itemIdsForRecommendation(recommendationId)
         return itemIds.mapNotNull(items::get).filterNot { item ->
             item.disposition != DocumentGroundedDisposition.ReuseExisting &&
                 context.statusByItemId[item.id] == DocumentGroundedRecommendationStatus.ReviewOnly
         }.map { item ->
             val candidateIds = item.candidateIds.toSet()
+            val suggestedSuperclassSelection = context.suggestedSuperclassSelectionIdsByItemId[item.id]
+                ?.let { selectionId -> selections.singleOrNull { it.selectionId == selectionId } }
+                ?.takeIf { it.kind == SemanticDescriptorKind.Class }
+            val resolutionAlternatives = (listOfNotNull(suggestedSuperclassSelection) + classResolutionSelections)
+                .distinctBy { "${it.scope}:${it.sourceId}:${it.canonicalIri.value}" }
+                .take(MAX_GROUNDED_RESOLUTION_ALTERNATIVES)
+                .map(::alternative)
             DocumentReviewGroundedItem(
                 itemId = item.id,
                 kind = item.kind.name,
@@ -851,8 +857,8 @@ internal class DocumentReviewWorkspaceStore(
                 disposition = item.disposition.name,
                 selectedSelectionId = item.selectionId,
                 alternatives = selections.filter { it.candidateId in candidateIds }.map(::alternative),
-                resolutionAlternatives = classResolutionAlternatives,
-                suggestedSuperclassSelectionId = context.suggestedSuperclassSelectionIdsByItemId[item.id],
+                resolutionAlternatives = resolutionAlternatives,
+                suggestedSuperclassSelectionId = suggestedSuperclassSelection?.selectionId,
                 prerequisiteOrigins = item.references.mapNotNull { it.prerequisiteOrigin?.name }.distinct().sorted(),
                 editableFields = context.editableFields.filter { it.id.startsWith("${item.id}:") }.map {
                     DocumentReviewGroundedEditableField(
