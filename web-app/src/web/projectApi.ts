@@ -266,7 +266,7 @@ export interface WebDocumentReviewRecommendation {
   priorWorkflowProvenance: string[];
   modelId: string | null;
   promptVersion: string | null;
-  connectedStatus?: "Executable" | "NeedsInput" | "ReviewOnly" | "Blocked" | "Mixed" | null;
+  connectedStatus?: "Executable" | "NeedsInput" | "Matched" | "Blocked" | "Mixed" | null;
   confidenceDimensions?: {
     evidence: number; modeling: number; ontologyFit: number; compilation: number | null; overall: number;
   } | null;
@@ -295,8 +295,15 @@ export interface WebDocumentReviewRecommendation {
     }>;
     prerequisiteOrigins: string[];
     editableFields: Array<{ id: string; kind: string; required: boolean; compatibleSelectionIds: string[]; message: string }>;
-    status: "Executable" | "Mixed" | "NeedsInput" | "ReviewOnly" | "Blocked";
+    status: "Executable" | "Mixed" | "NeedsInput" | "Matched" | "Blocked";
   }>;
+}
+
+export interface WebDocumentOnlyFinding {
+  id: string;
+  label: string;
+  reasons: string[];
+  evidence: WebDocumentEvidenceSummary[];
 }
 
 export interface WebDocumentReviewWorkspace {
@@ -311,9 +318,11 @@ export interface WebDocumentReviewWorkspace {
   }>;
   summaries: Array<{ documentId: string; purpose: string; highlights: string[] }>;
   recommendations: WebPage<WebDocumentReviewRecommendation>;
+  documentOnlyFindings?: WebDocumentOnlyFinding[];
   draftImpact: {
     acceptedCount: number; pendingCount: number; blockedCount: number;
-    executableCount: number; needsInputCount: number; reviewOnlyCount: number; readOnly: true;
+    executableCount: number; needsInputCount: number; reviewOnlyCount: number;
+    matchedCount?: number; documentOnlyCount?: number; readOnly: true;
   };
   analysisCounts?: {
     evidenceBlocks: number; evidenceMentions: number; groupedCandidates: number;

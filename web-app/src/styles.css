@@ -1159,8 +1159,12 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .document-review-region > *, .document-review-summary > *, .document-recommendation-group > * { min-width: 0; max-width: 100%; }
 .document-review-summary, .document-recommendation-group { display: grid; min-width: 0; max-width: 100%; gap: 10px; }
 .document-review-summary h2, .document-recommendation-group h2 { margin: 0; }
-.document-review-summary article, .document-draft-impact, .document-recommendation-card { padding: 13px; border: 1px solid var(--border-subtle); border-radius: 10px; }
+.document-review-summary article, .document-draft-impact, .document-coverage-ledger, .document-recommendation-card { padding: 13px; border: 1px solid var(--border-subtle); border-radius: 10px; }
 .document-review-summary article h3, .document-review-summary article p { margin: 0 0 6px; }
+.document-coverage-ledger summary { cursor: pointer; font-weight: 700; }
+.document-coverage-ledger[open] { display: grid; gap: 8px; }
+.document-coverage-ledger > p { margin: 0; color: var(--text-secondary); }
+.document-coverage-ledger li { display: grid; gap: 4px; }
 .document-draft-impact { display: grid; gap: 4px; background: var(--surface-2); }
 .document-recommendation-card { padding: 0; overflow: hidden; }
 .document-recommendation-summary { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 16px; padding: 18px; cursor: pointer; list-style: none; }

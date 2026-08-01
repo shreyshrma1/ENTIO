@@ -93,3 +93,29 @@ The validating two-PDF run produced 69 cards with 16 draftable, 44 needing
 input, 9 reuse/review-only, and zero unsafe blocked recommendations. Its
 `Commercial Account` extension was draftable with one `Add Definition`
 operation, and every input-required item exposed reviewer fields.
+
+## Actionable Review Outcome Correction
+
+Follow-up review of the live two-PDF results showed that the user-facing
+`ReviewOnly` bucket conflated two different outcomes and left cards with no
+meaningful action. The review contract now presents exact existing-ontology
+reuse as `Matched`. A matched card can be confirmed or rejected, never appears
+blocked, and creates no ontology edit. The existing retain decision remains the
+server-side confirmation mechanism, so this change does not introduce another
+review or apply path.
+
+Administrative, illustrative, and unsupported meanings remain in the complete
+coverage record but no longer create recommendation cards. They are exposed in
+a compact document-only coverage ledger with their reasons and evidence. When
+unsupported context occurs inside an otherwise executable connected group, it
+is moved to that ledger while the supported connected changes remain on the
+actionable card. Modelable ambiguity and incomplete supported meaning continue
+to use `NeedsInput`; `Blocked` is reserved for genuine safety failures.
+
+The Kotlin planning and compiler compatibility states remain unchanged. The
+adapter translates those internal states into the actionable public review
+contract, and the React client no longer accepts `ReviewOnly` as a card or
+grounded-item status. Focused server tests cover exact reuse confirmation and
+administrative coverage retention. Browser tests cover matched confirmation,
+the absence of document-only review cards, evidence access from the coverage
+ledger, and safety-blocked behavior.
