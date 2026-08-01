@@ -266,7 +266,7 @@ export interface WebDocumentReviewRecommendation {
   priorWorkflowProvenance: string[];
   modelId: string | null;
   promptVersion: string | null;
-  connectedStatus?: "Executable" | "ReviewOnly" | "Blocked" | "Mixed" | null;
+  connectedStatus?: "Executable" | "NeedsInput" | "ReviewOnly" | "Blocked" | "Mixed" | null;
   confidenceDimensions?: {
     evidence: number; modeling: number; ontologyFit: number; compilation: number | null; overall: number;
   } | null;
@@ -278,9 +278,17 @@ export interface WebDocumentReviewRecommendation {
   safeBlockers?: string[];
   groundedItems?: Array<{
     itemId: string;
+    kind: string;
+    label: string;
+    definition: string | null;
     disposition: string;
     selectedSelectionId: string | null;
     alternatives: Array<{
+      selectionId: string; entityIri: string; kind: string; scope: string; sourceId: string;
+      writable: boolean; preferredLabel: string | null; definition: string | null; score: number;
+      matchReasons: string[]; parents: string[]; domains: string[]; ranges: string[]; types: string[];
+    }>;
+    resolutionAlternatives: Array<{
       selectionId: string; entityIri: string; kind: string; scope: string; sourceId: string;
       writable: boolean; preferredLabel: string | null; definition: string | null; score: number;
       matchReasons: string[]; parents: string[]; domains: string[]; ranges: string[]; types: string[];
@@ -303,7 +311,10 @@ export interface WebDocumentReviewWorkspace {
   }>;
   summaries: Array<{ documentId: string; purpose: string; highlights: string[] }>;
   recommendations: WebPage<WebDocumentReviewRecommendation>;
-  draftImpact: { acceptedCount: number; pendingCount: number; blockedCount: number; readOnly: true };
+  draftImpact: {
+    acceptedCount: number; pendingCount: number; blockedCount: number;
+    executableCount: number; needsInputCount: number; reviewOnlyCount: number; readOnly: true;
+  };
   analysisCounts?: {
     evidenceBlocks: number; evidenceMentions: number; groupedCandidates: number;
     ontologyBearingCandidates: number; documentOnlyMentions: number; supportingValueMentions: number;
@@ -333,7 +344,7 @@ export interface WebDocumentEvidenceView {
 }
 
 export interface WebDocumentReviewDecision {
-  action: "accept" | "retain" | "reject" | "clarify" | "edit" | "rematch" | "merge" | "reconsider" | "split" | "exclude-optional" | "confirm-individual" | "edit-operations";
+  action: "accept" | "retain" | "reject" | "clarify" | "edit" | "rematch" | "merge" | "reconsider" | "split" | "exclude-optional" | "confirm-individual" | "edit-operations" | "resolve-grounded";
   expectedWorkKey: string;
   expectedGraphFingerprint: string;
   proposedLabel?: string;
@@ -345,6 +356,12 @@ export interface WebDocumentReviewDecision {
   operationId?: string;
   confirmProductionClassification?: boolean;
   operationEdits?: Array<{ operationId: string; label?: string; entityIri?: string }>;
+  groundedItemEdit?: {
+    itemId: string; disposition: "ReuseExisting" | "ExtendExisting" | "ProposeNew";
+    kind: "Class" | "ObjectProperty" | "DatatypeProperty" | "AnnotationProperty" | "Individual";
+    label: string; definition?: string; selectionId?: string; domainSelectionId?: string;
+    rangeSelectionId?: string; datatypeIri?: string; typeSelectionId?: string;
+  };
 }
 
 export interface WebHierarchyItem {

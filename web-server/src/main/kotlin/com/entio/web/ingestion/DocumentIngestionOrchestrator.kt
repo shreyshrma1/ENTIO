@@ -543,8 +543,13 @@ internal class DocumentIngestionOrchestrator(
             extracted,
             discoveries,
             DocumentGroundedReviewContext(
+                candidates = candidates,
                 analysis = analysis,
                 retrieval = retrieval.results,
+                fullStateMatches = retrieval.fullStateMatches,
+                compilerContext = compilerContext,
+                verificationContext = verificationContext,
+                nonRecommendationCoverage = nonRecommendationCoverage,
                 mentionCoverage = extraction.coverage,
                 editableFields = verified.editableFields,
                 statusByItemId = verified.statusByItemId,

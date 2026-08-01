@@ -272,6 +272,18 @@ public class DocumentIngestionWebService(
                     request.expectedWorkKey,
                     request.expectedGraphFingerprint,
                 )
+                "resolve-grounded" -> reviews.resolveVerifiedGroundedItem(
+                    projectId,
+                    taskId,
+                    recommendationId,
+                    request.groundedItemEdit ?: throw DocumentIngestionFailure(
+                        "document-grounded-resolution-missing",
+                        "Choose the grounded ontology item to resolve.",
+                    ),
+                    userId,
+                    request.expectedWorkKey,
+                    request.expectedGraphFingerprint,
+                )
                 "clarify" -> reviews.requestVerifiedReview(
                     projectId,
                     taskId,

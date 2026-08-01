@@ -231,6 +231,77 @@ describe("document ingestion review workspace", () => {
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
   });
 
+  it("resolves grounded needs-input items with an explicit server-verified ontology decision", async () => {
+    const needsInput = workspace("Pending");
+    needsInput.draftImpact = {
+      acceptedCount: 0,
+      pendingCount: 1,
+      blockedCount: 0,
+      executableCount: 0,
+      needsInputCount: 1,
+      reviewOnlyCount: 0,
+      readOnly: true,
+    };
+    needsInput.recommendations.items[0] = {
+      ...needsInput.recommendations.items[0],
+      connectedStatus: "NeedsInput",
+      changePreview: {
+        draftable: false,
+        summary: "This evidence-backed meaning needs reviewer input.",
+        operations: [],
+        blockingReason: "Complete the grounded ontology decision, then Entio will reverify and recompile it.",
+      },
+      groundedItems: [{
+        itemId: "grounded-item-policy",
+        kind: "Class",
+        label: "Servicing Policy",
+        definition: "A policy governing servicing.",
+        disposition: "Unresolved",
+        selectedSelectionId: null,
+        alternatives: [],
+        resolutionAlternatives: [],
+        prerequisiteOrigins: [],
+        editableFields: [
+          { id: "grounded-item-policy:disposition", kind: "Disposition", required: true, compatibleSelectionIds: [], message: "Choose reuse or new." },
+          { id: "grounded-item-policy:entitykind", kind: "EntityKind", required: true, compatibleSelectionIds: [], message: "Confirm the kind." },
+          { id: "grounded-item-policy:label", kind: "Label", required: true, compatibleSelectionIds: [], message: "Confirm the label." },
+        ],
+        status: "NeedsInput",
+      }],
+    };
+    const decisions: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/decision")) {
+        decisions.push(JSON.parse(String(init?.body)));
+        return json(needsInput);
+      }
+      if (path.includes("/review")) return json(needsInput);
+      if (path.includes("/document-ingestion/tasks")) return json(tasks);
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    renderWorkspace();
+
+    expect(await screen.findByLabelText("Read-only draft impact")).toHaveTextContent("1 need input");
+    expect(screen.getByLabelText("Read-only draft impact")).toHaveTextContent("Pending does not mean blocked");
+    fireEvent.click(screen.getByLabelText("Customer recommendation details"));
+    const resolution = screen.getByLabelText("Resolve grounded ontology item");
+    fireEvent.change(within(resolution).getByLabelText("Resolution"), { target: { value: "ProposeNew" } });
+    fireEvent.change(within(resolution).getByLabelText("Label"), { target: { value: "Loan Servicing Policy" } });
+    fireEvent.click(within(resolution).getByRole("button", { name: "Verify and compile resolution" }));
+
+    await waitFor(() => expect(decisions[0]).toMatchObject({
+      action: "resolve-grounded",
+      groundedItemEdit: {
+        itemId: "grounded-item-policy",
+        disposition: "ProposeNew",
+        kind: "Class",
+        label: "Loan Servicing Policy",
+      },
+    }));
+  });
+
   it("explains connected changes, confidence, critique, review-only meaning, and individual gates", async () => {
     const connected = workspace("Pending");
     connected.recommendations.items[0] = {
@@ -560,7 +631,15 @@ function workspace(status: WebDocumentReviewRecommendation["reviewStatus"]): Web
       total: 1,
       nextOffset: null,
     },
-    draftImpact: { acceptedCount: status === "Accepted" ? 1 : 0, pendingCount: status === "Pending" ? 1 : 0, blockedCount: 1, readOnly: true },
+    draftImpact: {
+      acceptedCount: status === "Accepted" ? 1 : 0,
+      pendingCount: status === "Pending" ? 1 : 0,
+      blockedCount: 0,
+      executableCount: 1,
+      needsInputCount: 0,
+      reviewOnlyCount: 0,
+      readOnly: true,
+    },
     analysisCounts: {
       evidenceBlocks: 8,
       evidenceMentions: 30,

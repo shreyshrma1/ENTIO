@@ -42,3 +42,44 @@ atomic apply, reload, rollback, and applied provenance remain unchanged.
 The orchestrator handoff change was explicitly authorized for this slice so
 verified grounded metadata could reach its existing review owner without a
 second review workflow.
+
+## Reviewer-Solvable State Correction
+
+Live two-PDF review on 2026-07-31 exposed an implementation gap: `Unresolved`
+grounded items were mapped directly to blocked final recommendations, and the
+review adapter looked for editable-field IDs using a different prefix than the
+verifier produced. The result was visible but impossible-to-resolve cards.
+
+The corrected boundary retains unresolved evidence-backed items as
+`NeedsInput`, associates their disposition, kind, label, and compatible
+server-issued selection fields with the correct grounded item, and exposes an
+explicit resolution form. A reviewer may choose reuse, writable extension, or
+new creation, confirm the supported kind and label, and select only an
+authorized retrieval selection. Kotlin then reruns grounded verification,
+semantic compilation, final-plan verification, collision checks, and no-op
+checks before the recommendation can become executable or review-only.
+
+Reviewer-created object properties additionally require server-issued domain
+and range class selections. Datatype properties require a domain selection and
+an approved RDF datatype, and individuals require a type selection. Supplied
+definitions compile as connected definition operations. These values are
+converted into reviewer-provided grounded prerequisites and verified through
+the existing compiler; the browser never constructs typed operations.
+
+Review impact counts now distinguish executable, needs-input, review-only, and
+genuinely unsafe recommendations. `Pending` is described as awaiting a reviewer
+decision rather than as a compilation failure. Unsupported or incomplete
+property, assertion, constraint, and individual choices remain non-acceptable
+and return a safe actionable error instead of being silently deleted.
+
+The correction was exercised end to end with both example PDFs and the
+verified `gpt-5.6-luna` model. The repeated local stages produced 698 evidence
+mentions and 112 ontology-bearing candidates. The final review contained 54
+cards: 18 executable, 28 needing input, 8 reuse/review-only, and zero unsafe
+blocked recommendations. Every input-required item exposed editable fields.
+Resolving `Loan Rate` produced one draftable atomic recommendation containing
+datatype-property creation, `Loan` domain, decimal range, and definition
+operations; resolving `Loan Operations Manager` produced class creation and
+definition operations. The connected-group anchor remains the edited
+declaration, so reviewer-provided supporting classes cannot rename the card.
+Neither exercise accepted, staged, applied, or changed ontology source data.

@@ -135,7 +135,9 @@ test("document ingestion completes the accessible review and proposal workflow",
   const accept = page.getByRole("button", { name: "Approve for proposal" });
   await accept.focus();
   await accept.press("Enter");
-  await expect(page.getByText("1 accepted · 0 pending · 1 blocked")).toBeVisible();
+  await expect(page.getByText(
+    "1 accepted · 1 ready to approve · 0 need input · 0 reuse or review-only · 0 unsafe",
+  )).toBeVisible();
   await page.getByRole("button", { name: "Add accepted items to proposal" }).press("Enter");
   await expect(page.getByRole("status").filter({ hasText: "1 typed edit added" })).toBeVisible();
   await expect(page.getByLabel("Shared staged changes")).toContainText("1 change staged");
@@ -210,7 +212,15 @@ function reviewWorkspace(accepted: boolean) {
       }],
       offset: 0, limit: 100, total: 1, nextOffset: null,
     },
-    draftImpact: { acceptedCount: accepted ? 1 : 0, pendingCount: accepted ? 0 : 1, blockedCount: 1, maximumAcceptedEdits: 100, readOnly: true },
+    draftImpact: {
+      acceptedCount: accepted ? 1 : 0,
+      pendingCount: accepted ? 0 : 1,
+      blockedCount: 0,
+      executableCount: 1,
+      needsInputCount: 0,
+      reviewOnlyCount: 0,
+      readOnly: true,
+    },
   };
 }
 

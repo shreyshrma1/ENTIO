@@ -1130,8 +1130,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .document-workspace-header p { max-width: 620px; color: var(--text-secondary); }
 .document-upload-card { display: grid; min-width: 0; grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(130px, 1fr)) auto; gap: 12px; align-items: end; padding: 16px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--surface-1); }
 .document-upload-card > * { min-width: 0; }
-.document-upload-card label, .document-review-fields label, .document-recommendation-card > label { display: grid; gap: 5px; color: var(--text-secondary); font-size: 12px; font-weight: 700; }
-.document-upload-card input, .document-upload-card select, .document-review-fields input, .document-review-fields textarea, .document-recommendation-card select { min-width: 0; padding: 8px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--surface-1); color: var(--text-primary); }
+.document-upload-card label, .document-review-fields label, .document-grounded-resolution label, .document-recommendation-card > label { display: grid; gap: 5px; color: var(--text-secondary); font-size: 12px; font-weight: 700; }
+.document-upload-card input, .document-upload-card select, .document-review-fields input, .document-review-fields textarea, .document-grounded-resolution input, .document-grounded-resolution select, .document-grounded-resolution textarea, .document-recommendation-card select { min-width: 0; padding: 8px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--surface-1); color: var(--text-primary); }
 .document-workspace-grid { display: grid; width: 100%; min-width: 0; max-width: 100%; grid-template-columns: minmax(220px, 290px) minmax(0, 1fr); gap: 16px; align-items: start; }
 .document-task-list, .document-review-region { min-width: 0; padding: 16px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--surface-1); }
 .document-task-list h2 { margin-top: 0; }
@@ -1209,6 +1209,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .document-review-options[open] summary { margin-bottom: 10px; }
 .document-review-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .document-review-fields label:last-child { grid-column: 1 / -1; }
+.document-grounded-resolution { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 12px; border: 1px solid var(--primary-600); border-radius: 9px; background: var(--surface-2); }
+.document-grounded-resolution h4, .document-grounded-resolution p, .document-grounded-resolution button { grid-column: 1 / -1; }
 .document-conflict { padding: 10px; border-left: 3px solid var(--warning); background: var(--surface-2); }
 .document-evidence-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; padding: 18px; border-radius: 12px; background: var(--surface-1); }
 .document-evidence-dialog header { display: flex; align-items: center; justify-content: space-between; }
@@ -1226,8 +1228,8 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
   .document-workspace-grid { grid-template-columns: 1fr; }
 }
 @container workspace (max-width: 520px) {
-  .document-upload-card, .document-review-fields { grid-template-columns: 1fr; }
-  .document-upload-card > label:first-child, .document-review-fields label:last-child { grid-column: auto; }
+  .document-upload-card, .document-review-fields, .document-grounded-resolution { grid-template-columns: 1fr; }
+  .document-upload-card > label:first-child, .document-review-fields label:last-child, .document-grounded-resolution > * { grid-column: auto; }
   .document-confidence dl { grid-template-columns: 1fr; }
   .document-individual-gates > div { display: grid; }
 }

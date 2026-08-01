@@ -76,17 +76,57 @@ public class DocumentGroundedAnalysisVerifier {
                 statuses[grounded.id] = DocumentGroundedRecommendationStatus.ReviewOnly
                 return@forEach
             }
+            var needsInput = false
             if (grounded.disposition == DocumentGroundedDisposition.ExtendExisting && selection?.writable != true) {
                 fields += field(grounded.id, DocumentEditableGroundedFieldKind.Source, "Choose a writable extension target.")
-                statuses[grounded.id] = DocumentGroundedRecommendationStatus.NeedsInput
-                return@forEach
+                needsInput = true
             }
-            if (grounded.disposition == DocumentGroundedDisposition.ProposeNew && input.fullStateMatches.any {
+            if (grounded.disposition == DocumentGroundedDisposition.ProposeNew &&
+                grounded.kind.declarationKind != null && input.fullStateMatches.any {
                     it.candidateId in grounded.candidateIds && it.exactIdentity
                 }) {
-                fields += field(grounded.id, DocumentEditableGroundedFieldKind.Selection, "Review the existing exact match before creating another entity.")
-                statuses[grounded.id] = DocumentGroundedRecommendationStatus.NeedsInput
-                return@forEach
+                fields += field(
+                    grounded.id,
+                    DocumentEditableGroundedFieldKind.Selection,
+                    "Review the existing exact match before creating another entity.",
+                    input.retrieval
+                        .filter { it.candidateId in grounded.candidateIds }
+                        .flatMap { it.selections }
+                        .filter { kindCompatible(grounded.kind, it.kind) }
+                        .map(DocumentOntologyRetrievalSelection::selectionId),
+                )
+                needsInput = true
+            }
+            if (grounded.disposition == DocumentGroundedDisposition.Unresolved) {
+                val compatibleSelections = input.retrieval
+                    .filter { it.candidateId in grounded.candidateIds }
+                    .flatMap { it.selections }
+                    .filter { kindCompatible(grounded.kind, it.kind) }
+                    .map(DocumentOntologyRetrievalSelection::selectionId)
+                fields += field(
+                    grounded.id,
+                    DocumentEditableGroundedFieldKind.Disposition,
+                    "Choose whether to reuse an authorized match or propose this evidence-backed meaning as new.",
+                )
+                fields += field(
+                    grounded.id,
+                    DocumentEditableGroundedFieldKind.EntityKind,
+                    "Confirm the supported ontology entity kind.",
+                )
+                fields += field(
+                    grounded.id,
+                    DocumentEditableGroundedFieldKind.Label,
+                    "Confirm or edit the ontology label.",
+                )
+                if (compatibleSelections.isNotEmpty()) {
+                    fields += field(
+                        grounded.id,
+                        DocumentEditableGroundedFieldKind.Selection,
+                        "Choose a compatible server-issued ontology match, or explicitly propose a new entity.",
+                        compatibleSelections,
+                    )
+                }
+                needsInput = true
             }
             val outcome = when (grounded.disposition) {
                 DocumentGroundedDisposition.Unresolved -> DocumentSemanticOutcome.Blocked
@@ -96,7 +136,9 @@ public class DocumentGroundedAnalysisVerifier {
                 -> DocumentSemanticOutcome.ReviewOnly
                 DocumentGroundedDisposition.ExtendExisting,
                 DocumentGroundedDisposition.ProposeNew,
-                -> if (grounded.kind in DocumentSemanticPatternRegistry.reviewOnlyKinds) {
+                -> if (needsInput) {
+                    DocumentSemanticOutcome.Blocked
+                } else if (grounded.kind in DocumentSemanticPatternRegistry.reviewOnlyKinds) {
                     DocumentSemanticOutcome.ReviewOnly
                 } else {
                     DocumentSemanticOutcome.Executable
@@ -125,7 +167,7 @@ public class DocumentGroundedAnalysisVerifier {
                     modelRecommended = grounded.references.any {
                         it.prerequisiteOrigin == DocumentPrerequisiteOrigin.ModelRecommended
                     },
-                    reviewerInputRequired = outcome == DocumentSemanticOutcome.Blocked,
+                    reviewerInputRequired = needsInput,
                 )
             }.getOrElse {
                 fields += field(grounded.id, missingFieldKind(grounded.kind), "Complete the required connected semantic role.")
@@ -143,10 +185,11 @@ public class DocumentGroundedAnalysisVerifier {
                 itemAlignmentIds[grounded.id] = alignmentId
             }
             validItems += semantic
-            statuses[grounded.id] = when (outcome) {
-                DocumentSemanticOutcome.Executable -> DocumentGroundedRecommendationStatus.Executable
-                DocumentSemanticOutcome.ReviewOnly -> DocumentGroundedRecommendationStatus.ReviewOnly
-                DocumentSemanticOutcome.Blocked -> DocumentGroundedRecommendationStatus.Blocked
+            statuses[grounded.id] = when {
+                needsInput -> DocumentGroundedRecommendationStatus.NeedsInput
+                outcome == DocumentSemanticOutcome.Executable -> DocumentGroundedRecommendationStatus.Executable
+                outcome == DocumentSemanticOutcome.ReviewOnly -> DocumentGroundedRecommendationStatus.ReviewOnly
+                else -> DocumentGroundedRecommendationStatus.Blocked
             }
         }
 
@@ -162,7 +205,15 @@ public class DocumentGroundedAnalysisVerifier {
                 component.all { it.outcome == DocumentSemanticOutcome.ReviewOnly } -> DocumentSemanticOutcome.ReviewOnly
                 else -> DocumentSemanticOutcome.Executable
             }
-            val first = component.first()
+            // Connected groups should be named for the ontology edit the reviewer is
+            // resolving, not for a reused class that only supplies its domain, range,
+            // or type. This also keeps the recommendation identity stable when Kotlin
+            // recompiles reviewer-provided connected context.
+            val first = component.firstOrNull {
+                it.outcome == DocumentSemanticOutcome.Executable && it.kind.declarationKind != null
+            } ?: component.firstOrNull {
+                it.outcome == DocumentSemanticOutcome.Executable
+            } ?: component.first()
             DocumentSemanticRecommendationGroup(
                 id = "grounded-group-${first.id}",
                 title = first.label,
@@ -218,8 +269,18 @@ public class DocumentGroundedAnalysisVerifier {
         return result
     }
 
-    private fun field(itemId: String, kind: DocumentEditableGroundedFieldKind, message: String) =
-        DocumentEditableGroundedField("field-$itemId-${kind.name.lowercase()}", kind, true, safeMessage = message)
+    private fun field(
+        itemId: String,
+        kind: DocumentEditableGroundedFieldKind,
+        message: String,
+        compatibleSelectionIds: List<String> = emptyList(),
+    ) = DocumentEditableGroundedField(
+        "$itemId:${kind.name.lowercase()}",
+        kind,
+        true,
+        compatibleSelectionIds.distinct().sorted(),
+        message,
+    )
 
     private fun missingFieldKind(kind: DocumentSemanticItemKind): DocumentEditableGroundedFieldKind = when (kind) {
         DocumentSemanticItemKind.ObjectPropertyDomain, DocumentSemanticItemKind.DatatypePropertyDomain -> DocumentEditableGroundedFieldKind.Domain
