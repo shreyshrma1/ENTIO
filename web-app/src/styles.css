@@ -1134,10 +1134,13 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .document-upload-card input, .document-upload-card select, .document-review-fields input, .document-review-fields textarea, .document-grounded-resolution input, .document-grounded-resolution select, .document-grounded-resolution textarea, .document-recommendation-card select { min-width: 0; padding: 8px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--surface-1); color: var(--text-primary); }
 .document-workspace-grid { display: grid; width: 100%; min-width: 0; max-width: 100%; grid-template-columns: minmax(220px, 290px) minmax(0, 1fr); gap: 16px; align-items: start; }
 .document-task-list, .document-review-region { min-width: 0; padding: 16px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--surface-1); }
+.document-task-list { overflow: hidden; }
 .document-task-list h2 { margin-top: 0; }
 .document-task-list ul, .document-recommendation-card ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.document-task-list ul, .document-task-list li, .document-task-list li > button { min-width: 0; max-width: 100%; }
 .document-task-list li { display: grid; gap: 5px; }
-.document-task-list li > button { display: grid; gap: 6px; width: 100%; padding: 10px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--surface-2); color: var(--text-primary); text-align: left; }
+.document-task-list li > button { display: grid; gap: 6px; width: 100%; overflow: hidden; padding: 10px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--surface-2); color: var(--text-primary); text-align: left; }
+.document-task-list li > button strong, .document-task-list li > button span, .document-review-summary article h3 { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
 .document-task-list li > button.active { border-color: var(--primary-600); }
 .document-task-list progress { width: 100%; }
 .document-task-actions, .document-review-actions { display: flex; flex-wrap: wrap; gap: 6px; }
