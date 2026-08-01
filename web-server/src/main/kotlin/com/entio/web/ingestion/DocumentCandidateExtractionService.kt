@@ -119,11 +119,32 @@ internal class DocumentCandidateExtractionService(
                     add(DocumentCandidatePromotionReason.RepeatedMeaningfulContext)
                 }
             }.distinct().sortedBy { it.ordinal }
+            val singleWordConceptIsGrounded =
+                first.category != DocumentCandidateExtractionCategory.ConceptTerm ||
+                    first.normalizedText.split(' ').count(String::isNotBlank) > 1 ||
+                    DocumentCandidatePromotionReason.StrongOntologyMatch in reasons ||
+                    DocumentCandidatePromotionReason.NamedEntity in reasons ||
+                    DocumentCandidatePromotionReason.DefinedOrDescribed in reasons ||
+                    (
+                        DocumentCandidatePromotionReason.RelationshipParticipant in reasons &&
+                            (
+                                DocumentCandidatePromotionReason.RepeatedMeaningfulContext in reasons ||
+                                    DocumentCandidatePromotionReason.RuleOrRequirement in reasons
+                            )
+                    )
+            val relationshipIsGrounded =
+                first.category != DocumentCandidateExtractionCategory.RelationshipPhrase ||
+                    DocumentCandidatePromotionReason.RepeatedMeaningfulContext in reasons ||
+                    DocumentCandidatePromotionReason.RuleOrRequirement in reasons ||
+                    group.flatMap(DocumentEvidenceMention::hints)
+                        .filter { it.role in setOf(DocumentCandidateHintRole.Subject, DocumentCandidateHintRole.Object) }
+                        .any { hint -> normalizedLabels.any { label -> normalize(hint.text).containsNormalizedPhrase(label) } }
             val disposition = when {
                 group.all { it.category in supportingValueCategories } -> DocumentMentionCoverageKind.SupportingValue
                 group.all { it.category in documentOnlyCategories } -> DocumentMentionCoverageKind.DocumentOnly
                 first.isLowValue && DocumentCandidatePromotionReason.StrongOntologyMatch !in reasons ->
                     DocumentMentionCoverageKind.Rejected
+                !singleWordConceptIsGrounded || !relationshipIsGrounded -> DocumentMentionCoverageKind.Rejected
                 reasons.isEmpty() -> DocumentMentionCoverageKind.Rejected
                 else -> null
             }
@@ -185,16 +206,41 @@ internal class DocumentCandidateExtractionService(
     ): List<DocumentEvidenceMention> {
         contextualClassificationMention(block)?.let { return listOf(toMention(document, block, it)) }
         val mentions = mutableListOf<ExtractedMentionSpan>()
+        var activeDocumentOnlySection: DocumentCandidateExtractionCategory? = null
         contentLines(block.exactText).forEach { line ->
+            documentOnlySectionCategory(line.text)?.let { category ->
+                activeDocumentOnlySection = category
+                mentions += documentOnlyMention(line, category)
+                return@forEach
+            }
+            if (isSectionHeadingLine(line.text)) {
+                activeDocumentOnlySection = null
+                return@forEach
+            }
+            activeDocumentOnlySection?.let { category ->
+                mentions += documentOnlyMention(line, category)
+                return@forEach
+            }
             if (normalize(line.text) in repeatedBoilerplate || isLikelyNonBodyLine(line.text)) return@forEach
             pipeline.sentences(line.text).forEach { sentence ->
                 val sentenceText = line.text.substring(sentence.start, sentence.end)
                 val sentenceStart = line.start + sentence.start
+                if (isIllustrativeSentence(sentenceText)) {
+                    mentions += ExtractedMentionSpan(
+                        DocumentCandidateExtractionCategory.Illustrative,
+                        sentenceText.trim(),
+                        normalize(sentenceText),
+                        sentenceStart,
+                        sentenceStart + sentenceText.length,
+                    )
+                    return@forEach
+                }
                 val tokens = pipeline.tokens(sentenceText, sentenceStart)
+                val ruleContext = RULE.containsMatchIn(sentenceText)
                 mentions += regexMentions(sentenceText, sentenceStart)
                 mentions += namedMentions(tokens)
-                mentions += conceptMentions(tokens)
-                mentions += relationshipMentions(tokens)
+                mentions += conceptMentions(tokens, ruleContext)
+                mentions += relationshipMentions(tokens, ruleContext)
                 mentions += ruleMentions(sentenceText, sentenceStart)
             }
         }
@@ -213,6 +259,8 @@ internal class DocumentCandidateExtractionService(
         findAll(MONEY, text, DocumentCandidateExtractionCategory.MonetaryAmount, baseOffset, this)
         findAll(DATE, text, DocumentCandidateExtractionCategory.Date, baseOffset, this)
         findAll(IDENTIFIER, text, DocumentCandidateExtractionCategory.Identifier, baseOffset, this)
+        findAll(DURATION, text, DocumentCandidateExtractionCategory.AttributeValue, baseOffset, this)
+        findAll(PERCENTAGE, text, DocumentCandidateExtractionCategory.AttributeValue, baseOffset, this)
         findAll(ATTRIBUTE_VALUE, text, DocumentCandidateExtractionCategory.AttributeValue, baseOffset, this)
     }
 
@@ -222,6 +270,9 @@ internal class DocumentCandidateExtractionService(
                 group.any { it.lemma.lowercase(Locale.ROOT) in organizationSuffixes }
         }
         .map { group ->
+            val namedEntity = group.size >= 2 ||
+                group.any { it.lemma.lowercase(Locale.ROOT) in organizationSuffixes } ||
+                group.singleOrNull()?.text?.matches(ACRONYM) == true
             val category = when {
                 group.any { it.lemma.lowercase(Locale.ROOT) in organizationSuffixes } -> DocumentCandidateExtractionCategory.Organization
                 tokens.getOrNull(tokens.indexOf(group.first()) - 1)?.lemma?.lowercase(Locale.ROOT) in locationPrepositions ->
@@ -229,23 +280,31 @@ internal class DocumentCandidateExtractionService(
                 group.size >= 2 -> DocumentCandidateExtractionCategory.Person
                 else -> DocumentCandidateExtractionCategory.ConceptTerm
             }
-            mention(group, category, listOf(DocumentCandidatePromotionReason.NamedEntity))
+            mention(
+                group,
+                category,
+                if (namedEntity) listOf(DocumentCandidatePromotionReason.NamedEntity) else emptyList(),
+            )
         }
 
-    private fun conceptMentions(tokens: List<NlpToken>): List<ExtractedMentionSpan> {
+    private fun conceptMentions(tokens: List<NlpToken>, ruleContext: Boolean): List<ExtractedMentionSpan> {
         val phrases = nounPhrases(tokens).filter { it.any(NlpToken::isNoun) && it.size <= MAX_NOUN_PHRASE_TOKENS }
         val definitionCue = tokens.firstOrNull { it.normalizedLemma in definitionVerbs }
         val definedSubject = definitionCue?.let { cue -> phrases.lastOrNull { it.last().end <= cue.start } }
         return phrases.map { group ->
+            val signals = buildList {
+                if (group === definedSubject) add(DocumentCandidatePromotionReason.DefinedOrDescribed)
+                if (ruleContext && group.size >= 2) add(DocumentCandidatePromotionReason.RuleOrRequirement)
+            }
             mention(
                 group,
                 DocumentCandidateExtractionCategory.ConceptTerm,
-                if (group === definedSubject) listOf(DocumentCandidatePromotionReason.DefinedOrDescribed) else emptyList(),
+                signals,
             )
         }
     }
 
-    private fun relationshipMentions(tokens: List<NlpToken>): List<ExtractedMentionSpan> {
+    private fun relationshipMentions(tokens: List<NlpToken>, ruleContext: Boolean): List<ExtractedMentionSpan> {
         val phrases = nounPhrases(tokens)
         return tokens.mapNotNull { token ->
             if (!token.isVerb || token.lemma.lowercase(Locale.ROOT) in genericRelationVerbs) return@mapNotNull null
@@ -268,10 +327,24 @@ internal class DocumentCandidateExtractionService(
                     DocumentCandidateHint(DocumentCandidateHintRole.Predicate, predicate),
                     DocumentCandidateHint(DocumentCandidateHintRole.Object, objectText),
                 ).sortedBy(DocumentCandidateHint::stableOrderingKey),
-                listOf(DocumentCandidatePromotionReason.ConnectedRelationship),
+                buildList {
+                    add(DocumentCandidatePromotionReason.ConnectedRelationship)
+                    if (ruleContext) add(DocumentCandidatePromotionReason.RuleOrRequirement)
+                },
             )
         }
     }
+
+    private fun documentOnlyMention(
+        line: DocumentTextSegment,
+        category: DocumentCandidateExtractionCategory,
+    ): ExtractedMentionSpan = ExtractedMentionSpan(
+        category = category,
+        displayText = line.text,
+        normalizedText = normalize(line.text),
+        start = line.start,
+        end = line.start + line.text.length,
+    )
 
     private fun ruleMentions(text: String, baseOffset: Int): List<ExtractedMentionSpan> = RULE.findAll(text).map { match ->
         val end = text.indexOfAny(charArrayOf('.', ';'), match.range.first).let { if (it < 0) text.length else it }
@@ -402,17 +475,43 @@ internal class DocumentCandidateExtractionService(
         private val MONEY = Regex("(?:USD\\s*)?[$€£]\\s?\\d[\\d,]*(?:\\.\\d{2})?|USD\\s+\\d[\\d,]*(?:\\.\\d{2})?", RegexOption.IGNORE_CASE)
         private val DATE = Regex("\\b(?:\\d{4}-\\d{2}-\\d{2}|(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{1,2},?\\s+\\d{4})\\b", RegexOption.IGNORE_CASE)
         private val IDENTIFIER = Regex("\\b(?=[A-Z0-9-]*[A-Z])(?=[A-Z0-9-]*\\d)[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\\b")
+        private val DURATION = Regex(
+            "\\b(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten)\\s+(?:business\\s+)?(?:days?|weeks?|months?|years?)\\b",
+            RegexOption.IGNORE_CASE,
+        )
+        private val PERCENTAGE = Regex("\\b\\d+(?:\\.\\d+)?\\s*(?:%|percent(?:age)?)\\b", RegexOption.IGNORE_CASE)
         private val ATTRIBUTE_VALUE = Regex("\\b[A-Za-z][A-Za-z ]{1,40}:\\s*[^.;\\n]{1,80}")
         private val RULE = Regex("\\b(?:must|shall|may not|must not|prohibited|requires?|only if|at least|at most)\\b", RegexOption.IGNORE_CASE)
         private val CAMEL_CASE = Regex("([a-z0-9])([A-Z])")
+        private val ACRONYM = Regex("[A-Z][A-Z0-9]{1,9}")
         private val NON_ALPHANUMERIC = Regex("[^\\p{L}\\p{N}]+")
         private val WHITESPACE = Regex("\\s+")
         private val properNounTags = setOf("NNP", "NNPS", "PROPN")
         private val organizationSuffixes = setOf("llc", "inc", "bank", "group", "company", "corporation", "association")
         private val locationPrepositions = setOf("in", "at", "from", "within")
-        private val administrativeHeadings = setOf("metadata", "document control", "revision history", "table of contents", "contents")
+        private val administrativeHeadings = setOf(
+            "metadata",
+            "document control",
+            "revision history",
+            "change history",
+            "table of contents",
+            "contents",
+        )
         private val illustrativeHeadings = setOf("example", "examples", "illustration", "scenario")
-        private val genericTerms = setOf("information", "process", "section", "item", "thing", "data", "detail", "document", "page")
+        private val genericTerms = setOf(
+            "account", "action", "alternative", "application", "approval", "authority", "authorization", "banking",
+            "compliance", "consumer", "context", "control", "customer", "data", "decision", "deletion", "destination", "detail",
+            "document", "evidence", "exception", "fund", "identity", "information", "instruction", "interest",
+            "investigation", "invoice", "item", "loan", "notice", "obligation", "operation", "owner", "ownership",
+            "page", "payment", "people", "percent", "person", "policy", "process", "rate", "record", "requirement",
+            "restriction", "result", "risk", "section", "service", "standard", "system", "thing", "threshold", "time",
+            "transaction",
+        )
+        private val temporalOrCurrencyTerms = setOf(
+            "friday", "monday", "saturday", "sunday", "thursday", "tuesday", "wednesday",
+            "january", "february", "march", "april", "may", "june", "july", "august", "september",
+            "october", "november", "december", "eur", "gbp", "usd",
+        )
         private val genericRelationVerbs = setOf(
             "act", "activate", "add", "address", "administer", "age", "appear", "assess", "begin", "be", "can",
             "capture", "change", "complete", "continue", "contract", "create", "define", "describe", "design",
@@ -426,6 +525,8 @@ internal class DocumentCandidateExtractionService(
         private val definitionVerbs = setOf("be", "mean", "refer", "define", "describe")
         private val tableOfContentsLine = Regex(".*(?:\\.{3,}|\\s{3,})\\s*\\d+\\s*$")
         private val standalonePageLine = Regex("^(?:page\\s+)?\\d+(?:\\s+of\\s+\\d+)?$", RegexOption.IGNORE_CASE)
+        private val numberedSectionHeading = Regex("^\\d+(?:\\.\\d+)*\\.\\s+\\S.*$")
+        private val numberedSectionPrefix = Regex("^\\d+(?:\\.\\d+)*\\.\\s+")
         private const val MAX_NOUN_PHRASE_TOKENS = 6
         private const val MAX_RELATIONSHIP_GAP_CHARACTERS = 40
         private val supportingValueCategories = setOf(
@@ -437,6 +538,7 @@ internal class DocumentCandidateExtractionService(
         private val documentOnlyCategories = setOf(
             DocumentCandidateExtractionCategory.Administrative,
             DocumentCandidateExtractionCategory.Illustrative,
+            DocumentCandidateExtractionCategory.RuleCue,
         )
         private val candidateCategoryPriority = DocumentCandidateExtractionCategory.entries.associateWith { category ->
             when (category) {
@@ -487,6 +589,32 @@ internal class DocumentCandidateExtractionService(
             val titleLike = letterWords.count { word -> word.firstOrNull(Char::isLetter)?.isUpperCase() == true }
             return !trimmed.endsWithAny('.', '?', '!', ';') && titleLike * 4 >= letterWords.size * 3
         }
+
+        private fun isIllustrativeSentence(value: String): Boolean =
+            illustrativeSentencePrefix.containsMatchIn(value.trimStart())
+
+        private fun isSectionHeadingLine(value: String): Boolean {
+            val trimmed = value.trim()
+            if (numberedSectionHeading.matches(trimmed)) return true
+            val normalized = normalize(trimmed)
+            return normalized in administrativeHeadings || normalized in illustrativeHeadings
+        }
+
+        private fun documentOnlySectionCategory(value: String): DocumentCandidateExtractionCategory? {
+            val normalizedHeading = normalize(value.trim().replaceFirst(numberedSectionPrefix, ""))
+            return when {
+                normalizedHeading in administrativeHeadings -> DocumentCandidateExtractionCategory.Administrative
+                illustrativeHeadings.any { heading ->
+                    normalizedHeading == heading || normalizedHeading.startsWith("$heading ")
+                } -> DocumentCandidateExtractionCategory.Illustrative
+                else -> null
+            }
+        }
+
+        private val illustrativeSentencePrefix = Regex(
+            "^(?:for\\s+example|example|illustration|illustrative\\s+example|scenario)\\b(?:\\s*[:,-])?",
+            RegexOption.IGNORE_CASE,
+        )
 
         private fun String.endsWithAny(vararg suffixes: Char): Boolean = suffixes.any(::endsWith)
 
@@ -548,6 +676,9 @@ internal class DocumentCandidateExtractionService(
             .replace(WHITESPACE, " ")
             .lowercase(Locale.ROOT)
 
+        private fun String.containsNormalizedPhrase(phrase: String): Boolean =
+            this == phrase || startsWith("$phrase ") || endsWith(" $phrase") || contains(" $phrase ")
+
         private fun stableId(vararg values: String): String {
             val digest = MessageDigest.getInstance("SHA-256")
             values.forEach { value ->
@@ -559,7 +690,10 @@ internal class DocumentCandidateExtractionService(
         }
 
         private val DocumentEvidenceMention.isLowValue: Boolean
-            get() = normalizedText.split(' ').filter(String::isNotBlank).all { it in genericTerms }
+            get() {
+                val words = normalizedText.split(' ').filter(String::isNotBlank)
+                return normalizedText in temporalOrCurrencyTerms || (words.size == 1 && words.single() in genericTerms)
+            }
 
         private val DocumentCandidateExtractionCategory.isMeaningBearing: Boolean
             get() = this !in supportingValueCategories && this !in documentOnlyCategories

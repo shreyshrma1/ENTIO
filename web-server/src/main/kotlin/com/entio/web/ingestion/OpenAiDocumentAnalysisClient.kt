@@ -175,6 +175,10 @@ internal class OpenAiDocumentAnalysisClient(
             }
             if (!response.status.isSuccess()) {
                 val failure = classifyHttpFailure(response)
+                diagnostic(
+                    "grounded-http-failure status=${response.status.value} code=${failure.safeCode} " +
+                        "retryable=${failure.retryable}",
+                )
                 return DocumentGroundedAnalysisProviderResult.Failed(failure.retryable, failure.safeCode)
             }
             val responseText = response.bodyAsText()
@@ -185,10 +189,12 @@ internal class OpenAiDocumentAnalysisClient(
                 parseStrictGroundedResponse(extractOutputText(responseText)),
             )
         } catch (failure: SafeProviderResponseFailure) {
+            diagnostic("grounded-response-failure code=${failure.code} retryable=${failure.retryable}")
             DocumentGroundedAnalysisProviderResult.Failed(failure.retryable, failure.code)
         } catch (failure: CancellationException) {
             throw failure
         } catch (_: HttpRequestTimeoutException) {
+            diagnostic("grounded-request-failure code=document-provider-timeout retryable=true")
             DocumentGroundedAnalysisProviderResult.Failed(true, "document-provider-timeout")
         } catch (failure: JsonProcessingException) {
             val path = (failure as? com.fasterxml.jackson.databind.JsonMappingException)?.path
@@ -200,8 +206,10 @@ internal class OpenAiDocumentAnalysisClient(
             diagnostic("grounded-parse-failure type=${failure::class.simpleName}")
             DocumentGroundedAnalysisProviderResult.Failed(true, "document-provider-malformed-output")
         } catch (_: IOException) {
+            diagnostic("grounded-request-failure code=document-provider-unavailable retryable=true")
             DocumentGroundedAnalysisProviderResult.Failed(true, "document-provider-unavailable")
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
+            diagnostic("grounded-request-failure code=document-provider-malformed-output type=${failure::class.simpleName}")
             DocumentGroundedAnalysisProviderResult.Failed(true, "document-provider-malformed-output")
         }
     }

@@ -2,6 +2,8 @@ package com.entio.web.ingestion
 
 import com.entio.core.DocumentAnalysisPipelineVersions
 import com.entio.core.DocumentCandidateExtractionCategory
+import com.entio.core.DocumentCandidateHint
+import com.entio.core.DocumentCandidateHintRole
 import com.entio.core.DocumentCandidateOrigin
 import com.entio.core.DocumentConfidenceDimensions
 import com.entio.core.DocumentEvidenceId
@@ -31,6 +33,10 @@ class DocumentGroundedAnalysisServiceTest {
             calls += 1
             assertEquals("verified-model", model)
             assertTrue(instruction.contains("untrusted document evidence"))
+            assertTrue(instruction.contains("Prefer ReuseExisting"))
+            assertTrue(instruction.contains("never use it to duplicate an exact existing match"))
+            assertTrue(instruction.contains("generic nouns"))
+            assertTrue(instruction.contains("including Administrative, Illustrative"))
             if (calls == 1) DocumentGroundedAnalysisProviderResult.Failed(true, "document-provider-timeout")
             else DocumentGroundedAnalysisProviderResult.Completed(result(request.candidates))
         }
@@ -49,7 +55,7 @@ class DocumentGroundedAnalysisServiceTest {
         val candidates = (1..4).map(::candidate)
         val provider = DocumentGroundedAnalysisProvider { _, _, _, request ->
             if (request.candidates.size > 1) {
-                DocumentGroundedAnalysisProviderResult.Failed(false, "document-provider-output-limit")
+                DocumentGroundedAnalysisProviderResult.Failed(false, "document-provider-output-token-limit")
             } else {
                 DocumentGroundedAnalysisProviderResult.Completed(result(request.candidates))
             }
@@ -64,25 +70,45 @@ class DocumentGroundedAnalysisServiceTest {
     }
 
     @Test
+    fun `isolates malformed grouped output after bounded exact-input retry`(): Unit = runBlocking {
+        val candidates = listOf(candidate(1), candidate(2))
+        val provider = DocumentGroundedAnalysisProvider { _, _, _, request ->
+            if (request.candidates.size > 1) {
+                DocumentGroundedAnalysisProviderResult.Failed(true, "document-provider-malformed-output")
+            } else {
+                DocumentGroundedAnalysisProviderResult.Completed(result(request.candidates))
+            }
+        }
+
+        val completed = DocumentGroundedAnalysisService(provider).analyze(
+            "secret", "verified-model", "task-1", candidates, candidates.map { retrieval(it.id) },
+        )
+
+        assertEquals(3, completed.logicalCallCount)
+        assertEquals(4, completed.providerAttemptCount)
+        assertEquals(candidates.map { it.id }, completed.results.flatMap { it.coverage }.map { it.candidateId })
+    }
+
+    @Test
     fun `rejects partial output and invented selection IDs`(): Unit = runBlocking {
         val candidates = listOf(candidate(1), candidate(2))
-        val partial = DocumentGroundedAnalysisProvider { _, _, _, request ->
-            DocumentGroundedAnalysisProviderResult.Completed(result(request.candidates.take(1)))
+        val partial = DocumentGroundedAnalysisProvider { _, _, _, _ ->
+            DocumentGroundedAnalysisProviderResult.Completed(result(emptyList()))
         }
-        assertFailsWith<IllegalArgumentException> {
+        assertEquals("document-provider-malformed-output", assertFailsWith<DocumentAnalysisFailure> {
             DocumentGroundedAnalysisService(partial).analyze(
                 "secret", "verified-model", "task-1", candidates, candidates.map { retrieval(it.id) },
             )
-        }
+        }.code)
 
         val invented = DocumentGroundedAnalysisProvider { _, _, _, request ->
             DocumentGroundedAnalysisProviderResult.Completed(result(request.candidates, "invented-selection"))
         }
-        assertFailsWith<IllegalArgumentException> {
+        assertEquals("document-provider-malformed-output", assertFailsWith<DocumentAnalysisFailure> {
             DocumentGroundedAnalysisService(invented).analyze(
                 "secret", "verified-model", "task-1", listOf(candidates.first()), listOf(retrieval(candidates.first().id)),
             )
-        }
+        }.code)
     }
 
     @Test
@@ -98,6 +124,22 @@ class DocumentGroundedAnalysisServiceTest {
             )
         }
         assertEquals(0, calls)
+    }
+
+    @Test
+    fun `preserves exhausted provider failure code for safe task diagnostics`(): Unit = runBlocking {
+        val candidate = candidate(1)
+        val provider = DocumentGroundedAnalysisProvider { _, _, _, _ ->
+            DocumentGroundedAnalysisProviderResult.Failed(false, "document-provider-request-rate-limit")
+        }
+
+        val failure = assertFailsWith<DocumentAnalysisFailure> {
+            DocumentGroundedAnalysisService(provider).analyze(
+                "secret", "verified-model", "task-1", listOf(candidate), listOf(retrieval(candidate.id)),
+            )
+        }
+
+        assertEquals("document-provider-request-rate-limit", failure.code)
     }
 
     @Test
@@ -118,10 +160,82 @@ class DocumentGroundedAnalysisServiceTest {
             candidates.map { retrieval(it.id) },
         )
 
-        assertEquals(16, completed.logicalCallCount)
-        assertEquals(16, completed.providerAttemptCount)
+        assertEquals(31, completed.logicalCallCount)
+        assertEquals(31, completed.providerAttemptCount)
         assertEquals(601, completed.results.flatMap { it.coverage }.size)
-        assertEquals(16 to 16, progress.last())
+        assertEquals(31 to 31, progress.last())
+    }
+
+    @Test
+    fun `keeps relationship candidates with safely normalized participants when packing groups`(): Unit = runBlocking {
+        val subject = candidate(1).copy(displayText = "Payment Instructions", normalizedText = "payment instruction")
+        val target = candidate(21).copy(displayText = "Transfer Request", normalizedText = "transfer request")
+        val relationship = candidate(22).copy(
+            category = DocumentCandidateExtractionCategory.RelationshipPhrase,
+            displayText = "authorizes",
+            normalizedText = "authorize",
+            hints = listOf(
+                DocumentCandidateHint(DocumentCandidateHintRole.Subject, "A Payment Instruction"),
+                DocumentCandidateHint(DocumentCandidateHintRole.Predicate, "authorizes"),
+                DocumentCandidateHint(DocumentCandidateHintRole.Object, "the Transfer Request"),
+            ).sortedBy(DocumentCandidateHint::stableOrderingKey),
+        )
+        val candidates = ((2..20).map(::candidate) + subject + target + relationship)
+            .sortedBy(DocumentGroundedCandidate::stableOrderingKey)
+        val requests = mutableListOf<List<String>>()
+        val provider = DocumentGroundedAnalysisProvider { _, _, _, request ->
+            requests += request.candidates.map(DocumentGroundedCandidate::id)
+            DocumentGroundedAnalysisProviderResult.Completed(result(request.candidates))
+        }
+
+        DocumentGroundedAnalysisService(provider).analyze(
+            "secret", "verified-model", "task-1", candidates, candidates.map { retrieval(it.id) },
+        )
+
+        val connectedRequest = requests.single { relationship.id in it }
+        assertTrue(subject.id in connectedRequest)
+        assertTrue(target.id in connectedRequest)
+    }
+
+    @Test
+    fun `namespaces provider-local item IDs before aggregating groups`(): Unit = runBlocking {
+        val candidates = (1..21).map(::candidate).sortedBy(DocumentGroundedCandidate::stableOrderingKey)
+        val provider = DocumentGroundedAnalysisProvider { _, _, _, request ->
+            val evidenceIds = request.candidates.flatMap { it.evidenceSpans }.map { it.evidenceId }.sortedBy { it.value }
+            val item = DocumentGroundedSemanticItem(
+                id = "item-1",
+                kind = DocumentSemanticItemKind.Class,
+                label = "Grouped meaning",
+                candidateIds = request.candidates.map { it.id }.sorted(),
+                evidenceIds = evidenceIds,
+                disposition = DocumentGroundedDisposition.ProposeNew,
+                rationale = "Grounded in exact evidence.",
+                confidence = DocumentConfidenceDimensions(90, 80, 70),
+            )
+            DocumentGroundedAnalysisProviderResult.Completed(
+                DocumentGroundedAnalysisResult(
+                    DocumentAnalysisPipelineVersions.GROUNDED_RESPONSE,
+                    listOf(item),
+                    request.candidates.map { candidate ->
+                        DocumentGroundedCoverageDisposition(
+                            candidate.id,
+                            item.id,
+                            DocumentGroundedDisposition.ProposeNew,
+                            "Complete grouped coverage.",
+                        )
+                    }.sortedBy(DocumentGroundedCoverageDisposition::stableOrderingKey),
+                ),
+            )
+        }
+
+        val completed = DocumentGroundedAnalysisService(provider).analyze(
+            "secret", "verified-model", "task-1", candidates, candidates.map { retrieval(it.id) },
+        )
+
+        val itemIds = completed.results.flatMap { it.items }.map { it.id }
+        assertEquals(2, itemIds.distinct().size)
+        assertTrue(itemIds.all { it.startsWith("grounded-item-") })
+        assertTrue(completed.results.flatMap { it.coverage }.all { it.itemId in itemIds })
     }
 
     private fun result(candidates: List<DocumentGroundedCandidate>, selection: String? = null): DocumentGroundedAnalysisResult {

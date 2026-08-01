@@ -102,6 +102,24 @@ class DocumentGroundedAnalysisVerifierTest {
         assertTrue(reuse.editableFields.isEmpty())
     }
 
+    @Test
+    fun `retains administrative and illustrative dispositions without recommendation groups`(): Unit {
+        listOf(
+            DocumentGroundedDisposition.Administrative,
+            DocumentGroundedDisposition.Illustrative,
+        ).forEach { disposition ->
+            val item = item("item-payment", disposition)
+            val verified = verifier().verify(input(item))
+
+            assertTrue(verified.plan.items.isEmpty())
+            assertTrue(verified.plan.groups.isEmpty())
+            assertEquals(
+                com.entio.core.DocumentGroundedRecommendationStatus.ReviewOnly,
+                verified.statusByItemId.getValue(item.id),
+            )
+        }
+    }
+
     private fun verifier() = DocumentGroundedAnalysisVerifier()
 
     private fun input(

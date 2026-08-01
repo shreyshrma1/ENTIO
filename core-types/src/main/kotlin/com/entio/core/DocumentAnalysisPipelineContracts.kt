@@ -19,7 +19,7 @@ public object DocumentAnalysisPipelineVersions {
     public const val RETRIEVAL_QUERY: String = "phase-12-ontology-retrieval-query-v1"
     public const val RETRIEVAL_RANKING: String = "phase-12-ontology-retrieval-ranking-v1"
     public const val RETRIEVAL_RESULT: String = "phase-12-ontology-retrieval-result-v1"
-    public const val GROUNDED_PROMPT: String = "phase-12-grounded-model-prompt-v1"
+    public const val GROUNDED_PROMPT: String = "phase-12-grounded-model-prompt-v2"
     public const val GROUNDED_REQUEST: String = "phase-12-grounded-model-request-v2"
     public const val GROUNDED_RESPONSE: String = "phase-12-grounded-model-response-v1"
     public const val GROUNDED_VERIFICATION: String = "phase-12-grounded-verification-v1"
@@ -114,8 +114,8 @@ public data class DocumentAnalysisStageRecord(
     init {
         requireOpaqueDocumentId(recordId, "Document analysis stage record ID")
         requireOpaqueDocumentId(scopeId, "Document analysis stage scope ID")
-        require(providerAttemptCount in 0..MAX_DOCUMENT_PROVIDER_ATTEMPTS) {
-            "Document analysis stage attempt count exceeds the approved bound."
+        require(providerAttemptCount >= 0) {
+            "Document analysis stage attempt count cannot be negative."
         }
         require(completedCount >= 0 && totalCount >= 0 && completedCount <= totalCount) {
             "Document analysis stage progress counts are invalid."

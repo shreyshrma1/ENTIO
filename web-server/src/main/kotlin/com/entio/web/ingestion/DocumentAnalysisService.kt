@@ -4988,6 +4988,7 @@ internal class SemanticCompilingDocumentFinalPlanningProvider(
     fun compileGrounded(
         plan: DocumentSemanticPlan,
         compilerContext: DocumentSemanticCompilerContext,
+        nonRecommendationCoverage: Map<String, com.entio.core.DocumentCoverageDispositionKind> = emptyMap(),
     ): DocumentFinalPlanningProviderResult = try {
         val groupsById = plan.groups.associateBy { it.id }
         val itemsById = plan.items.associateBy(DocumentSemanticPlanItem::id)
@@ -5042,20 +5043,27 @@ internal class SemanticCompilingDocumentFinalPlanningProvider(
         }.sortedBy(DocumentFinalRecommendation::stableOrderingKey)
         val coverage = plan.verifiedDiscoveryIds.map { discoveryId ->
             val recommendation = recommendations.firstOrNull { discoveryId in it.discoveryIds }
+            val kind = nonRecommendationCoverage[discoveryId] ?: when (recommendation?.status) {
+                DocumentFinalRecommendationStatus.Executable,
+                DocumentFinalRecommendationStatus.Mixed,
+                -> com.entio.core.DocumentCoverageDispositionKind.ExecutableRecommendation
+                DocumentFinalRecommendationStatus.ReviewOnly ->
+                    com.entio.core.DocumentCoverageDispositionKind.ReviewOnlyFinding
+                else -> com.entio.core.DocumentCoverageDispositionKind.Blocked
+            }
+            val blockers = recommendation?.blockers.orEmpty().joinToString("; ").takeIf(String::isNotBlank)
             com.entio.core.DocumentCoverageDisposition(
                 discoveryId = discoveryId,
-                kind = when (recommendation?.status) {
-                    DocumentFinalRecommendationStatus.Executable,
-                    DocumentFinalRecommendationStatus.Mixed,
-                    -> com.entio.core.DocumentCoverageDispositionKind.ExecutableRecommendation
-                    DocumentFinalRecommendationStatus.ReviewOnly ->
-                        com.entio.core.DocumentCoverageDispositionKind.ReviewOnlyFinding
-                    else -> com.entio.core.DocumentCoverageDispositionKind.Blocked
-                },
+                kind = kind,
                 recommendationId = recommendation?.takeIf {
                     it.status != DocumentFinalRecommendationStatus.Blocked
                 }?.id,
-                rationale = recommendation?.blockers?.joinToString("; ")?.takeIf(String::isNotBlank),
+                rationale = when {
+                    kind != com.entio.core.DocumentCoverageDispositionKind.Blocked -> null
+                    blockers != null -> blockers
+                    recommendation == null -> "No connected recommendation retained this discovery."
+                    else -> "The connected recommendation is blocked from executable compilation."
+                },
             )
         }.sortedBy(com.entio.core.DocumentCoverageDisposition::stableOrderingKey)
         DocumentFinalPlanningProviderResult.Completed(
@@ -5063,7 +5071,13 @@ internal class SemanticCompilingDocumentFinalPlanningProvider(
                 plan = DocumentFinalPlan(plan.workKey, plan.verifiedDiscoveryIds, plan.criticFindingIds, recommendations, coverage),
             ),
         )
-    } catch (_: IllegalArgumentException) {
+    } catch (failure: IllegalArgumentException) {
+        if (System.getenv("ENTIO_DOCUMENT_ANALYSIS_DEBUG") == "true") {
+            System.err.println(
+                "[entio-document-analysis] grounded-semantic-plan rejection " +
+                    "type=${failure::class.simpleName} message=${failure.message.orEmpty().take(500)}",
+            )
+        }
         DocumentFinalPlanningProviderResult.Failed(false, "document-semantic-plan-rejected")
     }
 

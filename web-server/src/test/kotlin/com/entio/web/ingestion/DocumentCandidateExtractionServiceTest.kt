@@ -103,6 +103,30 @@ class DocumentCandidateExtractionServiceTest {
     }
 
     @Test
+    fun `keeps numbered example sections in document-only coverage`(): Unit {
+        val sectioned = block(
+            document.id,
+            """
+            1. Requirements
+            A Payment Instruction requires approval.
+            2. Examples and Interpretation
+            Elena Ruiz owns Example Account.
+            3. Monitoring
+            A Payment Instruction is reviewed.
+            """.trimIndent(),
+        )
+        val service = DocumentCandidateExtractionService(configuration())
+        val mentions = service.extractMentions(document, listOf(sectioned))
+        val extraction = service.promoteCandidates(mentions)
+
+        assertTrue(mentions.any { it.category == DocumentCandidateExtractionCategory.Illustrative })
+        assertTrue(extraction.coverage.any { it.reasonCode == "document-only" })
+        assertTrue(extraction.candidates.any { it.normalizedText == "payment instruction" })
+        assertTrue(extraction.candidates.none { it.displayText.contains("Elena", ignoreCase = true) })
+        assertTrue(extraction.candidates.none { it.normalizedText == "example account" })
+    }
+
+    @Test
     fun `keeps similar concepts separate and promotes an exact ontology match`(): Unit {
         val blocks = listOf(
             block(document.id, "A payment instruction is available.").copy(id = DocumentTextBlockId("block-1")),
@@ -125,7 +149,7 @@ class DocumentCandidateExtractionServiceTest {
 
     @Test
     fun `retains standalone values only as supporting coverage`(): Unit {
-        val valueBlock = block(document.id, "USD 25.00 2026-07-31 REF-2026-44.")
+        val valueBlock = block(document.id, "USD 25.00 2026-07-31 REF-2026-44 for seven years at 12 percent.")
         val service = DocumentCandidateExtractionService(configuration())
         val extraction = service.promoteCandidates(service.extractMentions(document, listOf(valueBlock)))
 
@@ -163,11 +187,15 @@ class DocumentCandidateExtractionServiceTest {
         val mentions = extracted.flatMap { service.extractMentions(it.document, it.blocks) }
             .sortedBy(com.entio.core.DocumentEvidenceMention::stableOrderingKey)
         val extraction = service.promoteCandidates(mentions)
-
         assertTrue(mentions.size > 100)
         assertTrue(extraction.groupedCandidateCount < mentions.size)
         assertTrue(extraction.candidates.size < extraction.groupedCandidateCount)
-        assertTrue(extraction.candidates.size <= 250, "The frozen two-document corpus regressed to excessive retrieval volume.")
+        assertTrue(
+            extraction.candidates.size in 50..120,
+            "The frozen two-document corpus produced ${extraction.candidates.size} ontology-bearing candidates; " +
+                "categories=${extraction.candidates.groupingBy { it.category }.eachCount().toSortedMap()}; " +
+                "reasons=${extraction.candidates.flatMap { it.promotionReasons }.groupingBy { it }.eachCount().toSortedMap()}.",
+        )
         assertTrue(extraction.coverage.any { it.kind == com.entio.core.DocumentMentionCoverageKind.SupportingValue })
         assertTrue(extraction.coverage.any { it.kind == com.entio.core.DocumentMentionCoverageKind.Rejected })
     }

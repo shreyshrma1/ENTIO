@@ -460,6 +460,14 @@ internal class DocumentIngestionOrchestrator(
             modeled.results.flatMap { it.items }.distinctBy { it.id }.sortedBy { it.stableOrderingKey },
             modeled.results.flatMap { it.coverage }.distinctBy { it.candidateId }.sortedBy { it.stableOrderingKey },
         )
+        if (System.getenv("ENTIO_DOCUMENT_ANALYSIS_DEBUG") == "true") {
+            System.err.println(
+                "entio-document-analysis grounded-summary candidates=${candidates.size} items=${analysis.items.size} " +
+                    "dispositions=${analysis.items.groupingBy { it.disposition }.eachCount().toSortedMap()} " +
+                    "kinds=${analysis.items.groupingBy { it.kind }.eachCount().toSortedMap()} " +
+                    "logicalCalls=${modeled.logicalCallCount} attempts=${modeled.providerAttemptCount}",
+            )
+        }
         recordGroundedStage(input, DocumentAnalysisStage.ConnectedModeling, "grounded", modeledStarted,
             hash(retrieval.results), hash(analysis), analysis.items.size, modeled.providerAttemptCount,
             selected, modeled.logicalCallCount)
@@ -472,6 +480,14 @@ internal class DocumentIngestionOrchestrator(
                 retrievalContext.fingerprints.currentWorkSha256, refreshed.fingerprints.currentWorkSha256,
             ),
         )
+        if (System.getenv("ENTIO_DOCUMENT_ANALYSIS_DEBUG") == "true") {
+            System.err.println(
+                "entio-document-analysis verification-summary groups=${verified.plan.groups.size} " +
+                    "outcomes=${verified.plan.groups.groupingBy { it.outcome }.eachCount().toSortedMap()} " +
+                    "statuses=${verified.statusByItemId.values.groupingBy { it }.eachCount().toSortedMap()} " +
+                    "editableFields=${verified.editableFields.size}",
+            )
+        }
         val writableSourceIds = project.resolvedSources.filter { ShaclGraphRole.Ontology in it.roles }
             .map { it.id }.distinct().sorted()
         val compilerContext = DocumentSemanticCompilerContext(
@@ -488,7 +504,19 @@ internal class DocumentIngestionOrchestrator(
             expectedCurrentWorkFingerprint = retrievalContext.fingerprints.currentWorkSha256,
             currentWorkFingerprint = refreshed.fingerprints.currentWorkSha256,
         )
-        val planned = when (val result = groundedCompiler.compileGrounded(verified.plan, compilerContext)) {
+        val nonRecommendationCoverage = analysis.coverage.mapNotNull { disposition ->
+            val kind = when (disposition.disposition) {
+                com.entio.core.DocumentGroundedDisposition.Administrative ->
+                    com.entio.core.DocumentCoverageDispositionKind.AdministrativeMetadata
+                com.entio.core.DocumentGroundedDisposition.Illustrative ->
+                    com.entio.core.DocumentCoverageDispositionKind.IllustrativeExample
+                else -> null
+            }
+            kind?.let { disposition.candidateId to it }
+        }.toMap()
+        val planned = when (
+            val result = groundedCompiler.compileGrounded(verified.plan, compilerContext, nonRecommendationCoverage)
+        ) {
             is DocumentFinalPlanningProviderResult.Completed -> result.response.plan
             is DocumentFinalPlanningProviderResult.Failed -> throw DocumentAnalysisFailure(result.safeCode,
                 "Grounded semantic compilation failed safely.")

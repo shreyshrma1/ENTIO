@@ -68,6 +68,14 @@ public class DocumentGroundedAnalysisVerifier {
                     require(kindCompatible(grounded.kind, selected.kind)) { "grounded-selection-kind-invalid" }
                 } ?: throw IllegalArgumentException("grounded-selection-invented")
             }
+            if (grounded.disposition in setOf(
+                    DocumentGroundedDisposition.Administrative,
+                    DocumentGroundedDisposition.Illustrative,
+                )
+            ) {
+                statuses[grounded.id] = DocumentGroundedRecommendationStatus.ReviewOnly
+                return@forEach
+            }
             if (grounded.disposition == DocumentGroundedDisposition.ExtendExisting && selection?.writable != true) {
                 fields += field(grounded.id, DocumentEditableGroundedFieldKind.Source, "Choose a writable extension target.")
                 statuses[grounded.id] = DocumentGroundedRecommendationStatus.NeedsInput
