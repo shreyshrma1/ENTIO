@@ -80,7 +80,20 @@ internal class DocumentCandidateExtractionService(
                 .sortedBy(DocumentEvidenceMention::stableOrderingKey)
         } catch (failure: DocumentIngestionFailure) {
             throw failure
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
+            if (System.getenv("ENTIO_DOCUMENT_ANALYSIS_DEBUG") == "true") {
+                val site = failure.stackTrace.firstOrNull { it.className.startsWith("com.entio.") }
+                val contractCode = when (failure.message) {
+                    "Document evidence mention normalized text must be trimmed, nonblank, and at most 2000 characters." ->
+                        "document-evidence-mention-normalized-text-invalid"
+                    else -> "unclassified"
+                }
+                System.err.println(
+                    "entio-document-analysis candidate-extraction-failure=${failure::class.simpleName} " +
+                        "site=${site?.className.orEmpty()}:${site?.lineNumber ?: -1} " +
+                        "contract=$contractCode",
+                )
+            }
             throw DocumentIngestionFailure(
                 "document-candidate-extraction-failed",
                 "Local document mention extraction could not complete.",
@@ -250,6 +263,7 @@ internal class DocumentCandidateExtractionService(
                     mention.start >= range.first && mention.end <= range.last + 1
                 }
             }
+            .filter { it.normalizedText.isNotBlank() }
             .filter { it.start >= 0 && it.end <= block.exactText.length && it.start < it.end }
             .map { span -> toMention(document, block, span) }
     }
@@ -448,23 +462,34 @@ internal class DocumentCandidateExtractionService(
             endOffsetInBlock = span.end,
             exactText = exact,
         )
-        return DocumentEvidenceMention(
-            id = "mention-${stableId(
-                document.checksumSha256,
-                evidenceSpan.stableOrderingKey,
-                span.normalizedText,
-                span.category.name,
-                configuration.candidateExtractorContractVersion,
-                configuration.nlpResourceVersion,
-            )}",
-            category = span.category,
-            displayText = span.displayText.trim(),
-            normalizedText = span.normalizedText,
-            documentChecksumSha256 = document.checksumSha256,
-            evidenceSpan = evidenceSpan,
-            hints = span.hints,
-            promotionSignals = span.promotionSignals.sortedBy { it.ordinal },
-        )
+        return try {
+            DocumentEvidenceMention(
+                id = "mention-${stableId(
+                    document.checksumSha256,
+                    evidenceSpan.stableOrderingKey,
+                    span.normalizedText,
+                    span.category.name,
+                    configuration.candidateExtractorContractVersion,
+                    configuration.nlpResourceVersion,
+                )}",
+                category = span.category,
+                displayText = span.displayText.trim(),
+                normalizedText = span.normalizedText,
+                documentChecksumSha256 = document.checksumSha256,
+                evidenceSpan = evidenceSpan,
+                hints = span.hints,
+                promotionSignals = span.promotionSignals.sortedBy { it.ordinal },
+            )
+        } catch (failure: IllegalArgumentException) {
+            if (System.getenv("ENTIO_DOCUMENT_ANALYSIS_DEBUG") == "true") {
+                System.err.println(
+                    "entio-document-analysis candidate-span-failure category=${span.category.name} " +
+                        "displayLength=${span.displayText.trim().length} normalizedLength=${span.normalizedText.length} " +
+                        "normalizedBlank=${span.normalizedText.isBlank()} exactLength=${exact.length}",
+                )
+            }
+            throw failure
+        }
     }
 
     private fun representativeEvidence(group: List<DocumentEvidenceMention>): List<DocumentGroundedEvidenceSpan> {
