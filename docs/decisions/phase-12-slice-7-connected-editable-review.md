@@ -258,3 +258,60 @@ The correction is committed on `fix/document-review-approval-feedback`. No
 provider call was needed because the live task already demonstrated successful
 server persistence and the defect was confined to rendering the returned review
 state.
+
+## Proposal Staging Correction
+
+The approval-feedback correction exposed a second failure: accepting a
+recommendation and adding it to shared staging were separate actions even though
+the card action was named `Approve for proposal`. The browser now follows a
+successful acceptance with the existing document-draft request automatically.
+The card remains accepted with an actionable retry message if draft preparation
+fails, and it becomes `Added to proposal` after the server marks the
+recommendation drafted. The existing top-level draft action remains available
+for retry and previously accepted work.
+
+The live failure also exposed an incorrect backend freshness comparison. Phase
+12 intentionally records its grounded provider call as `ConnectedModeling` with
+the Phase 12 grounded request schema and prompt. Draft preparation compared that
+record only against the legacy Phase 11.5 connected-model prompt, so a valid
+Phase 12 result always failed as `document-draft-stale`. Freshness validation now
+uses the recorded request schema to distinguish the Phase 12 grounded prompt
+from the retained legacy connected-model prompt. Model identity, selection
+status, stage success, graph fingerprint, and work-key checks remain unchanged.
+
+A controlled live trial used the Keychain credential, verified
+`gpt-5.6-luna`, and
+`Cedar_Ridge_Small_Business_Green_Loan_Policy.pdf`. Task
+`task-22fd2b28-60e3-4de5-90aa-24db7198697a` reached review with 557 evidence
+mentions, 152 ontology-bearing candidates, 49 recommendation cards, and no
+blocked cards. Approving the executable `Green Business Loans` recommendation
+created one bounded draft batch containing one typed class edit. The
+recommendation became `Drafted`, shared staging became `READY`, and the existing
+proposal preview produced proposal
+`proposal-66394aa4-a897-4c78-9aa0-ae1a131f3837` in `READYFORREVIEW` with two
+semantic diff entries and zero validation issues. The proposal was not approved
+or applied.
+
+Modified files for this correction are:
+
+- `web-server/src/main/kotlin/com/entio/web/ingestion/DocumentIngestionWebService.kt`;
+- `web-server/src/test/kotlin/com/entio/web/ingestion/DocumentDraftProposalIntegrationTest.kt`;
+- `web-app/src/workbench/document-ingestion/DocumentIngestionWorkspace.tsx`;
+- `web-app/src/workbench/document-ingestion/DocumentIngestionWorkspace.test.tsx`;
+- `web-app/e2e/document-ingestion.spec.ts`; and
+- this Slice 7 completion record.
+
+Verification completed successfully:
+
+- `./gradlew :web-server:test --tests '*DocumentReviewWorkspaceTest*' --tests '*DocumentDraftProposalIntegrationTest*' --tests '*DocumentIngestionRouteIntegrationTest*'`;
+- `npm --prefix web-app test -- --run projectApi DocumentIngestionWorkspace`;
+- `npm --prefix web-app test` (23 files, 103 tests);
+- `npm --prefix web-app run build`;
+- `npm --prefix web-app run test:e2e -- --grep 'document ingestion'`;
+- the controlled Luna ingestion, acceptance, draft, and proposal-preview trial
+  described above; and
+- `git diff --check`.
+
+This correction uses only the existing acceptance, document-draft, shared
+staging, and proposal-preview routes. It does not approve or apply a proposal,
+write ontology sources, or create another proposal workflow.

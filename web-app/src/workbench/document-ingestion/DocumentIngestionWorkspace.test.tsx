@@ -13,11 +13,13 @@ describe("document ingestion review workspace", () => {
   it("renders untrusted content as text and exposes evidence and review labels accessibly", async () => {
     const decisions: unknown[] = [];
     const drafts: unknown[] = [];
+    let drafted = false;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path.includes("/evidence/evidence-1")) return json(evidence);
       if (path.endsWith("/draft")) {
         drafts.push(JSON.parse(String(init?.body)));
+        drafted = true;
         return json({
           apiVersion: "v1",
           staging: { apiVersion: "v1", projectId: "simple", status: "READY", entries: [], proposal: null },
@@ -30,7 +32,7 @@ describe("document ingestion review workspace", () => {
         decisions.push(JSON.parse(String(init?.body)));
         return json(workspace("Accepted"));
       }
-      if (path.includes("/review")) return json(workspace("Pending"));
+      if (path.includes("/review")) return json(workspace(drafted ? "Drafted" : "Pending"));
       if (path.includes("/document-ingestion/tasks")) return json(tasks);
       throw new Error(`Unexpected request: ${path}`);
     }));
@@ -86,19 +88,15 @@ describe("document ingestion review workspace", () => {
       expectedWorkKey: "work-key",
       expectedGraphFingerprint: "graph-fingerprint",
     });
-    const approvedCard = screen.getByLabelText("Customer recommendation details").closest("details");
-    expect(approvedCard).toHaveTextContent("Approved for proposal");
-    expect(within(approvedCard!).getByRole("status")).toHaveTextContent(
-      "Use “Add accepted items to proposal” above to continue.",
-    );
-    expect(within(approvedCard!).queryByRole("button", { name: "Approve for proposal" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Read-only draft impact")).toHaveTextContent("1 accepted");
-    fireEvent.click(await screen.findByRole("button", { name: "Add accepted items to proposal" }));
     await waitFor(() => expect(drafts).toEqual([{
       expectedWorkKey: "work-key",
       expectedGraphFingerprint: "graph-fingerprint",
     }]));
-    expect(await screen.findByRole("status")).toHaveTextContent("1 typed edit added to the shared proposal.");
+    expect(await screen.findByText("1 typed edit added to the shared proposal.")).toHaveAttribute("role", "status");
+    const draftedCard = screen.getByLabelText("Customer recommendation details").closest("details");
+    expect(draftedCard).toHaveTextContent("Added to proposal");
+    expect(within(draftedCard!).getByRole("status")).toHaveTextContent("Added to the shared proposal.");
+    expect(within(draftedCard!).queryByRole("button", { name: "Approve for proposal" })).not.toBeInTheDocument();
   });
 
   it("warns that visible status is stale when live task polling fails", async () => {

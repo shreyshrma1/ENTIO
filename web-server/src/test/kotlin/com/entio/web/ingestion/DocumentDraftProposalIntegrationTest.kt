@@ -57,6 +57,44 @@ import kotlin.test.assertTrue
 
 class DocumentDraftProposalIntegrationTest {
     @Test
+    fun recognizesCurrentGroundedAndLegacyConnectedModelPrompts(): Unit {
+        val recordedAt = Instant.parse("2026-01-01T00:00:00Z")
+        val grounded = DocumentAnalysisStageRecord(
+            recordId = "stage-grounded",
+            stage = DocumentAnalysisStage.ConnectedModeling,
+            state = DocumentAnalysisStageState.Succeeded,
+            scopeId = "task-1",
+            startedAt = recordedAt,
+            finishedAt = recordedAt,
+            durationMillis = 0,
+            selectedModelId = "gpt-test",
+            promptVersion = DocumentAnalysisPipelineVersions.GROUNDED_PROMPT,
+            requestSchemaVersion = DocumentAnalysisPipelineVersions.GROUNDED_REQUEST,
+            responseSchemaVersion = DocumentAnalysisPipelineVersions.GROUNDED_RESPONSE,
+            inputSha256 = "a".repeat(64),
+            outputSha256 = "b".repeat(64),
+            providerAttemptCount = 1,
+            completedCount = 1,
+            totalCount = 1,
+        )
+
+        assertEquals(
+            DocumentAnalysisPipelineVersions.GROUNDED_PROMPT,
+            expectedDocumentAnalysisPromptVersion(grounded),
+        )
+        assertEquals(
+            DocumentAnalysisPipelineVersions.CONNECTED_MODEL_PROMPT,
+            expectedDocumentAnalysisPromptVersion(
+                grounded.copy(
+                    promptVersion = DocumentAnalysisPipelineVersions.CONNECTED_MODEL_PROMPT,
+                    requestSchemaVersion = DocumentAnalysisPipelineVersions.CONNECTED_MODEL_REQUEST,
+                    responseSchemaVersion = DocumentAnalysisPipelineVersions.CONNECTED_MODEL_RESPONSE,
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun keepsEveryCompoundRecommendationInOneStagingBatch(): Unit {
         val firstCompound = (1..18).map { index ->
             prepared(index).copy(

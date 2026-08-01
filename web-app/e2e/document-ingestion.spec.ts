@@ -61,9 +61,9 @@ test("document ingestion completes the accessible review and proposal workflow",
       expect(body.action).toBe("accept");
       expect(body.clarification).toBe("The later amendment governs.");
       accepted = true;
-      return json(route, reviewWorkspace(accepted));
+      return json(route, reviewWorkspace("Accepted"));
     }
-    if (path.endsWith("/review")) return json(route, reviewWorkspace(accepted));
+    if (path.endsWith("/review")) return json(route, reviewWorkspace(staged ? "Drafted" : accepted ? "Accepted" : "Pending"));
     if (path.endsWith("/draft")) {
       staged = true;
       return json(route, {
@@ -135,15 +135,9 @@ test("document ingestion completes the accessible review and proposal workflow",
   const accept = page.getByRole("button", { name: "Approve for proposal" });
   await accept.focus();
   await accept.press("Enter");
-  await expect(page.getByRole("status").filter({
-    hasText: "Approved for proposal. Use “Add accepted items to proposal” above to continue.",
-  })).toBeVisible();
   await expect(page.getByRole("button", { name: "Approve for proposal" })).toHaveCount(0);
-  await expect(page.getByText(
-    "1 accepted · 1 ready to approve · 0 need input · 0 matched · 0 unsafe",
-  )).toBeVisible();
-  await page.getByRole("button", { name: "Add accepted items to proposal" }).press("Enter");
   await expect(page.getByRole("status").filter({ hasText: "1 typed edit added" })).toBeVisible();
+  await expect(page.getByLabel("Supplier recommendation details")).toContainText("Added to proposal");
   await expect(page.getByLabel("Shared staged changes")).toContainText("1 change staged");
 
   await page.getByRole("button", { name: "Review proposal" }).press("Enter");
@@ -173,7 +167,7 @@ const task = {
   progress: { stage: "awaiting-review", completedDocuments: 6, totalDocuments: 6, percent: 100, message: "Evidence-linked recommendations are ready for review." },
 };
 
-function reviewWorkspace(accepted: boolean) {
+function reviewWorkspace(reviewStatus: "Pending" | "Accepted" | "Drafted") {
   return {
     apiVersion: "v1",
     taskId: task.taskId,
@@ -203,13 +197,13 @@ function reviewWorkspace(accepted: boolean) {
         confidence: 94,
         confidenceBand: "High",
         rationale: "The amendment explicitly revises Supplier.",
-        reviewStatus: accepted ? "Accepted" : "Pending",
+        reviewStatus,
         evidence: [{ evidenceId: "evidence-supplier", evidenceType: "Explicit", documentId: "document-amendment", pageNumber: null, extractionMethod: "Markdown", ocrConfidence: null, excerpt: "Supplier", priorRecordId: null }],
         matches: [{ scope: "AppliedLocal", entityIri: "https://example.com/simple#Supplier", sourceId: "simple", preferredLabel: "Supplier", score: 100, reason: "Exact label." }],
         selectedMatchIri: "https://example.com/simple#Supplier",
         conflicts: [{ id: "conflict-amendment", alternatives: ["Earlier policy", "Later amendment"], affectedEntityIris: ["https://example.com/simple#Supplier"], resolutionOptions: ["retain", "revise"] }],
         mandatoryClarificationReasons: ["Choose which document governs."],
-        clarification: accepted ? "The later amendment governs." : null,
+        clarification: reviewStatus === "Pending" ? null : "The later amendment governs.",
         targetSourceId: "simple",
         reconsiderationCount: 0,
         priorWorkflowProvenance: ["applied-document-change-1"],
@@ -217,8 +211,8 @@ function reviewWorkspace(accepted: boolean) {
       offset: 0, limit: 100, total: 1, nextOffset: null,
     },
     draftImpact: {
-      acceptedCount: accepted ? 1 : 0,
-      pendingCount: accepted ? 0 : 1,
+      acceptedCount: reviewStatus === "Accepted" ? 1 : 0,
+      pendingCount: reviewStatus === "Pending" ? 1 : 0,
       blockedCount: 0,
       executableCount: 1,
       needsInputCount: 0,
