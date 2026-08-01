@@ -216,3 +216,45 @@ Modified files are the document-ingestion React workspace, its focused tests,
 and the shared stylesheet. All 103 React tests, the production web build, the
 document-ingestion Playwright flow, and `git diff --check` passed. No semantic
 contract, server behavior, review decision, or ontology operation changed.
+
+## Approval Feedback Correction
+
+A live review task confirmed that `Approve for proposal` successfully saved an
+`Accepted` decision on the server, but the recommendation card continued to
+display its compilation status and the same active approval control. The only
+visible result was the accepted counter near the top of a potentially long
+review page, which made a successful action appear inert.
+
+After a decision response, the compact card now gives the saved review decision
+precedence over the compilation status. An accepted card displays `Approved for
+proposal`, removes the obsolete approval button, and announces that `Add
+accepted items to proposal` is the next step. A drafted card displays `Added to
+proposal`. Pending cards continue to show their useful `Executable`, `Mixed`,
+or other compilation status. Rejecting or otherwise changing a decision remains
+available through the existing server-owned review workflow.
+
+This is presentation feedback only. It does not stage automatically, approve an
+ontology proposal, apply changes, construct typed operations in React, or add a
+second proposal path. The existing accepted-item draft action remains the sole
+route into shared staging.
+
+Modified files for this correction are:
+
+- `web-app/src/workbench/document-ingestion/DocumentIngestionWorkspace.tsx`;
+- `web-app/src/workbench/document-ingestion/DocumentIngestionWorkspace.test.tsx`;
+- `web-app/e2e/document-ingestion.spec.ts`; and
+- this Slice 7 completion record.
+
+Verification completed successfully:
+
+- `./gradlew :web-server:test --tests '*DocumentReviewWorkspaceTest*' --tests '*DocumentDraftProposalIntegrationTest*' --tests '*DocumentIngestionRouteIntegrationTest*'`;
+- `npm --prefix web-app test -- --run projectApi DocumentIngestionWorkspace`;
+- `npm --prefix web-app test` (23 files, 103 tests);
+- `npm --prefix web-app run build`;
+- `npm --prefix web-app run test:e2e -- --grep 'document ingestion'`; and
+- `git diff --check`.
+
+The correction is committed on `fix/document-review-approval-feedback`. No
+provider call was needed because the live task already demonstrated successful
+server persistence and the defect was confined to rendering the returned review
+state.

@@ -410,6 +410,15 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
   const recommendationTypeLabel = needsInputItem
     ? humanize(needsInputItem.kind)
     : humanize(recommendation.type);
+  const reviewStatusLabel = recommendation.reviewStatus === "Pending"
+    ? humanize(recommendation.connectedStatus ?? recommendation.reviewStatus)
+    : recommendation.reviewStatus === "Accepted"
+      ? "Approved for proposal"
+      : recommendation.reviewStatus === "Drafted"
+        ? "Added to proposal"
+        : humanize(recommendation.reviewStatus);
+  const acceptedForProposal = recommendation.reviewStatus === "Accepted";
+  const addedToProposal = recommendation.reviewStatus === "Drafted";
   return <details className="document-recommendation-card">
     <summary
       className="document-recommendation-summary"
@@ -417,7 +426,7 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
     >
       <div><span>{recommendationTypeLabel}</span><h3>{recommendation.proposedLabel ?? humanize(recommendation.action)}</h3></div>
       <div className="document-recommendation-badges">
-        <span>{humanize(recommendation.connectedStatus ?? recommendation.reviewStatus)}</span>
+        <span>{reviewStatusLabel}</span>
         <span>{recommendation.confidence}% confidence</span>
         <span className="document-recommendation-arrow" aria-hidden="true">⌄</span>
       </div>
@@ -666,7 +675,11 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
     {recommendation.mandatoryClarificationReasons.length ? <div role="note"><strong>Clarification required</strong><ul>{recommendation.mandatoryClarificationReasons.map((reason) => <li key={reason}>{clarificationReasonLabel(reason)}</li>)}</ul></div> : null}
 
     <div className="document-review-actions">
-      {changePreview.draftable ? <button className="button primary" type="button" disabled={busy || (clarificationRequired && !clarification.trim())} onClick={() => onDecision({ action: "accept", clarification })}>Approve for proposal</button> : null}
+      {changePreview.draftable && !acceptedForProposal && !addedToProposal
+        ? <button className="button primary" type="button" disabled={busy || (clarificationRequired && !clarification.trim())} onClick={() => onDecision({ action: "accept", clarification })}>Approve for proposal</button>
+        : null}
+      {acceptedForProposal ? <span role="status">Approved for proposal. Use “Add accepted items to proposal” above to continue.</span> : null}
+      {addedToProposal ? <span role="status">Added to the shared proposal.</span> : null}
       {recommendation.connectedStatus === "Matched" && recommendation.reviewStatus !== "Drafted"
         ? <button className="button primary" type="button" disabled={busy} onClick={() =>
           onDecision({ action: "retain", clarification })}>Confirm ontology reuse</button>
