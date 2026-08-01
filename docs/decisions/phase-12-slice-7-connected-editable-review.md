@@ -135,3 +135,23 @@ The integration regression fixture now treats the provider's non-exact
 `Servicing Policy` to `Loan` mapping as actionable `NeedsInput`; the separate
 reviewer-resolution test proves that selecting `Loan` as a datatype-property
 domain remains valid and compiles through the existing review path.
+
+## Qualified-Class Subclass Resolution
+
+An unresolved class may now be created with an optional server-issued
+superclass selection. For qualified meanings whose rejected provider reuse has
+a verified lexical-head relationship, the form preselects Kotlin's suggested
+superclass and explains that reviewer confirmation is required. The reviewer
+may clear the suggestion, choose another authorized class, reuse the broader
+entity directly, or reject the card.
+
+On confirmation, the server constructs reviewer-provided connected support
+items and reruns grounded verification, semantic compilation, collision and
+no-op checks, and final-plan verification. The resulting card contains the
+existing typed `CreateClass` and `AddSuperclass` operations in one draftable
+connected recommendation. React sends selection IDs only and does not create
+ontology operations or infer hierarchy.
+
+Focused server coverage compiles a new class plus an existing superclass and
+definition. Browser coverage verifies the suggested superclass is visible,
+preselected, optional, and included in the explicit resolution request.

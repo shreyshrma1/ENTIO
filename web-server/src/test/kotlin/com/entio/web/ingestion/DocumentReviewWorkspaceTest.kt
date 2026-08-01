@@ -95,6 +95,7 @@ class DocumentReviewWorkspaceTest {
                 kind = "Class",
                 label = "Servicing Policy",
                 definition = "A policy governing loan servicing activities.",
+                superclassSelectionId = "selection-loan",
             ),
             userId = "alice",
             expectedWorkKey = VERIFIED_WORK_KEY,
@@ -103,9 +104,10 @@ class DocumentReviewWorkspaceTest {
 
         val after = store.readVerified("project-a", "task-grounded", "alice", WebPageRequest())
         val resolved = after.recommendations.items.single()
-        assertEquals("Executable", resolved.connectedStatus)
+        assertEquals("Mixed", resolved.connectedStatus)
         assertTrue(resolved.changePreview.draftable)
         assertTrue(resolved.changePreview.operations.any { it.operation == "Create Class" })
+        assertTrue(resolved.changePreview.operations.any { it.operation == "Add Superclass" })
         assertTrue(resolved.changePreview.operations.any { it.operation == "Add Definition" })
         assertEquals(0, after.draftImpact.needsInputCount)
         assertEquals(1, after.draftImpact.executableCount)
@@ -947,7 +949,7 @@ class DocumentReviewWorkspaceTest {
             discoveries = listOf(discovery),
             groundedReview = DocumentGroundedReviewContext(
                 candidates = listOf(candidate),
-                analysis = analysis,
+                analysis = verified.verifiedAnalysis,
                 retrieval = listOf(retrieval),
                 fullStateMatches = emptyList(),
                 compilerContext = compilerContext,
@@ -957,6 +959,7 @@ class DocumentReviewWorkspaceTest {
                 editableFields = verified.editableFields,
                 statusByItemId = verified.statusByItemId,
                 itemIdsByRecommendationId = verified.plan.groups.associate { it.id to it.itemIds },
+                suggestedSuperclassSelectionIdsByItemId = verified.suggestedSuperclassSelectionIdsByItemId,
                 counts = DocumentAnalysisCounts(
                     evidenceBlocks = 1,
                     evidenceMentions = 1,

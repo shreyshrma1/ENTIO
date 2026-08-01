@@ -118,3 +118,23 @@ Focused verifier tests cover both rules on
 `fix/phase-12-grounded-candidate-relevance`. The correction preserves the
 complete coverage ledger and does not add a candidate, recommendation, or edit
 ceiling.
+
+## Qualified-Class Resolution Correction
+
+Verifier normalization is now returned as part of the verified result and is
+the analysis installed into review. This ensures a provider's rejected broader
+reuse is actually presented and processed as `Unresolved`; the review workspace
+no longer retains the provider's stale `ReuseExisting` disposition behind a
+`NeedsInput` card.
+
+When a rejected broader class selection is also an exact lexical head of the
+qualified candidate (for example, `Account` in `Commercial Account`), Kotlin
+exposes that same server-issued selection as a suggested superclass. It does
+not infer or compile the relationship automatically. Unrelated non-exact
+choices do not become superclass suggestions, and provider output cannot
+authorize the resulting edit.
+
+The focused verifier regression proves that `Loan agreement` remains
+unresolved while `Agreement` is offered as its reviewer-controlled superclass.
+The verified normalized analysis, not raw provider state, owns subsequent
+coverage counts and review resolution.
