@@ -10,16 +10,3 @@
                 1;
         <http://www.w3.org/ns/shacl#path>
                 <https://example.com/entio/simple#ownsAccount> .
-
-<https://example.com/entio/shapes#BorrowerLoanPropShape>
-        <http://www.w3.org/ns/shacl#minCount>
-                1;
-        <http://www.w3.org/ns/shacl#path>
-                <https://example.com/entio/simple#hasLoan> .
-
-<https://example.com/entio/shapes#BorrowerLoanShape>
-        a       <http://www.w3.org/ns/shacl#NodeShape>;
-        <http://www.w3.org/ns/shacl#property>
-                <https://example.com/entio/shapes#BorrowerLoanPropShape>;
-        <http://www.w3.org/ns/shacl#targetClass>
-                <https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/Debt/Borrower> .
