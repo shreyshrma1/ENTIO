@@ -17,6 +17,7 @@ import com.entio.core.DocumentSemanticPlan
 import com.entio.core.DocumentSemanticPlanItem
 import com.entio.core.DocumentSemanticRecommendationGroup
 import com.entio.core.DocumentSemanticReference
+import com.entio.core.DocumentSemanticReferenceRole
 import com.entio.core.DocumentSemanticReferenceTarget
 import com.entio.core.DocumentTemporaryReferenceKind
 import com.entio.core.SemanticDescriptorKind
@@ -56,6 +57,13 @@ public class DocumentGroundedAnalysisVerifier {
         val alignments = linkedMapOf<String, DocumentCompilerEntity>()
         val itemAlignmentIds = linkedMapOf<String, String>()
         val validItems = mutableListOf<DocumentSemanticPlanItem>()
+        val explicitlyModeledDefinitionTargets = input.analysis.items
+            .filter { it.kind == DocumentSemanticItemKind.Definition }
+            .flatMap { definition ->
+                definition.references.filter { it.role == DocumentSemanticReferenceRole.Entity }
+                    .map { it.targetItemId }
+            }
+            .toSet()
 
         input.analysis.items.forEach { grounded ->
             require(grounded.candidateIds.all(candidates::containsKey))
@@ -134,9 +142,12 @@ public class DocumentGroundedAnalysisVerifier {
                 DocumentGroundedDisposition.Illustrative,
                 DocumentGroundedDisposition.ReuseExisting,
                 -> DocumentSemanticOutcome.ReviewOnly
-                DocumentGroundedDisposition.ExtendExisting,
-                DocumentGroundedDisposition.ProposeNew,
-                -> if (needsInput) {
+                DocumentGroundedDisposition.ExtendExisting -> if (needsInput) {
+                    DocumentSemanticOutcome.Blocked
+                } else {
+                    DocumentSemanticOutcome.ReviewOnly
+                }
+                DocumentGroundedDisposition.ProposeNew -> if (needsInput) {
                     DocumentSemanticOutcome.Blocked
                 } else if (grounded.kind in DocumentSemanticPatternRegistry.reviewOnlyKinds) {
                     DocumentSemanticOutcome.ReviewOnly
@@ -185,6 +196,31 @@ public class DocumentGroundedAnalysisVerifier {
                 itemAlignmentIds[grounded.id] = alignmentId
             }
             validItems += semantic
+            if (!needsInput && shouldCompileAttachedDefinition(
+                    grounded,
+                    selection,
+                    explicitlyModeledDefinitionTargets,
+                )
+            ) {
+                val definition = requireNotNull(grounded.definition)
+                validItems += DocumentSemanticPlanItem(
+                    id = "${grounded.id}:grounded-definition",
+                    kind = DocumentSemanticItemKind.Definition,
+                    label = "Definition of ${grounded.label}".take(500),
+                    definition = definition,
+                    references = listOf(
+                        DocumentSemanticReference(
+                            DocumentSemanticReferenceRole.Entity,
+                            DocumentSemanticReferenceTarget.SemanticItem(grounded.id),
+                        ),
+                    ),
+                    discoveryIds = grounded.candidateIds,
+                    evidenceIds = grounded.evidenceIds,
+                    rationale = "The grounded declaration supplies explicit definition meaning.",
+                    outcome = DocumentSemanticOutcome.Executable,
+                    confidence = grounded.confidence,
+                )
+            }
             statuses[grounded.id] = when {
                 needsInput -> DocumentGroundedRecommendationStatus.NeedsInput
                 outcome == DocumentSemanticOutcome.Executable -> DocumentGroundedRecommendationStatus.Executable
@@ -211,6 +247,8 @@ public class DocumentGroundedAnalysisVerifier {
             // recompiles reviewer-provided connected context.
             val first = component.firstOrNull {
                 it.outcome == DocumentSemanticOutcome.Executable && it.kind.declarationKind != null
+            } ?: component.firstOrNull {
+                it.kind.declarationKind != null
             } ?: component.firstOrNull {
                 it.outcome == DocumentSemanticOutcome.Executable
             } ?: component.first()
@@ -292,6 +330,26 @@ public class DocumentGroundedAnalysisVerifier {
 
     private fun kindCompatible(kind: DocumentSemanticItemKind, selected: SemanticDescriptorKind): Boolean =
         kind.declarationKind == selected.temporaryKind
+
+    private fun shouldCompileAttachedDefinition(
+        item: com.entio.core.DocumentGroundedSemanticItem,
+        selection: DocumentOntologyRetrievalSelection?,
+        explicitlyModeledDefinitionTargets: Set<String>,
+    ): Boolean {
+        val definition = item.definition ?: return false
+        if (item.id in explicitlyModeledDefinitionTargets || item.kind.declarationKind == null) return false
+        return when (item.disposition) {
+            DocumentGroundedDisposition.ProposeNew -> true
+            DocumentGroundedDisposition.ExtendExisting ->
+                normalizeDefinition(definition) != normalizeDefinition(selection?.definition)
+            else -> false
+        }
+    }
+
+    private fun normalizeDefinition(value: String?): String? = value
+        ?.trim()
+        ?.replace(Regex("\\s+"), " ")
+        ?.lowercase()
 
     private val SemanticDescriptorKind.temporaryKind: DocumentTemporaryReferenceKind
         get() = when (this) {

@@ -18,6 +18,7 @@ import com.entio.core.DocumentId
 import com.entio.core.DocumentMatchScope
 import com.entio.core.DocumentOntologyRetrievalResult
 import com.entio.core.DocumentOntologyRetrievalSelection
+import com.entio.core.DocumentPlanOperationKind
 import com.entio.core.DocumentRetrievalFingerprints
 import com.entio.core.DocumentRetrievalMatchReason
 import com.entio.core.DocumentSemanticItemKind
@@ -149,6 +150,43 @@ class DocumentGroundedAnalysisVerifierTest {
 
         assertEquals("grounded-group-${property.id}", verified.plan.groups.single().id)
         assertEquals(property.label, verified.plan.groups.single().title)
+    }
+
+    @Test
+    fun `compiles attached extension definitions and keeps unchanged definitions review only`(): Unit {
+        val selected = selection().copy(definition = "Existing payment meaning.")
+        val extension = item(
+            "item-payment",
+            DocumentGroundedDisposition.ExtendExisting,
+            selected.selectionId,
+        ).copy(definition = "A payment instruction authorized by the customer.")
+        val verified = verifier().verify(input(extension, retrieval = retrieval(listOf(selected))))
+        val compiled = DocumentSemanticPlanCompiler().compile(
+            verified.plan,
+            DocumentSemanticCompilerContext(
+                targetSourceId = "source-1",
+                iriNamespace = "https://example.com/ontology",
+                existingEntities = mapOf(selected.canonicalIri to com.entio.core.DocumentTemporaryReferenceKind.Class),
+                alignedEntities = verified.alignedEntities,
+                itemAlignmentIds = verified.itemAlignmentIds,
+            ),
+        )
+
+        assertEquals(DocumentSemanticItemKind.Definition, verified.plan.items.single {
+            it.id.endsWith(":grounded-definition")
+        }.kind)
+        assertEquals("grounded-group-${extension.id}", verified.plan.groups.single().id)
+        assertEquals(extension.label, verified.plan.groups.single().title)
+        assertEquals(listOf(DocumentPlanOperationKind.AddDefinition), compiled.single().operations.map { it.kind })
+
+        val unchanged = verifier().verify(
+            input(
+                extension.copy(definition = "EXISTING   payment meaning."),
+                retrieval = retrieval(listOf(selected)),
+            ),
+        )
+        assertEquals(1, unchanged.plan.items.size)
+        assertEquals(com.entio.core.DocumentSemanticOutcome.ReviewOnly, unchanged.plan.groups.single().outcome)
     }
 
     @Test
