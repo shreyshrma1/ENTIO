@@ -1,11 +1,13 @@
 package com.entio.semantic
 
 import com.entio.core.DocumentAnalysisWorkKey
+import com.entio.core.DocumentCandidateExtractionCategory
 import com.entio.core.DocumentConfidenceDimensions
 import com.entio.core.DocumentEditableGroundedField
 import com.entio.core.DocumentEditableGroundedFieldKind
 import com.entio.core.DocumentGroundedAnalysisResult
 import com.entio.core.DocumentGroundedCandidate
+import com.entio.core.DocumentGroundedCoverageDisposition
 import com.entio.core.DocumentGroundedDisposition
 import com.entio.core.DocumentGroundedRecommendationStatus
 import com.entio.core.DocumentGroundedSemanticItem
@@ -60,19 +62,21 @@ public class DocumentGroundedAnalysisVerifier {
                 item.id == itemId && item.disposition == DocumentGroundedDisposition.ReuseExisting
             }
         }) { "grounded-reviewer-reuse-authorization-invalid" }
+        val connectedAnalysis = retainOnlyConnectedRelationshipItems(input.analysis, candidates)
         val normalizedAnalysis = requireExactIdentityForReuse(
-            input.analysis,
+            connectedAnalysis,
             candidates,
             selectionById,
             input.fullStateMatches,
             input.reviewerAuthorizedReuseItemIds,
         )
-        val analysis = consolidateExactReuseItems(
+        val exactReuseAnalysis = consolidateExactReuseItems(
             normalizedAnalysis,
             candidates,
             selectionById,
             input.fullStateMatches,
         )
+        val analysis = consolidateEquivalentUnresolvedItems(exactReuseAnalysis, candidates)
         val fields = mutableListOf<DocumentEditableGroundedField>()
         val statuses = linkedMapOf<String, DocumentGroundedRecommendationStatus>()
         val alignments = linkedMapOf<String, DocumentCompilerEntity>()
@@ -422,6 +426,87 @@ public class DocumentGroundedAnalysisVerifier {
         )
     }
 
+    private fun retainOnlyConnectedRelationshipItems(
+        analysis: DocumentGroundedAnalysisResult,
+        candidates: Map<String, DocumentGroundedCandidate>,
+    ): DocumentGroundedAnalysisResult {
+        val referencedItemIds = analysis.items.flatMap { item -> item.references.map { it.targetItemId } }.toSet()
+        val documentOnlyItemIds = analysis.items.filterTo(mutableListOf()) { item ->
+            item.kind == DocumentSemanticItemKind.ObjectProperty &&
+                item.disposition in setOf(
+                    DocumentGroundedDisposition.ProposeNew,
+                    DocumentGroundedDisposition.Unresolved,
+                ) &&
+                item.references.isEmpty() &&
+                item.id !in referencedItemIds &&
+                item.candidateIds.all { candidateId ->
+                    candidates.getValue(candidateId).category == DocumentCandidateExtractionCategory.RelationshipPhrase
+                }
+        }.mapTo(mutableSetOf(), DocumentGroundedSemanticItem::id)
+        if (documentOnlyItemIds.isEmpty()) return analysis
+        val rationale = "The relationship phrase has no connected subject or object semantic item and remains document-only evidence."
+        return DocumentGroundedAnalysisResult(
+            analysis.responseVersion,
+            analysis.items.map { item ->
+                if (item.id !in documentOnlyItemIds) item else item.copy(
+                    disposition = DocumentGroundedDisposition.Administrative,
+                    selectionId = null,
+                    rationale = rationale,
+                    ambiguity = null,
+                )
+            }.sortedBy(DocumentGroundedSemanticItem::stableOrderingKey),
+            analysis.coverage.map { coverage ->
+                if (coverage.itemId !in documentOnlyItemIds) coverage else coverage.copy(
+                    disposition = DocumentGroundedDisposition.Administrative,
+                    rationale = rationale,
+                )
+            }.sortedBy(DocumentGroundedCoverageDisposition::stableOrderingKey),
+        )
+    }
+
+    private fun consolidateEquivalentUnresolvedItems(
+        analysis: DocumentGroundedAnalysisResult,
+        candidates: Map<String, DocumentGroundedCandidate>,
+    ): DocumentGroundedAnalysisResult {
+        val referencedItemIds = analysis.items.flatMap { item -> item.references.map { it.targetItemId } }.toSet()
+        val eligible = analysis.items.mapNotNull { item ->
+            if (item.disposition != DocumentGroundedDisposition.Unresolved ||
+                item.references.isNotEmpty() || item.id in referencedItemIds
+            ) {
+                return@mapNotNull null
+            }
+            val normalizedMeaning = item.candidateIds
+                .map { candidateId -> candidates.getValue(candidateId).normalizedText }
+                .distinct()
+                .singleOrNull()
+                ?: return@mapNotNull null
+            if (normalizeIdentity(item.label) != normalizedMeaning) return@mapNotNull null
+            EquivalentUnresolvedKey(item.kind, normalizedMeaning) to item
+        }
+        val replacementIds = mutableMapOf<String, String>()
+        val consolidated = eligible.groupBy({ it.first }, { it.second }).values.mapNotNull { group ->
+            if (group.size < 2) return@mapNotNull null
+            val canonical = group.minBy(DocumentGroundedSemanticItem::id)
+            group.forEach { replacementIds[it.id] = canonical.id }
+            canonical.copy(
+                candidateIds = group.flatMap(DocumentGroundedSemanticItem::candidateIds).distinct().sorted(),
+                evidenceIds = group.flatMap(DocumentGroundedSemanticItem::evidenceIds)
+                    .distinct().sortedBy { it.value },
+                confidence = group.map(DocumentGroundedSemanticItem::confidence).reduce(::minimumConfidence),
+            )
+        }
+        if (replacementIds.isEmpty()) return analysis
+        return DocumentGroundedAnalysisResult(
+            analysis.responseVersion,
+            (analysis.items.filterNot { it.id in replacementIds } + consolidated)
+                .sortedBy(DocumentGroundedSemanticItem::stableOrderingKey),
+            analysis.coverage.map { coverage ->
+                val replacementId = coverage.itemId?.let(replacementIds::get)
+                if (replacementId == null) coverage else coverage.copy(itemId = replacementId)
+            }.sortedBy(DocumentGroundedCoverageDisposition::stableOrderingKey),
+        )
+    }
+
     private fun isExactIdentity(
         candidate: DocumentGroundedCandidate,
         selection: DocumentOntologyRetrievalSelection,
@@ -461,6 +546,11 @@ public class DocumentGroundedAnalysisVerifier {
         val canonicalIri: String,
         val scope: DocumentMatchScope,
         val sourceId: String,
+    )
+
+    private data class EquivalentUnresolvedKey(
+        val kind: DocumentSemanticItemKind,
+        val normalizedMeaning: String,
     )
 
     private fun components(items: List<DocumentSemanticPlanItem>): List<List<DocumentSemanticPlanItem>> {
