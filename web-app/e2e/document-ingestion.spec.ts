@@ -135,6 +135,10 @@ test("document ingestion completes the accessible review and proposal workflow",
   const accept = page.getByRole("button", { name: "Approve for proposal" });
   await accept.focus();
   await accept.press("Enter");
+  await expect(page.getByRole("status").filter({
+    hasText: "Approved for proposal. Use “Add accepted items to proposal” above to continue.",
+  })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Approve for proposal" })).toHaveCount(0);
   await expect(page.getByText(
     "1 accepted · 1 ready to approve · 0 need input · 0 matched · 0 unsafe",
   )).toBeVisible();

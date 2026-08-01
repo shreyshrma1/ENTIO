@@ -86,6 +86,13 @@ describe("document ingestion review workspace", () => {
       expectedWorkKey: "work-key",
       expectedGraphFingerprint: "graph-fingerprint",
     });
+    const approvedCard = screen.getByLabelText("Customer recommendation details").closest("details");
+    expect(approvedCard).toHaveTextContent("Approved for proposal");
+    expect(within(approvedCard!).getByRole("status")).toHaveTextContent(
+      "Use “Add accepted items to proposal” above to continue.",
+    );
+    expect(within(approvedCard!).queryByRole("button", { name: "Approve for proposal" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Read-only draft impact")).toHaveTextContent("1 accepted");
     fireEvent.click(await screen.findByRole("button", { name: "Add accepted items to proposal" }));
     await waitFor(() => expect(drafts).toEqual([{
       expectedWorkKey: "work-key",
