@@ -162,3 +162,33 @@ selection for the same canonical class, it cannot replace the item-specific
 suggestion and leave the browser with a selected value that is absent from the
 dropdown. The suggestion still counts once toward the existing bounded choice
 limit.
+
+## Structural Resolution Field Presentation Correction
+
+The grounded resolution form now defaults to `ProposeNew` when there is no
+compatible same-kind ontology alternative, or when Kotlin has identified a
+broader class specifically as a suggested superclass. This removes an empty
+disposition choice when creation is the only meaningful proposal while keeping
+actual reuse ambiguity explicit.
+
+Structural fields are visible as soon as the reviewer selects an ontology kind:
+
+- classes expose an optional superclass/subclass relationship field;
+- object properties expose domain and range class fields;
+- datatype properties expose domain and datatype fields; and
+- individuals expose a type class field.
+
+For a suggested superclass, the form preselects the exact server-issued
+selection and states the resulting subclass relationship in plain language.
+The browser still submits only selection IDs and field values; Kotlin performs
+all verification and typed compilation.
+
+Focused React coverage verifies the default creation disposition, the
+preselected superclass relationship, and every kind-specific structural field.
+
+Modified files for this correction are the document-ingestion React workspace
+and its focused test. The approved Slice 7 server review/integration tests, 19
+focused React tests, production web build, document-ingestion Playwright test,
+and `git diff --check` all passed. The correction is committed on
+`fix/phase-12-semantic-resolution-fields`; it introduces no browser-owned
+semantic decision and no alternate review, proposal, or apply workflow.

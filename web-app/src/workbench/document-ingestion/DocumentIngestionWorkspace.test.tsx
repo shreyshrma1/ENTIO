@@ -304,9 +304,19 @@ describe("document ingestion review workspace", () => {
     expect(screen.getByLabelText("Read-only draft impact")).toHaveTextContent("Pending does not mean blocked");
     fireEvent.click(screen.getByLabelText("Customer recommendation details"));
     const resolution = screen.getByLabelText("Resolve grounded ontology item");
-    fireEvent.change(within(resolution).getByLabelText("Resolution"), { target: { value: "ProposeNew" } });
+    expect(within(resolution).getByLabelText("Resolution")).toHaveValue("ProposeNew");
     expect(within(resolution).getByRole("combobox", { name: /Superclass/ })).toHaveValue("selection-loan");
-    expect(resolution).toHaveTextContent("Recommended from the model-selected broader ontology match");
+    expect(resolution).toHaveTextContent("create Servicing Policy as a subclass of Loan");
+
+    fireEvent.change(within(resolution).getByLabelText("Ontology kind"), { target: { value: "ObjectProperty" } });
+    expect(within(resolution).getByLabelText("Domain class")).toBeInTheDocument();
+    expect(within(resolution).getByLabelText("Range class")).toBeInTheDocument();
+    fireEvent.change(within(resolution).getByLabelText("Ontology kind"), { target: { value: "DatatypeProperty" } });
+    expect(within(resolution).getByLabelText("Domain class")).toBeInTheDocument();
+    expect(within(resolution).getByLabelText("Datatype")).toBeInTheDocument();
+    fireEvent.change(within(resolution).getByLabelText("Ontology kind"), { target: { value: "Individual" } });
+    expect(within(resolution).getByLabelText("Type class")).toBeInTheDocument();
+    fireEvent.change(within(resolution).getByLabelText("Ontology kind"), { target: { value: "Class" } });
     fireEvent.change(within(resolution).getByLabelText("Label"), { target: { value: "Loan Servicing Policy" } });
     fireEvent.click(within(resolution).getByRole("button", { name: "Verify and compile resolution" }));
 

@@ -78,7 +78,12 @@ public class DocumentGroundedAnalysisVerifier {
             selectionById,
             input.fullStateMatches,
         )
-        val analysis = consolidateEquivalentUnresolvedItems(exactReuseAnalysis, candidates)
+        val consolidatedAnalysis = consolidateEquivalentUnresolvedItems(exactReuseAnalysis, candidates)
+        val analysis = promoteUncontestedNewClasses(
+            consolidatedAnalysis,
+            selectionById.values,
+            input.fullStateMatches,
+        )
         val suggestedSuperclassSelectionIds = suggestedSuperclassSelectionIds(
             analysis,
             candidates,
@@ -562,6 +567,51 @@ public class DocumentGroundedAnalysisVerifier {
             ?: return@mapNotNull null
         item.id to selection.selectionId
     }.toMap().toSortedMap()
+
+    private fun promoteUncontestedNewClasses(
+        analysis: DocumentGroundedAnalysisResult,
+        selections: Collection<DocumentOntologyRetrievalSelection>,
+        fullStateMatches: List<DocumentFullStateMatch>,
+    ): DocumentGroundedAnalysisResult {
+        val promotedItemIds = analysis.items.asSequence()
+            .filter { it.disposition == DocumentGroundedDisposition.Unresolved }
+            .filter { it.kind == DocumentSemanticItemKind.Class }
+            .filter { item ->
+                selections.none { selection ->
+                    selection.candidateId in item.candidateIds &&
+                        kindCompatible(item.kind, selection.kind)
+                }
+            }
+            .filter { item ->
+                fullStateMatches.none { match ->
+                    match.candidateId in item.candidateIds && match.exactIdentity
+                }
+            }
+            .map(DocumentGroundedSemanticItem::id)
+            .toSet()
+        if (promotedItemIds.isEmpty()) return analysis
+
+        return DocumentGroundedAnalysisResult(
+            analysis.responseVersion,
+            analysis.items.map { item ->
+                if (item.id in promotedItemIds) {
+                    item.copy(
+                        disposition = DocumentGroundedDisposition.ProposeNew,
+                        ambiguity = null,
+                    )
+                } else {
+                    item
+                }
+            }.sortedBy(DocumentGroundedSemanticItem::stableOrderingKey),
+            analysis.coverage.map { coverage ->
+                if (coverage.itemId in promotedItemIds) {
+                    coverage.copy(disposition = DocumentGroundedDisposition.ProposeNew)
+                } else {
+                    coverage
+                }
+            }.sortedBy(DocumentGroundedCoverageDisposition::stableOrderingKey),
+        )
+    }
 
     private fun normalizeIdentity(value: String): String = value
         .trim()
