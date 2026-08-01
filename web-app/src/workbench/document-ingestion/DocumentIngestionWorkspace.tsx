@@ -233,14 +233,26 @@ function DocumentReview({ projectId, taskId, ready }: { projectId: string; taskI
   const submit = (
     recommendationId: string,
     request: Omit<WebDocumentReviewDecision, "expectedWorkKey" | "expectedGraphFingerprint">,
-  ) => decision.mutate({
-    recommendationId,
-    decision: {
-      ...request,
-      expectedWorkKey: workspace.exactWorkKey,
-      expectedGraphFingerprint: workspace.graphFingerprint,
-    },
-  });
+  ) => {
+    const mutation = {
+      recommendationId,
+      decision: {
+        ...request,
+        expectedWorkKey: workspace.exactWorkKey,
+        expectedGraphFingerprint: workspace.graphFingerprint,
+      },
+    };
+    if (request.action === "accept") {
+      decision.mutate(mutation, {
+        onSuccess: (acceptedWorkspace) => draft.mutate({
+          expectedWorkKey: acceptedWorkspace.exactWorkKey,
+          expectedGraphFingerprint: acceptedWorkspace.graphFingerprint,
+        }),
+      });
+      return;
+    }
+    decision.mutate(mutation);
+  };
 
   return <>
     <div className="document-review-summary">
@@ -322,7 +334,9 @@ function DocumentReview({ projectId, taskId, ready }: { projectId: string; taskI
               normalizeLabel(candidate.proposedLabel) === normalizeLabel(item.proposedLabel))}
             onEvidence={setEvidenceId}
             onDecision={(request) => submit(item.id, request)}
-            busy={decision.isPending}
+            busy={decision.isPending || draft.isPending}
+            staging={draft.isPending}
+            stagingFailed={draft.isError}
           />)}
       </section>)}
 
@@ -341,13 +355,15 @@ function DocumentReview({ projectId, taskId, ready }: { projectId: string; taskI
   </>;
 }
 
-function RecommendationCard({ recommendation, documents, duplicateOptions, onEvidence, onDecision, busy }: {
+function RecommendationCard({ recommendation, documents, duplicateOptions, onEvidence, onDecision, busy, staging, stagingFailed }: {
   recommendation: WebDocumentReviewRecommendation;
   documents: Array<{ documentId: string; safeFilename: string }>;
   duplicateOptions: WebDocumentReviewRecommendation[];
   onEvidence: (id: string) => void;
   onDecision: (decision: Omit<WebDocumentReviewDecision, "expectedWorkKey" | "expectedGraphFingerprint">) => void;
   busy: boolean;
+  staging: boolean;
+  stagingFailed: boolean;
 }) {
   const [label, setLabel] = useState(recommendation.proposedLabel ?? "");
   const [clarification, setClarification] = useState(recommendation.clarification ?? "");
@@ -678,7 +694,13 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
       {changePreview.draftable && !acceptedForProposal && !addedToProposal
         ? <button className="button primary" type="button" disabled={busy || (clarificationRequired && !clarification.trim())} onClick={() => onDecision({ action: "accept", clarification })}>Approve for proposal</button>
         : null}
-      {acceptedForProposal ? <span role="status">Approved for proposal. Use “Add accepted items to proposal” above to continue.</span> : null}
+      {acceptedForProposal ? <span role="status">
+        {staging
+          ? "Approved for proposal. Adding it to the shared proposal now."
+          : stagingFailed
+            ? "Approved, but it could not be added automatically. Use “Add accepted items to proposal” above to retry."
+            : "Approved for proposal. Use “Add accepted items to proposal” above to continue."}
+      </span> : null}
       {addedToProposal ? <span role="status">Added to the shared proposal.</span> : null}
       {recommendation.connectedStatus === "Matched" && recommendation.reviewStatus !== "Drafted"
         ? <button className="button primary" type="button" disabled={busy} onClick={() =>

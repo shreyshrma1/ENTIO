@@ -3,6 +3,7 @@ package com.entio.web.ingestion
 import com.entio.core.DocumentDraftProvenance
 import com.entio.core.DocumentAnalysisPipelineVersions
 import com.entio.core.DocumentAnalysisStage
+import com.entio.core.DocumentAnalysisStageRecord
 import com.entio.core.DocumentAnalysisStageState
 import com.entio.core.DocumentTaskId
 import com.entio.semantic.ConnectedDocumentDraftContext
@@ -504,7 +505,7 @@ public class DocumentIngestionWebService(
         val promptCurrent = providerStages.isNotEmpty() &&
             providerStages.all {
                 it.state == DocumentAnalysisStageState.Succeeded &&
-                    it.promptVersion == expectedPromptVersion(it.stage)
+                    it.promptVersion == expectedDocumentAnalysisPromptVersion(it)
             }
         if (!modelCurrent || !promptCurrent) {
             throw DocumentIngestionFailure(
@@ -610,22 +611,6 @@ public class DocumentIngestionWebService(
         )
     }
 
-    private fun expectedPromptVersion(stage: DocumentAnalysisStage): String? = when (stage) {
-        DocumentAnalysisStage.Discovery -> DocumentAnalysisPipelineVersions.DISCOVERY_PROMPT
-        DocumentAnalysisStage.ConnectedModeling -> DocumentAnalysisPipelineVersions.CONNECTED_MODEL_PROMPT
-        DocumentAnalysisStage.ModelConsolidation -> DocumentAnalysisPipelineVersions.MODEL_CONSOLIDATION_PROMPT
-        DocumentAnalysisStage.PrerequisiteCompletion ->
-            DocumentAnalysisPipelineVersions.PREREQUISITE_COMPLETION_PROMPT
-        DocumentAnalysisStage.Reconciliation -> DocumentAnalysisPipelineVersions.RECONCILIATION_PROMPT
-        DocumentAnalysisStage.OntologyAlignment -> DocumentAnalysisPipelineVersions.ONTOLOGY_ALIGNMENT_PROMPT
-        DocumentAnalysisStage.ModelingCritic -> DocumentAnalysisPipelineVersions.MODELING_CRITIC_PROMPT
-        DocumentAnalysisStage.FinalPlanning -> DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_PROMPT
-        DocumentAnalysisStage.SemanticAssembly,
-        DocumentAnalysisStage.DeterministicVerification,
-        DocumentAnalysisStage.AwaitingReview,
-        -> null
-    }
-
     override fun close(): Unit {
         orchestrator?.close()
         tasks.close()
@@ -722,6 +707,29 @@ internal fun packAtomicDocumentRecommendationGroups(
     }
     if (current.isNotEmpty()) batches += current
     return batches
+}
+
+internal fun expectedDocumentAnalysisPromptVersion(record: DocumentAnalysisStageRecord): String? {
+    if (record.stage == DocumentAnalysisStage.ConnectedModeling &&
+        record.requestSchemaVersion == DocumentAnalysisPipelineVersions.GROUNDED_REQUEST
+    ) {
+        return DocumentAnalysisPipelineVersions.GROUNDED_PROMPT
+    }
+    return when (record.stage) {
+        DocumentAnalysisStage.Discovery -> DocumentAnalysisPipelineVersions.DISCOVERY_PROMPT
+        DocumentAnalysisStage.ConnectedModeling -> DocumentAnalysisPipelineVersions.CONNECTED_MODEL_PROMPT
+        DocumentAnalysisStage.ModelConsolidation -> DocumentAnalysisPipelineVersions.MODEL_CONSOLIDATION_PROMPT
+        DocumentAnalysisStage.PrerequisiteCompletion ->
+            DocumentAnalysisPipelineVersions.PREREQUISITE_COMPLETION_PROMPT
+        DocumentAnalysisStage.Reconciliation -> DocumentAnalysisPipelineVersions.RECONCILIATION_PROMPT
+        DocumentAnalysisStage.OntologyAlignment -> DocumentAnalysisPipelineVersions.ONTOLOGY_ALIGNMENT_PROMPT
+        DocumentAnalysisStage.ModelingCritic -> DocumentAnalysisPipelineVersions.MODELING_CRITIC_PROMPT
+        DocumentAnalysisStage.FinalPlanning -> DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_PROMPT
+        DocumentAnalysisStage.SemanticAssembly,
+        DocumentAnalysisStage.DeterministicVerification,
+        DocumentAnalysisStage.AwaitingReview,
+        -> null
+    }
 }
 
 private fun DocumentDraftOperation.editType(): String = when (this) {
