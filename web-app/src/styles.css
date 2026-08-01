@@ -1161,6 +1161,13 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .document-review-summary h2, .document-recommendation-group h2 { margin: 0; }
 .document-review-summary article, .document-draft-impact, .document-coverage-ledger, .document-recommendation-card { padding: 13px; border: 1px solid var(--border-subtle); border-radius: 10px; }
 .document-review-summary article h3, .document-review-summary article p { margin: 0 0 6px; }
+.document-analysis-overview { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-1); }
+.document-analysis-overview h3, .document-analysis-overview p { margin: 0; }
+.document-analysis-overview p { color: var(--text-muted); font-size: 12px; }
+.document-analysis-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.document-analysis-metrics > div { display: grid; gap: 2px; padding: 10px; border-radius: 8px; background: var(--surface-2); }
+.document-analysis-metrics strong { font-size: 18px; line-height: 1.1; }
+.document-analysis-metrics span { color: var(--text-muted); font-size: 10px; line-height: 1.25; }
 .document-coverage-ledger summary { cursor: pointer; font-weight: 700; }
 .document-coverage-ledger[open] { display: grid; gap: 8px; }
 .document-coverage-ledger > p { margin: 0; color: var(--text-secondary); }
@@ -1172,9 +1179,11 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .document-recommendation-summary > * { min-width: 0; }
 .document-recommendation-summary:hover { background: var(--surface-2); }
 .document-recommendation-summary:focus-visible { outline: 2px solid var(--primary-600); outline-offset: -2px; }
+.document-recommendation-summary > div:first-child > span { color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .document-recommendation-content { display: grid; gap: 14px; padding: 0 18px 18px; }
 .document-recommendation-card h3, .document-recommendation-card h4, .document-recommendation-card p { margin: 0; }
 .document-recommendation-card h4 { font-size: 13px; }
+.document-semantic-intent { color: var(--text-secondary); }
 .document-recommendation-badges { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
 .document-recommendation-badges > span:not(.document-recommendation-arrow) { padding: 3px 8px; border-radius: 999px; background: var(--surface-2); color: var(--text-secondary); font-size: 11px; font-weight: 700; }
 .document-recommendation-arrow { display: inline-grid; width: 24px; height: 24px; place-items: center; color: var(--text-secondary); font-size: 18px; transition: transform 120ms ease; }
@@ -1213,8 +1222,25 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .document-review-options[open] summary { margin-bottom: 10px; }
 .document-review-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .document-review-fields label:last-child { grid-column: 1 / -1; }
-.document-grounded-resolution { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 12px; border: 1px solid var(--primary-600); border-radius: 9px; background: var(--surface-2); }
+.document-grounded-context { padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: 8px; }
+.document-grounded-context > summary, .document-match-details > summary { cursor: pointer; font-weight: 700; }
+.document-grounded-context[open] { display: grid; gap: 10px; }
+.document-grounded-context article { display: grid; gap: 8px; }
+.document-match-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: baseline; }
+.document-match-summary > span { grid-column: 1 / -1; color: var(--text-muted); font-size: 10px; text-transform: uppercase; }
+.document-match-summary small { color: var(--text-muted); }
+.document-match-details { padding-top: 6px; border-top: 1px solid var(--border-subtle); }
+.document-match-details[open] { display: grid; gap: 8px; }
+.document-match-details ul { margin-top: 8px; }
+.document-match-details li { display: grid; gap: 3px; padding: 8px; border-radius: 7px; background: var(--surface-2); }
+.document-match-details small { overflow-wrap: anywhere; color: var(--text-muted); }
+.document-grounded-resolution { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px; padding: 16px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-2); }
 .document-grounded-resolution h4, .document-grounded-resolution p, .document-grounded-resolution button { grid-column: 1 / -1; }
+.document-grounded-resolution > p { color: var(--text-secondary); font-size: 13px; }
+.document-grounded-resolution .document-field-full { grid-column: 1 / -1; }
+.document-grounded-resolution input, .document-grounded-resolution select { min-height: 40px; }
+.document-grounded-resolution textarea { min-height: 76px; resize: vertical; }
+.document-field-optional { color: var(--text-muted); font-size: 10px; font-weight: 500; }
 .document-conflict { padding: 10px; border-left: 3px solid var(--warning); background: var(--surface-2); }
 .document-evidence-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; padding: 18px; border-radius: 12px; background: var(--surface-1); }
 .document-evidence-dialog header { display: flex; align-items: center; justify-content: space-between; }
@@ -1230,10 +1256,12 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 @container workspace (max-width: 760px) {
   .document-workspace { padding: 14px; }
   .document-workspace-grid { grid-template-columns: 1fr; }
+  .document-analysis-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @container workspace (max-width: 520px) {
   .document-upload-card, .document-review-fields, .document-grounded-resolution { grid-template-columns: 1fr; }
   .document-upload-card > label:first-child, .document-review-fields label:last-child, .document-grounded-resolution > * { grid-column: auto; }
   .document-confidence dl { grid-template-columns: 1fr; }
   .document-individual-gates > div { display: grid; }
+  .document-analysis-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

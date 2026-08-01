@@ -272,36 +272,28 @@ function DocumentReview({ projectId, taskId, ready }: { projectId: string; taskI
         {draft.isSuccess ? <span role="status">{draft.data.stagedEditCount} typed edit{draft.data.stagedEditCount === 1 ? "" : "s"} added to the shared proposal.</span> : null}
         {draft.isError ? <span role="alert">Accepted items could not be drafted. Resolve stale or blocked recommendations and retry.</span> : null}
       </div>
-      {workspace.analysisCounts ? <div
-        className="document-quality-metrics"
+      {workspace.analysisCounts ? <section
+        className="document-analysis-overview"
         aria-label="Document analysis funnel"
       >
-        <strong>Document analysis funnel</strong>
-        <span>
-          {workspace.analysisCounts.evidenceMentions} evidence mentions → {workspace.analysisCounts.groupedCandidates} grouped candidates → {workspace.analysisCounts.ontologyBearingCandidates} ontology-bearing candidates
-        </span>
-        <small>
+        <h3>Analysis overview</h3>
+        <div className="document-analysis-metrics">
+          <div><strong>{workspace.analysisCounts.evidenceMentions}</strong><span>Evidence mentions</span></div>
+          <div><strong>{workspace.analysisCounts.groupedCandidates}</strong><span>Grouped candidates</span></div>
+          <div><strong>{workspace.analysisCounts.ontologyBearingCandidates}</strong><span>Ontology candidates</span></div>
+          {workspace.semanticCoverage ? <div><strong>
+            {workspace.semanticCoverage.percentage == null ? "—" : `${workspace.semanticCoverage.percentage}%`}
+          </strong><span>Semantic coverage</span></div> : null}
+          {workspace.compilationSuccess ? <div><strong>
+            {workspace.compilationSuccess.percentage == null ? "—" : `${workspace.compilationSuccess.percentage}%`}
+          </strong><span>Compilation success</span></div> : null}
+        </div>
+        <p>
           {workspace.analysisCounts.documentOnlyMentions} document-only mentions and {workspace.analysisCounts.supportingValueMentions} supporting values remain in coverage without creating review cards.
-        </small>
-      </div> : null}
-      {workspace.semanticCoverage || workspace.compilationSuccess ? <div
-        className="document-quality-metrics"
-        aria-label="Semantic coverage and compilation metrics"
-      >
-        <strong>Deterministic quality checks</strong>
-        {workspace.semanticCoverage ? <span>
-          Semantic coverage: {workspace.semanticCoverage.percentage == null
-            ? "not applicable"
-            : `${workspace.semanticCoverage.percentage}%`}
-        </span> : null}
-        {workspace.compilationSuccess ? <span>
-          Compilation success: {workspace.compilationSuccess.percentage == null
-            ? "not applicable"
-            : `${workspace.compilationSuccess.percentage}%`}
-        </span> : null}
-      </div> : null}
+        </p>
+      </section> : null}
       {documentOnlyFindings.length ? <details className="document-coverage-ledger">
-        <summary>Coverage ledger · {documentOnlyFindings.length} document-only meaning{documentOnlyFindings.length === 1 ? "" : "s"}</summary>
+        <summary>{documentOnlyFindings.length} document-only meaning{documentOnlyFindings.length === 1 ? "" : "s"}</summary>
         <p>These evidence-backed meanings are retained for coverage but do not create ontology review cards.</p>
         <ul>{documentOnlyFindings.map((finding) => <li key={finding.id}>
           <strong>{finding.label}</strong>
@@ -413,12 +405,17 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
     ])));
   const clarificationRequired = recommendation.mandatoryClarificationReasons.length > 0;
   const recommendationName = recommendation.proposedLabel ?? humanize(recommendation.action);
+  const semanticIntent = recommendation.semanticIntent ?? recommendation.description ?? recommendation.rationale;
+  const showSemanticIntent = semanticIntent !== "Connected evidence-grounded ontology meaning.";
+  const recommendationTypeLabel = needsInputItem
+    ? humanize(needsInputItem.kind)
+    : humanize(recommendation.type);
   return <details className="document-recommendation-card">
     <summary
       className="document-recommendation-summary"
       aria-label={`${recommendationName} recommendation details`}
     >
-      <div><span>{humanize(recommendation.type)}</span><h3>{recommendation.proposedLabel ?? humanize(recommendation.action)}</h3></div>
+      <div><span>{recommendationTypeLabel}</span><h3>{recommendation.proposedLabel ?? humanize(recommendation.action)}</h3></div>
       <div className="document-recommendation-badges">
         <span>{humanize(recommendation.connectedStatus ?? recommendation.reviewStatus)}</span>
         <span>{recommendation.confidence}% confidence</span>
@@ -428,46 +425,56 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
 
     <div className="document-recommendation-content">
 
-    <section className="document-change-description">
-      <h4>Semantic intent</h4>
-      <p>{recommendation.semanticIntent ?? recommendation.description ?? recommendation.rationale}</p>
-    </section>
+    {showSemanticIntent ? <p className="document-semantic-intent">{semanticIntent}</p> : null}
 
-    {recommendation.groundedItems?.length ? <section className="document-grounded-context" aria-label="Grounded ontology decisions">
-      <h4>Grounded ontology decisions</h4>
-      {recommendation.groundedItems.map((item) => <article key={item.itemId}>
-        <h5>{humanize(item.disposition)} · {humanize(item.status)}</h5>
-        {item.alternatives.length ? <ul>{item.alternatives.map((alternative) => <li key={alternative.selectionId}>
-          <strong>{alternative.preferredLabel ?? alternative.entityIri}</strong>
-          <span>{humanize(alternative.kind)} · {humanize(alternative.scope)} · {alternative.score}%</span>
-          <small>Selection ID: {alternative.selectionId}{item.selectedSelectionId === alternative.selectionId ? " · selected" : ""}</small>
-          {alternative.definition ? <p>{alternative.definition}</p> : null}
-          <small>{alternative.matchReasons.join("; ")}</small>
-          {alternative.parents.length ? <small>Parents: {alternative.parents.join(", ")}</small> : null}
-          {alternative.domains.length ? <small>Domains: {alternative.domains.join(", ")}</small> : null}
-          {alternative.ranges.length ? <small>Ranges/datatypes: {alternative.ranges.join(", ")}</small> : null}
-          {alternative.types.length ? <small>Types: {alternative.types.join(", ")}</small> : null}
-        </li>)}</ul> : <p>No authorized ontology alternative was selected.</p>}
-        {item.prerequisiteOrigins.length ? <p>Prerequisites: {item.prerequisiteOrigins.map(humanize).join(", ")}</p> : null}
-        {item.editableFields.length ? <ul>{item.editableFields.map((field) => <li key={field.id}>
-          <strong>{humanize(field.kind)}{field.required ? " · required" : ""}</strong><span>{field.message}</span>
-        </li>)}</ul> : null}
-      </article>)}
-    </section> : null}
+    {recommendation.groundedItems?.some((item) => item.alternatives.length || item.prerequisiteOrigins.length)
+      ? <details className="document-grounded-context" aria-label="Grounded ontology decisions">
+        <summary>Why Entio suggested this</summary>
+        {recommendation.groundedItems.map((item) => {
+          const primaryAlternative = item.alternatives.find(
+            (alternative) => alternative.selectionId === item.selectedSelectionId,
+          ) ?? item.alternatives[0];
+          return <article key={item.itemId}>
+            {primaryAlternative ? <div className="document-match-summary">
+              <span>Possible ontology match</span>
+              <strong>{primaryAlternative.preferredLabel ?? primaryAlternative.entityIri}</strong>
+              <small>{humanize(primaryAlternative.kind)} · {primaryAlternative.score}% match</small>
+            </div> : null}
+            {item.prerequisiteOrigins.length
+              ? <p>Includes {item.prerequisiteOrigins.map(humanize).join(", ").toLowerCase()} context.</p>
+              : null}
+            {item.alternatives.length ? <details className="document-match-details">
+              <summary>Technical match details</summary>
+              <ul>{item.alternatives.map((alternative) => <li key={alternative.selectionId}>
+                <strong>{alternative.preferredLabel ?? alternative.entityIri}</strong>
+                <span>{humanize(alternative.kind)} · {humanize(alternative.scope)} · {alternative.score}%</span>
+                <small>{alternative.entityIri}</small>
+                {alternative.definition ? <p>{alternative.definition}</p> : null}
+                {alternative.matchReasons.length ? <small>{alternative.matchReasons.join("; ")}</small> : null}
+                {alternative.parents.length ? <small>Parents: {alternative.parents.join(", ")}</small> : null}
+                {alternative.domains.length ? <small>Domains: {alternative.domains.join(", ")}</small> : null}
+                {alternative.ranges.length ? <small>Ranges/datatypes: {alternative.ranges.join(", ")}</small> : null}
+                {alternative.types.length ? <small>Types: {alternative.types.join(", ")}</small> : null}
+              </li>)}</ul>
+            </details> : null}
+          </article>;
+        })}
+      </details>
+      : null}
 
     {needsInputItem ? <section className="document-grounded-resolution" aria-label="Resolve grounded ontology item">
-      <h4>Resolve this recommendation</h4>
-      <p>This evidence-backed item needs an explicit ontology decision before Entio can compile it.</p>
+      <h4>Review ontology entity</h4>
+      <p>Confirm what this document term should become.</p>
       <label>Resolution
         <select value={groundedDisposition} onChange={(event) => {
           setGroundedDisposition(event.target.value as typeof groundedDisposition);
           if (event.target.value === "ProposeNew") setGroundedSelectionId("");
         }}>
           <option value="">Choose a resolution</option>
-          <option value="ProposeNew">Create a new ontology entity</option>
-          {compatibleAlternatives.length ? <option value="ReuseExisting">Reuse an existing ontology entity</option> : null}
+          <option value="ProposeNew">Create new entity</option>
+          {compatibleAlternatives.length ? <option value="ReuseExisting">Use existing entity</option> : null}
           {compatibleAlternatives.some((item) => item.writable)
-            ? <option value="ExtendExisting">Extend a writable ontology entity</option>
+            ? <option value="ExtendExisting">Add to existing entity</option>
             : null}
         </select>
       </label>
@@ -481,7 +488,7 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
             </option>)}
         </select>
       </label> : null}
-      <label>Ontology kind
+      <label>Entity type
         <select value={groundedKind} onChange={(event) => setGroundedKind(event.target.value as typeof groundedKind)}>
           {supportedKinds.map((kind) => <option key={kind} value={kind}>{humanize(kind)}</option>)}
         </select>
@@ -504,7 +511,7 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
           </select>
         </label>
       </> : null}
-      {selectingNewEntityStructure && groundedKind === "Class" ? <label>Superclass / subclass relationship (optional)
+      {selectingNewEntityStructure && groundedKind === "Class" ? <label className="document-field-full">Parent class (optional)
         <select value={groundedSuperclassSelectionId} onChange={(event) => setGroundedSuperclassSelectionId(event.target.value)}>
           <option value="">Create without a superclass relationship</option>
           {classResolutionAlternatives.map((alternative) => <option key={`superclass-${alternative.selectionId}`} value={alternative.selectionId}>
@@ -544,8 +551,8 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
           </option>)}
         </select>
       </label> : null}
-      <label>Label<input value={groundedLabel} maxLength={500} onChange={(event) => setGroundedLabel(event.target.value)} /></label>
-      <label>Definition<textarea value={groundedDefinition} maxLength={2000} onChange={(event) => setGroundedDefinition(event.target.value)} /></label>
+      <label className="document-field-full">Label<input value={groundedLabel} maxLength={500} onChange={(event) => setGroundedLabel(event.target.value)} /></label>
+      <label className="document-field-full">Definition <span className="document-field-optional">Optional</span><textarea value={groundedDefinition} maxLength={2000} onChange={(event) => setGroundedDefinition(event.target.value)} /></label>
       <button
         className="button primary"
         type="button"
@@ -569,7 +576,7 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
               : {}),
           },
         })}
-      >Verify and compile resolution</button>
+      >Save recommendation</button>
     </section> : null}
 
     <section className={`document-change-preview ${changePreview.draftable || recommendation.connectedStatus === "Matched" ? "" : "blocked"}`} aria-label="Exact proposed changes">
