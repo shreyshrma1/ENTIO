@@ -252,8 +252,10 @@ function DocumentReview({ projectId, taskId, ready }: { projectId: string; taskI
       </article>)}
       <div className="document-draft-impact" aria-label="Read-only draft impact">
         <strong>Draft impact preview</strong>
-        <span>{workspace.draftImpact.acceptedCount} accepted · {workspace.draftImpact.pendingCount} pending · {workspace.draftImpact.blockedCount} blocked</span>
-        <small>Read only. Staging becomes available in the next workflow step.</small>
+        <span>
+          {workspace.draftImpact.acceptedCount} accepted · {workspace.draftImpact.executableCount} ready to approve · {workspace.draftImpact.needsInputCount} need input · {workspace.draftImpact.reviewOnlyCount} reuse or review-only · {workspace.draftImpact.blockedCount} unsafe
+        </span>
+        <small>{workspace.draftImpact.pendingCount} recommendations are awaiting your decision. Pending does not mean blocked. Read only until accepted items are staged.</small>
         <button
           className="button primary"
           type="button"
@@ -318,7 +320,11 @@ function DocumentReview({ projectId, taskId, ready }: { projectId: string; taskI
           />)}
       </section>)}
 
-    {decision.isError ? <p role="alert">That decision was not saved. Reload the workspace if its results changed.</p> : null}
+    {decision.isError ? <p role="alert">
+      {decision.error instanceof Error
+        ? decision.error.message
+        : "That decision was not saved. Reload the workspace if its results changed."}
+    </p> : null}
     {evidenceId ? <EvidenceDialog
       loading={evidence.isPending}
       failed={evidence.isError}
@@ -340,6 +346,26 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
   const [label, setLabel] = useState(recommendation.proposedLabel ?? "");
   const [clarification, setClarification] = useState(recommendation.clarification ?? "");
   const [targetSourceId, setTargetSourceId] = useState(recommendation.targetSourceId ?? "");
+  const needsInputItem = recommendation.groundedItems?.find((item) => item.status === "NeedsInput");
+  const supportedKinds = ["Class", "ObjectProperty", "DatatypeProperty", "AnnotationProperty", "Individual"] as const;
+  const initialKind = supportedKinds.find((kind) => kind === needsInputItem?.kind) ?? "Class";
+  const [groundedDisposition, setGroundedDisposition] = useState<"" | "ReuseExisting" | "ExtendExisting" | "ProposeNew">("");
+  const [groundedSelectionId, setGroundedSelectionId] = useState("");
+  const [groundedKind, setGroundedKind] = useState<(typeof supportedKinds)[number]>(initialKind);
+  const [groundedLabel, setGroundedLabel] = useState(needsInputItem?.label ?? "");
+  const [groundedDefinition, setGroundedDefinition] = useState(needsInputItem?.definition ?? "");
+  const [groundedDomainSelectionId, setGroundedDomainSelectionId] = useState("");
+  const [groundedRangeSelectionId, setGroundedRangeSelectionId] = useState("");
+  const [groundedTypeSelectionId, setGroundedTypeSelectionId] = useState("");
+  const [groundedDatatypeIri, setGroundedDatatypeIri] = useState("");
+  const compatibleAlternatives = needsInputItem?.alternatives.filter((alternative) => alternative.kind === groundedKind) ?? [];
+  const classResolutionAlternatives = needsInputItem?.resolutionAlternatives ?? [];
+  const proposingNew = groundedDisposition === "ProposeNew";
+  const missingConnectedContext = proposingNew && (
+    (groundedKind === "ObjectProperty" && (!groundedDomainSelectionId || !groundedRangeSelectionId)) ||
+    (groundedKind === "DatatypeProperty" && (!groundedDomainSelectionId || !groundedDatatypeIri)) ||
+    (groundedKind === "Individual" && !groundedTypeSelectionId)
+  );
   const [duplicateId, setDuplicateId] = useState("");
   const changePreview = recommendation.changePreview ?? {
     draftable: false,
@@ -396,6 +422,109 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
           <strong>{humanize(field.kind)}{field.required ? " · required" : ""}</strong><span>{field.message}</span>
         </li>)}</ul> : null}
       </article>)}
+    </section> : null}
+
+    {needsInputItem ? <section className="document-grounded-resolution" aria-label="Resolve grounded ontology item">
+      <h4>Resolve this recommendation</h4>
+      <p>This evidence-backed item needs an explicit ontology decision before Entio can compile it.</p>
+      <label>Resolution
+        <select value={groundedDisposition} onChange={(event) => {
+          setGroundedDisposition(event.target.value as typeof groundedDisposition);
+          if (event.target.value === "ProposeNew") setGroundedSelectionId("");
+        }}>
+          <option value="">Choose a resolution</option>
+          <option value="ProposeNew">Create a new ontology entity</option>
+          {compatibleAlternatives.length ? <option value="ReuseExisting">Reuse an existing ontology entity</option> : null}
+          {compatibleAlternatives.some((item) => item.writable)
+            ? <option value="ExtendExisting">Extend a writable ontology entity</option>
+            : null}
+        </select>
+      </label>
+      {groundedDisposition === "ReuseExisting" || groundedDisposition === "ExtendExisting" ? <label>Ontology match
+        <select value={groundedSelectionId} onChange={(event) => setGroundedSelectionId(event.target.value)}>
+          <option value="">Choose a server-verified match</option>
+          {compatibleAlternatives
+            .filter((alternative) => groundedDisposition !== "ExtendExisting" || alternative.writable)
+            .map((alternative) => <option key={alternative.selectionId} value={alternative.selectionId}>
+              {alternative.preferredLabel ?? alternative.entityIri} · {humanize(alternative.kind)} · {alternative.score}%
+            </option>)}
+        </select>
+      </label> : null}
+      <label>Ontology kind
+        <select value={groundedKind} onChange={(event) => setGroundedKind(event.target.value as typeof groundedKind)}>
+          {supportedKinds.map((kind) => <option key={kind} value={kind}>{humanize(kind)}</option>)}
+        </select>
+      </label>
+      {proposingNew && groundedKind === "ObjectProperty" ? <>
+        <label>Domain class
+          <select value={groundedDomainSelectionId} onChange={(event) => setGroundedDomainSelectionId(event.target.value)}>
+            <option value="">Choose the relationship domain</option>
+            {classResolutionAlternatives.map((alternative) => <option key={`domain-${alternative.selectionId}`} value={alternative.selectionId}>
+              {alternative.preferredLabel ?? alternative.entityIri} · {alternative.score}%
+            </option>)}
+          </select>
+        </label>
+        <label>Range class
+          <select value={groundedRangeSelectionId} onChange={(event) => setGroundedRangeSelectionId(event.target.value)}>
+            <option value="">Choose the relationship range</option>
+            {classResolutionAlternatives.map((alternative) => <option key={`range-${alternative.selectionId}`} value={alternative.selectionId}>
+              {alternative.preferredLabel ?? alternative.entityIri} · {alternative.score}%
+            </option>)}
+          </select>
+        </label>
+      </> : null}
+      {proposingNew && groundedKind === "DatatypeProperty" ? <>
+        <label>Domain class
+          <select value={groundedDomainSelectionId} onChange={(event) => setGroundedDomainSelectionId(event.target.value)}>
+            <option value="">Choose the attribute domain</option>
+            {classResolutionAlternatives.map((alternative) => <option key={`datatype-domain-${alternative.selectionId}`} value={alternative.selectionId}>
+              {alternative.preferredLabel ?? alternative.entityIri} · {alternative.score}%
+            </option>)}
+          </select>
+        </label>
+        <label>Datatype
+          <select value={groundedDatatypeIri} onChange={(event) => setGroundedDatatypeIri(event.target.value)}>
+            <option value="">Choose the literal datatype</option>
+            <option value="http://www.w3.org/2001/XMLSchema#string">Text</option>
+            <option value="http://www.w3.org/2001/XMLSchema#decimal">Decimal</option>
+            <option value="http://www.w3.org/2001/XMLSchema#integer">Integer</option>
+            <option value="http://www.w3.org/2001/XMLSchema#boolean">Boolean</option>
+            <option value="http://www.w3.org/2001/XMLSchema#date">Date</option>
+            <option value="http://www.w3.org/2001/XMLSchema#dateTime">Date and time</option>
+          </select>
+        </label>
+      </> : null}
+      {proposingNew && groundedKind === "Individual" ? <label>Type class
+        <select value={groundedTypeSelectionId} onChange={(event) => setGroundedTypeSelectionId(event.target.value)}>
+          <option value="">Choose the individual's type</option>
+          {classResolutionAlternatives.map((alternative) => <option key={`type-${alternative.selectionId}`} value={alternative.selectionId}>
+            {alternative.preferredLabel ?? alternative.entityIri} · {alternative.score}%
+          </option>)}
+        </select>
+      </label> : null}
+      <label>Label<input value={groundedLabel} maxLength={500} onChange={(event) => setGroundedLabel(event.target.value)} /></label>
+      <label>Definition<textarea value={groundedDefinition} maxLength={2000} onChange={(event) => setGroundedDefinition(event.target.value)} /></label>
+      <button
+        className="button primary"
+        type="button"
+        disabled={busy || !groundedDisposition || !groundedLabel.trim() || missingConnectedContext ||
+          ((groundedDisposition === "ReuseExisting" || groundedDisposition === "ExtendExisting") && !groundedSelectionId)}
+        onClick={() => onDecision({
+          action: "resolve-grounded",
+          groundedItemEdit: {
+            itemId: needsInputItem.itemId,
+            disposition: groundedDisposition as "ReuseExisting" | "ExtendExisting" | "ProposeNew",
+            kind: groundedKind,
+            label: groundedLabel.trim(),
+            ...(groundedDefinition.trim() ? { definition: groundedDefinition.trim() } : {}),
+            ...(groundedSelectionId ? { selectionId: groundedSelectionId } : {}),
+            ...(groundedDomainSelectionId ? { domainSelectionId: groundedDomainSelectionId } : {}),
+            ...(groundedRangeSelectionId ? { rangeSelectionId: groundedRangeSelectionId } : {}),
+            ...(groundedDatatypeIri ? { datatypeIri: groundedDatatypeIri } : {}),
+            ...(groundedTypeSelectionId ? { typeSelectionId: groundedTypeSelectionId } : {}),
+          },
+        })}
+      >Verify and compile resolution</button>
     </section> : null}
 
     <section className={`document-change-preview ${changePreview.draftable ? "" : "blocked"}`} aria-label="Exact proposed changes">

@@ -12,6 +12,7 @@ import com.entio.core.DocumentGroundedCandidate
 import com.entio.core.DocumentGroundedCoverageDisposition
 import com.entio.core.DocumentGroundedDisposition
 import com.entio.core.DocumentGroundedEvidenceSpan
+import com.entio.core.DocumentGroundedReference
 import com.entio.core.DocumentGroundedSemanticItem
 import com.entio.core.DocumentId
 import com.entio.core.DocumentMatchScope
@@ -20,6 +21,7 @@ import com.entio.core.DocumentOntologyRetrievalSelection
 import com.entio.core.DocumentRetrievalFingerprints
 import com.entio.core.DocumentRetrievalMatchReason
 import com.entio.core.DocumentSemanticItemKind
+import com.entio.core.DocumentSemanticReferenceRole
 import com.entio.core.DocumentTextBlockId
 import com.entio.core.Iri
 import com.entio.core.SemanticDescriptorKind
@@ -84,6 +86,69 @@ class DocumentGroundedAnalysisVerifierTest {
         val needsRole = verifier().verify(input(missingDomain))
         assertEquals(DocumentEditableGroundedFieldKind.Domain, needsRole.editableFields.single().kind)
         assertTrue(needsRole.plan.items.isEmpty())
+    }
+
+    @Test
+    fun `retains unresolved meaning as reviewer-solvable needs input`(): Unit {
+        val unresolved = item("item-payment", DocumentGroundedDisposition.Unresolved)
+        val verified = verifier().verify(
+            input(unresolved, retrieval = retrieval(listOf(selection()))),
+        )
+
+        assertEquals(
+            com.entio.core.DocumentGroundedRecommendationStatus.NeedsInput,
+            verified.statusByItemId.getValue(unresolved.id),
+        )
+        assertEquals(setOf(unresolved.id), verified.plan.items.map { it.id }.toSet())
+        assertEquals(setOf(unresolved.id), verified.plan.groups.single().itemIds.toSet())
+        assertEquals(
+            setOf(
+                DocumentEditableGroundedFieldKind.Disposition,
+                DocumentEditableGroundedFieldKind.EntityKind,
+                DocumentEditableGroundedFieldKind.Label,
+                DocumentEditableGroundedFieldKind.Selection,
+            ),
+            verified.editableFields.map { it.kind }.toSet(),
+        )
+        assertTrue(verified.editableFields.all { it.id.startsWith("${unresolved.id}:") })
+        assertEquals(listOf("selection-1"), verified.editableFields.single {
+            it.kind == DocumentEditableGroundedFieldKind.Selection
+        }.compatibleSelectionIds)
+    }
+
+    @Test
+    fun `names connected groups for executable declarations instead of reused support classes`(): Unit {
+        val property = item(
+            "item-ownership-information",
+            kind = DocumentSemanticItemKind.DatatypeProperty,
+        ).copy(label = "Ownership Information")
+        val domain = item(
+            "item-ownership-information-domain-entity",
+            DocumentGroundedDisposition.ReuseExisting,
+            selection().selectionId,
+        ).copy(label = "Customer")
+        val domainRelationship = item(
+            "item-ownership-information-domain",
+            kind = DocumentSemanticItemKind.DatatypePropertyDomain,
+        ).copy(
+            label = "Domain of Ownership Information",
+            references = listOf(
+                DocumentGroundedReference(DocumentSemanticReferenceRole.Property, property.id),
+                DocumentGroundedReference(DocumentSemanticReferenceRole.Domain, domain.id),
+            ).sortedBy(DocumentGroundedReference::stableOrderingKey),
+        )
+        val base = input(property, retrieval = retrieval(listOf(selection())))
+        val verified = verifier().verify(
+            base.copy(
+                analysis = base.analysis.copy(
+                    items = listOf(property, domain, domainRelationship)
+                        .sortedBy(DocumentGroundedSemanticItem::stableOrderingKey),
+                ),
+            ),
+        )
+
+        assertEquals("grounded-group-${property.id}", verified.plan.groups.single().id)
+        assertEquals(property.label, verified.plan.groups.single().title)
     }
 
     @Test

@@ -11,10 +11,17 @@ import com.entio.core.DocumentGroupedRecommendationDecision
 import com.entio.core.DocumentRecommendation
 import com.entio.core.DocumentRecommendationReviewStatus
 import com.entio.core.DocumentAnalysisCounts
+import com.entio.core.DocumentAnalysisWorkKey
 import com.entio.core.DocumentEditableGroundedField
 import com.entio.core.DocumentGroundedAnalysisResult
+import com.entio.core.DocumentGroundedCandidate
+import com.entio.core.DocumentGroundedCoverageDisposition
+import com.entio.core.DocumentGroundedDisposition
 import com.entio.core.DocumentGroundedRecommendationStatus
+import com.entio.core.DocumentGroundedSemanticItem
 import com.entio.core.DocumentOntologyRetrievalResult
+import com.entio.core.DocumentSemanticItemKind
+import com.entio.core.SemanticDescriptorKind
 import com.entio.core.LocatedDocumentTextBlock
 import com.entio.core.DocumentReviewDecision
 import com.entio.web.contract.WebPage
@@ -26,6 +33,11 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import com.entio.semantic.DocumentDraftTranslationContext
 import com.entio.semantic.DocumentChangeSetPlanVerifier
+import com.entio.semantic.DocumentFullStateMatch
+import com.entio.semantic.DocumentGroundedAnalysisVerifier
+import com.entio.semantic.DocumentGroundedVerificationInput
+import com.entio.semantic.DocumentPlanVerificationContext
+import com.entio.semantic.DocumentSemanticCompilerContext
 import com.entio.semantic.DocumentVerifiedFinalPlan
 
 public data class DocumentReviewWorkspaceResponse(
@@ -101,9 +113,13 @@ public data class DocumentReviewRecommendation(
 
 public data class DocumentReviewGroundedItem(
     val itemId: String,
+    val kind: String,
+    val label: String,
+    val definition: String?,
     val disposition: String,
     val selectedSelectionId: String?,
     val alternatives: List<DocumentReviewGroundedAlternative>,
+    val resolutionAlternatives: List<DocumentReviewGroundedAlternative> = emptyList(),
     val prerequisiteOrigins: List<String>,
     val editableFields: List<DocumentReviewGroundedEditableField>,
     val status: String,
@@ -213,6 +229,9 @@ public data class DocumentDraftImpact(
     val acceptedCount: Int,
     val pendingCount: Int,
     val blockedCount: Int,
+    val executableCount: Int = 0,
+    val needsInputCount: Int = 0,
+    val reviewOnlyCount: Int = 0,
     val readOnly: Boolean = true,
 )
 
@@ -245,6 +264,20 @@ public data class DocumentReviewDecisionRequest(
     val operationId: String? = null,
     val confirmProductionClassification: Boolean = false,
     val operationEdits: List<DocumentReviewOperationEdit> = emptyList(),
+    val groundedItemEdit: DocumentReviewGroundedItemEdit? = null,
+)
+
+public data class DocumentReviewGroundedItemEdit(
+    val itemId: String,
+    val disposition: String,
+    val kind: String,
+    val label: String,
+    val definition: String? = null,
+    val selectionId: String? = null,
+    val domainSelectionId: String? = null,
+    val rangeSelectionId: String? = null,
+    val datatypeIri: String? = null,
+    val typeSelectionId: String? = null,
 )
 
 public data class DocumentReviewOperationEdit(
@@ -309,15 +342,20 @@ private data class StoredVerifiedPlan(
     val blocks: Map<String, LocatedDocumentTextBlock>,
     val evidence: Map<String, DocumentEvidence>,
     val analysisStages: List<DocumentAnalysisStageRecord>,
-    val groundedReview: DocumentGroundedReviewContext? = null,
+    var groundedReview: DocumentGroundedReviewContext? = null,
     val reviews: LinkedHashMap<String, MutableVerifiedRecommendationReview>,
     val installedAt: Instant,
     var updatedAt: Instant,
 )
 
 internal data class DocumentGroundedReviewContext(
+    val candidates: List<DocumentGroundedCandidate>,
     val analysis: DocumentGroundedAnalysisResult,
     val retrieval: List<DocumentOntologyRetrievalResult>,
+    val fullStateMatches: List<DocumentFullStateMatch>,
+    val compilerContext: DocumentSemanticCompilerContext,
+    val verificationContext: DocumentPlanVerificationContext,
+    val nonRecommendationCoverage: Map<String, com.entio.core.DocumentCoverageDispositionKind>,
     val mentionCoverage: List<com.entio.core.DocumentMentionCoverageDisposition>,
     val editableFields: List<DocumentEditableGroundedField>,
     val statusByItemId: Map<String, DocumentGroundedRecommendationStatus>,
@@ -357,6 +395,13 @@ internal class DocumentReviewWorkspaceStore(
     private val clock: Clock = Clock.systemUTC(),
     private val changeExplainer: DocumentReviewChangeExplainer = DocumentReviewChangeExplainer(),
     private val planVerifier: DocumentChangeSetPlanVerifier = DocumentChangeSetPlanVerifier(),
+    private val groundedVerifier: DocumentGroundedAnalysisVerifier = DocumentGroundedAnalysisVerifier(),
+    private val groundedCompiler: SemanticCompilingDocumentFinalPlanningProvider =
+        SemanticCompilingDocumentFinalPlanningProvider(
+            DocumentSemanticPlanningProvider { _, _, _, _ ->
+                DocumentSemanticPlanningProviderResult.Failed(false, "document-review-provider-disabled")
+            },
+        ),
 ) {
     private val workspaces: MutableMap<String, StoredReviewWorkspace> = linkedMapOf()
     private val verifiedPlans: MutableMap<String, StoredVerifiedPlan> = linkedMapOf()
@@ -471,6 +516,17 @@ internal class DocumentReviewWorkspaceStore(
             .singleOrNull()
         val recommendations = stored.plan.plan.recommendations.map { recommendation ->
             val review = stored.reviews.getValue(recommendation.id)
+            val groundedStatuses = stored.groundedStatuses(recommendation.id)
+            val connectedStatus = if (DocumentGroundedRecommendationStatus.NeedsInput in groundedStatuses) {
+                DocumentGroundedRecommendationStatus.NeedsInput.name
+            } else {
+                recommendation.status.name
+            }
+            val reviewBlockers = if (connectedStatus == DocumentGroundedRecommendationStatus.NeedsInput.name) {
+                (recommendation.blockers - "semantic-group-blocked" + GROUNDED_INPUT_REQUIRED_REASON).distinct().sorted()
+            } else {
+                recommendation.blockers
+            }
             val operations = recommendation.operations.map { operation ->
                 val sourceId = operation.operands.filterIsInstance<com.entio.core.DocumentPlanOperand.SourceId>()
                     .singleOrNull()?.value
@@ -537,7 +593,9 @@ internal class DocumentReviewWorkspaceStore(
                     operations = operations,
                     blockingReason = when {
                         draftable -> null
-                        recommendation.blockers.isNotEmpty() -> recommendation.blockers.joinToString("; ")
+                        connectedStatus == DocumentGroundedRecommendationStatus.NeedsInput.name ->
+                            "Complete the grounded ontology decision, then Entio will reverify and recompile it."
+                        reviewBlockers.isNotEmpty() -> reviewBlockers.joinToString("; ")
                         recommendation.individualReviewGates.any { !it.executable } ->
                             "Confirm every proposed individual before approval."
                         else -> "This recommendation is review-only."
@@ -552,7 +610,7 @@ internal class DocumentReviewWorkspaceStore(
                 selectedMatchIri = null,
                 conflicts = emptyList(),
                 mandatoryClarificationReasons = (
-                    recommendation.blockers +
+                    reviewBlockers +
                         if (recommendation.operations.any { it.reviewerInputRequired }) {
                             listOf(REVIEWER_INPUT_REQUIRED_REASON)
                         } else {
@@ -565,7 +623,7 @@ internal class DocumentReviewWorkspaceStore(
                 priorWorkflowProvenance = emptyList(),
                 modelId = modelId,
                 promptVersion = com.entio.core.DocumentAnalysisPipelineVersions.SEMANTIC_PLAN_PROMPT,
-                connectedStatus = recommendation.status.name,
+                connectedStatus = connectedStatus,
                 confidenceDimensions = DocumentReviewConfidenceDimensions(
                     recommendation.confidence.evidence,
                     recommendation.confidence.modeling,
@@ -589,7 +647,7 @@ internal class DocumentReviewWorkspaceStore(
                 },
                 semanticIntent = recommendation.description,
                 generatedIris = generatedIris,
-                safeBlockers = recommendation.blockers,
+                safeBlockers = reviewBlockers,
                 groundedItems = groundedItems(stored.groundedReview, recommendation.id),
             )
         }
@@ -642,8 +700,19 @@ internal class DocumentReviewWorkspaceStore(
                 acceptedCount = stored.reviews.values.count { it.kind == DocumentGroupedDecisionKind.Accepted },
                 pendingCount = stored.reviews.values.count { it.kind == DocumentGroupedDecisionKind.Pending },
                 blockedCount = stored.plan.plan.recommendations.count {
-                    it.status == DocumentFinalRecommendationStatus.Blocked ||
-                        it.status == DocumentFinalRecommendationStatus.ReviewOnly
+                    it.status == DocumentFinalRecommendationStatus.Blocked &&
+                        stored.groundedStatuses(it.id).none { status ->
+                            status == DocumentGroundedRecommendationStatus.NeedsInput
+                        }
+                },
+                executableCount = stored.plan.plan.recommendations.count {
+                    it.status in setOf(DocumentFinalRecommendationStatus.Executable, DocumentFinalRecommendationStatus.Mixed)
+                },
+                needsInputCount = stored.plan.plan.recommendations.count {
+                    DocumentGroundedRecommendationStatus.NeedsInput in stored.groundedStatuses(it.id)
+                },
+                reviewOnlyCount = stored.plan.plan.recommendations.count {
+                    it.status == DocumentFinalRecommendationStatus.ReviewOnly
                 },
             ),
             semanticCoverage = DocumentReviewQualityMetric(
@@ -671,36 +740,44 @@ internal class DocumentReviewWorkspaceStore(
         context ?: return emptyList()
         val items = context.analysis.items.associateBy { it.id }
         val selections = context.retrieval.flatMap { it.selections }
-        val itemIds = context.itemIdsByRecommendationId[recommendationId]
-            ?: context.itemIdsByRecommendationId.entries.singleOrNull {
-                recommendationId.startsWith("${it.key}-part-")
-            }?.value
-            ?: emptyList()
+        fun alternative(selection: com.entio.core.DocumentOntologyRetrievalSelection): DocumentReviewGroundedAlternative {
+            val structure = selection.structuralContext
+            return DocumentReviewGroundedAlternative(
+                selection.selectionId,
+                selection.canonicalIri.value,
+                selection.kind.name,
+                selection.scope.name,
+                selection.sourceId,
+                selection.writable,
+                selection.preferredLabel,
+                selection.definition,
+                selection.score,
+                selection.matchReasons.map { "${it.kind}: ${it.detail} (+${it.points})" },
+                structure.superclassIris.map { it.value },
+                structure.domainIris.map { it.value },
+                (structure.rangeIris + structure.datatypeIris).map { it.value }.distinct().sorted(),
+                structure.assertedTypeIris.map { it.value },
+            )
+        }
+        val classResolutionAlternatives = selections
+            .filter { it.kind == SemanticDescriptorKind.Class }
+            .sortedWith(compareByDescending<com.entio.core.DocumentOntologyRetrievalSelection> { it.score }
+                .thenBy { it.stableOrderingKey })
+            .distinctBy { "${it.scope}:${it.sourceId}:${it.canonicalIri.value}" }
+            .take(MAX_GROUNDED_RESOLUTION_ALTERNATIVES)
+            .map(::alternative)
+        val itemIds = context.itemIdsForRecommendation(recommendationId)
         return itemIds.mapNotNull(items::get).map { item ->
             val candidateIds = item.candidateIds.toSet()
             DocumentReviewGroundedItem(
                 itemId = item.id,
+                kind = item.kind.name,
+                label = item.label,
+                definition = item.definition,
                 disposition = item.disposition.name,
                 selectedSelectionId = item.selectionId,
-                alternatives = selections.filter { it.candidateId in candidateIds }.map { selection ->
-                    val structure = selection.structuralContext
-                    DocumentReviewGroundedAlternative(
-                        selection.selectionId,
-                        selection.canonicalIri.value,
-                        selection.kind.name,
-                        selection.scope.name,
-                        selection.sourceId,
-                        selection.writable,
-                        selection.preferredLabel,
-                        selection.definition,
-                        selection.score,
-                        selection.matchReasons.map { "${it.kind}: ${it.detail} (+${it.points})" },
-                        structure.superclassIris.map { it.value },
-                        structure.domainIris.map { it.value },
-                        (structure.rangeIris + structure.datatypeIris).map { it.value }.distinct().sorted(),
-                        structure.assertedTypeIris.map { it.value },
-                    )
-                },
+                alternatives = selections.filter { it.candidateId in candidateIds }.map(::alternative),
+                resolutionAlternatives = classResolutionAlternatives,
                 prerequisiteOrigins = item.references.mapNotNull { it.prerequisiteOrigin?.name }.distinct().sorted(),
                 editableFields = context.editableFields.filter { it.id.startsWith("${item.id}:") }.map {
                     DocumentReviewGroundedEditableField(
@@ -711,6 +788,23 @@ internal class DocumentReviewWorkspaceStore(
             )
         }
     }
+
+    private fun DocumentGroundedReviewContext.itemIdsForRecommendation(recommendationId: String): List<String> =
+        itemIdsByRecommendationId[recommendationId]
+            ?: itemIdsByRecommendationId.entries.singleOrNull {
+                recommendationId.startsWith("${it.key}-part-")
+            }?.value
+            ?: emptyList()
+
+    private fun StoredVerifiedPlan.groundedStatuses(
+        recommendationId: String,
+    ): Set<DocumentGroundedRecommendationStatus> = groundedReview
+        ?.let { context ->
+            context.itemIdsForRecommendation(recommendationId)
+                .mapNotNull(context.statusByItemId::get)
+                .toSet()
+        }
+        .orEmpty()
 
     @Synchronized
     fun verifiedEvidence(
@@ -1133,6 +1227,359 @@ internal class DocumentReviewWorkspaceStore(
             decision = null
         }
         stored.updatedAt = Instant.now(clock)
+    }
+
+    @Synchronized
+    fun resolveVerifiedGroundedItem(
+        projectId: String,
+        taskId: String,
+        recommendationId: String,
+        edit: DocumentReviewGroundedItemEdit,
+        userId: String,
+        expectedWorkKey: String,
+        expectedGraphFingerprint: String,
+    ): Unit {
+        val stored = ownedVerified(projectId, taskId, userId)
+        requireVerifiedCurrent(stored, expectedWorkKey, expectedGraphFingerprint)
+        val context = stored.groundedReview ?: throw DocumentIngestionFailure(
+            "document-grounded-review-unavailable",
+            "Grounded review context is unavailable for this recommendation.",
+        )
+        if (edit.itemId !in context.itemIdsForRecommendation(recommendationId)) {
+            throw DocumentIngestionFailure(
+                "document-grounded-item-invalid",
+                "The selected grounded item does not belong to this recommendation.",
+            )
+        }
+        val current = context.analysis.items.singleOrNull { it.id == edit.itemId }
+            ?: throw DocumentIngestionFailure(
+                "document-grounded-item-invalid",
+                "The selected grounded item is unavailable.",
+            )
+        if (current.disposition != DocumentGroundedDisposition.Unresolved ||
+            context.statusByItemId[current.id] != DocumentGroundedRecommendationStatus.NeedsInput
+        ) {
+            throw DocumentIngestionFailure(
+                "document-grounded-resolution-not-required",
+                "Only an unresolved grounded item that needs reviewer input can be resolved.",
+            )
+        }
+        val disposition = runCatching { DocumentGroundedDisposition.valueOf(edit.disposition) }.getOrNull()
+            ?.takeIf { it in RESOLVABLE_GROUNDED_DISPOSITIONS }
+            ?: throw DocumentIngestionFailure(
+                "document-grounded-disposition-invalid",
+                "Choose reuse, extension, or a genuinely new ontology entity.",
+            )
+        val kind = runCatching { DocumentSemanticItemKind.valueOf(edit.kind) }.getOrNull()
+            ?.takeIf(RESOLVABLE_GROUNDED_KINDS::contains)
+            ?: throw DocumentIngestionFailure(
+                "document-grounded-kind-invalid",
+                "Choose a supported ontology entity kind.",
+            )
+        val selectionId = safeOptionalText(edit.selectionId)
+        if ((disposition in SELECTION_GROUNDED_DISPOSITIONS) != (selectionId != null)) {
+            throw DocumentIngestionFailure(
+                "document-grounded-selection-invalid",
+                "Reuse and extension require exactly one server-issued ontology selection.",
+            )
+        }
+        val label = safeRequiredText(edit.label, "Grounded ontology label", MAX_EDITABLE_LABEL_CHARACTERS)
+        val definition = safeOptionalText(edit.definition)
+        val updatedItem = runCatching {
+            current.copy(
+                kind = kind,
+                label = label,
+                definition = definition,
+                disposition = disposition,
+                selectionId = selectionId,
+                ambiguity = null,
+            )
+        }.getOrElse {
+            throw DocumentIngestionFailure(
+                "document-grounded-resolution-invalid",
+                "The selected kind is incompatible with this grounded item's evidence-backed structure.",
+            )
+        }
+        val supportingItems = groundedResolutionSupportItems(
+            context,
+            updatedItem,
+            edit,
+        )
+        val updatedAnalysis = DocumentGroundedAnalysisResult(
+            context.analysis.responseVersion,
+            (context.analysis.items.map { if (it.id == updatedItem.id) updatedItem else it } + supportingItems)
+                .sortedBy(DocumentGroundedSemanticItem::stableOrderingKey),
+            context.analysis.coverage.map { coverage ->
+                if (coverage.itemId == updatedItem.id) {
+                    DocumentGroundedCoverageDisposition(
+                        coverage.candidateId,
+                        coverage.itemId,
+                        disposition,
+                        coverage.rationale,
+                    )
+                } else {
+                    coverage
+                }
+            }.sortedBy(DocumentGroundedCoverageDisposition::stableOrderingKey),
+        )
+        val verified = runCatching {
+            groundedVerifier.verify(
+                DocumentGroundedVerificationInput(
+                    DocumentAnalysisWorkKey(stored.workKey),
+                    context.candidates,
+                    context.retrieval,
+                    context.fullStateMatches,
+                    updatedAnalysis,
+                    context.compilerContext.expectedOntologyFingerprint,
+                    context.compilerContext.currentOntologyFingerprint,
+                    context.compilerContext.expectedCurrentWorkFingerprint,
+                    context.compilerContext.currentWorkFingerprint,
+                ),
+            )
+        }.getOrElse {
+            throw DocumentIngestionFailure(
+                "document-grounded-resolution-invalid",
+                "The reviewer selection did not pass deterministic grounded verification.",
+            )
+        }
+        if (verified.statusByItemId[updatedItem.id] == DocumentGroundedRecommendationStatus.NeedsInput) {
+            throw DocumentIngestionFailure(
+                "document-grounded-resolution-incomplete",
+                "This choice still needs another compatible ontology field before it can proceed.",
+            )
+        }
+        val compilerContext = context.compilerContext.copy(
+            alignedEntities = verified.alignedEntities,
+            itemAlignmentIds = verified.itemAlignmentIds,
+        )
+        val planned = when (
+            val result = groundedCompiler.compileGrounded(
+                verified.plan,
+                compilerContext,
+                context.nonRecommendationCoverage,
+            )
+        ) {
+            is DocumentFinalPlanningProviderResult.Completed -> result.response.plan
+            is DocumentFinalPlanningProviderResult.Failed -> throw DocumentIngestionFailure(
+                result.safeCode,
+                "The resolved grounded item could not be compiled safely.",
+            )
+        }
+        val finalPlan = planVerifier.verify(planned, context.verificationContext)
+        val resolvedRecommendation = finalPlan.plan.recommendations.singleOrNull { recommendation ->
+            recommendation.id == recommendationId ||
+                recommendation.id.startsWith("$recommendationId-part-") ||
+                verified.plan.groups.any { group ->
+                    updatedItem.id in group.itemIds &&
+                        (recommendation.id == group.id || recommendation.id.startsWith("${group.id}-part-"))
+                }
+        }
+        if (resolvedRecommendation == null || resolvedRecommendation.status == DocumentFinalRecommendationStatus.Blocked) {
+            val blockers = resolvedRecommendation?.blockers.orEmpty().joinToString("; ").ifBlank {
+                "The selected meaning is not a complete supported ontology change."
+            }
+            throw DocumentIngestionFailure("document-grounded-resolution-incomplete", blockers)
+        }
+        val oldReviews = stored.reviews.toMap()
+        stored.plan = finalPlan
+        stored.reviews.clear()
+        finalPlan.plan.recommendations.forEach { recommendation ->
+            stored.reviews[recommendation.id] = oldReviews[recommendation.id] ?: MutableVerifiedRecommendationReview()
+        }
+        val itemIdsByRecommendationId = verified.plan.groups.associate { it.id to it.itemIds }
+        val statuses = verified.statusByItemId.values
+        val recommendationStatuses = verified.plan.groups.map { group ->
+            group.itemIds.mapNotNull(verified.statusByItemId::get).toSet()
+        }
+        stored.groundedReview = context.copy(
+            analysis = updatedAnalysis,
+            compilerContext = compilerContext,
+            editableFields = verified.editableFields,
+            statusByItemId = verified.statusByItemId,
+            itemIdsByRecommendationId = itemIdsByRecommendationId,
+            counts = context.counts.copy(
+                groundedItemsUnresolved = updatedAnalysis.coverage.count {
+                    it.disposition == DocumentGroundedDisposition.Unresolved
+                },
+                recommendationsExecutable = recommendationStatuses.count {
+                    it == setOf(DocumentGroundedRecommendationStatus.Executable)
+                },
+                recommendationsMixed = recommendationStatuses.count {
+                    DocumentGroundedRecommendationStatus.Executable in it && it.size > 1
+                },
+                recommendationsNeedsInput = statuses.count {
+                    it == DocumentGroundedRecommendationStatus.NeedsInput
+                },
+                recommendationsReviewOnly = statuses.count {
+                    it == DocumentGroundedRecommendationStatus.ReviewOnly
+                },
+                recommendationsBlocked = statuses.count {
+                    it == DocumentGroundedRecommendationStatus.Blocked
+                },
+                expandedTypedEdits = finalPlan.plan.recommendations.sumOf { it.operations.size },
+            ),
+        )
+        stored.reviews.getValue(resolvedRecommendation.id).apply {
+            this.kind = DocumentGroupedDecisionKind.Pending
+            decision = null
+        }
+        stored.updatedAt = Instant.now(clock)
+    }
+
+    private fun groundedResolutionSupportItems(
+        context: DocumentGroundedReviewContext,
+        item: DocumentGroundedSemanticItem,
+        edit: DocumentReviewGroundedItemEdit,
+    ): List<DocumentGroundedSemanticItem> {
+        if (item.disposition == DocumentGroundedDisposition.ReuseExisting) return emptyList()
+        val selections = context.retrieval.flatMap { it.selections }.associateBy { it.selectionId }
+        val candidates = context.candidates.associateBy { it.id }
+        val support = mutableListOf<DocumentGroundedSemanticItem>()
+
+        fun classSelection(selectionId: String?, role: String): com.entio.core.DocumentOntologyRetrievalSelection {
+            val id = safeOptionalText(selectionId) ?: throw DocumentIngestionFailure(
+                "document-grounded-$role-required",
+                "Choose a server-verified class for the $role.",
+            )
+            return selections[id]?.takeIf { it.kind == SemanticDescriptorKind.Class }
+                ?: throw DocumentIngestionFailure(
+                    "document-grounded-$role-invalid",
+                    "The selected $role is not an authorized compatible class.",
+                )
+        }
+
+        fun selectedClassItem(
+            selection: com.entio.core.DocumentOntologyRetrievalSelection,
+            role: String,
+        ): DocumentGroundedSemanticItem {
+            val candidate = candidates.getValue(selection.candidateId)
+            return DocumentGroundedSemanticItem(
+                id = "${item.id}:review-$role-entity",
+                kind = DocumentSemanticItemKind.Class,
+                label = selection.preferredLabel
+                    ?: selection.canonicalIri.value.substringAfterLast('#').substringAfterLast('/'),
+                definition = selection.definition,
+                candidateIds = listOf(candidate.id),
+                evidenceIds = candidate.evidenceSpans.map { it.evidenceId }.distinct().sortedBy { it.value },
+                disposition = DocumentGroundedDisposition.ReuseExisting,
+                selectionId = selection.selectionId,
+                rationale = "The reviewer selected this authorized class as the $role.",
+                confidence = item.confidence,
+            )
+        }
+
+        fun reference(
+            role: com.entio.core.DocumentSemanticReferenceRole,
+            targetItemId: String,
+        ) = com.entio.core.DocumentGroundedReference(
+            role,
+            targetItemId,
+            com.entio.core.DocumentPrerequisiteOrigin.ReviewerProvided,
+        )
+
+        fun relationship(
+            idSuffix: String,
+            kind: DocumentSemanticItemKind,
+            label: String,
+            references: List<com.entio.core.DocumentGroundedReference>,
+            datatypeIntent: String? = null,
+        ): DocumentGroundedSemanticItem = DocumentGroundedSemanticItem(
+            id = "${item.id}:review-$idSuffix",
+            kind = kind,
+            label = label,
+            datatypeIntent = datatypeIntent,
+            candidateIds = item.candidateIds,
+            evidenceIds = item.evidenceIds,
+            disposition = DocumentGroundedDisposition.ProposeNew,
+            references = references.sortedBy(com.entio.core.DocumentGroundedReference::stableOrderingKey),
+            rationale = "The reviewer supplied the required $idSuffix context.",
+            confidence = item.confidence,
+        )
+
+        val definition = item.definition
+        if (definition != null) {
+            support += relationship(
+                "definition",
+                DocumentSemanticItemKind.Definition,
+                definition,
+                listOf(reference(com.entio.core.DocumentSemanticReferenceRole.Entity, item.id)),
+            ).copy(definition = definition)
+        }
+        if (item.disposition != DocumentGroundedDisposition.ProposeNew) return support
+
+        when (item.kind) {
+            DocumentSemanticItemKind.ObjectProperty -> {
+                val domain = selectedClassItem(classSelection(edit.domainSelectionId, "domain"), "domain")
+                val range = selectedClassItem(classSelection(edit.rangeSelectionId, "range"), "range")
+                support += domain
+                support += range
+                support += relationship(
+                    "domain",
+                    DocumentSemanticItemKind.ObjectPropertyDomain,
+                    "Domain of ${item.label}",
+                    listOf(
+                        reference(com.entio.core.DocumentSemanticReferenceRole.Property, item.id),
+                        reference(com.entio.core.DocumentSemanticReferenceRole.Domain, domain.id),
+                    ),
+                )
+                support += relationship(
+                    "range",
+                    DocumentSemanticItemKind.ObjectPropertyRange,
+                    "Range of ${item.label}",
+                    listOf(
+                        reference(com.entio.core.DocumentSemanticReferenceRole.Property, item.id),
+                        reference(com.entio.core.DocumentSemanticReferenceRole.Range, range.id),
+                    ),
+                )
+            }
+            DocumentSemanticItemKind.DatatypeProperty -> {
+                val domain = selectedClassItem(classSelection(edit.domainSelectionId, "domain"), "domain")
+                val datatype = safeOptionalText(edit.datatypeIri)
+                    ?.takeIf(SUPPORTED_GROUNDED_DATATYPES::contains)
+                    ?: throw DocumentIngestionFailure(
+                        "document-grounded-datatype-invalid",
+                        "Choose one of the supported RDF datatypes.",
+                    )
+                support += domain
+                support += relationship(
+                    "domain",
+                    DocumentSemanticItemKind.DatatypePropertyDomain,
+                    "Domain of ${item.label}",
+                    listOf(
+                        reference(com.entio.core.DocumentSemanticReferenceRole.Property, item.id),
+                        reference(com.entio.core.DocumentSemanticReferenceRole.Domain, domain.id),
+                    ),
+                )
+                support += relationship(
+                    "datatype",
+                    DocumentSemanticItemKind.DatatypePropertyRange,
+                    "Datatype of ${item.label}",
+                    listOf(reference(com.entio.core.DocumentSemanticReferenceRole.Property, item.id)),
+                    datatype,
+                )
+            }
+            DocumentSemanticItemKind.Individual -> {
+                val type = selectedClassItem(classSelection(edit.typeSelectionId, "type"), "type")
+                support += type
+                support += relationship(
+                    "type",
+                    DocumentSemanticItemKind.IndividualType,
+                    "Type of ${item.label}",
+                    listOf(
+                        reference(com.entio.core.DocumentSemanticReferenceRole.Individual, item.id),
+                        reference(com.entio.core.DocumentSemanticReferenceRole.Type, type.id),
+                    ),
+                )
+            }
+            DocumentSemanticItemKind.Class,
+            DocumentSemanticItemKind.AnnotationProperty,
+            -> Unit
+            else -> throw DocumentIngestionFailure(
+                "document-grounded-kind-invalid",
+                "The selected grounded kind is not supported for reviewer resolution.",
+            )
+        }
+        return support.distinctBy { it.id }.sortedBy(DocumentGroundedSemanticItem::stableOrderingKey)
     }
 
     @Synchronized
@@ -1688,9 +2135,35 @@ internal class DocumentReviewWorkspaceStore(
         const val EVIDENCE_CONTEXT_CHARACTERS: Int = 2_000
         const val MAX_EVIDENCE_VIEW_CHARACTERS: Int = 8_000
         const val MAX_OPERATION_EDITS: Int = 100
+        const val MAX_GROUNDED_RESOLUTION_ALTERNATIVES: Int = 50
         const val MAX_EDITABLE_LABEL_CHARACTERS: Int = 500
         const val INDIVIDUAL_CONFIRMATION_BLOCKER: String = "individual-confirmation-required"
         const val REVIEWER_INPUT_REQUIRED_REASON: String = "reviewer-input-required"
+        const val GROUNDED_INPUT_REQUIRED_REASON: String = "grounded-review-input-required"
+        val RESOLVABLE_GROUNDED_DISPOSITIONS: Set<DocumentGroundedDisposition> = setOf(
+            DocumentGroundedDisposition.ReuseExisting,
+            DocumentGroundedDisposition.ExtendExisting,
+            DocumentGroundedDisposition.ProposeNew,
+        )
+        val SELECTION_GROUNDED_DISPOSITIONS: Set<DocumentGroundedDisposition> = setOf(
+            DocumentGroundedDisposition.ReuseExisting,
+            DocumentGroundedDisposition.ExtendExisting,
+        )
+        val RESOLVABLE_GROUNDED_KINDS: Set<DocumentSemanticItemKind> = setOf(
+            DocumentSemanticItemKind.Class,
+            DocumentSemanticItemKind.ObjectProperty,
+            DocumentSemanticItemKind.DatatypeProperty,
+            DocumentSemanticItemKind.AnnotationProperty,
+            DocumentSemanticItemKind.Individual,
+        )
+        val SUPPORTED_GROUNDED_DATATYPES: Set<String> = setOf(
+            "http://www.w3.org/2001/XMLSchema#string",
+            "http://www.w3.org/2001/XMLSchema#decimal",
+            "http://www.w3.org/2001/XMLSchema#integer",
+            "http://www.w3.org/2001/XMLSchema#boolean",
+            "http://www.w3.org/2001/XMLSchema#date",
+            "http://www.w3.org/2001/XMLSchema#dateTime",
+        )
         val EDITABLE_DECLARATION_OPERATIONS: Set<com.entio.core.DocumentPlanOperationKind> = setOf(
             com.entio.core.DocumentPlanOperationKind.CreateClass,
             com.entio.core.DocumentPlanOperationKind.CreateObjectProperty,
