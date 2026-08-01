@@ -259,7 +259,22 @@ describe("document ingestion review workspace", () => {
         definition: "A policy governing servicing.",
         disposition: "Unresolved",
         selectedSelectionId: null,
-        alternatives: [],
+        alternatives: [{
+          selectionId: "selection-loan",
+          entityIri: "https://example.com/Loan",
+          kind: "Class",
+          scope: "AppliedLocal",
+          sourceId: "ontology",
+          writable: true,
+          preferredLabel: "Loan",
+          definition: "A lending arrangement.",
+          score: 72,
+          matchReasons: ["token-overlap"],
+          parents: [],
+          domains: [],
+          ranges: [],
+          types: [],
+        }],
         resolutionAlternatives: [{
           selectionId: "selection-loan",
           entityIri: "https://example.com/Loan",
@@ -304,21 +319,25 @@ describe("document ingestion review workspace", () => {
     expect(screen.getByLabelText("Read-only draft impact")).toHaveTextContent("Pending does not mean blocked");
     fireEvent.click(screen.getByLabelText("Customer recommendation details"));
     const resolution = screen.getByLabelText("Resolve grounded ontology item");
+    expect(screen.getByText("Why Entio suggested this")).toBeInTheDocument();
+    expect(screen.getByText("Technical match details")).toBeInTheDocument();
+    expect(screen.queryByText("Semantic intent")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Selection ID:/)).not.toBeInTheDocument();
     expect(within(resolution).getByLabelText("Resolution")).toHaveValue("ProposeNew");
-    expect(within(resolution).getByRole("combobox", { name: /Superclass/ })).toHaveValue("selection-loan");
+    expect(within(resolution).getByRole("combobox", { name: /Parent class/ })).toHaveValue("selection-loan");
     expect(resolution).toHaveTextContent("create Servicing Policy as a subclass of Loan");
 
-    fireEvent.change(within(resolution).getByLabelText("Ontology kind"), { target: { value: "ObjectProperty" } });
+    fireEvent.change(within(resolution).getByLabelText("Entity type"), { target: { value: "ObjectProperty" } });
     expect(within(resolution).getByLabelText("Domain class")).toBeInTheDocument();
     expect(within(resolution).getByLabelText("Range class")).toBeInTheDocument();
-    fireEvent.change(within(resolution).getByLabelText("Ontology kind"), { target: { value: "DatatypeProperty" } });
+    fireEvent.change(within(resolution).getByLabelText("Entity type"), { target: { value: "DatatypeProperty" } });
     expect(within(resolution).getByLabelText("Domain class")).toBeInTheDocument();
     expect(within(resolution).getByLabelText("Datatype")).toBeInTheDocument();
-    fireEvent.change(within(resolution).getByLabelText("Ontology kind"), { target: { value: "Individual" } });
+    fireEvent.change(within(resolution).getByLabelText("Entity type"), { target: { value: "Individual" } });
     expect(within(resolution).getByLabelText("Type class")).toBeInTheDocument();
-    fireEvent.change(within(resolution).getByLabelText("Ontology kind"), { target: { value: "Class" } });
+    fireEvent.change(within(resolution).getByLabelText("Entity type"), { target: { value: "Class" } });
     fireEvent.change(within(resolution).getByLabelText("Label"), { target: { value: "Loan Servicing Policy" } });
-    fireEvent.click(within(resolution).getByRole("button", { name: "Verify and compile resolution" }));
+    fireEvent.click(within(resolution).getByRole("button", { name: "Save recommendation" }));
 
     await waitFor(() => expect(decisions[0]).toMatchObject({
       action: "resolve-grounded",
@@ -415,11 +434,17 @@ describe("document ingestion review workspace", () => {
     fireEvent.click(screen.getByLabelText("Customer recommendation details"));
     expect(screen.getByLabelText("Confidence details")).toHaveTextContent("Evidence94%");
     expect(screen.getByLabelText("Confidence details")).toHaveTextContent("Compilation100%");
-    expect(screen.getByLabelText("Semantic coverage and compilation metrics")).toHaveTextContent(
-      "Semantic coverage: 100%",
+    expect(screen.getByLabelText("Document analysis funnel")).toHaveTextContent(
+      "30Evidence mentions",
     );
     expect(screen.getByLabelText("Document analysis funnel")).toHaveTextContent(
-      "30 evidence mentions → 12 grouped candidates → 5 ontology-bearing candidates",
+      "12Grouped candidates",
+    );
+    expect(screen.getByLabelText("Document analysis funnel")).toHaveTextContent(
+      "5Ontology candidates",
+    );
+    expect(screen.getByLabelText("Document analysis funnel")).toHaveTextContent(
+      "100%Semantic coverage",
     );
     expect(screen.getByLabelText("Document analysis funnel")).toHaveTextContent(
       "4 document-only mentions and 3 supporting values remain in coverage without creating review cards.",
@@ -557,9 +582,9 @@ describe("document ingestion review workspace", () => {
 
     renderWorkspace();
 
-    expect(await screen.findByText("Coverage ledger · 1 document-only meaning")).toBeInTheDocument();
+    expect(await screen.findByText("1 document-only meaning")).toBeInTheDocument();
     expect(screen.queryByLabelText("Approval separation rule recommendation details")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText("Coverage ledger · 1 document-only meaning"));
+    fireEvent.click(screen.getByText("1 document-only meaning"));
     expect(screen.getByText("The rule is meaningful but is not a supported typed edit.")).toBeInTheDocument();
   });
 

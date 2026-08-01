@@ -192,3 +192,27 @@ focused React tests, production web build, document-ingestion Playwright test,
 and `git diff --check` all passed. The correction is committed on
 `fix/phase-12-semantic-resolution-fields`; it introduces no browser-owned
 semantic decision and no alternate review, proposal, or apply workflow.
+
+## Simplified Review Presentation Correction
+
+The expanded recommendation card now prioritizes the reviewer decision instead
+of repeating internal analysis state. A needs-input card uses the ontology kind
+as its compact edit type, shows status and confidence once, omits generic
+semantic-intent text, and removes raw selection IDs and editable-field
+diagnostics from the primary path.
+
+Possible ontology matches remain visible in a short summary. Canonical IRIs,
+retrieval scope, scores, definitions, match reasons, and structural context are
+preserved under an optional `Technical match details` disclosure. This keeps
+the approved audit information available without placing it between the
+reviewer and the form.
+
+The resolution form uses shorter language, one clear save action, full-width
+label, definition, and parent-class fields, and stable input sizing. The
+document funnel and deterministic quality measures now share one responsive
+metric panel, and the document-only ledger has a shorter summary label.
+
+Modified files are the document-ingestion React workspace, its focused tests,
+and the shared stylesheet. All 103 React tests, the production web build, the
+document-ingestion Playwright flow, and `git diff --check` passed. No semantic
+contract, server behavior, review decision, or ontology operation changed.
