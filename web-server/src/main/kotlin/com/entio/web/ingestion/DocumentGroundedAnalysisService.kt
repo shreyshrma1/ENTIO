@@ -200,8 +200,17 @@ internal class DocumentGroundedAnalysisService(
             retrieval.candidateId to retrieval.selections.map { it.selectionId }.toSet()
         }
         val itemIds = result.items.map(DocumentGroundedSemanticItem::id).toSet()
+        val evidenceIdsByCandidate = request.candidates.associate { candidate ->
+            candidate.id to candidate.evidenceSpans.map { it.evidenceId }.toSet()
+        }
         result.items.forEach { item ->
             require(item.candidateIds.all(candidateIds::contains))
+            val candidateEvidenceIds = item.candidateIds.flatMap {
+                evidenceIdsByCandidate.getValue(it)
+            }.toSet()
+            require(item.evidenceIds.all(candidateEvidenceIds::contains)) {
+                "Grounded item evidence must belong to one of its declared candidates."
+            }
             require(item.references.all { it.targetItemId in itemIds })
             if (item.disposition in setOf(DocumentGroundedDisposition.ReuseExisting, DocumentGroundedDisposition.ExtendExisting)) {
                 require(item.candidateIds.any { item.selectionId in allowedSelections.getValue(it) }) {

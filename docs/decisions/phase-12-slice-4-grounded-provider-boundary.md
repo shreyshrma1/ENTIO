@@ -69,3 +69,23 @@ was deleted.
 
 Git status: committed as one focused correction on
 `fix/phase-12-qualified-grounding` and authorized for its remote branch only.
+
+## Candidate Evidence Ownership Correction
+
+A live two-PDF Luna trial on 2026-08-01 returned valid task-level evidence IDs
+but attached one of them to a semantic item whose declared candidates did not
+own that evidence. The task-wide Kotlin verifier correctly rejected the result
+as `grounded-evidence-invalid`, but the late rejection occurred after every
+provider group had completed and therefore could not use the bounded recovery
+path.
+
+The provider-neutral group validator now checks every item's evidence IDs
+against the union of evidence owned by that item's server-issued candidate IDs.
+An ownership mismatch is treated as malformed grouped output at the provider
+boundary. It receives the existing one exact-input retry and, if still invalid,
+the existing deterministic group split. The correction does not invent,
+replace, broaden, or discard evidence, and task-wide Kotlin verification remains
+unchanged as defense in depth.
+
+Focused regression coverage proves that a cross-candidate evidence citation is
+retried, isolated by splitting, and completed without losing either candidate.

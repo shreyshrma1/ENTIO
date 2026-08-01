@@ -95,6 +95,34 @@ class DocumentGroundedAnalysisServiceTest {
     }
 
     @Test
+    fun `retries and splits items that cite evidence owned by another candidate`(): Unit = runBlocking {
+        val candidates = listOf(candidate(1), candidate(2))
+        val provider = DocumentGroundedAnalysisProvider { _, _, _, request ->
+            val valid = result(request.candidates)
+            if (request.candidates.size == 1) {
+                DocumentGroundedAnalysisProviderResult.Completed(valid)
+            } else {
+                val foreignEvidence = request.candidates.last().evidenceSpans.single().evidenceId
+                DocumentGroundedAnalysisProviderResult.Completed(
+                    valid.copy(
+                        items = valid.items.mapIndexed { index, item ->
+                            if (index == 0) item.copy(evidenceIds = listOf(foreignEvidence)) else item
+                        },
+                    ),
+                )
+            }
+        }
+
+        val completed = DocumentGroundedAnalysisService(provider).analyze(
+            "secret", "verified-model", "task-1", candidates, candidates.map { retrieval(it.id) },
+        )
+
+        assertEquals(3, completed.logicalCallCount)
+        assertEquals(4, completed.providerAttemptCount)
+        assertEquals(candidates.map { it.id }, completed.results.flatMap { it.coverage }.map { it.candidateId })
+    }
+
+    @Test
     fun `rejects partial output and invented selection IDs`(): Unit = runBlocking {
         val candidates = listOf(candidate(1), candidate(2))
         val partial = DocumentGroundedAnalysisProvider { _, _, _, _ ->
