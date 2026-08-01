@@ -16,8 +16,17 @@ import com.entio.core.DocumentPlanOperation
 import com.entio.core.DocumentPlanOperationKind
 import com.entio.core.DocumentRecommendation
 import com.entio.core.DocumentRecommendationAction
+import com.entio.core.DocumentTemporaryReferenceKind
+import com.entio.core.ExternalDependency
+import com.entio.core.ExternalDependencyCategory
+import com.entio.core.ExternalDependencyClosure
+import com.entio.core.ExternalDependencyRequirement
+import com.entio.core.ExternalDependencySelection
+import com.entio.core.ExternalDependencySet
+import com.entio.core.ExternalDependencyVisibility
 import com.entio.core.ExternalProposalIntent
 import com.entio.core.Iri
+import com.entio.core.Phase5PackageIdentity
 import com.entio.core.AnnotationValue
 import com.entio.core.EditableShaclConstraint
 import com.entio.core.EditableShaclConstraintKind
@@ -250,7 +259,7 @@ public class DocumentRecommendationDraftTranslator {
             )
             DocumentPlanOperationKind.ReuseExternal -> {
                 val external = context.externalIntentsByOperationId[operation.id]
-                    ?: throw MissingDocumentDraftOperand("approved external reuse")
+                    ?: verifiedExternalReuse(entities, texts)
                 DocumentDraftOperation.ExternalReuse(external.first, external.second)
             }
             DocumentPlanOperationKind.CreateNodeShape -> DocumentDraftOperation.Shacl(
@@ -299,6 +308,43 @@ public class DocumentRecommendationDraftTranslator {
             draft,
             normalizedKey(sourceId, draft),
         )
+    }
+
+    private fun verifiedExternalReuse(
+        entities: List<Iri>,
+        texts: List<String>,
+    ): Pair<ExternalProposalIntent, Iri> {
+        val externalIri = entities.firstOrNull()
+            ?: throw MissingDocumentDraftOperand("external entity")
+        val sourceModules = entities.drop(1).distinct().sortedBy(Iri::value)
+        if (sourceModules.isEmpty()) throw MissingDocumentDraftOperand("external source module")
+        val kind = texts.getOrNull(0) ?: throw MissingDocumentDraftOperand("external entity kind")
+        val targetOntologyIri = texts.getOrNull(1)?.let(::Iri)
+            ?: throw MissingDocumentDraftOperand("target ontology IRI")
+        val dependencies = ExternalDependencySet(
+            sourceModules.map { moduleIri ->
+                ExternalDependency(
+                    category = ExternalDependencyCategory.SourceOntology,
+                    requirement = ExternalDependencyRequirement.Required,
+                    closure = ExternalDependencyClosure.Direct,
+                    visibility = ExternalDependencyVisibility.UserVisible,
+                    selection = ExternalDependencySelection.NewlySelected,
+                    reason = "Import the approved FIBO source ontology selected during grounded retrieval.",
+                    externalIri = moduleIri,
+                    sourceModule = moduleIri,
+                )
+            },
+        )
+        val intent = when (kind) {
+            DocumentTemporaryReferenceKind.Class.token ->
+                ExternalProposalIntent.ReuseExternalClass(externalIri, Phase5PackageIdentity.SOURCE_ID, dependencies)
+            DocumentTemporaryReferenceKind.ObjectProperty.token ->
+                ExternalProposalIntent.ReuseExternalObjectProperty(externalIri, Phase5PackageIdentity.SOURCE_ID, dependencies)
+            DocumentTemporaryReferenceKind.DatatypeProperty.token ->
+                ExternalProposalIntent.ReuseExternalDatatypeProperty(externalIri, Phase5PackageIdentity.SOURCE_ID, dependencies)
+            else -> throw UnsupportedDocumentDraftOperation()
+        }
+        return intent to targetOntologyIri
     }
 
     private fun shaclConstraint(

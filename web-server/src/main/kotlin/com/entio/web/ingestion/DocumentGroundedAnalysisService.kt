@@ -147,8 +147,10 @@ internal class DocumentGroundedAnalysisService(
         ordered.filter { it.category == DocumentCandidateExtractionCategory.RelationshipPhrase }.forEach { relationship ->
             relationship.hints
                 .filter { it.role in setOf(DocumentCandidateHintRole.Subject, DocumentCandidateHintRole.Object) }
-                .flatMap { hint -> safeConnectionAliases(hint.text).toList() }
-                .flatMap { alias -> aliases[alias].orEmpty() }
+                .flatMap { hint ->
+                    hint.relatedCandidateId?.let(::listOf)
+                        ?: safeConnectionAliases(hint.text).flatMap { alias -> aliases[alias].orEmpty() }.toList()
+                }
                 .filter { it != relationship.id }
                 .forEach { participantId ->
                     connections.getValue(relationship.id).add(participantId)

@@ -125,15 +125,13 @@ internal class DocumentCandidateExtractionService(
                     DocumentCandidatePromotionReason.StrongOntologyMatch in reasons ||
                     DocumentCandidatePromotionReason.NamedEntity in reasons ||
                     DocumentCandidatePromotionReason.DefinedOrDescribed in reasons ||
-                    (
-                        DocumentCandidatePromotionReason.RelationshipParticipant in reasons &&
-                            (
-                                DocumentCandidatePromotionReason.RepeatedMeaningfulContext in reasons ||
-                                    DocumentCandidatePromotionReason.RuleOrRequirement in reasons
-                            )
-                    )
+                    group.flatMap(DocumentEvidenceMention::hints).any {
+                        it.role == DocumentCandidateHintRole.Attribute
+                    } ||
+                    DocumentCandidatePromotionReason.RelationshipParticipant in reasons
             val relationshipIsGrounded =
                 first.category != DocumentCandidateExtractionCategory.RelationshipPhrase ||
+                    DocumentCandidatePromotionReason.ConnectedRelationship in reasons ||
                     DocumentCandidatePromotionReason.RepeatedMeaningfulContext in reasons ||
                     DocumentCandidatePromotionReason.RuleOrRequirement in reasons ||
                     group.flatMap(DocumentEvidenceMention::hints)
@@ -192,9 +190,10 @@ internal class DocumentCandidateExtractionService(
                 )
             }
         }
+        val linkedCandidates = linkRelatedCandidates(candidates)
         return DocumentCandidateExtractionResult(
             mentions,
-            candidates.sortedBy(DocumentGroundedCandidate::stableOrderingKey),
+            linkedCandidates,
             coverage.sortedBy(DocumentMentionCoverageDisposition::stableOrderingKey),
         )
     }
@@ -239,7 +238,7 @@ internal class DocumentCandidateExtractionService(
                 val ruleContext = RULE.containsMatchIn(sentenceText)
                 mentions += regexMentions(sentenceText, sentenceStart)
                 mentions += namedMentions(tokens)
-                mentions += conceptMentions(tokens, ruleContext)
+                mentions += conceptMentions(tokens)
                 mentions += relationshipMentions(tokens, ruleContext)
                 mentions += ruleMentions(sentenceText, sentenceStart)
             }
@@ -261,7 +260,67 @@ internal class DocumentCandidateExtractionService(
         findAll(IDENTIFIER, text, DocumentCandidateExtractionCategory.Identifier, baseOffset, this)
         findAll(DURATION, text, DocumentCandidateExtractionCategory.AttributeValue, baseOffset, this)
         findAll(PERCENTAGE, text, DocumentCandidateExtractionCategory.AttributeValue, baseOffset, this)
-        findAll(ATTRIBUTE_VALUE, text, DocumentCandidateExtractionCategory.AttributeValue, baseOffset, this)
+        addAll(attributeMentions(text, baseOffset))
+    }
+
+    private fun attributeMentions(text: String, baseOffset: Int): List<ExtractedMentionSpan> =
+        ATTRIBUTE_VALUE.findAll(text).flatMap { match ->
+            val attributeGroup = requireNotNull(match.groups[1])
+            val valueGroup = requireNotNull(match.groups[2])
+            val attribute = attributeGroup.value.trim()
+            val value = valueGroup.value.trim()
+            val attributeStart = baseOffset + attributeGroup.range.first + attributeGroup.value.indexOf(attribute)
+            val valueStart = baseOffset + valueGroup.range.first + valueGroup.value.indexOf(value)
+            sequenceOf(
+                ExtractedMentionSpan(
+                    category = DocumentCandidateExtractionCategory.ConceptTerm,
+                    displayText = attribute,
+                    normalizedText = normalize(attribute),
+                    start = attributeStart,
+                    end = attributeStart + attribute.length,
+                    hints = listOf(
+                        DocumentCandidateHint(DocumentCandidateHintRole.Attribute, attribute),
+                        DocumentCandidateHint(DocumentCandidateHintRole.Value, value),
+                    ).sortedBy(DocumentCandidateHint::stableOrderingKey),
+                    promotionSignals = listOf(DocumentCandidatePromotionReason.ConnectedRelationship),
+                ),
+                ExtractedMentionSpan(
+                    category = DocumentCandidateExtractionCategory.AttributeValue,
+                    displayText = value,
+                    normalizedText = normalize(value),
+                    start = valueStart,
+                    end = valueStart + value.length,
+                    hints = listOf(
+                        DocumentCandidateHint(DocumentCandidateHintRole.Attribute, attribute),
+                        DocumentCandidateHint(DocumentCandidateHintRole.Value, value),
+                    ).sortedBy(DocumentCandidateHint::stableOrderingKey),
+                ),
+            )
+        }.toList()
+
+    private fun linkRelatedCandidates(candidates: List<DocumentGroundedCandidate>): List<DocumentGroundedCandidate> {
+        val aliases = buildMap<String, MutableSet<String>> {
+            candidates.filter { it.category != DocumentCandidateExtractionCategory.RelationshipPhrase }.forEach { candidate ->
+                safeCandidateAliases(candidate.normalizedText).forEach { alias ->
+                    getOrPut(alias) { mutableSetOf() }.add(candidate.id)
+                }
+            }
+        }
+        return candidates.map { candidate ->
+            if (candidate.category != DocumentCandidateExtractionCategory.RelationshipPhrase) return@map candidate
+            candidate.copy(
+                hints = candidate.hints.map { hint ->
+                    if (hint.role !in setOf(DocumentCandidateHintRole.Subject, DocumentCandidateHintRole.Object)) {
+                        return@map hint
+                    }
+                    val relatedIds = safeCandidateAliases(hint.text)
+                        .flatMap { aliases[it].orEmpty() }
+                        .distinct()
+                        .toList()
+                    if (relatedIds.size == 1) hint.copy(relatedCandidateId = relatedIds.single()) else hint
+                }.sortedBy(DocumentCandidateHint::stableOrderingKey),
+            )
+        }.sortedBy(DocumentGroundedCandidate::stableOrderingKey)
     }
 
     private fun namedMentions(tokens: List<NlpToken>): List<ExtractedMentionSpan> = nounPhrases(tokens)
@@ -287,14 +346,13 @@ internal class DocumentCandidateExtractionService(
             )
         }
 
-    private fun conceptMentions(tokens: List<NlpToken>, ruleContext: Boolean): List<ExtractedMentionSpan> {
+    private fun conceptMentions(tokens: List<NlpToken>): List<ExtractedMentionSpan> {
         val phrases = nounPhrases(tokens).filter { it.any(NlpToken::isNoun) && it.size <= MAX_NOUN_PHRASE_TOKENS }
         val definitionCue = tokens.firstOrNull { it.normalizedLemma in definitionVerbs }
         val definedSubject = definitionCue?.let { cue -> phrases.lastOrNull { it.last().end <= cue.start } }
         return phrases.map { group ->
             val signals = buildList {
                 if (group === definedSubject) add(DocumentCandidatePromotionReason.DefinedOrDescribed)
-                if (ruleContext && group.size >= 2) add(DocumentCandidatePromotionReason.RuleOrRequirement)
             }
             mention(
                 group,
@@ -480,7 +538,7 @@ internal class DocumentCandidateExtractionService(
             RegexOption.IGNORE_CASE,
         )
         private val PERCENTAGE = Regex("\\b\\d+(?:\\.\\d+)?\\s*(?:%|percent(?:age)?)\\b", RegexOption.IGNORE_CASE)
-        private val ATTRIBUTE_VALUE = Regex("\\b[A-Za-z][A-Za-z ]{1,40}:\\s*[^.;\\n]{1,80}")
+        private val ATTRIBUTE_VALUE = Regex("\\b([A-Za-z][A-Za-z ]{1,40}):\\s*([^.;\\n]{1,80})")
         private val RULE = Regex("\\b(?:must|shall|may not|must not|prohibited|requires?|only if|at least|at most)\\b", RegexOption.IGNORE_CASE)
         private val CAMEL_CASE = Regex("([a-z0-9])([A-Z])")
         private val ACRONYM = Regex("[A-Z][A-Z0-9]{1,9}")
@@ -499,13 +557,9 @@ internal class DocumentCandidateExtractionService(
         )
         private val illustrativeHeadings = setOf("example", "examples", "illustration", "scenario")
         private val genericTerms = setOf(
-            "account", "action", "alternative", "application", "approval", "authority", "authorization", "banking",
-            "compliance", "consumer", "context", "control", "customer", "data", "decision", "deletion", "destination", "detail",
-            "document", "evidence", "exception", "fund", "identity", "information", "instruction", "interest",
-            "investigation", "invoice", "item", "loan", "notice", "obligation", "operation", "owner", "ownership",
-            "page", "payment", "people", "percent", "person", "policy", "process", "rate", "record", "requirement",
-            "restriction", "result", "risk", "section", "service", "standard", "system", "thing", "threshold", "time",
-            "transaction",
+            "action", "alternative", "application", "context", "control", "data", "decision", "detail", "document",
+            "evidence", "information", "item", "operation", "page", "policy", "process", "record", "requirement",
+            "result", "section", "service", "standard", "thing",
         )
         private val temporalOrCurrencyTerms = setOf(
             "friday", "monday", "saturday", "sunday", "thursday", "tuesday", "wednesday",
@@ -678,6 +732,18 @@ internal class DocumentCandidateExtractionService(
 
         private fun String.containsNormalizedPhrase(phrase: String): Boolean =
             this == phrase || startsWith("$phrase ") || endsWith(" $phrase") || contains(" $phrase ")
+
+        private fun safeCandidateAliases(value: String): Sequence<String> {
+            val normalized = normalize(value)
+            if (normalized.isBlank()) return emptySequence()
+            val singular = normalized.split(' ').toMutableList().also { words ->
+                val last = words.last()
+                if (last.length > 3 && last.endsWith('s') && !last.endsWith("ss")) {
+                    words[words.lastIndex] = last.dropLast(1)
+                }
+            }.joinToString(" ")
+            return sequenceOf(normalized, singular).distinct()
+        }
 
         private fun stableId(vararg values: String): String {
             val digest = MessageDigest.getInstance("SHA-256")

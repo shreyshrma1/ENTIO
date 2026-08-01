@@ -5,6 +5,7 @@ import com.entio.core.DocumentCompilationStatus
 import com.entio.core.DocumentCompiledConfidenceDimensions
 import com.entio.core.DocumentCompiledRecommendationResult
 import com.entio.core.DocumentCompiledReference
+import com.entio.core.DocumentMatchScope
 import com.entio.core.DocumentPlanOperand
 import com.entio.core.DocumentPlanOperation
 import com.entio.core.DocumentPlanOperationKind
@@ -24,6 +25,8 @@ public data class DocumentCompilerEntity(
     public val kind: DocumentTemporaryReferenceKind,
     public val sourceId: String,
     public val writable: Boolean,
+    public val scope: DocumentMatchScope = DocumentMatchScope.AppliedLocal,
+    public val sourceOntologyIris: List<Iri> = emptyList(),
 )
 
 public data class DocumentSemanticCompilerContext(
@@ -254,7 +257,32 @@ public class DocumentSemanticPlanCompiler {
 
         items.filter { it.kind.declarationKind != null }.forEach { item ->
             val entity = itemEntities.getValue(item.id)
-            if (entity is DocumentPlanOperand.ExistingEntity) return@forEach
+            if (entity is DocumentPlanOperand.ExistingEntity) {
+                val aligned = context.itemAlignmentIds[item.id]
+                    ?.let(context.alignedEntities::getValue)
+                    ?: return@forEach
+                if (aligned.scope == DocumentMatchScope.CuratedFibo) {
+                    if (aligned.sourceOntologyIris.isEmpty()) {
+                        throw CompilationBlocked(
+                            item.id,
+                            "external-source-module-missing",
+                            "The approved FIBO selection is missing its source ontology module.",
+                        )
+                    }
+                    operations += operation(
+                        item,
+                        DocumentPlanOperationKind.ReuseExternal,
+                        context,
+                        operands = listOf(entity) +
+                            aligned.sourceOntologyIris.map(DocumentPlanOperand::ExistingEntity) +
+                            listOf(
+                                DocumentPlanOperand.TextValue(requireNotNull(item.kind.declarationKind).token),
+                                DocumentPlanOperand.TextValue(context.iriNamespace),
+                            ),
+                    )
+                }
+                return@forEach
+            }
             val declaration = (entity as DocumentPlanOperand.TemporaryEntity).reference
             val operands = when (item.kind) {
                 DocumentSemanticItemKind.NodeShape -> listOf(

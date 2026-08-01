@@ -85,6 +85,36 @@ class DocumentGroundedAnalysisVerifierTest {
     }
 
     @Test
+    fun `compiles an exact FIBO reuse into the existing external reuse operation`(): Unit {
+        val selected = selection().copy(
+            scope = DocumentMatchScope.CuratedFibo,
+            writable = false,
+            sourceId = com.entio.core.Phase5PackageIdentity.SOURCE_ID,
+            sourceOntologyIris = listOf(Iri("https://spec.edmcouncil.org/fibo/ontology/FND/Parties/Parties/")),
+        )
+        val reuse = item("item-payment", DocumentGroundedDisposition.ReuseExisting, selected.selectionId)
+        val verified = verifier().verify(
+            input(reuse, retrieval = retrieval(listOf(selected)), fullState = listOf(exactMatch("candidate-1", selected))),
+        )
+        val compiled = DocumentSemanticPlanCompiler().compile(
+            verified.plan,
+            DocumentSemanticCompilerContext(
+                targetSourceId = "source-1",
+                iriNamespace = "https://example.com/ontology",
+                existingEntities = emptyMap(),
+                alignedEntities = verified.alignedEntities,
+                itemAlignmentIds = verified.itemAlignmentIds,
+            ),
+        )
+
+        assertEquals(
+            com.entio.core.DocumentGroundedRecommendationStatus.Executable,
+            verified.statusByItemId.getValue(reuse.id),
+        )
+        assertEquals(listOf(DocumentPlanOperationKind.ReuseExternal), compiled.single().operations.map { it.kind })
+    }
+
+    @Test
     fun `turns exact full-state duplicates and missing connected roles into editable needs-input fields`(): Unit {
         val duplicate = verifier().verify(
             input(
@@ -382,7 +412,7 @@ class DocumentGroundedAnalysisVerifierTest {
     }
 
     @Test
-    fun `keeps an unconnected relationship phrase in document-only coverage`(): Unit {
+    fun `keeps an unconnected relationship phrase as editable property input`(): Unit {
         val relationshipCandidate = candidate().copy(
             category = DocumentCandidateExtractionCategory.RelationshipPhrase,
             displayText = "requires",
@@ -397,11 +427,20 @@ class DocumentGroundedAnalysisVerifierTest {
             candidates = listOf(relationshipCandidate),
         ))
 
-        assertTrue(verified.plan.items.isEmpty())
-        assertTrue(verified.plan.groups.isEmpty())
-        assertTrue(verified.editableFields.isEmpty())
+        assertEquals(listOf(relationshipItem.id), verified.plan.items.map { it.id })
+        assertEquals(listOf(relationshipItem.id), verified.plan.groups.single().itemIds)
         assertEquals(
-            com.entio.core.DocumentGroundedRecommendationStatus.ReviewOnly,
+            setOf(
+                DocumentEditableGroundedFieldKind.Disposition,
+                DocumentEditableGroundedFieldKind.EntityKind,
+                DocumentEditableGroundedFieldKind.Label,
+                DocumentEditableGroundedFieldKind.Domain,
+                DocumentEditableGroundedFieldKind.Range,
+            ),
+            verified.editableFields.map { it.kind }.toSet(),
+        )
+        assertEquals(
+            com.entio.core.DocumentGroundedRecommendationStatus.NeedsInput,
             verified.statusByItemId.getValue(relationshipItem.id),
         )
     }

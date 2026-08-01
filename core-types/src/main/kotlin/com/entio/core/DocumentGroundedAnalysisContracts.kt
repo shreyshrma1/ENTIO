@@ -264,6 +264,7 @@ public data class DocumentOntologyRetrievalSelection(
     public val score: Int,
     public val matchReasons: List<DocumentRetrievalMatchReason>,
     public val fingerprints: DocumentRetrievalFingerprints,
+    public val sourceOntologyIris: List<Iri> = emptyList(),
 ) {
     init {
         requireOpaqueDocumentId(selectionId, "Ontology retrieval selection ID")
@@ -274,6 +275,11 @@ public data class DocumentOntologyRetrievalSelection(
             alternateLabels == alternateLabels.distinct().sorted())
         alternateLabels.forEach { requireNonBlankBounded(it, "Ontology retrieval alternate label", 500) }
         requireOptionalDocumentText(definition, "Ontology retrieval definition", 500)
+        require(
+            sourceOntologyIris.size <= MAX_DOCUMENT_RETRIEVAL_STRUCTURAL_IRIS &&
+                sourceOntologyIris == sourceOntologyIris.distinct().sortedBy(Iri::value),
+        )
+        require(scope != DocumentMatchScope.CuratedFibo || sourceOntologyIris.isNotEmpty())
         require(score in 0..100)
         require(matchReasons.isNotEmpty() && matchReasons == matchReasons.distinct().sortedBy(DocumentRetrievalMatchReason::stableOrderingKey))
         require(scope !in setOf(DocumentMatchScope.Imported, DocumentMatchScope.CuratedFibo) || !writable)
