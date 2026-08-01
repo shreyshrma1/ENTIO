@@ -200,18 +200,19 @@ describe("document ingestion review workspace", () => {
     await waitFor(() => expect(requests.some((request) => request.path.endsWith("/cancel"))).toBe(true));
   });
 
-  it("does not offer approval when the server cannot produce an exact change", async () => {
+  it("does not offer approval when a safety failure blocks an exact change", async () => {
     const blocked = workspace("Pending");
     blocked.recommendations.items[0] = {
       ...blocked.recommendations.items[0],
-      type: "Ambiguity",
+      type: "SafetyFailure",
+      connectedStatus: "Blocked",
       proposedLabel: "Account closure definition",
       description: "Entio found possible meaning, but it cannot safely map that meaning to a supported change.",
       changePreview: {
         draftable: false,
         summary: "No ontology change can be created from this recommendation.",
         operations: [],
-        blockingReason: "This recommendation remains review-only.",
+        blockingReason: "The ontology changed after analysis and the recommendation must be regenerated.",
       },
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -226,7 +227,7 @@ describe("document ingestion review workspace", () => {
     fireEvent.click(await screen.findByLabelText("Account closure definition recommendation details"));
     const preview = await screen.findByRole("region", { name: "Exact proposed changes" });
     expect(preview).toHaveTextContent("No ontology change can be created");
-    expect(preview).toHaveTextContent("This recommendation remains review-only");
+    expect(preview).toHaveTextContent("The ontology changed after analysis");
     expect(screen.queryByRole("button", { name: "Approve for proposal" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
   });
@@ -302,7 +303,7 @@ describe("document ingestion review workspace", () => {
     }));
   });
 
-  it("explains connected changes, confidence, critique, review-only meaning, and individual gates", async () => {
+  it("explains connected changes, confidence, critique, coverage notes, and individual gates", async () => {
     const connected = workspace("Pending");
     connected.recommendations.items[0] = {
       ...connected.recommendations.items[0],
@@ -407,7 +408,7 @@ describe("document ingestion review workspace", () => {
       "Reviewer input required",
     );
     expect(screen.getByRole("note")).toHaveTextContent("Reviewer input required.");
-    expect(screen.getByLabelText("Review-only findings")).toHaveTextContent("Separation of duties rule");
+    expect(screen.getByLabelText("Coverage notes")).toHaveTextContent("Separation of duties rule");
     expect(screen.getByText("Modeling critique")).toBeInTheDocument();
     expect(screen.getByLabelText("Individual confirmations")).toHaveTextContent("Illustrative");
 
@@ -441,16 +442,17 @@ describe("document ingestion review workspace", () => {
     }));
   });
 
-  it("sends only the retain decision for a pure review-only rule", async () => {
-    const reviewOnly = workspace("Pending");
-    reviewOnly.recommendations.items[0] = {
-      ...reviewOnly.recommendations.items[0],
-      connectedStatus: "ReviewOnly",
+  it("confirms an exact ontology reuse without presenting it as an edit", async () => {
+    const matched = workspace("Pending");
+    matched.recommendations.items[0] = {
+      ...matched.recommendations.items[0],
+      type: "ExistingOntologyReuse",
+      connectedStatus: "Matched",
       changePreview: {
         draftable: false,
-        summary: "This finding is retained for review and will not create an ontology edit.",
+        summary: "No ontology edit is needed. Confirm that this evidence maps to the selected existing entity.",
         operations: [],
-        blockingReason: "This recommendation is review-only.",
+        blockingReason: null,
       },
       confidenceDimensions: {
         evidence: 90,
@@ -461,19 +463,24 @@ describe("document ingestion review workspace", () => {
       },
       reviewOnlyFindings: [{
         id: "finding-rule",
-        summary: "Approval separation rule",
-        reason: "The rule is meaningful but is not a supported typed edit.",
+        summary: "Customer",
+        reason: "The evidence exactly matches the existing Customer class.",
         relatedOperationIds: [],
       }],
+    };
+    matched.draftImpact = {
+      ...matched.draftImpact,
+      executableCount: 0,
+      matchedCount: 1,
     };
     const decisions: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path.includes("/decision")) {
         decisions.push(JSON.parse(String(init?.body)));
-        return json(reviewOnly);
+        return json(matched);
       }
-      if (path.includes("/review")) return json(reviewOnly);
+      if (path.includes("/review")) return json(matched);
       if (path.includes("/document-ingestion/tasks")) return json(tasks);
       throw new Error(`Unexpected request: ${path}`);
     }));
@@ -482,7 +489,8 @@ describe("document ingestion review workspace", () => {
 
     fireEvent.click(await screen.findByLabelText("Customer recommendation details"));
     expect(await screen.findByLabelText("Confidence details")).toHaveTextContent("CompilationNot applicable");
-    fireEvent.click(screen.getByRole("button", { name: "Retain as documented rule" }));
+    expect(screen.getByRole("region", { name: "Exact proposed changes" })).not.toHaveClass("blocked");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm ontology reuse" }));
     await waitFor(() => expect(decisions).toHaveLength(1));
     expect(decisions[0]).toMatchObject({
       action: "retain",
@@ -490,6 +498,40 @@ describe("document ingestion review workspace", () => {
       expectedGraphFingerprint: "graph-fingerprint",
     });
     expect(decisions[0]).not.toHaveProperty("operations");
+  });
+
+  it("keeps unsupported meaning in the document-only coverage ledger without a review card", async () => {
+    const documentOnly = workspace("Pending");
+    documentOnly.recommendations = { items: [], offset: 0, limit: 100, total: 0, nextOffset: null };
+    documentOnly.documentOnlyFindings = [{
+      id: "finding-separation-rule",
+      label: "Approval separation rule",
+      reasons: ["The rule is meaningful but is not a supported typed edit."],
+      evidence: documentOnly.recommendations.items[0]?.evidence ?? [{
+        evidenceId: "evidence-1", evidenceType: "Explicit", documentId: "document-1", pageNumber: 1,
+        extractionMethod: "Ocr", ocrConfidence: 87, excerpt: "Customer", priorRecordId: null,
+      }],
+    }];
+    documentOnly.draftImpact = {
+      ...documentOnly.draftImpact,
+      pendingCount: 0,
+      executableCount: 0,
+      matchedCount: 0,
+      documentOnlyCount: 1,
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/review")) return json(documentOnly);
+      if (path.includes("/document-ingestion/tasks")) return json(tasks);
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    renderWorkspace();
+
+    expect(await screen.findByText("Coverage ledger · 1 document-only meaning")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Approval separation rule recommendation details")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Coverage ledger · 1 document-only meaning"));
+    expect(screen.getByText("The rule is meaningful but is not a supported typed edit.")).toBeInTheDocument();
   });
 
   it("waits for the task to become reviewable before requesting its review workspace", async () => {
@@ -631,6 +673,7 @@ function workspace(status: WebDocumentReviewRecommendation["reviewStatus"]): Web
       total: 1,
       nextOffset: null,
     },
+    documentOnlyFindings: [],
     draftImpact: {
       acceptedCount: status === "Accepted" ? 1 : 0,
       pendingCount: status === "Pending" ? 1 : 0,
@@ -638,6 +681,8 @@ function workspace(status: WebDocumentReviewRecommendation["reviewStatus"]): Web
       executableCount: 1,
       needsInputCount: 0,
       reviewOnlyCount: 0,
+      matchedCount: 0,
+      documentOnlyCount: 0,
       readOnly: true,
     },
     analysisCounts: {

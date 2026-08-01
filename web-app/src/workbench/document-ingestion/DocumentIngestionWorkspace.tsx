@@ -229,6 +229,7 @@ function DocumentReview({ projectId, taskId, ready }: { projectId: string; taskI
     <button className="button" type="button" onClick={() => review.refetch()}>Retry loading results</button>
   </div>;
   if (!workspace) return null;
+  const documentOnlyFindings = workspace.documentOnlyFindings ?? [];
   const submit = (
     recommendationId: string,
     request: Omit<WebDocumentReviewDecision, "expectedWorkKey" | "expectedGraphFingerprint">,
@@ -253,7 +254,7 @@ function DocumentReview({ projectId, taskId, ready }: { projectId: string; taskI
       <div className="document-draft-impact" aria-label="Read-only draft impact">
         <strong>Draft impact preview</strong>
         <span>
-          {workspace.draftImpact.acceptedCount} accepted · {workspace.draftImpact.executableCount} ready to approve · {workspace.draftImpact.needsInputCount} need input · {workspace.draftImpact.reviewOnlyCount} reuse or review-only · {workspace.draftImpact.blockedCount} unsafe
+          {workspace.draftImpact.acceptedCount} accepted · {workspace.draftImpact.executableCount} ready to approve · {workspace.draftImpact.needsInputCount} need input · {workspace.draftImpact.matchedCount ?? 0} matched · {workspace.draftImpact.blockedCount} unsafe
         </span>
         <small>{workspace.draftImpact.pendingCount} recommendations are awaiting your decision. Pending does not mean blocked. Read only until accepted items are staged.</small>
         <button
@@ -299,6 +300,19 @@ function DocumentReview({ projectId, taskId, ready }: { projectId: string; taskI
             : `${workspace.compilationSuccess.percentage}%`}
         </span> : null}
       </div> : null}
+      {documentOnlyFindings.length ? <details className="document-coverage-ledger">
+        <summary>Coverage ledger · {documentOnlyFindings.length} document-only meaning{documentOnlyFindings.length === 1 ? "" : "s"}</summary>
+        <p>These evidence-backed meanings are retained for coverage but do not create ontology review cards.</p>
+        <ul>{documentOnlyFindings.map((finding) => <li key={finding.id}>
+          <strong>{finding.label}</strong>
+          <ul>{finding.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+          {finding.evidence.map((item) => <button
+            key={item.evidenceId}
+            type="button"
+            onClick={() => setEvidenceId(item.evidenceId)}
+          >Open {humanize(item.evidenceType)} evidence</button>)}
+        </li>)}</ul>
+      </details> : null}
     </div>
 
     {(["OntologyStructure", "BusinessFact"] as const).map((category) =>
@@ -527,7 +541,7 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
       >Verify and compile resolution</button>
     </section> : null}
 
-    <section className={`document-change-preview ${changePreview.draftable ? "" : "blocked"}`} aria-label="Exact proposed changes">
+    <section className={`document-change-preview ${changePreview.draftable || recommendation.connectedStatus === "Matched" ? "" : "blocked"}`} aria-label="Exact proposed changes">
       <h4>Exact changes</h4>
       <p>{changePreview.summary}</p>
       {changePreview.operations.length ? <ol>{changePreview.operations.map((operation, index) =>
@@ -565,9 +579,9 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
       </dl>
     </section> : null}
 
-    {recommendation.reviewOnlyFindings?.length ? <section className="document-review-only" aria-label="Review-only findings">
-      <h4>Review-only findings</h4>
-      <p>These findings are important context, but Entio cannot safely turn them into supported typed edits.</p>
+    {recommendation.reviewOnlyFindings?.length ? <section className="document-review-only" aria-label="Coverage notes">
+      <h4>Coverage notes</h4>
+      <p>These notes explain how the evidence maps to the current ontology.</p>
       <ul>{recommendation.reviewOnlyFindings.map((finding) => <li key={finding.id}>
         <strong>{finding.summary}</strong><span>{finding.reason}</span>
       </li>)}</ul>
@@ -615,9 +629,9 @@ function RecommendationCard({ recommendation, documents, duplicateOptions, onEvi
 
     <div className="document-review-actions">
       {changePreview.draftable ? <button className="button primary" type="button" disabled={busy || (clarificationRequired && !clarification.trim())} onClick={() => onDecision({ action: "accept", clarification })}>Approve for proposal</button> : null}
-      {recommendation.connectedStatus === "ReviewOnly" && recommendation.reviewStatus !== "Drafted"
+      {recommendation.connectedStatus === "Matched" && recommendation.reviewStatus !== "Drafted"
         ? <button className="button primary" type="button" disabled={busy} onClick={() =>
-          onDecision({ action: "retain", clarification })}>Retain as documented rule</button>
+          onDecision({ action: "retain", clarification })}>Confirm ontology reuse</button>
         : null}
       <button type="button" disabled={busy} onClick={() => onDecision({ action: "reject" })}>Reject</button>
     </div>

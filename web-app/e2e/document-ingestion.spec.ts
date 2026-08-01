@@ -136,7 +136,7 @@ test("document ingestion completes the accessible review and proposal workflow",
   await accept.focus();
   await accept.press("Enter");
   await expect(page.getByText(
-    "1 accepted · 1 ready to approve · 0 need input · 0 reuse or review-only · 0 unsafe",
+    "1 accepted · 1 ready to approve · 0 need input · 0 matched · 0 unsafe",
   )).toBeVisible();
   await page.getByRole("button", { name: "Add accepted items to proposal" }).press("Enter");
   await expect(page.getByRole("status").filter({ hasText: "1 typed edit added" })).toBeVisible();

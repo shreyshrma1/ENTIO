@@ -30,6 +30,7 @@ import com.entio.core.DocumentGroundedDisposition
 import com.entio.core.DocumentGroundedEvidenceSpan
 import com.entio.core.DocumentGroundedRecommendationStatus
 import com.entio.core.DocumentGroundedSemanticItem
+import com.entio.core.DocumentGroupedDecisionKind
 import com.entio.core.DocumentId
 import com.entio.core.DocumentMatchCandidate
 import com.entio.core.DocumentMatchScope
@@ -143,6 +144,54 @@ class DocumentReviewWorkspaceTest {
             setOf("Create Datatype Property", "Set Property Domain", "Set Property Range", "Add Definition"),
             resolved.changePreview.operations.map { it.operation }.toSet(),
         )
+    }
+
+    @Test
+    fun presentsExactReuseAsMatchedAndConfirmableWithoutAnOntologyEdit(): Unit {
+        val store = unresolvedGroundedFixture(DocumentGroundedDisposition.ReuseExisting)
+
+        val workspace = store.readVerified("project-a", "task-grounded", "alice", WebPageRequest())
+        val recommendation = workspace.recommendations.items.single()
+
+        assertEquals("Matched", recommendation.connectedStatus)
+        assertEquals("ExistingOntologyReuse", recommendation.type)
+        assertEquals("Matched", recommendation.groundedItems.single().status)
+        assertFalse(recommendation.changePreview.draftable)
+        assertEquals(null, recommendation.changePreview.blockingReason)
+        assertTrue(recommendation.changePreview.summary.contains("Confirm that this evidence maps"))
+        assertEquals(1, workspace.draftImpact.matchedCount)
+        assertEquals(0, workspace.draftImpact.reviewOnlyCount)
+        assertTrue(workspace.documentOnlyFindings.isEmpty())
+
+        val confirmed = store.retainVerifiedReviewOnly(
+            "project-a",
+            "task-grounded",
+            recommendation.id,
+            "alice",
+            workspace.exactWorkKey,
+            workspace.graphFingerprint,
+            null,
+        )
+        assertEquals(DocumentGroupedDecisionKind.Drafted, confirmed.decision.kind)
+    }
+
+    @Test
+    fun movesAdministrativeMeaningToDocumentOnlyCoverageInsteadOfAReviewCard(): Unit {
+        val store = unresolvedGroundedFixture(
+            DocumentGroundedDisposition.Administrative,
+            DocumentSemanticItemKind.Class,
+            "Document section",
+        )
+
+        val workspace = store.readVerified("project-a", "task-grounded", "alice", WebPageRequest())
+
+        assertEquals(0, workspace.recommendations.total)
+        assertTrue(workspace.recommendations.items.isEmpty())
+        assertEquals(0, workspace.draftImpact.pendingCount)
+        assertEquals(0, workspace.draftImpact.reviewOnlyCount)
+        assertEquals(1, workspace.draftImpact.documentOnlyCount)
+        assertEquals("Document section", workspace.documentOnlyFindings.single().label)
+        assertTrue(workspace.documentOnlyFindings.single().evidence.isNotEmpty())
     }
 
     @Test
@@ -663,7 +712,11 @@ class DocumentReviewWorkspaceTest {
         return store
     }
 
-    private fun unresolvedGroundedFixture(): DocumentReviewWorkspaceStore {
+    private fun unresolvedGroundedFixture(
+        disposition: DocumentGroundedDisposition = DocumentGroundedDisposition.Unresolved,
+        kind: DocumentSemanticItemKind = DocumentSemanticItemKind.Class,
+        itemLabel: String = "Servicing Policy",
+    ): DocumentReviewWorkspaceStore {
         val now = Instant.parse("2026-07-31T12:00:00Z")
         val store = DocumentReviewWorkspaceStore(Clock.fixed(now, ZoneOffset.UTC))
         val documentId = DocumentId("document-grounded")
@@ -733,15 +786,20 @@ class DocumentReviewWorkspaceTest {
         )
         val item = DocumentGroundedSemanticItem(
             id = "grounded-item-policy",
-            kind = DocumentSemanticItemKind.Class,
-            label = "Servicing Policy",
+            kind = kind,
+            label = itemLabel,
             definition = "A policy described by the document.",
             candidateIds = listOf(candidate.id),
             evidenceIds = listOf(evidence.id),
-            disposition = DocumentGroundedDisposition.Unresolved,
+            disposition = disposition,
+            selectionId = if (disposition == DocumentGroundedDisposition.ReuseExisting) "selection-loan" else null,
             rationale = "The evidence supports an important policy concept but needs a reviewer decision.",
             confidence = DocumentConfidenceDimensions(95, 80, 65),
-            ambiguity = "Reuse or creation requires reviewer confirmation.",
+            ambiguity = if (disposition == DocumentGroundedDisposition.Unresolved) {
+                "Reuse or creation requires reviewer confirmation."
+            } else {
+                null
+            },
         )
         val analysis = DocumentGroundedAnalysisResult(
             DocumentAnalysisPipelineVersions.GROUNDED_RESPONSE,
@@ -750,7 +808,7 @@ class DocumentReviewWorkspaceTest {
                 DocumentGroundedCoverageDisposition(
                     candidate.id,
                     item.id,
-                    DocumentGroundedDisposition.Unresolved,
+                    disposition,
                     "The important concept needs a reviewer ontology decision.",
                 ),
             ),
@@ -887,12 +945,18 @@ class DocumentReviewWorkspaceTest {
                     nlpCandidatesRetained = 1,
                     nlpCandidatesRejected = 0,
                     groundedItemsRetained = 1,
-                    groundedItemsUnresolved = 1,
+                    groundedItemsUnresolved = if (disposition == DocumentGroundedDisposition.Unresolved) 1 else 0,
                     groundedItemsRejected = 0,
-                    recommendationsExecutable = 0,
+                    recommendationsExecutable = verified.statusByItemId.values.count {
+                        it == DocumentGroundedRecommendationStatus.Executable
+                    },
                     recommendationsMixed = 0,
-                    recommendationsNeedsInput = 1,
-                    recommendationsReviewOnly = 0,
+                    recommendationsNeedsInput = verified.statusByItemId.values.count {
+                        it == DocumentGroundedRecommendationStatus.NeedsInput
+                    },
+                    recommendationsReviewOnly = verified.statusByItemId.values.count {
+                        it == DocumentGroundedRecommendationStatus.ReviewOnly
+                    },
                     recommendationsBlocked = 0,
                     expandedTypedEdits = 0,
                 ),

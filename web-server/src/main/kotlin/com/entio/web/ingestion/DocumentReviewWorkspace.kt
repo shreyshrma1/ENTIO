@@ -50,6 +50,7 @@ public data class DocumentReviewWorkspaceResponse(
     val summaries: List<DocumentReviewSummary>,
     val recommendations: WebPage<DocumentReviewRecommendation>,
     val draftImpact: DocumentDraftImpact,
+    val documentOnlyFindings: List<DocumentReviewDocumentOnlyFinding> = emptyList(),
     val semanticCoverage: DocumentReviewQualityMetric? = null,
     val compilationSuccess: DocumentReviewQualityMetric? = null,
     val analysisCounts: DocumentAnalysisCounts? = null,
@@ -165,6 +166,13 @@ public data class DocumentReviewOnlyFindingSummary(
     val relatedOperationIds: List<String>,
 )
 
+public data class DocumentReviewDocumentOnlyFinding(
+    val id: String,
+    val label: String,
+    val reasons: List<String>,
+    val evidence: List<DocumentReviewEvidenceSummary>,
+)
+
 public data class DocumentReviewCriticDispositionSummary(
     val findingId: String,
     val disposition: String,
@@ -232,6 +240,8 @@ public data class DocumentDraftImpact(
     val executableCount: Int = 0,
     val needsInputCount: Int = 0,
     val reviewOnlyCount: Int = 0,
+    val matchedCount: Int = 0,
+    val documentOnlyCount: Int = 0,
     val readOnly: Boolean = true,
 )
 
@@ -514,13 +524,69 @@ internal class DocumentReviewWorkspaceStore(
         val modelId = stored.analysisStages.mapNotNull(DocumentAnalysisStageRecord::selectedModelId)
             .distinct()
             .singleOrNull()
-        val recommendations = stored.plan.plan.recommendations.map { recommendation ->
+        fun evidenceForIds(evidenceIds: List<com.entio.core.DocumentEvidenceId>): List<DocumentReviewEvidenceSummary> =
+            evidenceIds.flatMap { evidenceId ->
+                stored.evidence[evidenceId.value].orEmptyReferences().map { reference ->
+                    DocumentReviewEvidenceSummary(
+                        evidenceId = reference.id.value,
+                        evidenceType = stored.evidence.getValue(evidenceId.value).type.name,
+                        documentId = reference.documentId.value,
+                        pageNumber = reference.pageNumber,
+                        extractionMethod = reference.extractionMethod.name,
+                        ocrConfidence = reference.ocrConfidence,
+                        excerpt = reference.exactExcerpt,
+                        priorRecordId = null,
+                    )
+                }
+            }.take(MAX_EVIDENCE_SUMMARIES)
+        fun evidenceFor(recommendation: DocumentFinalRecommendation): List<DocumentReviewEvidenceSummary> =
+            evidenceForIds(recommendation.evidenceIds)
+
+        val resolvedReuseIds = stored.plan.plan.recommendations.filter { recommendation ->
+            recommendation.status == DocumentFinalRecommendationStatus.ReviewOnly &&
+                stored.isResolvedReuse(recommendation.id)
+        }.map(DocumentFinalRecommendation::id).toSet()
+        val documentOnlyRecommendations = stored.plan.plan.recommendations.filter { recommendation ->
+            recommendation.status == DocumentFinalRecommendationStatus.ReviewOnly &&
+                recommendation.id !in resolvedReuseIds
+        }
+        val documentOnlyIds = documentOnlyRecommendations.map(DocumentFinalRecommendation::id).toSet()
+        val visibleRecommendations = stored.plan.plan.recommendations.filterNot { recommendation ->
+            recommendation.id in documentOnlyIds
+        }
+        val groundedDocumentOnlyItems = stored.groundedReview?.let { context ->
+            context.analysis.items.filter { item ->
+                item.disposition != DocumentGroundedDisposition.ReuseExisting &&
+                    context.statusByItemId[item.id] == DocumentGroundedRecommendationStatus.ReviewOnly
+            }
+        }.orEmpty()
+        val documentOnlyFindings = if (stored.groundedReview == null) {
+            documentOnlyRecommendations.map { recommendation ->
+                DocumentReviewDocumentOnlyFinding(
+                    recommendation.id,
+                    recommendation.title,
+                    recommendation.reviewOnlyFindings.map { it.reason }.ifEmpty { listOf(recommendation.description) },
+                    evidenceFor(recommendation),
+                )
+            }
+        } else {
+            groundedDocumentOnlyItems.map { item ->
+                DocumentReviewDocumentOnlyFinding(
+                    item.id,
+                    item.label,
+                    listOfNotNull(item.ambiguity, item.rationale).distinct(),
+                    evidenceForIds(item.evidenceIds),
+                )
+            }
+        }.distinctBy(DocumentReviewDocumentOnlyFinding::id).sortedBy(DocumentReviewDocumentOnlyFinding::id)
+        val recommendations = visibleRecommendations.map { recommendation ->
             val review = stored.reviews.getValue(recommendation.id)
             val groundedStatuses = stored.groundedStatuses(recommendation.id)
-            val connectedStatus = if (DocumentGroundedRecommendationStatus.NeedsInput in groundedStatuses) {
-                DocumentGroundedRecommendationStatus.NeedsInput.name
-            } else {
-                recommendation.status.name
+            val connectedStatus = when {
+                DocumentGroundedRecommendationStatus.NeedsInput in groundedStatuses ->
+                    DocumentGroundedRecommendationStatus.NeedsInput.name
+                recommendation.id in resolvedReuseIds -> MATCHED_STATUS
+                else -> recommendation.status.name
             }
             val reviewBlockers = if (connectedStatus == DocumentGroundedRecommendationStatus.NeedsInput.name) {
                 (recommendation.blockers - "semantic-group-blocked" + GROUNDED_INPUT_REQUIRED_REASON).distinct().sorted()
@@ -549,20 +615,7 @@ internal class DocumentReviewWorkspaceStore(
                 DocumentFinalRecommendationStatus.Mixed,
             ) && recommendation.blockers.isEmpty() &&
                 recommendation.individualReviewGates.all(com.entio.core.DocumentIndividualReviewGate::executable)
-            val evidence = recommendation.evidenceIds.flatMap { evidenceId ->
-                stored.evidence[evidenceId.value].orEmptyReferences().map { reference ->
-                    DocumentReviewEvidenceSummary(
-                        evidenceId = reference.id.value,
-                        evidenceType = stored.evidence.getValue(evidenceId.value).type.name,
-                        documentId = reference.documentId.value,
-                        pageNumber = reference.pageNumber,
-                        extractionMethod = reference.extractionMethod.name,
-                        ocrConfidence = reference.ocrConfidence,
-                        excerpt = reference.exactExcerpt,
-                        priorRecordId = null,
-                    )
-                }
-            }.take(MAX_EVIDENCE_SUMMARIES)
+            val evidence = evidenceFor(recommendation)
             val isBusinessFact = recommendation.operations.any {
                 it.kind in BUSINESS_FACT_OPERATIONS
             }
@@ -579,13 +632,16 @@ internal class DocumentReviewWorkspaceStore(
             DocumentReviewRecommendation(
                 id = recommendation.id,
                 category = if (isBusinessFact) "BusinessFact" else "OntologyStructure",
-                type = recommendation.operations.firstOrNull()?.kind?.name ?: "ReviewOnly",
+                type = recommendation.operations.firstOrNull()?.kind?.name
+                    ?: if (recommendation.id in resolvedReuseIds) "ExistingOntologyReuse" else "DocumentOnly",
                 action = "ConnectedChange",
                 proposedLabel = recommendation.title,
                 description = recommendation.description,
                 changePreview = DocumentReviewChangePreview(
                     draftable = draftable,
                     summary = when {
+                        recommendation.id in resolvedReuseIds ->
+                            "No ontology edit is needed. Confirm that this evidence maps to the selected existing entity."
                         operations.isEmpty() -> "This finding is retained for review and will not create an ontology edit."
                         operations.size == 1 -> "1 exact typed change will be added as an atomic recommendation."
                         else -> "${operations.size} ordered typed changes will be added as one atomic recommendation."
@@ -598,7 +654,8 @@ internal class DocumentReviewWorkspaceStore(
                         reviewBlockers.isNotEmpty() -> reviewBlockers.joinToString("; ")
                         recommendation.individualReviewGates.any { !it.executable } ->
                             "Confirm every proposed individual before approval."
-                        else -> "This recommendation is review-only."
+                        recommendation.id in resolvedReuseIds -> null
+                        else -> "No ontology edit is available for this coverage finding."
                     },
                 ),
                 confidence = recommendation.confidence.overall,
@@ -697,24 +754,29 @@ internal class DocumentReviewWorkspaceStore(
             summaries = summaries,
             recommendations = recommendations.toWebPage(page),
             draftImpact = DocumentDraftImpact(
-                acceptedCount = stored.reviews.values.count { it.kind == DocumentGroupedDecisionKind.Accepted },
-                pendingCount = stored.reviews.values.count { it.kind == DocumentGroupedDecisionKind.Pending },
-                blockedCount = stored.plan.plan.recommendations.count {
+                acceptedCount = visibleRecommendations.count {
+                    stored.reviews.getValue(it.id).kind == DocumentGroupedDecisionKind.Accepted
+                },
+                pendingCount = visibleRecommendations.count {
+                    stored.reviews.getValue(it.id).kind == DocumentGroupedDecisionKind.Pending
+                },
+                blockedCount = visibleRecommendations.count {
                     it.status == DocumentFinalRecommendationStatus.Blocked &&
                         stored.groundedStatuses(it.id).none { status ->
                             status == DocumentGroundedRecommendationStatus.NeedsInput
                         }
                 },
-                executableCount = stored.plan.plan.recommendations.count {
+                executableCount = visibleRecommendations.count {
                     it.status in setOf(DocumentFinalRecommendationStatus.Executable, DocumentFinalRecommendationStatus.Mixed)
                 },
-                needsInputCount = stored.plan.plan.recommendations.count {
+                needsInputCount = visibleRecommendations.count {
                     DocumentGroundedRecommendationStatus.NeedsInput in stored.groundedStatuses(it.id)
                 },
-                reviewOnlyCount = stored.plan.plan.recommendations.count {
-                    it.status == DocumentFinalRecommendationStatus.ReviewOnly
-                },
+                reviewOnlyCount = 0,
+                matchedCount = resolvedReuseIds.size,
+                documentOnlyCount = documentOnlyFindings.size,
             ),
+            documentOnlyFindings = documentOnlyFindings,
             semanticCoverage = DocumentReviewQualityMetric(
                 numerator = stored.plan.plan.coverage.size - blockedCoverage,
                 denominator = stored.plan.plan.coverage.size,
@@ -767,7 +829,10 @@ internal class DocumentReviewWorkspaceStore(
             .take(MAX_GROUNDED_RESOLUTION_ALTERNATIVES)
             .map(::alternative)
         val itemIds = context.itemIdsForRecommendation(recommendationId)
-        return itemIds.mapNotNull(items::get).map { item ->
+        return itemIds.mapNotNull(items::get).filterNot { item ->
+            item.disposition != DocumentGroundedDisposition.ReuseExisting &&
+                context.statusByItemId[item.id] == DocumentGroundedRecommendationStatus.ReviewOnly
+        }.map { item ->
             val candidateIds = item.candidateIds.toSet()
             DocumentReviewGroundedItem(
                 itemId = item.id,
@@ -784,7 +849,11 @@ internal class DocumentReviewWorkspaceStore(
                         it.id, it.kind.name, it.required, it.compatibleSelectionIds, it.safeMessage,
                     )
                 },
-                status = context.statusByItemId[item.id]?.name ?: DocumentGroundedRecommendationStatus.Blocked.name,
+                status = when {
+                    item.disposition == DocumentGroundedDisposition.ReuseExisting &&
+                        context.statusByItemId[item.id] == DocumentGroundedRecommendationStatus.ReviewOnly -> MATCHED_STATUS
+                    else -> context.statusByItemId[item.id]?.name ?: DocumentGroundedRecommendationStatus.Blocked.name
+                },
             )
         }
     }
@@ -805,6 +874,15 @@ internal class DocumentReviewWorkspaceStore(
                 .toSet()
         }
         .orEmpty()
+
+    private fun StoredVerifiedPlan.isResolvedReuse(recommendationId: String): Boolean {
+        val context = groundedReview ?: return false
+        val itemIds = context.itemIdsForRecommendation(recommendationId)
+        if (itemIds.isEmpty()) return false
+        val items = context.analysis.items.associateBy(DocumentGroundedSemanticItem::id)
+        return itemIds.mapNotNull(items::get).takeIf { it.size == itemIds.size }
+            ?.all { it.disposition == DocumentGroundedDisposition.ReuseExisting } == true
+    }
 
     @Synchronized
     fun verifiedEvidence(
@@ -2140,6 +2218,7 @@ internal class DocumentReviewWorkspaceStore(
         const val INDIVIDUAL_CONFIRMATION_BLOCKER: String = "individual-confirmation-required"
         const val REVIEWER_INPUT_REQUIRED_REASON: String = "reviewer-input-required"
         const val GROUNDED_INPUT_REQUIRED_REASON: String = "grounded-review-input-required"
+        const val MATCHED_STATUS: String = "Matched"
         val RESOLVABLE_GROUNDED_DISPOSITIONS: Set<DocumentGroundedDisposition> = setOf(
             DocumentGroundedDisposition.ReuseExisting,
             DocumentGroundedDisposition.ExtendExisting,
