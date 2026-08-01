@@ -64,9 +64,8 @@ public class DocumentGroundedAnalysisVerifier {
                 item.id == itemId && item.disposition == DocumentGroundedDisposition.ReuseExisting
             }
         }) { "grounded-reviewer-reuse-authorization-invalid" }
-        val connectedAnalysis = retainOnlyConnectedRelationshipItems(input.analysis, candidates)
         val normalizedAnalysis = requireExactIdentityForReuse(
-            connectedAnalysis,
+            input.analysis,
             candidates,
             selectionById,
             input.fullStateMatches,
@@ -173,12 +172,57 @@ public class DocumentGroundedAnalysisVerifier {
                 }
                 needsInput = true
             }
+            if (grounded.disposition in setOf(
+                    DocumentGroundedDisposition.ProposeNew,
+                    DocumentGroundedDisposition.ExtendExisting,
+                    DocumentGroundedDisposition.Unresolved,
+                )
+            ) {
+                val requiredContext = when (grounded.kind) {
+                    DocumentSemanticItemKind.ObjectProperty -> listOf(
+                        DocumentSemanticItemKind.ObjectPropertyDomain to DocumentEditableGroundedFieldKind.Domain,
+                        DocumentSemanticItemKind.ObjectPropertyRange to DocumentEditableGroundedFieldKind.Range,
+                    )
+                    DocumentSemanticItemKind.DatatypeProperty -> listOf(
+                        DocumentSemanticItemKind.DatatypePropertyDomain to DocumentEditableGroundedFieldKind.Domain,
+                        DocumentSemanticItemKind.DatatypePropertyRange to DocumentEditableGroundedFieldKind.Datatype,
+                    )
+                    else -> emptyList()
+                }
+                requiredContext.forEach { (contextKind, fieldKind) ->
+                    val connected = analysis.items.any { contextItem ->
+                        contextItem.kind == contextKind && contextItem.references.any { reference ->
+                            reference.role == DocumentSemanticReferenceRole.Property &&
+                                reference.targetItemId == grounded.id
+                        }
+                    }
+                    if (!connected) {
+                        fields += field(
+                            grounded.id,
+                            fieldKind,
+                            when (fieldKind) {
+                                DocumentEditableGroundedFieldKind.Domain ->
+                                    "Choose or create the class that is the property's domain."
+                                DocumentEditableGroundedFieldKind.Range ->
+                                    "Choose or create the class that is the property's range."
+                                else -> "Choose the property's datatype range."
+                            },
+                        )
+                        needsInput = true
+                    }
+                }
+            }
             val outcome = when (grounded.disposition) {
                 DocumentGroundedDisposition.Unresolved -> DocumentSemanticOutcome.Blocked
                 DocumentGroundedDisposition.Administrative,
                 DocumentGroundedDisposition.Illustrative,
-                DocumentGroundedDisposition.ReuseExisting,
                 -> DocumentSemanticOutcome.ReviewOnly
+                DocumentGroundedDisposition.ReuseExisting ->
+                    if (selection?.scope == DocumentMatchScope.CuratedFibo) {
+                        DocumentSemanticOutcome.Executable
+                    } else {
+                        DocumentSemanticOutcome.ReviewOnly
+                    }
                 DocumentGroundedDisposition.ExtendExisting -> if (needsInput) {
                     DocumentSemanticOutcome.Blocked
                 } else {
@@ -229,6 +273,8 @@ public class DocumentGroundedAnalysisVerifier {
                     it.kind.temporaryKind,
                     it.sourceId,
                     it.writable,
+                    it.scope,
+                    it.sourceOntologyIris,
                 )
                 itemAlignmentIds[grounded.id] = alignmentId
             }
@@ -284,6 +330,8 @@ public class DocumentGroundedAnalysisVerifier {
             // recompiles reviewer-provided connected context.
             val first = component.firstOrNull {
                 it.outcome == DocumentSemanticOutcome.Executable && it.kind.declarationKind != null
+            } ?: component.firstOrNull {
+                it.reviewerInputRequired && it.kind.declarationKind != null
             } ?: component.firstOrNull {
                 it.kind.declarationKind != null
             } ?: component.firstOrNull {
@@ -437,44 +485,6 @@ public class DocumentGroundedAnalysisVerifier {
                     rationale = "The proposed reuse was not an exact identity match and requires reviewer resolution.",
                 )
             }.sortedBy { it.stableOrderingKey },
-        )
-    }
-
-    private fun retainOnlyConnectedRelationshipItems(
-        analysis: DocumentGroundedAnalysisResult,
-        candidates: Map<String, DocumentGroundedCandidate>,
-    ): DocumentGroundedAnalysisResult {
-        val referencedItemIds = analysis.items.flatMap { item -> item.references.map { it.targetItemId } }.toSet()
-        val documentOnlyItemIds = analysis.items.filterTo(mutableListOf()) { item ->
-            item.kind == DocumentSemanticItemKind.ObjectProperty &&
-                item.disposition in setOf(
-                    DocumentGroundedDisposition.ProposeNew,
-                    DocumentGroundedDisposition.Unresolved,
-                ) &&
-                item.references.isEmpty() &&
-                item.id !in referencedItemIds &&
-                item.candidateIds.all { candidateId ->
-                    candidates.getValue(candidateId).category == DocumentCandidateExtractionCategory.RelationshipPhrase
-                }
-        }.mapTo(mutableSetOf(), DocumentGroundedSemanticItem::id)
-        if (documentOnlyItemIds.isEmpty()) return analysis
-        val rationale = "The relationship phrase has no connected subject or object semantic item and remains document-only evidence."
-        return DocumentGroundedAnalysisResult(
-            analysis.responseVersion,
-            analysis.items.map { item ->
-                if (item.id !in documentOnlyItemIds) item else item.copy(
-                    disposition = DocumentGroundedDisposition.Administrative,
-                    selectionId = null,
-                    rationale = rationale,
-                    ambiguity = null,
-                )
-            }.sortedBy(DocumentGroundedSemanticItem::stableOrderingKey),
-            analysis.coverage.map { coverage ->
-                if (coverage.itemId !in documentOnlyItemIds) coverage else coverage.copy(
-                    disposition = DocumentGroundedDisposition.Administrative,
-                    rationale = rationale,
-                )
-            }.sortedBy(DocumentGroundedCoverageDisposition::stableOrderingKey),
         )
     }
 

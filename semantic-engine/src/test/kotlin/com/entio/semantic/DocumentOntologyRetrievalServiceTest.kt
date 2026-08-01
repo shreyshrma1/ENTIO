@@ -79,7 +79,9 @@ class DocumentOntologyRetrievalServiceTest {
         assertTrue(first.results.single().selections.all { selection ->
             selection.matchReasons == selection.matchReasons.sortedBy { it.stableOrderingKey }
         })
-        assertTrue(first.results.single().selections.filter { it.scope == DocumentMatchScope.CuratedFibo }.all { !it.writable })
+        assertTrue(first.results.single().selections.filter { it.scope == DocumentMatchScope.CuratedFibo }.all {
+            !it.writable && it.sourceOntologyIris.isNotEmpty()
+        })
     }
 
     @Test

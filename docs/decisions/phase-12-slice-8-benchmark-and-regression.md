@@ -18,7 +18,7 @@ historical manifest, or alternate benchmark harness was copied.
 - Empty current-work fingerprint:
   `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`
 - Combined Phase 12 candidate-inventory and retrieval-results SHA-256:
-  `6d11e52a3d13ffd5646cb61e5a0b256d5605471b75dcb182a2d17551d9350db2`
+  `ba1166fce507f6b4ab3ec76d5c0bf01b9e2d77f19708e1ba0c66576fe056133f`
 
 The ordinary offline suite verifies these hashes, the grounded prompt and
 response versions, and the exact expected model ID from the single Phase 12
@@ -147,6 +147,61 @@ provider attempt per run. The retained semantic benchmark again achieved every
 required concept, relationship, review-only meaning, and coverage ledger in
 10/10 runs with 100% supported compilation and zero automatic writes.
 
+## Post-Completion FIBO And Property Recommendation Correction
+
+On 2026-08-01 a narrow Slice 8 regression correction made retrieved FIBO
+concepts actionable and restored evidence-backed property recommendations.
+The change preserves the existing pinned catalog, deterministic retrieval,
+external-reuse translator, typed-operation compiler, human review boundary,
+and single ontology write path.
+
+- Curated FIBO retrieval selections now retain their authorized source-module
+  IRIs. A selected FIBO class, object property, or datatype property compiles
+  to the existing `ReuseExternal` typed operation and dependency review rather
+  than a non-actionable review-only card.
+- The draft translator reconstructs only compiler-issued FIBO reuse context
+  when browser-supplied context is absent. The established external proposal
+  translator remains the only graph-change translator for catalog reuse.
+- One-off relationship phrases are retained when their subject and object are
+  linked to extracted candidates. Literal attribute values remain supporting
+  evidence while their attribute names can become datatype-property
+  candidates.
+- Evidence-backed object and datatype properties without a safe domain, range,
+  or datatype are retained as `Needs Input` recommendations with explicit
+  reviewer fields rather than silently demoted or blocked.
+- Candidate grouping prefers exact extracted participant IDs and uses safely
+  normalized aliases only as a fallback. Generic low-value nouns remain
+  excluded without suppressing domain terms such as account, payment,
+  customer, invoice, and loan.
+
+The intentional FIBO source-module addition changed the frozen combined input
+hash recorded above. The offline freeze test passed after updating that single
+expected hash; no document, ontology, historical manifest, or benchmark
+threshold changed.
+
+Focused core, semantic-engine, and web-server tests cover retrieval provenance,
+external-reuse compilation and translation, property `Needs Input` fields,
+relationship-participant linking, supporting attribute values, candidate
+volume, deterministic verification, and document draft integration. The
+controlled Luna gate was then run from the `entio-phase12-openai` Keychain
+credential. An initial reporting-complete run had one direct-attempt
+`document-provider-malformed-output` safe failure in grounded selection; the
+production service already retries that exact condition once, so no threshold
+or retry contract was changed. The entire unchanged gate was rerun and passed:
+
+- grounded selection: complete concepts, expected reuse, and exact provenance
+  in 10/10 runs; zero duplicate-new, unresolved, prohibited, failed, or
+  automatic-write runs;
+- grounded durations: 8,747–12,712 ms; mean 10,546.5 ms; median 10,868 ms;
+- retained semantic compilation: every required concept, relationship,
+  review-only meaning, provenance set, and coverage ledger in 10/10 runs with
+  100% supported compilation and zero prohibited or automatic-write runs;
+- compiler durations: 18,287–20,331 ms; mean 19,196 ms; median 19,055 ms.
+
+No credential, raw provider request or response, ontology-source change,
+copied fixture, alternate completion artifact, dependency, or unrelated file
+was introduced.
+
 ## Offline Verification
 
 The following commands passed after the controlled provider gate:
@@ -162,7 +217,7 @@ git diff --check
 git status --short
 ```
 
-The web audit reported zero production vulnerabilities, 101 web unit tests and
+The web audit reported zero production vulnerabilities, 103 web unit tests and
 four browser end-to-end tests passed, and all 37 VS Code extension tests
 passed. Git status contained only approved Phase 12 correction source, test,
 supplement, and existing completion-artifact paths. No duplicate generated

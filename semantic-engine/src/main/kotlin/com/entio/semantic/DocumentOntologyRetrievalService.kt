@@ -27,6 +27,7 @@ public data class DocumentOntologyRetrievalRecord(
     val kind: SemanticDescriptorKind,
     val definition: String? = null,
     val structuralContext: DocumentRetrievalStructuralContext = DocumentRetrievalStructuralContext(),
+    val sourceOntologyIris: List<Iri> = emptyList(),
     val writable: Boolean = false,
     val fingerprints: DocumentRetrievalFingerprints,
 ) {
@@ -188,6 +189,7 @@ public class DocumentOntologyRetrievalService(
             alternateLabels = matcher.aliases.take(com.entio.core.MAX_DOCUMENT_RETRIEVAL_ALTERNATE_LABELS),
             definition = record.definition?.take(500),
             structuralContext = record.structuralContext,
+            sourceOntologyIris = record.sourceOntologyIris,
             score = score.coerceIn(0, 100),
             matchReasons = reasons,
             fingerprints = record.fingerprints,
@@ -246,6 +248,7 @@ public class DocumentOntologyRetrievalService(
             kind = fibo.kind.semanticKind,
             definition = descriptor.common.definitions.firstOrNull()?.lexicalForm,
             structuralContext = structuralContext(descriptor),
+            sourceOntologyIris = listOf(fibo.descriptor.moduleIri),
             writable = false,
             fingerprints = fingerprints,
         )

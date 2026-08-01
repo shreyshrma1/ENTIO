@@ -342,6 +342,57 @@ class DocumentRecommendationDraftTranslatorTest {
         assertTrue(result.operations.all { it.normalizedTypedOperationKey?.contains("new:") == false })
     }
 
+    @Test
+    fun `translates compiler-issued FIBO reuse without browser-supplied external context`(): Unit {
+        val externalClass = Iri("https://spec.edmcouncil.org/fibo/ontology/FND/Parties/Parties/Party")
+        val sourceModule = Iri("https://spec.edmcouncil.org/fibo/ontology/FND/Parties/Parties/")
+        val targetOntology = Iri("https://example.com/ontology")
+        val operation = DocumentPlanOperation(
+            id = "reuse-fibo-party",
+            kind = DocumentPlanOperationKind.ReuseExternal,
+            order = 0,
+            operands = listOf(
+                DocumentPlanOperand.ExistingEntity(externalClass),
+                DocumentPlanOperand.ExistingEntity(sourceModule),
+                DocumentPlanOperand.TextValue("class"),
+                DocumentPlanOperand.TextValue(targetOntology.value),
+                DocumentPlanOperand.SourceId("ontology"),
+            ),
+            expandedTypedEditCount = 1,
+        )
+        val recommendation = DocumentFinalRecommendation(
+            id = "connected-fibo-party",
+            title = "Reuse FIBO Party",
+            description = "Reuse the approved FIBO class.",
+            discoveryIds = listOf("discovery-fibo-party"),
+            evidenceIds = listOf(DocumentEvidenceId("evidence-group")),
+            operations = listOf(operation),
+            confidence = DocumentConfidenceDimensions(95, 90, 100),
+            status = DocumentFinalRecommendationStatus.Executable,
+        )
+
+        val result = assertIs<DocumentDraftTranslationResult.Prepared>(
+            translator.translateConnected(
+                recommendation,
+                ConnectedDocumentDraftContext(
+                    finalIris = emptyMap(),
+                    writableSourceIds = setOf("ontology"),
+                    expectedWorkKey = "work-key",
+                    currentWorkKey = "work-key",
+                ),
+            ),
+        )
+        val externalReuse = assertIs<DocumentDraftOperation.ExternalReuse>(result.operations.single().operation)
+        val intent = assertIs<ExternalProposalIntent.ReuseExternalClass>(externalReuse.intent)
+
+        assertEquals(externalClass, intent.classIri)
+        assertEquals(targetOntology, externalReuse.targetOntologyIri)
+        assertEquals(listOf(sourceModule), intent.dependencies.dependencies.mapNotNull { it.externalIri })
+        assertIs<com.entio.core.EntioResult.Success<com.entio.core.ChangeSet>>(
+            ExternalProposalIntentTranslator().translate(intent, targetOntology),
+        )
+    }
+
     private fun recommendation(
         type: DocumentCandidateCategory,
         action: DocumentRecommendationAction = DocumentRecommendationAction.CreateLocal,

@@ -85,6 +85,28 @@ class DocumentCandidateExtractionServiceTest {
     }
 
     @Test
+    fun `promotes grounded relationships and attribute names while retaining values as support`(): Unit {
+        val value = "A customer authorizes a payment. Review frequency: monthly."
+        val service = DocumentCandidateExtractionService(configuration())
+        val mentions = service.extractMentions(document, listOf(block(document.id, value)))
+        val extraction = service.promoteCandidates(mentions)
+        val relationship = checkNotNull(
+            extraction.candidates.singleOrNull { it.category == DocumentCandidateExtractionCategory.RelationshipPhrase },
+        ) { "Expected one relationship; candidates=${extraction.candidates.map { it.category to it.normalizedText }}" }
+        val attribute = checkNotNull(extraction.candidates.singleOrNull { it.normalizedText == "review frequency" }) {
+            "Expected the attribute label; candidates=${extraction.candidates.map { it.category to it.normalizedText }}"
+        }
+
+        assertEquals("authorize", relationship.normalizedText)
+        assertEquals(2, relationship.hints.count { it.relatedCandidateId != null })
+        assertTrue(DocumentCandidatePromotionReason.ConnectedRelationship in relationship.promotionReasons)
+        assertTrue(attribute.hints.any { it.role == com.entio.core.DocumentCandidateHintRole.Value && it.text == "monthly" })
+        assertTrue(extraction.coverage.any {
+            it.kind == com.entio.core.DocumentMentionCoverageKind.SupportingValue
+        })
+    }
+
+    @Test
     fun `marks administrative blocks without deciding ontology meaning`(): Unit {
         val administrative = block(document.id, "Revision 4 approved July 2026.", section = "Revision History")
         val illustrative = block(document.id, "For example, Elena approves invoice INV-1.", section = "Example")
