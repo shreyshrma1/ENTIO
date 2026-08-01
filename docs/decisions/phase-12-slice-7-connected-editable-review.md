@@ -315,3 +315,36 @@ Verification completed successfully:
 This correction uses only the existing acceptance, document-draft, shared
 staging, and proposal-preview routes. It does not approve or apply a proposal,
 write ontology sources, or create another proposal workflow.
+
+## Simplified Proposal Details Correction
+
+The proposal details dialog no longer renders document-ingestion provenance as
+an additional panel under each staged edit. Origin, task ID, recommendation ID,
+confidence, evidence-reference count, and target-source fields were technical
+audit metadata that duplicated context already available in the document review
+workflow and made proposal review unnecessarily dense.
+
+The staged edit card continues to show its edit type, label-first semantic
+change, source and author summary, preview status, and remove action. Document
+provenance remains present in the server-owned staged entry and is still used by
+the existing audit, apply, and retained-provenance workflow; only its rendering
+in the proposal dialog was removed. Reasoning-materialization provenance is
+unchanged.
+
+Modified files for this correction are:
+
+- `web-app/src/workbench/StagingPanel.tsx`;
+- `web-app/src/workbench/StagingPanel.test.tsx`;
+- `web-app/e2e/document-ingestion.spec.ts`; and
+- this Slice 7 completion record.
+
+Verification completed successfully:
+
+- `npm --prefix web-app test -- --run StagingPanel` (7 tests);
+- `npm --prefix web-app run build`;
+- `npm --prefix web-app run test:e2e -- --grep 'document ingestion'`; and
+- `git diff --check`.
+
+This user-requested presentation correction changes no public contract, staged
+data, semantic operation, proposal validation, approval, apply, or provenance
+behavior.

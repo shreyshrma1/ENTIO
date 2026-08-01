@@ -145,8 +145,7 @@ test("document ingestion completes the accessible review and proposal workflow",
   await expect(page.getByText("Proposal ready for review.")).toBeVisible();
   await page.getByRole("button", { name: "View Details" }).press("Enter");
   const proposal = page.getByRole("dialog", { name: "View Details" });
-  await expect(proposal.getByLabel("Document recommendation provenance")).toContainText("Accepted document recommendation");
-  await expect(proposal.getByLabel("Document recommendation provenance")).toContainText("1 verified reference");
+  await expect(proposal.getByLabel("Document recommendation provenance")).toHaveCount(0);
   await proposal.getByRole("button", { name: "Accept" }).press("Enter");
   await expect(page.getByRole("status").filter({ hasText: "Proposal accepted and applied" })).toBeVisible();
   expect(proposalStatus).toBe("APPLIED");
