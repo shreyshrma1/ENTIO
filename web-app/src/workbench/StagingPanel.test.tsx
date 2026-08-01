@@ -226,7 +226,7 @@ describe("staging panel", () => {
     expect(screen.getByText("Added · Subject · predicate · Object")).toBeInTheDocument();
   });
 
-  it("shows document recommendation provenance on the staged typed edit", async () => {
+  it("keeps document provenance metadata out of proposal edit cards", async () => {
     const entry: WebStagedEntry = {
       ...stagedEntry(),
       documentDraftProvenance: {
@@ -260,11 +260,10 @@ describe("staging panel", () => {
     render(<QueryClientProvider client={client}><StagingPanel projectId="simple" /></QueryClientProvider>);
 
     fireEvent.click(await screen.findByRole("button", { name: "View Details" }));
-    const provenance = screen.getByLabelText("Document recommendation provenance");
-    expect(within(provenance).getByText("Accepted document recommendation")).toBeInTheDocument();
-    expect(within(provenance).getByText("task-1")).toBeInTheDocument();
-    expect(within(provenance).getByText("recommendation-1")).toBeInTheDocument();
-    expect(within(provenance).getByText("2 verified references")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Document recommendation provenance")).not.toBeInTheDocument();
+    expect(screen.queryByText("task-1")).not.toBeInTheDocument();
+    expect(screen.queryByText("recommendation-1")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
   });
 });
 
