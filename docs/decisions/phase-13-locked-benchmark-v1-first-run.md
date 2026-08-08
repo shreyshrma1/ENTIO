@@ -53,5 +53,33 @@ candidate limits, benchmark cases, relevant IRIs, hard negatives, or metric
 definitions. Development and regression sets must run before one unchanged
 locked-set rerun. A second locked failure restores the Slice 4 stop condition.
 
-The rerun outcome belongs in the Slice 4 completion record; this file remains
-the immutable record of the first failed run.
+The first-run section above remains the immutable record of the initial
+failure. Subsequent authorized conformance runs are appended without changing
+those original results and will also be summarized in the Slice 4 completion
+record.
+
+## First conformance rerun
+
+The first conformance rerun preserved the benchmark artifact and passed every
+gate except recall@10.
+
+| Metric | Rerun | Gate | Result |
+| --- | ---: | ---: | --- |
+| Recall@10 | `0.8333333333` | at least `0.85` | Fail |
+| Precision@3 | `0.7272727273` | at least `0.70` | Pass |
+| Requested-kind correctness | `1.00` | `1.00` | Pass |
+| Hard-negative action suppression | `1.00` | `1.00` | Pass |
+| No-match correctness | `1.00` | at least `0.80` | Pass |
+| Repeated frozen-input ordering | identical | identical | Pass |
+
+The approved one-token label correction was effective in its focused `Bond`
+regression test. Code review then found an unintended effect outside that
+scope: acronym recognition had been changed from matching a token within a
+multi-token query to requiring the entire draft label to equal the acronym.
+
+The repository owner approved one final correction that restores the previous
+multi-token acronym behavior while retaining exact acronym matching for a one-
+token query. The original restrictions still apply: no ranking-weight,
+confidence-threshold, candidate-limit, benchmark-data, or metric change is
+authorized. Development and regression must pass before one final unchanged
+locked-set rerun. A further failure stops implementation.
