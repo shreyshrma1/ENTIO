@@ -36,6 +36,12 @@ semantic compiler and review path. The earlier Phase 11.5+ provider sequence is
 available only through explicit compatibility configuration and is not an
 automatic fallback.
 
+Phase 13 is the active phase with approved planning documents, but it is not
+implemented. Its planned full-corpus domain recommendation service applies to
+human-driven modeling, not to document ingestion or the native ontology
+assistant. Those AI workflows remain on the Phase 12-era retrieval contracts
+throughout Phase 13.
+
 ## Active Server Ownership
 
 | Concern | Entry points | Boundary |

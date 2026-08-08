@@ -18,7 +18,7 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository contains the implemented Entio foundation through Phase 12. Phase 11, AI-Powered Document Ingestion and Ontology Evolution, was implemented and verified on 2026-07-24. Phase 11.5, Multi-Stage AI Modeling and Connected Ontology Change Sets, was implemented and verified on 2026-07-27. Phase 11.5+, Deterministic Compilation of Connected Document Models, was implemented and verified on 2026-07-30. Phase 12, Ontology-Grounded Document Analysis, was implemented and verified on 2026-07-31.
+This repository contains the implemented Entio foundation through Phase 12. Phase 11, AI-Powered Document Ingestion and Ontology Evolution, was implemented and verified on 2026-07-24. Phase 11.5, Multi-Stage AI Modeling and Connected Ontology Change Sets, was implemented and verified on 2026-07-27. Phase 11.5+, Deterministic Compilation of Connected Document Models, was implemented and verified on 2026-07-30. Phase 12, Ontology-Grounded Document Analysis, was implemented and verified on 2026-07-31. Phase 13, Domain-Ontology-First Modeling and Full-Corpus Retrieval, is the active phase with approved planning documents and has not been implemented.
 
 Phase 11.5+ moves exact final-operation formatting out of the model. The model produces a connected semantic plan, and Kotlin verifies completeness and deterministically compiles supported meaning into existing typed operations.
 
@@ -315,6 +315,20 @@ The existing private-draft, proposal, validation, human approval, atomic apply,
 reload, rollback, and applied-provenance workflow remains the only ontology
 write path. Phase 12 analysis and review do not write ontology or SHACL sources.
 
+## Active Planning Phase
+
+Phase 13 is the active phase. It plans optional project-scoped FIBO activation,
+selective project-owned reuse with canonical FIBO IRIs, editable supported
+project statements, separate source provenance, and full-corpus hybrid
+recommendations across applicable human-driven modeling workflows. Document
+ingestion and the native ontology assistant remain on their Phase 12-era
+retrieval contracts.
+
+The Phase 13 planning documents were approved on 2026-08-08. Production
+implementation has not started; ExecPlan Slice 0 audit and ADR work is now
+authorized. Later slices remain blocked until those decisions are incorporated
+into an approved spec and ExecPlan revision.
+
 ## Technical Principle
 
 Entio should not reinvent RDF, OWL, or SHACL.
@@ -343,6 +357,7 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 11.5 Scope](docs/architecture/phase-11.5-scope.md)
 - [Phase 11.5+ Scope](docs/architecture/phase-11.5-plus-scope.md)
 - [Phase 12 Scope](docs/architecture/phase-12-scope.md)
+- [Phase 13 Scope](docs/architecture/phase-13-scope.md)
 - [Technical Approach](docs/architecture/002-technical-approach.md)
 - [Kotlin Engine Guidelines](docs/architecture/003-kotlin-engine-guidelines.md)
 - [Phase 1.5 Spec](docs/specs/0002-phase-1.5-core-semantic-engine-stabilization.md)
@@ -390,3 +405,5 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 12 Spec](docs/specs/0023-phase-12-ontology-grounded-document-analysis.md)
 - [Phase 12 ExecPlan](docs/execplans/0023-phase-12-ontology-grounded-document-analysis.md)
 - [Phase 12 Implementation Summary](docs/phase-summaries/phase-12-summary.md)
+- [Phase 13 Spec](docs/specs/0024-phase-13-domain-ontology-first-modeling-full-corpus-retrieval.md)
+- [Phase 13 ExecPlan](docs/execplans/0024-phase-13-domain-ontology-first-modeling-full-corpus-retrieval.md)

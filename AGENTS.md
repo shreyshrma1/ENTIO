@@ -1,6 +1,6 @@
 # Agent Guidance For Entio
 
-This repository contains the implemented Entio foundation through Phase 12. Phase 11 was implemented and verified on 2026-07-24. Phase 11.5 was implemented and verified on 2026-07-27. Phase 11.5+ was implemented and verified on 2026-07-30. Phase 12 was implemented and verified on 2026-07-31. Phases 1 through 8 are retained as historical delivery records, and the repository is no longer documentation-only.
+This repository contains the implemented Entio foundation through Phase 12. Phase 11 was implemented and verified on 2026-07-24. Phase 11.5 was implemented and verified on 2026-07-27. Phase 11.5+ was implemented and verified on 2026-07-30. Phase 12 was implemented and verified on 2026-07-31. Phase 13 is the active phase with approved planning documents and has not been implemented. Phases 1 through 8 are retained as historical delivery records, and the repository is no longer documentation-only.
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
@@ -19,6 +19,12 @@ Do not create new modules, dependencies, or implementation code unless explicitl
 When asked to implement code, keep changes limited to the module or files named in the task.
 
 If a task seems to require later-phase infrastructure, stop and explain why before implementing it.
+
+Phase 13 is the active phase. Its scope, spec, and ExecPlan were approved on
+2026-08-08, but they do not describe implemented behavior. ExecPlan Slice 0
+audit and ADR work is authorized. Do not implement Phase 13 Slice 1 or later
+until Slice 0 decisions have been incorporated into approved revisions of the
+spec and ExecPlan.
 
 ## Current Scope
 
@@ -217,6 +223,19 @@ Phase 12 adds deterministic local candidate extraction and retrieval from
 authorized ontology scopes before grounded model interpretation. It adds no
 embeddings, vector database, second ontology index, automatic approval, or
 another ontology write path.
+
+Phase 13 is the active phase. Its approved planning documents are:
+
+- `docs/architecture/phase-13-scope.md`
+- `docs/specs/0024-phase-13-domain-ontology-first-modeling-full-corpus-retrieval.md`
+- `docs/execplans/0024-phase-13-domain-ontology-first-modeling-full-corpus-retrieval.md`
+
+Phase 13 plans optional project-scoped FIBO activation, selective project-owned
+reuse that preserves canonical FIBO IRIs, editable supported project meaning,
+separate source provenance, and full-corpus hybrid recommendations throughout
+applicable human-driven modeling. It leaves document ingestion and the native
+assistant on their existing retrieval contracts. No Phase 13 implementation or
+implementation summary exists yet.
 
 ## Software Architecture Rules
 
