@@ -52,6 +52,7 @@ import com.entio.web.contract.WebInferenceMaterializationRequest
 import com.entio.web.contract.WebDomainFoundationPlanRequest
 import com.entio.web.contract.WebDomainProfileActionRequest
 import com.entio.web.contract.WebDomainRecommendationRequest
+import com.entio.web.contract.WebDomainReuseStageRequest
 import java.time.Clock
 import com.entio.web.ingestion.DocumentIngestionConfiguration
 import com.entio.web.ingestion.DocumentIngestionFailure
@@ -78,6 +79,21 @@ public fun Application.module(
     val loadedProjects = LoadedProjectCache()
     val readOnly = ReadOnlyProjectAdapter(dependencies.projectRegistry, loadedProjects = loadedProjects)
     val staging = StagingWorkflowService(dependencies.projectRegistry)
+    val domainReuseProvenance = DomainReuseProvenanceCoordinator(dependencies.projectRegistry)
+    staging.installDomainReuseApplyHooks(domainReuseProvenance)
+    dependencies.projectRegistry.list().forEach { registered ->
+        val root = dependencies.projectRegistry.rootFor(registered.id)
+        if (!java.nio.file.Files.exists(root.resolve(".entio/domain-reuse/apply-transaction-v1.yaml"))) {
+            return@forEach
+        }
+        when (val loaded = loadedProjects.load(root)) {
+            is com.entio.core.EntioResult.Failure -> error("A project requiring domain reuse recovery could not be loaded.")
+            is com.entio.core.EntioResult.Success -> {
+                domainReuseProvenance.recover(registered.id, webGraphFingerprint(loaded.value.graph))
+                loadedProjects.invalidate(root)
+            }
+        }
+    }
     val domainOntologies = DomainOntologyWebService(
         dependencies.projectRegistry,
         staging,
@@ -303,6 +319,26 @@ public fun Application.module(
                     user.id,
                     call.requiredDomainRecommendationId(),
                 )
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/domain-recommendations/{recommendationId}/stage") {
+            call.respondDomain {
+                val user = call.requireDomainEditor(dependencies)
+                domainOntologies.stageRecommendation(
+                    call.requiredProjectId(),
+                    user.id,
+                    call.requiredDomainRecommendationId(),
+                    call.receive<WebDomainReuseStageRequest>(),
+                    call.requiredDomainIdempotencyKey(),
+                )
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/domain-reuse/{entityId}") {
+            call.respondDomain {
+                call.requireUser(dependencies)
+                domainOntologies.reuseDetail(call.requiredProjectId(), call.requiredDomainReuseEntityId())
             }
         }
 
@@ -970,6 +1006,10 @@ private fun ApplicationCall.requiredDomainPlanId(): String = parameters["planId"
     ?.takeIf { it.matches(Regex("dfp_[0-9a-f]{40}")) }
     ?: throw DomainOntologyWebFailure("domain-foundation-plan-not-found", "The requested foundation plan was not found.")
 
+private fun ApplicationCall.requiredDomainReuseEntityId(): String = parameters["entityId"]
+    ?.takeIf { it.matches(Regex("dre_[0-9a-f]{40}")) }
+    ?: throw DomainOntologyWebFailure("domain-reuse-not-found", "The requested reused entity was not found.")
+
 private fun ApplicationCall.requiredDomainIdempotencyKey(): String = request.header("Idempotency-Key")
     ?.takeIf { it.isNotBlank() && it.length <= 256 }
     ?: throw DomainOntologyWebFailure("missing-idempotency-key", "An Idempotency-Key header is required.")
@@ -1050,7 +1090,8 @@ private suspend fun ApplicationCall.respondDomain(block: suspend () -> Any): Uni
     respond(block())
 } catch (failure: DomainOntologyWebFailure) {
     val status = when (failure.code) {
-        "unknown-project", "domain-recommendation-not-found", "domain-foundation-plan-not-found" -> HttpStatusCode.NotFound
+        "unknown-project", "domain-recommendation-not-found", "domain-foundation-plan-not-found",
+        "domain-reuse-not-found" -> HttpStatusCode.NotFound
         "forbidden" -> HttpStatusCode.Forbidden
         "domain-profile-inactive", "domain-activation-stale", "domain-foundation-plan-stale",
         "domain-recommendation-stale", "idempotency-conflict" -> HttpStatusCode.Conflict

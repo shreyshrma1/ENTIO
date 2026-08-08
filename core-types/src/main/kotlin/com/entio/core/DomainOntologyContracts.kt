@@ -299,3 +299,179 @@ public data class DomainFoundationPlan(
     public val packageFingerprint: String,
     public val indexFingerprint: String,
 )
+
+public enum class DomainReuseAction {
+    Reuse,
+    ReuseAndCustomize,
+    ExtendLocally,
+    MapClose,
+    MapRelated,
+    ContinueLocally,
+    RemoveReuse,
+}
+
+public enum class DomainMaterializationClassification {
+    CompleteSupportedMaterialization,
+    PartialMaterialization,
+    UnsupportedForReuse,
+}
+
+public enum class DomainReuseDependencyDisposition {
+    ExplicitlySelected,
+    RequiredStructuralDependency,
+    AlreadyPresentUnchanged,
+    AlreadyPresentCustomized,
+    Conflicting,
+    Unsupported,
+    Missing,
+}
+
+public enum class DomainCustomizationClassification {
+    Unchanged,
+    AnnotationOnly,
+    LogicalStructureChanged,
+    SourceEntityDeprecated,
+    SourceSnapshotUnavailable,
+}
+
+public data class DomainReuseCustomization(
+    public val preferredLabel: String? = null,
+    public val definition: String? = null,
+    public val alternateLabels: List<String>? = null,
+    public val parentIris: List<Iri>? = null,
+    public val domainIris: List<Iri>? = null,
+    public val rangeIris: List<Iri>? = null,
+) {
+    init {
+        require(preferredLabel == null || preferredLabel.toByteArray().size <= 4_096) {
+            "A customized preferred label must not exceed 4 KiB."
+        }
+        require(definition == null || definition.toByteArray().size <= 16_384) {
+            "A customized definition must not exceed 16 KiB."
+        }
+        require(alternateLabels == null || alternateLabels.size <= 20) {
+            "Domain reuse supports at most 20 alternate labels."
+        }
+        require(alternateLabels == null || alternateLabels.all { it.toByteArray().size <= 4_096 }) {
+            "A customized alternate label must not exceed 4 KiB."
+        }
+        require(
+            listOf(parentIris, domainIris, rangeIris).all { values -> values == null || values.size <= 20 },
+        ) {
+            "Domain reuse customization lists support at most 20 values."
+        }
+    }
+}
+
+public data class DomainReuseSourceSnapshot(
+    public val canonicalIri: Iri,
+    public val kind: ExternalEntityKind,
+    public val sourceFamily: String,
+    public val sourceOntologyIri: Iri,
+    public val sourcePath: String,
+    public val recordFingerprint: String,
+    public val statementFingerprint: String,
+    public val statements: List<GraphTriple>,
+    public val omittedSourceAxioms: List<String> = emptyList(),
+    public val classification: DomainMaterializationClassification,
+) {
+    init {
+        require(statements.size <= 2_000) { "A domain source snapshot supports at most 2,000 statements." }
+        require(omittedSourceAxioms.size <= 100) { "A domain source snapshot supports at most 100 omitted-axiom notices." }
+    }
+}
+
+public data class DomainReuseDependency(
+    public val iri: Iri,
+    public val label: String,
+    public val kind: ExternalEntityKind,
+    public val disposition: DomainReuseDependencyDisposition,
+)
+
+public data class DomainReusePreparedEntry(
+    public val targetSourceId: String,
+    public val changeSet: ChangeSet,
+)
+
+public data class DomainReusePreparedBatch(
+    public val action: DomainReuseAction,
+    public val canonicalIri: Iri,
+    public val entries: List<DomainReusePreparedEntry>,
+    public val dependencies: List<DomainReuseDependency>,
+    public val sourceSnapshot: DomainReuseSourceSnapshot,
+    public val explicitSelectionCount: Int,
+    public val generatedStatementCount: Int,
+    public val preparedPayloadBytes: Int,
+    public val partialMaterializationAcknowledged: Boolean,
+) {
+    init {
+        require(explicitSelectionCount in 1..20) { "Domain reuse supports 1 to 20 explicit selections per batch." }
+        require(dependencies.size <= 100) { "Domain reuse dependency closure supports at most 100 entities." }
+        require(generatedStatementCount in 1..2_000) { "Domain reuse supports 1 to 2,000 generated statements." }
+        require(preparedPayloadBytes in 1..2_097_152) { "Domain reuse preview data must not exceed 2 MiB." }
+        require(entries.isNotEmpty()) { "A prepared domain reuse batch requires graph changes." }
+    }
+}
+
+public data class DomainReuseDraftProvenance(
+    public val action: DomainReuseAction,
+    public val canonicalIri: Iri,
+    public val sourceSnapshot: DomainReuseSourceSnapshot,
+    public val dependencySetFingerprint: String,
+    public val targetManagedSourceId: String,
+    public val priorRecordId: String? = null,
+)
+
+public data class DomainReuseDifference(
+    public val entityId: String,
+    public val canonicalIri: Iri,
+    public val sourceSnapshot: DomainReuseSourceSnapshot,
+    public val projectStatements: List<GraphTriple>,
+    public val addedProjectStatements: List<GraphTriple>,
+    public val removedSourceStatements: List<GraphTriple>,
+    public val classification: DomainCustomizationClassification,
+)
+
+public enum class DomainReuseEventKind {
+    Reused,
+    Customized,
+    Extended,
+    Mapped,
+    Removed,
+}
+
+public data class DomainReuseProvenanceEvent(
+    public val schema: String = "entio-domain-reuse-provenance-v1",
+    public val recordId: String,
+    public val eventKind: DomainReuseEventKind,
+    public val sourceId: String,
+    public val release: String,
+    public val packageFingerprint: String,
+    public val recordFingerprint: String,
+    public val canonicalIri: Iri,
+    public val entityKind: ExternalEntityKind,
+    public val sourceOntologyIri: Iri,
+    public val sourcePath: String,
+    public val sourceStatementFingerprint: String,
+    public val sourceSnapshot: List<GraphTriple>,
+    public val omittedSourceAxioms: List<String>,
+    public val dependencySetFingerprint: String,
+    public val targetManagedSourceId: String,
+    public val proposalId: String,
+    public val appliedChangeSetId: String,
+    public val actorId: String,
+    public val appliedAt: String,
+    public val baselineProjectFingerprint: String,
+    public val resultingProjectFingerprint: String,
+    public val projectStatementFingerprint: String,
+    public val customization: DomainCustomizationClassification,
+    public val priorRecordId: String? = null,
+    public val checksum: String,
+) {
+    init {
+        require(schema == "entio-domain-reuse-provenance-v1")
+        require(sourceSnapshot.size <= 2_000)
+        require(omittedSourceAxioms.size <= 100)
+        require(Regex("[a-f0-9]{64}").matches(checksum))
+    }
+}

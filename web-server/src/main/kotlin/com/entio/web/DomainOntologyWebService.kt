@@ -14,6 +14,8 @@ import com.entio.semantic.DomainProfileService
 import com.entio.semantic.DomainRecommendationFingerprints
 import com.entio.semantic.DomainRecommendationService
 import com.entio.semantic.DomainRecommendationStaleException
+import com.entio.semantic.DomainReusePreparationRequest
+import com.entio.semantic.DomainReuseService
 import com.entio.semantic.DomainSearchIndexVerifier
 import com.entio.semantic.FiboPackageVerifier
 import com.entio.semantic.ProjectLoader
@@ -33,6 +35,9 @@ import com.entio.web.contract.WebDomainProfileActionResponse
 import com.entio.web.contract.WebDomainRecommendationDetailResponse
 import com.entio.web.contract.WebDomainRecommendationRequest
 import com.entio.web.contract.WebDomainRecommendationResponse
+import com.entio.web.contract.WebDomainReuseDetailResponse
+import com.entio.web.contract.WebDomainReuseStageRequest
+import com.entio.web.contract.WebStagingResponse
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
@@ -68,6 +73,7 @@ public class DomainOntologyWebService(
     recommendationFactory: () -> DomainRecommendationService = {
         DomainRecommendationService.open(assets.searchRoot, assets.modelRoot, clock)
     },
+    reuseFactory: () -> DomainReuseService = { DomainReuseService.open(assets.searchRoot) },
 ) : AutoCloseable {
     private val verifyAssets: () -> Unit = assetVerifier ?: {
         FiboPackageVerifier.verify(assets.fiboPackageRoot)
@@ -75,6 +81,8 @@ public class DomainOntologyWebService(
     }
     private val recommendationDelegate = lazy(recommendationFactory)
     private val recommendations: DomainRecommendationService get() = recommendationDelegate.value
+    private val reuseDelegate = lazy(reuseFactory)
+    private val reuse: DomainReuseService get() = reuseDelegate.value
     private val recommendationPermits = Semaphore(MAX_CONCURRENT_RECOMMENDATIONS)
     private val tokens = linkedMapOf<String, ConfirmationToken>()
     private val idempotentResponses = linkedMapOf<String, IdempotentResponse>()
@@ -294,6 +302,68 @@ public class DomainOntologyWebService(
                 fingerprints(projectId, project),
             ).map(Iri::value),
         )
+    }
+
+    public fun stageRecommendation(
+        projectId: String,
+        userId: String,
+        recommendationId: String,
+        request: WebDomainReuseStageRequest,
+        idempotencyKey: String,
+    ): WebStagingResponse {
+        val project = requireActive(projectId)
+        preflight()
+        val recommendation = recommendations.resolve(
+            userId,
+            projectId,
+            recommendationId,
+            fingerprints(projectId, project),
+        )
+        val permitted = when (request.action) {
+            com.entio.core.DomainReuseAction.Reuse,
+            com.entio.core.DomainReuseAction.ReuseAndCustomize,
+            com.entio.core.DomainReuseAction.RemoveReuse -> com.entio.core.DomainRecommendationAction.Reuse
+            com.entio.core.DomainReuseAction.ExtendLocally -> com.entio.core.DomainRecommendationAction.Extend
+            com.entio.core.DomainReuseAction.MapClose,
+            com.entio.core.DomainReuseAction.MapRelated -> com.entio.core.DomainRecommendationAction.MapAnnotation
+            com.entio.core.DomainReuseAction.ContinueLocally -> null
+        }
+        if (permitted != null && permitted !in recommendation.permittedActions &&
+            !(request.action == com.entio.core.DomainReuseAction.RemoveReuse && recommendation.iri in project.externalIris())
+        ) {
+            throw DomainOntologyWebFailure("domain-candidate-ineligible", "The selected recommendation does not permit this action.")
+        }
+        if (request.action == com.entio.core.DomainReuseAction.ContinueLocally) return staging.snapshot(projectId)
+        request.localSourceId?.let { sourceId ->
+            if (project.resolvedSources.none { it.id == sourceId }) {
+                throw DomainOntologyWebFailure("unknown-source", "The local target source was not found.")
+            }
+        }
+        val managedGraph = project.ontologies.singleOrNull {
+            it.source.id == DomainOntologyProfileIdentity.MANAGED_SOURCE_ID
+        }?.graph ?: throw DomainOntologyWebFailure("domain-managed-source-missing", "The managed reuse source is unavailable.")
+        val batch = reuse.prepare(
+            DomainReusePreparationRequest(
+                action = request.action,
+                canonicalIri = recommendation.iri,
+                managedSourceId = DomainOntologyProfileIdentity.MANAGED_SOURCE_ID,
+                customization = request.customization,
+                partialMaterializationAcknowledged = request.partialMaterializationAcknowledged,
+                localIri = request.localIri?.let(::Iri),
+                localSourceId = request.localSourceId,
+                localIriNamespace = project.config.iriNamespace?.namespace,
+            ),
+            project.graph,
+            managedGraph,
+        ).valueOrFailure()
+        return staging.stageDomainReuse(projectId, batch, userId, idempotencyKey)
+    }
+
+    public fun reuseDetail(projectId: String, entityId: String): WebDomainReuseDetailResponse {
+        val project = requireActive(projectId)
+        val iri = reuse.resolveEntityId(entityId, project.graph)
+            ?: throw DomainOntologyWebFailure("domain-reuse-not-found", "The reused domain entity was not found.")
+        return WebDomainReuseDetailResponse(projectId = projectId, difference = reuse.describe(iri, project.graph).valueOrFailure())
     }
 
     public fun migration(projectId: String, preview: Boolean = false): WebDomainMigrationResponse {
