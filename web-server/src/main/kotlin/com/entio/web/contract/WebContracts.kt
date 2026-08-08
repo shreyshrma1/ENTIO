@@ -123,7 +123,7 @@ public data class DomainWebAssetPaths(
                 .firstOrNull { Files.isDirectory(it.resolve("external-ontologies/domain-search")) }
                 ?: workingDirectory.toAbsolutePath().normalize()
             return DomainWebAssetPaths(
-                fiboPackageRoot = repositoryRoot.resolve("external-ontologies/fibo/master_2026Q2"),
+                fiboPackageRoot = repositoryRoot.resolve("external-ontologies/fibo"),
                 searchRoot = repositoryRoot.resolve("external-ontologies/domain-search/fibo/master_2026Q2"),
                 modelRoot = repositoryRoot.resolve("external-ontologies/domain-search/models/all-MiniLM-L6-v2"),
             )

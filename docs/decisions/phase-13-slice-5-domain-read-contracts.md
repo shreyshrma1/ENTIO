@@ -107,3 +107,11 @@ Slice 6 owns managed reuse, customization, mapping, provenance, proposal
 staging, the recommendation stage route, and domain-reuse details. Later
 approved slices integrate these contracts into the web and VS Code clients and
 the remaining human-driven ontology workflows.
+
+## Package-root correction
+
+Slice 6 preflight found that the web asset locator had appended the release
+name to the already versioned Phase 5 package layout. The fixed package root is
+`external-ontologies/fibo`; its manifest owns the pinned release identity. The
+locator and focused asset-discovery test were corrected before Slice 6
+implementation continued. Search and model roots were already correct.

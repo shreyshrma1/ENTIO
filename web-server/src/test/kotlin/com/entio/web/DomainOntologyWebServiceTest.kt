@@ -23,6 +23,17 @@ import kotlinx.coroutines.runBlocking
 
 class DomainOntologyWebServiceTest {
     @Test
+    fun discoveredAssetsUseThePinnedPackageRoot(): Unit {
+        val assets = DomainWebAssetPaths.discover()
+
+        assertTrue(Files.isRegularFile(assets.fiboPackageRoot.resolve("manifest.yaml")))
+        assertTrue(Files.isDirectory(assets.fiboPackageRoot.resolve("source")))
+        assertTrue(Files.isRegularFile(assets.searchRoot.resolve("search-manifest.yaml")))
+        com.entio.semantic.FiboPackageVerifier.verify(assets.fiboPackageRoot)
+        com.entio.semantic.DomainSearchIndexVerifier.verify(assets.searchRoot, assets.modelRoot, regenerate = false)
+    }
+
+    @Test
     fun activationIsPreviewedTokenBoundIdempotentAndLeavesEntioYamlUnchanged(): Unit {
         fixture().use { fixture ->
             val entioBefore = Files.readAllBytes(fixture.root.resolve("entio.yaml"))
