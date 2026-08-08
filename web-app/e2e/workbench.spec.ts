@@ -45,7 +45,7 @@ test("completes the browser workbench and provider model journey through reviewa
         { iri: "https://example.com/entio/simple#receivedInvoice", label: "received invoice", kind: "ObjectProperty", sourceId: "simple" },
       ], offset: 0, limit: 100, total: 3, nextOffset: null },
     });
-    if (path.endsWith("/search")) return json(route, {
+    if (path === "/api/v1/projects/simple/search") return json(route, {
       apiVersion: "v1", query: url.searchParams.get("q") ?? "",
       page: { items: [
         { iri: "https://example.com/entio/simple#Customer", label: "Customer", kind: "Class", sourceId: "simple", reason: "PreferredLabel", rank: 0, locality: "Local" },
@@ -121,8 +121,11 @@ test("completes the browser workbench and provider model journey through reviewa
       currentProposal = { id: "proposal-1", status: "APPLIED", stagedChangeIds: [], baselineProjectFingerprint: "base", validationMessages: [], validationIssues: [], diff: [], message: "Applied and reloaded." };
       return json(route, { apiVersion: "v1", projectId: "simple", status: "READY", entries: stagedEntries, proposal: currentProposal });
     }
+    if (path === "/api/v1/domain-ontologies") return json(route, { apiVersion: "v1", domainOntologies: [{ sourceId: "fibo", displayName: "Financial Industry Business Ontology", release: "master_2026Q2", packageFingerprint: "package", retrievalAvailability: "Full", selectable: true }] });
+    if (path.endsWith("/domain-ontology")) return json(route, { apiVersion: "v1", projectId: "simple", status: { availability: "Inactive", profile: null, migrationStatus: "NoExistingReuse", issues: [] } });
     if (path.endsWith("/external/fibo/modules")) return json(route, { sourceId: "fibo", release: "test", page: { items: [{ ontologyIri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/", label: "Agreements", domain: "FND", sourcePath: "source/FND/Agreements/Agreements.rdf", maturity: "Release", curated: true, elementCount: 1 }], offset: 0, limit: 15, total: 1, nextOffset: null } });
     if (path.endsWith("/external/fibo/module-elements")) return json(route, { moduleIri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/", page: { items: [{ iri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement", label: "agreement", kind: "Class", moduleIri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/", domain: "FND", maturity: "Release", catalogStatus: "Available", sourcePath: "source/FND/Agreements/Agreements.rdf", alternateLabels: [], definitions: ["a mutual understanding"], parents: [], domains: [], ranges: [] }], offset: 0, limit: 15, total: 1, nextOffset: null } });
+    if (path.endsWith("/external/fibo/search")) return json(route, { sourceId: "fibo", release: "test", page: { items: [{ iri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement", label: "agreement", kind: "Class", moduleIri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/", domain: "FND", maturity: "Release", catalogStatus: "Available", sourcePath: "source/FND/Agreements/Agreements.rdf", alternateLabels: [], definitions: ["a mutual understanding"], parents: [], domains: [], ranges: [] }], offset: 0, limit: 15, total: 1, nextOffset: null } });
     if (path.endsWith("/external/fibo/details")) return json(route, { element: { iri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement", label: "agreement", kind: "Class", moduleIri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/", domain: "FND", maturity: "Release", catalogStatus: "Available", sourcePath: "source/FND/Agreements/Agreements.rdf", alternateLabels: [], definitions: ["a mutual understanding"], parents: [], domains: [], ranges: [] }, dependencies: [] });
     return json(route, { apiVersion: "v1", page: { items: [], offset: 0, limit: 50, total: 0, nextOffset: null } });
   });
@@ -146,7 +149,7 @@ test("completes the browser workbench and provider model journey through reviewa
   const projectNavigation = page.getByRole("complementary", { name: "Project navigation" });
   await projectNavigation.getByRole("textbox", { name: "Search entities by label" }).fill("Customer");
   await expect(projectNavigation.getByRole("button", { name: /Shrey/ })).toBeVisible();
-  await expect(projectNavigation.getByText("Object · Asserted Type")).toBeVisible();
+  await expect(projectNavigation.getByText("Local · Object · Asserted Type")).toBeVisible();
   await expect(projectNavigation.getByRole("tab", { name: /Classes/ })).toHaveCount(0);
   await expect(page).toHaveScreenshot("semantic-search-light.png", { fullPage: true, mask: [page.locator(".collaboration-presence")], maskColor: "#ffffff" });
   await projectNavigation.getByRole("button", { name: "Clear search" }).click();
@@ -281,10 +284,11 @@ test("completes the browser workbench and provider model journey through reviewa
   await expect(appliedNotification).toBeHidden({ timeout: 6_000 });
   expect(approvingUser).toBe("bob");
 
-  await page.getByRole("tab", { name: "FIBO" }).click();
-  await expect(page.getByRole("heading", { name: "External ontology browser" })).toBeVisible();
-  await page.getByRole("button", { name: "Agreements" }).click();
-  await page.locator(".external-browser-grid .external-scroll-list").nth(1).getByRole("button").click();
+  await page.getByRole("tab", { name: "Domain" }).click();
+  await expect(page.getByRole("heading", { name: "Domain ontology" })).toBeVisible();
+  await page.getByRole("textbox", { name: "Search catalog" }).fill("agreement");
+  await page.getByRole("button", { name: "Browse" }).click();
+  await page.getByRole("button", { name: /agreement/ }).click();
   await expect(page.getByText("a mutual understanding")).toBeVisible();
   await expect(page.getByText(/https:\/\/spec\.edmcouncil\.org\/fibo\/ontology\/FND\/Agreements/)).toBeVisible();
 });

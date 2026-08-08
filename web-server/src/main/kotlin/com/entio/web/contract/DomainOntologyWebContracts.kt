@@ -101,6 +101,7 @@ public data class WebDomainRecommendationDetailResponse(
     val apiVersion: String = WEB_API_VERSION,
     val projectId: String,
     val recommendation: DomainRecommendation,
+    val difference: DomainReuseDifference,
 )
 
 public data class WebDomainReuseStageRequest(

@@ -280,9 +280,16 @@ public class DomainOntologyWebService(
         recommendationId: String,
     ): WebDomainRecommendationDetailResponse {
         val project = requireActive(projectId)
+        val recommendation = recommendations.resolve(
+            userId,
+            projectId,
+            recommendationId,
+            fingerprints(projectId, project),
+        )
         return WebDomainRecommendationDetailResponse(
             projectId = projectId,
-            recommendation = recommendations.resolve(userId, projectId, recommendationId, fingerprints(projectId, project)),
+            recommendation = recommendation,
+            difference = reuse.describe(recommendation.iri, project.graph).valueOrFailure(),
         )
     }
 

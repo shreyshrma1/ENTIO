@@ -8,7 +8,7 @@ describe("application workbench journey", () => {
     vi.restoreAllMocks();
   });
 
-  it("navigates from a project to a local entity and a FIBO detail", async () => {
+  it("navigates from a project to a local entity and an inactive domain catalog detail", async () => {
     const requestedPaths: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
@@ -34,11 +34,20 @@ describe("application workbench journey", () => {
       if (path.includes("/staged")) {
         return json({ apiVersion: "v1", projectId: "simple", status: "READY", entries: [], proposal: null });
       }
+      if (path === "/api/v1/domain-ontologies") {
+        return json({ apiVersion: "v1", domainOntologies: [{ sourceId: "fibo", displayName: "Financial Industry Business Ontology", release: "master_2026Q2", packageFingerprint: "package", retrievalAvailability: "Full", selectable: true }] });
+      }
+      if (path.endsWith("/domain-ontology")) {
+        return json({ apiVersion: "v1", projectId: "simple", status: { availability: "Inactive", profile: null, migrationStatus: "NoExistingReuse", issues: [] } });
+      }
       if (path.includes("/external/fibo/modules")) {
         return json({ sourceId: "fibo", release: "test", page: { items: [{ ontologyIri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/", label: "Agreements", domain: "FND", sourcePath: "source/FND/Agreements/Agreements.rdf", maturity: "Release", curated: true, elementCount: 1 }], offset: 0, limit: 15, total: 1, nextOffset: null } });
       }
       if (path.includes("/external/fibo/module-elements")) {
         return json({ moduleIri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/", page: { items: [{ iri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement", label: "agreement", kind: "Class", moduleIri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/", domain: "FND", maturity: "Release", catalogStatus: "Available", sourcePath: "source/FND/Agreements/Agreements.rdf", alternateLabels: [], definitions: ["a mutual understanding"], parents: [], domains: [], ranges: [] }], offset: 0, limit: 15, total: 1, nextOffset: null } });
+      }
+      if (path.includes("/external/fibo/search")) {
+        return json({ sourceId: "fibo", release: "test", page: { items: [{ iri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement", label: "agreement", kind: "Class", moduleIri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/", domain: "FND", maturity: "Release", catalogStatus: "Available", sourcePath: "source/FND/Agreements/Agreements.rdf", alternateLabels: [], definitions: ["a mutual understanding"], parents: [], domains: [], ranges: [] }], offset: 0, limit: 15, total: 1, nextOffset: null } });
       }
       if (path.includes("/external/fibo/details")) {
         return json({ element: { iri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement", label: "agreement", kind: "Class", moduleIri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/", domain: "FND", maturity: "Release", catalogStatus: "Available", sourcePath: "source/FND/Agreements/Agreements.rdf", alternateLabels: [], definitions: ["a mutual understanding"], parents: [], domains: [], ranges: [] }, dependencies: [] });
@@ -64,11 +73,13 @@ describe("application workbench journey", () => {
     app.unmount();
     render(<App />);
     expect(await screen.findByRole("textbox", { name: "Definition" })).toHaveValue("A customer.");
-    fireEvent.click(await screen.findByRole("tab", { name: "FIBO" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Domain" }));
     expect(window.location.search).toBe("?module=fibo");
-    expect(await screen.findByRole("heading", { name: "External ontology browser" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Domain ontology" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Browse FIBO before activation" })).toBeInTheDocument();
 
-    fireEvent.click(await screen.findByRole("button", { name: /Agreements/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Search catalog" }), { target: { value: "agreement" } });
+    fireEvent.click(screen.getByRole("button", { name: "Browse" }));
     fireEvent.click(await screen.findByRole("button", { name: /agreement/ }));
     expect(await screen.findByText("a mutual understanding")).toBeInTheDocument();
     expect(screen.getByText(/https:\/\/spec\.edmcouncil\.org\/fibo\/ontology\/FND\/Agreements/)).toBeInTheDocument();

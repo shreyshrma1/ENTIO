@@ -860,6 +860,45 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .external-search { margin-bottom: 10px; }
 .dependency-list { display: grid; gap: 5px; list-style: none; margin: 10px 0 0; padding: 0; }
 .dependency-list li { padding: 7px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-1); color: var(--text-secondary); font-size: 11px; }
+.domain-ontology-panel { display: grid; gap: 18px; }
+.domain-setting-card, .domain-confirmation, .domain-foundation, .domain-search, .domain-inactive-browser, .domain-recommendation-detail, .domain-source-preview { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--surface-1); }
+.domain-setting-card { grid-template-columns: minmax(180px, 280px) 1fr; align-items: end; }
+.domain-setting-card > label, .domain-setting-card > select { grid-column: 1; }
+.domain-setting-card > button { grid-column: 1; justify-self: start; }
+.domain-release-details { grid-column: 2; grid-row: 1 / span 3; display: grid; gap: 7px; margin: 0; }
+.domain-release-details div { display: grid; grid-template-columns: 90px 1fr; gap: 8px; }
+.domain-release-details dt { color: var(--text-muted); }
+.domain-release-details dd { margin: 0; font-weight: 700; }
+.domain-confirmation { border-left: 3px solid var(--primary-500); background: var(--primary-50); }
+.domain-confirmation dl { display: grid; gap: 6px; margin: 0; }
+.domain-confirmation dl div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px; }
+.domain-confirmation dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.domain-confirmation pre { max-height: 220px; overflow: auto; padding: 10px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--surface-1); white-space: pre-wrap; }
+.confirmation-check { display: flex; align-items: flex-start; gap: 8px; font-weight: 600; }
+.domain-foundation-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.domain-foundation-group { min-width: 0; border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; }
+.domain-foundation-group header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px; background: var(--surface-2); }
+.domain-foundation-group ul { max-height: 190px; overflow: auto; margin: 0; padding: 0; list-style: none; }
+.domain-foundation-group li { padding: 7px 9px; border-top: 1px solid var(--border-subtle); }
+.domain-foundation-group label { display: flex; align-items: flex-start; gap: 7px; }
+.domain-foundation-group label span { display: grid; gap: 2px; min-width: 0; }
+.domain-foundation-group small { color: var(--text-muted); }
+.foundation-plan { padding: 12px; border: 1px solid var(--primary-100); border-radius: 8px; background: var(--primary-50); }
+.foundation-plan > ol { display: grid; gap: 10px; padding-left: 22px; }
+.foundation-plan ul { margin-top: 6px; }
+.domain-search form, .domain-inactive-browser form { display: grid; gap: 6px; }
+.domain-meaning-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.domain-meaning-grid section { padding: 10px; border: 1px solid var(--border-subtle); border-radius: 7px; background: var(--surface-2); }
+.domain-meaning-grid h5 { margin: 0; }
+.source-badge, .retrieval-status { display: inline-flex; width: fit-content; align-items: center; padding: 2px 7px; border: 1px solid var(--border-default); border-radius: 999px; background: var(--surface-2); color: var(--text-secondary); font-size: 10px; font-weight: 700; }
+.source-badge-fibo { border-color: var(--primary-200); background: var(--primary-50); color: var(--primary-700); }
+.source-badge-omg-commons { border-color: #c4b5fd; background: #f5f3ff; color: #5b21b6; }
+.retrieval-status-unavailable { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+.retrieval-status-lexicalstructural { border-color: #fde68a; background: #fffbeb; color: #92400e; }
+@container workspace (max-width: 700px) {
+  .domain-setting-card, .domain-meaning-grid, .domain-foundation-groups { grid-template-columns: 1fr; }
+  .domain-release-details { grid-column: 1; grid-row: auto; }
+}
 
 /* Small prototype data surfaces used by reasoning and FIBO panels. */
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 15px; }

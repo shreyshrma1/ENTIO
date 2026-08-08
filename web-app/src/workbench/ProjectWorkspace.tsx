@@ -11,7 +11,7 @@ import AiProposalPanel from "./AiProposalPanel";
 import ProfileSettings from "./ProfileSettings";
 import Icon from "../components/ui/Icon";
 import StatusBadge from "../components/ui/StatusBadge";
-import { useEnsureAppliedReasoning, useEntityDetails, useHierarchy, useProjectActivity, useProjectOutline, useProjectSearch, useProjectSummary, useSemanticJob, useSemanticJobDetails, useShaclShapes, useStagedChanges } from "../web/queries";
+import { useDomainOntologyStatus, useDomainSearch, useEnsureAppliedReasoning, useEntityDetails, useHierarchy, useProjectActivity, useProjectOutline, useProjectSearch, useProjectSummary, useSemanticJob, useSemanticJobDetails, useShaclShapes, useStagedChanges } from "../web/queries";
 import { useQueryClient } from "@tanstack/react-query";
 import type { WebEntityDetailResponse, WebEntityReference, WebHierarchyItem, WebOutlineItem, WebShaclConstraintSummary, WebShaclShapeSummary, WebStagedEntry } from "../web/projectApi";
 import { entityKindPresentation } from "./entityKindPresentation";
@@ -54,7 +54,7 @@ const modules: Array<{ id: ModuleId; label: string; icon: Parameters<typeof Icon
   { id: "changes", label: "Proposal", icon: "changes" },
   { id: "reasoning", label: "Reasoning", icon: "reasoning" },
   { id: "validation", label: "Validation", icon: "constraints" },
-  { id: "fibo", label: "FIBO", icon: "fibo" },
+  { id: "fibo", label: "Domain", icon: "fibo" },
   { id: "activity", label: "Activity", icon: "activity" },
   { id: "settings", label: "Settings", icon: "settings" },
 ];
@@ -152,6 +152,8 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const rootHierarchy = useHierarchy(projectId, sourceId, undefined, Boolean(sourceId), includeAppliedInferred, includeProposalInferred);
   const outline = useProjectOutline(projectId, sourceId, includeAppliedInferred, includeProposalInferred, Boolean(sourceId));
   const search = useProjectSearch(projectId, searchText);
+  const domainStatus = useDomainOntologyStatus(projectId, activeModule === "explore" && Boolean(searchText));
+  const domainSearch = useDomainSearch(projectId, domainStatus.data?.status.availability === "Active" ? searchText : "");
   const staged = useStagedChanges(projectId);
   const mapActive = searchParams.get("view") === "map";
   const mapPageActive = activeModule === "explore" && mapOpen && mapActive;
@@ -556,7 +558,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
           </section>
           {searchInput.trim() ? <section className="sidebar-section sidebar-search-results" aria-labelledby="search-results-heading">
             <div className="section-heading compact"><h3 id="search-results-heading">Search results</h3><button className="icon-button" type="button" aria-label="Clear search" onClick={() => { setSearchInput(""); setSearchText(""); }}><Icon name="close" /></button></div>
-            <SearchResults query={search} onOpen={openEntity} allowedKinds={visibleNodeKinds} sourceVisible={sourceVisible} />
+            <SearchResults query={search} domainStatus={domainStatus} domainQuery={domainSearch.search} onOpen={openEntity} onBrowseDomain={() => openModule("fibo")} allowedKinds={visibleNodeKinds} sourceVisible={sourceVisible} />
           </section> : <>
             <section className="sidebar-section hierarchy-section" aria-labelledby="hierarchy-heading">
               <div className="section-heading compact"><h3 id="hierarchy-heading">Project outline</h3><div className="outline-heading-actions">{outlineTab === "classes" && rootHierarchy.isFetching ? <span className="status-text">Refreshing</span> : null}<button className="icon-button" type="button" aria-label={`Add ${outlineTab === "classes" ? "class" : outlineTab === "objects" ? "individual" : "property"}`} onClick={(event) => setContextMenu(outlineContextMenu(event.currentTarget.getBoundingClientRect().right, event.currentTarget.getBoundingClientRect().bottom, outlineTab, (editor) => launchEditor(editor)))}>+</button></div></div>
@@ -621,7 +623,7 @@ function renderModule(module: ModuleId, projectId: string, sourceId: string | un
   if (module === "changes") return sourceId ? <div className="module-page proposal-page"><PageIntro eyebrow="Review" title="Proposal" description="Review all staged edits together, then accept and apply them or reject the proposal." /><StagingPanel projectId={projectId} /></div> : <Unavailable />;
   if (module === "reasoning") return <ReasoningWorkspace projectId={projectId} initialJobId={semanticJobIds.reasoning} onJobSubmitted={onSemanticJobSubmitted} onOpenChanges={onOpenChanges} />;
   if (module === "validation") return <ValidationWorkspace projectId={projectId} shapesSourceId={shapesSourceId} shaclJobId={semanticJobIds.shacl} onJobSubmitted={onSemanticJobSubmitted} onOpen={(editType) => onOpenEditor({ kind: "typed", editType }, shapesSourceId)} />;
-  if (module === "fibo") return sourceId ? <div className="module-page"><PageIntro eyebrow="External ontology" title="FIBO" description="Browse the pinned, read-only catalog and stage reuse proposals through the shared review queue." /><ExternalOntologyPanel projectId={projectId} sourceId={sourceId} /></div> : <Unavailable />;
+  if (module === "fibo") return sourceId ? <div className="module-page"><PageIntro eyebrow="Domain ontology" title="Domain" description="Optionally activate FIBO, choose foundational concepts, and search verified domain meaning alongside the project." /><ExternalOntologyPanel projectId={projectId} sourceId={sourceId} /></div> : <Unavailable />;
   if (module === "activity") return <div className="module-page"><PageIntro eyebrow="Collaboration" title="Activity" description="Quiet presence and activity signals keep shared work understandable." /><CollaborationActivity projectId={projectId} activeEntityIri={activeTab?.iri ?? null} /></div>;
   return <div className="module-page"><PageIntro eyebrow="Workspace" title="Settings" description="Manage your local profile and optional provider credentials." /><div className="settings-grid"><ProfileSettings displayName={displayName} onSave={onDisplayNameSave} /><AiCredentialSettings /></div></div>;
 }
@@ -765,15 +767,21 @@ function humanizeShaclName(value: string): string {
 
 function Unavailable() { return <div className="empty-state"><h2>Source unavailable</h2><p>This workspace needs an ontology source before it can open.</p></div>; }
 
-function SearchResults({ query, onOpen, allowedKinds, sourceVisible }: { query: ReturnType<typeof useProjectSearch>; onOpen: (entity: WebEntityReference) => void; allowedKinds: ReadonlySet<OntologyGraphNodeKind>; sourceVisible: boolean }) {
-  if (query.isPending) return <p role="status">Searching...</p>;
-  if (query.isError) return <p role="alert">Search unavailable.</p>;
+function SearchResults({ query, domainStatus, domainQuery, onOpen, onBrowseDomain, allowedKinds, sourceVisible }: { query: ReturnType<typeof useProjectSearch>; domainStatus: ReturnType<typeof useDomainOntologyStatus>; domainQuery: ReturnType<typeof useDomainSearch>["search"]; onOpen: (entity: WebEntityReference) => void; onBrowseDomain: () => void; allowedKinds: ReadonlySet<OntologyGraphNodeKind>; sourceVisible: boolean }) {
   const results = sourceVisible ? (query.data?.page.items ?? []).filter((result) => allowedKinds.has(result.kind as OntologyGraphNodeKind)) : [];
-  if (!results.length) return <p className="muted">No matching entities.</p>;
-  return <ul className="search-results">{results.map((result) => {
+  const domainResults = sourceVisible ? (domainQuery.data?.result.recommendations ?? []).filter((result) => allowedKinds.has(result.kind as OntologyGraphNodeKind)) : [];
+  const domainActive = domainStatus.data?.status.availability === "Active";
+  if (query.isPending || domainStatus.isPending || (domainActive && domainQuery.isPending)) return <p role="status">Searching...</p>;
+  return <>{query.isError ? <p role="alert">Project search unavailable.</p> : null}{domainStatus.isError ? <p className="muted">Domain reuse status unavailable; showing project results only.</p> : null}{!results.length && !domainResults.length ? <p className="muted">No matching entities.</p> : null}{results.length ? <ul className="search-results">{results.map((result) => {
     const presentation = entityKindPresentation(result.kind);
-    return <li key={`${result.sourceId}:${result.iri}`}><button type="button" onClick={() => onOpen({ iri: result.iri, label: result.label, kind: result.kind, sourceId: result.sourceId })}><span className={`entity-type-marker ${presentation.className}`} aria-hidden="true">{presentation.marker}</span><span><strong>{result.label}</strong><small>{presentation.label} · {searchReasonLabel(result.reason)}</small></span></button></li>;
-  })}</ul>;
+    const sourceLabel = result.sourceId === "fibo-reuse" ? "Project reuse" : result.locality.toLowerCase() === "imported" ? "Imported" : "Local";
+    return <li key={`${result.sourceId}:${result.iri}`}><button type="button" onClick={() => onOpen({ iri: result.iri, label: result.label, kind: result.kind, sourceId: result.sourceId })}><span className={`entity-type-marker ${presentation.className}`} aria-hidden="true">{presentation.marker}</span><span><strong>{result.label}</strong><small>{sourceLabel} · {presentation.label} · {searchReasonLabel(result.reason)}</small></span></button></li>;
+  })}</ul> : null}{domainQuery.isError ? <p className="muted">Domain retrieval unavailable; local modeling remains available.</p> : null}{domainQuery.data ? <p className="muted">{domainQuery.data.result.availability === "Full" ? "Full hybrid retrieval" : domainQuery.data.result.availability === "LexicalStructural" ? "Lexical and structural retrieval" : "Domain retrieval unavailable"}</p> : null}{domainResults.length ? <ul className="search-results domain-explore-results">{domainResults.map((result) => {
+    const presentation = entityKindPresentation(result.kind);
+    const sourceLabel = result.sourceFamily === "OMG_COMMONS" ? "OMG Commons" : "FIBO";
+    const status = result.warnings.includes("CustomizedFromSource") ? "Customized project reuse" : result.reasons.some((reason) => reason.type === "AlreadyReused") ? "Project reuse" : "Available, not applied";
+    return <li key={result.recommendationId}><button type="button" aria-label={`Review ${result.preferredLabel} in Domain`} onClick={onBrowseDomain}><span className={`entity-type-marker ${presentation.className}`} aria-hidden="true">{presentation.marker}</span><span><strong>{result.preferredLabel}</strong><small>{sourceLabel} · {presentation.label} · {status}</small></span></button></li>;
+  })}</ul> : null}</>;
 }
 
 function searchReasonLabel(reason: string): string {

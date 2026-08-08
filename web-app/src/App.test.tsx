@@ -55,10 +55,16 @@ describe("web workbench shell", () => {
           { iri: "https://example.com/receivedInvoice", label: "received invoice", kind: "ObjectProperty", sourceId: "simple" },
         ], offset: 0, limit: 100, total: 3, nextOffset: null } });
       }
+      if (path.endsWith("/domain-ontology")) {
+        return json({ apiVersion: "v1", projectId: "simple", status: { availability: "Active", profile: { sourceId: "fibo", release: "master_2026Q2", packageFingerprint: "package", managedSourceId: "fibo-reuse" }, migrationStatus: "NoExistingReuse", issues: [] } });
+      }
+      if (path.endsWith("/domain-recommendations")) {
+        return json({ apiVersion: "v1", projectId: "simple", result: { availability: "Full", noConfidentMatch: false, normalizedIntentFingerprint: "customer", recommendations: [{ recommendationId: "rec-customer", iri: "https://spec.example/CustomerAccount", preferredLabel: "customer account", kind: "Class", sourceFamily: "FIBO", sourceModuleIri: "https://spec.example/module", maturity: "Release", confidence: "Strong", permittedActions: ["Browse", "Reuse"], reasons: [{ type: "PreferredLabelMatch", relatedIri: null }], warnings: [], rankingContract: "domain-ranking-v1" }] } });
+      }
       if (path.includes("/search")) {
         return json({ apiVersion: "v1", query: "Customer", page: { items: [
-          { iri: "https://example.com/Customer", label: "Customer", kind: "Class", sourceId: "simple", score: 120, reason: "PreferredLabel" },
-          { iri: "https://example.com/Shrey", label: "Shrey", kind: "Individual", sourceId: "simple", score: 100, reason: "AssertedType" },
+          { iri: "https://example.com/Customer", label: "Customer", kind: "Class", sourceId: "simple", score: 120, reason: "PreferredLabel", locality: "Local" },
+          { iri: "https://example.com/Shrey", label: "Shrey", kind: "Individual", sourceId: "simple", score: 100, reason: "AssertedType", locality: "Local" },
         ], offset: 0, limit: 50, total: 2, nextOffset: null } });
       }
       if (path.includes("/shacl/shapes")) {
@@ -133,7 +139,9 @@ describe("web workbench shell", () => {
     expect(await screen.findByRole("heading", { name: "Search results" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: /^Classes\s*1$/ })).not.toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /Shrey/ })).toBeInTheDocument();
-    expect(screen.getByText("Object · Asserted Type")).toBeInTheDocument();
+    expect(screen.getByText("Local · Object · Asserted Type")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Review customer account in Domain" })).toBeInTheDocument();
+    expect(screen.getByText("FIBO · Class · Available, not applied")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Shrey/ }));
     const entityTabs = screen.getByRole("tablist", { name: "Open entities" });
     fireEvent.keyDown(within(entityTabs).getByRole("tab", { name: "Shrey" }), { key: "ArrowLeft", altKey: true });

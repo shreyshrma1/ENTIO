@@ -60,6 +60,17 @@ import {
   decideDocumentRecommendation,
   type WebDocumentReviewDecision,
   buildDocumentDraft,
+  activateDomainOntology,
+  deactivateDomainOntology,
+  loadDomainFoundation,
+  loadDomainOntologies,
+  loadDomainOntologyStatus,
+  loadDomainRecommendation,
+  planDomainFoundation,
+  previewDomainActivation,
+  previewDomainDeactivation,
+  searchDomainOntology,
+  stageDomainRecommendation,
 } from "./projectApi";
 import type {
   WebAiProviderSettings,
@@ -85,6 +96,12 @@ export const queryKeys = {
   fiboElements: (projectId: string, moduleIri: string) => ["project", projectId, "fibo", "elements", moduleIri] as const,
   fiboSearch: (projectId: string, text: string) => ["project", projectId, "fibo", "search", text] as const,
   fiboDetails: (projectId: string, iri: string) => ["project", projectId, "fibo", "details", iri] as const,
+  domainCatalog: ["domain-ontologies"] as const,
+  domainStatus: (projectId: string) => ["project", projectId, "domain-ontology"] as const,
+  domainFoundation: (projectId: string) => ["project", projectId, "domain-ontology", "foundation"] as const,
+  domainSearch: (projectId: string, text: string) => ["project", projectId, "domain-recommendations", text] as const,
+  domainRecommendation: (projectId: string, recommendationId: string) =>
+    ["project", projectId, "domain-recommendation", recommendationId] as const,
   aiProviderSettings: ["ai", "provider-settings"] as const,
   documentTasks: (projectId: string) => ["project", projectId, "document-ingestion", "tasks"] as const,
   documentReview: (projectId: string, taskId: string) => ["project", projectId, "document-ingestion", taskId, "review"] as const,
@@ -401,6 +418,77 @@ export function useFiboActions(projectId: string) {
   return useMutation({
     mutationFn: (request: WebFiboProposalRequest) => stageFiboProposal(projectId, request),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.staged(projectId) }),
+  });
+}
+
+export function useDomainOntology(projectId: string) {
+  const queryClient = useQueryClient();
+  const catalog = useQuery({ queryKey: queryKeys.domainCatalog, queryFn: () => loadDomainOntologies() });
+  const status = useQuery({ queryKey: queryKeys.domainStatus(projectId), queryFn: () => loadDomainOntologyStatus(projectId), enabled: Boolean(projectId) });
+  const refresh = async () => {
+    await queryClient.invalidateQueries({ queryKey: queryKeys.domainStatus(projectId) });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.summary(projectId) });
+  };
+  return {
+    catalog,
+    status,
+    previewActivation: useMutation({ mutationFn: () => previewDomainActivation(projectId) }),
+    activate: useMutation({ mutationFn: (token: string) => activateDomainOntology(projectId, token), onSuccess: refresh }),
+    previewDeactivation: useMutation({ mutationFn: () => previewDomainDeactivation(projectId) }),
+    deactivate: useMutation({ mutationFn: (token: string) => deactivateDomainOntology(projectId, token), onSuccess: refresh }),
+  };
+}
+
+export function useDomainOntologyStatus(projectId: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.domainStatus(projectId),
+    queryFn: () => loadDomainOntologyStatus(projectId),
+    enabled: enabled && Boolean(projectId),
+    retry: false,
+  });
+}
+
+export function useDomainFoundation(projectId: string, active: boolean) {
+  const queryClient = useQueryClient();
+  return {
+    foundation: useQuery({
+      queryKey: queryKeys.domainFoundation(projectId),
+      queryFn: () => loadDomainFoundation(projectId),
+      enabled: active && Boolean(projectId),
+    }),
+    plan: useMutation({
+      mutationFn: (request: { elementIds?: string[]; selectAll?: boolean }) => planDomainFoundation(projectId, request),
+      onSuccess: (response) => queryClient.setQueryData(
+        ["project", projectId, "domain-ontology", "foundation-plan", response.plan.planId],
+        response,
+      ),
+    }),
+  };
+}
+
+export function useDomainSearch(projectId: string, text: string) {
+  const queryClient = useQueryClient();
+  return {
+    search: useQuery({
+      queryKey: queryKeys.domainSearch(projectId, text),
+      queryFn: () => searchDomainOntology(projectId, text),
+      enabled: Boolean(projectId && text.trim()),
+      retry: false,
+    }),
+    stage: useMutation({
+      mutationFn: ({ recommendationId, acknowledged }: { recommendationId: string; acknowledged: boolean }) =>
+        stageDomainRecommendation(projectId, recommendationId, acknowledged),
+      onSuccess: async () => queryClient.invalidateQueries({ queryKey: queryKeys.staged(projectId) }),
+    }),
+  };
+}
+
+export function useDomainRecommendation(projectId: string, recommendationId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.domainRecommendation(projectId, recommendationId ?? ""),
+    queryFn: () => loadDomainRecommendation(projectId, recommendationId!),
+    enabled: Boolean(projectId && recommendationId),
+    retry: false,
   });
 }
 
