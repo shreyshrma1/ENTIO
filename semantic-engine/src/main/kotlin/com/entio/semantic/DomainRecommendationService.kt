@@ -1,5 +1,11 @@
 package com.entio.semantic
 
+import com.entio.core.DomainFoundationGroup
+import com.entio.core.DomainFoundationMember
+import com.entio.core.DomainFoundationPlan
+import com.entio.core.DomainFoundationPlanBatch
+import com.entio.core.DomainFoundationPlanItem
+import com.entio.core.DomainFoundationPlanItemRole
 import com.entio.core.DomainModelingIntent
 import com.entio.core.DomainOntologyProfileIdentity
 import com.entio.core.DomainRecommendation
@@ -34,11 +40,97 @@ public class DomainRecommendationService private constructor(
     private val embeddingService: LocalSentenceEmbeddingService?,
     private val availability: DomainRetrievalAvailability,
     private val records: Map<String, RecommendationRecord>,
-    private val foundationIris: Set<String>,
+    private val foundationGroups: List<DomainFoundationGroup>,
     private val packageFingerprint: String,
     private val indexFingerprint: String,
     private val stateStore: DomainRecommendationStateStore,
 ) : AutoCloseable {
+    private val foundationIris: Set<String> = foundationGroups.flatMap { it.members }.map { it.iri.value }.toSet()
+
+    public fun retrievalAvailability(): DomainRetrievalAvailability = availability
+
+    public fun packageFingerprint(): String = packageFingerprint
+
+    public fun indexFingerprint(): String = indexFingerprint
+
+    public fun foundations(): List<DomainFoundationGroup> = foundationGroups
+
+    public fun planFoundation(
+        userId: String,
+        projectId: String,
+        selectedElementIds: Set<String>,
+        selectAll: Boolean,
+        alreadyPresentIris: Set<Iri>,
+        fingerprints: DomainRecommendationFingerprints,
+    ): DomainFoundationPlan {
+        require(userId.isNotBlank() && projectId.isNotBlank())
+        require(selectedElementIds.size <= MAX_FOUNDATION_SELECTIONS)
+        require(alreadyPresentIris.size <= 500)
+        if (fingerprints.packageValue != packageFingerprint || fingerprints.index != indexFingerprint) {
+            throw DomainRecommendationStaleException("domain-foundation-plan-stale: refresh the domain profile")
+        }
+        val membersById = foundationGroups.flatMap { it.members }.associateBy(DomainFoundationMember::elementId)
+        val explicit = if (selectAll) {
+            membersById.values.toList()
+        } else {
+            selectedElementIds.sorted().map { elementId ->
+                membersById[elementId]
+                    ?: throw DomainRecommendationStaleException(
+                        "domain-foundation-element-not-found: refresh the foundation list",
+                    )
+            }
+        }.distinctBy { it.iri }.sortedBy { it.iri.value }
+        require(explicit.isNotEmpty()) { "domain-foundation-selection-required" }
+
+        val batches = partitionFoundation(explicit).mapIndexed { batchIndex, batchMembers ->
+            val explicitIris = batchMembers.map { it.iri.value }.toSet()
+            val closure = dependencyClosure(explicitIris)
+            val items = (explicitIris + closure).distinct().sorted().map { iri ->
+                val record = records.getValue(iri)
+                DomainFoundationPlanItem(
+                    iri = Iri(iri),
+                    label = record.preferredLabel,
+                    kind = record.kind,
+                    role = when {
+                        Iri(iri) in alreadyPresentIris -> DomainFoundationPlanItemRole.AlreadyPresent
+                        iri in explicitIris -> DomainFoundationPlanItemRole.ExplicitSelection
+                        else -> DomainFoundationPlanItemRole.RequiredDependency
+                    },
+                )
+            }
+            DomainFoundationPlanBatch(batchIndex + 1, batchMembers.size, items)
+        }
+        val normalizedSelections = explicit.map { it.iri.value }
+        val planId = "dfp_" + sha256(
+            listOf(
+                userId,
+                projectId,
+                fingerprints.project,
+                fingerprints.profile,
+                fingerprints.ontology,
+                fingerprints.currentWork,
+                packageFingerprint,
+                indexFingerprint,
+                normalizedSelections.joinToString(","),
+            ).joinToString("\u0000"),
+        ).take(40)
+        val plan = DomainFoundationPlan(
+            planId = planId,
+            projectId = projectId,
+            batches = batches,
+            explicitSelectionCount = explicit.size,
+            dependencyCount = batches.flatMap { it.items }
+                .count { it.role == DomainFoundationPlanItemRole.RequiredDependency },
+            packageFingerprint = packageFingerprint,
+            indexFingerprint = indexFingerprint,
+        )
+        stateStore.putFoundationPlan(userId, projectId, plan)
+        return plan
+    }
+
+    public fun resolveFoundationPlan(userId: String, projectId: String, planId: String): DomainFoundationPlan =
+        stateStore.resolveFoundationPlan(userId, projectId, planId)
+
     public fun recommend(userId: String, intent: DomainModelingIntent): DomainRecommendationResult {
         require(userId.isNotBlank() && userId.length <= 256)
         verifyFreshness(intent)
@@ -106,6 +198,17 @@ public class DomainRecommendationService private constructor(
         recommendationId: String,
         currentFingerprints: DomainRecommendationFingerprints,
     ): DomainRecommendation = stateStore.resolve(userId, projectId, recommendationId, currentFingerprints)
+
+    public fun dependencyIris(
+        userId: String,
+        projectId: String,
+        recommendationId: String,
+        currentFingerprints: DomainRecommendationFingerprints,
+    ): List<Iri> {
+        val recommendation = resolve(userId, projectId, recommendationId, currentFingerprints)
+        val record = records.getValue(recommendation.iri.value)
+        return (record.parents + record.domains + record.ranges).distinct().sorted().map(::Iri)
+    }
 
     override fun close(): Unit {
         embeddingService?.close()
@@ -262,6 +365,49 @@ public class DomainRecommendationService private constructor(
     private fun compatible(required: Iri?, declared: List<String>): Boolean =
         required == null || declared.isEmpty() || required.value in declared
 
+    private fun dependencyClosure(explicitIris: Set<String>): Set<String> {
+        val dependencies = linkedSetOf<String>()
+        var frontier = explicitIris.sorted()
+        var depth = 0
+        while (frontier.isNotEmpty()) {
+            require(depth++ < MAX_DEPENDENCY_DEPTH) { "domain-dependency-depth-limit" }
+            frontier = frontier.flatMap { iri ->
+                val record = records.getValue(iri)
+                record.parents + record.domains + record.ranges
+            }.filter { it in records && it !in explicitIris && dependencies.add(it) }
+                .distinct()
+                .sorted()
+            require(explicitIris.size + dependencies.size <= MAX_CLOSURE_PER_BATCH) {
+                "domain-dependency-entity-limit"
+            }
+        }
+        return dependencies
+    }
+
+    private fun partitionFoundation(members: List<DomainFoundationMember>): List<List<DomainFoundationMember>> {
+        val batches = mutableListOf<List<DomainFoundationMember>>()
+        var current = mutableListOf<DomainFoundationMember>()
+        members.forEach { member ->
+            val candidate = current + member
+            val candidateIris = candidate.map { it.iri.value }.toSet()
+            val fits = candidate.size <= MAX_EXPLICIT_PER_BATCH && runCatching {
+                candidateIris.size + dependencyClosure(candidateIris).size <= MAX_CLOSURE_PER_BATCH
+            }.getOrDefault(false)
+            if (!fits && current.isNotEmpty()) {
+                batches += current
+                current = mutableListOf(member)
+                val singleIri = setOf(member.iri.value)
+                require(singleIri.size + dependencyClosure(singleIri).size <= MAX_CLOSURE_PER_BATCH) {
+                    "domain-dependency-entity-limit"
+                }
+            } else {
+                current = candidate.toMutableList()
+            }
+        }
+        if (current.isNotEmpty()) batches += current
+        return batches
+    }
+
     private fun RankedRecommendation.toRecommendation(
         userId: String,
         intentFingerprint: String,
@@ -337,6 +483,10 @@ public class DomainRecommendationService private constructor(
         private const val LEXICAL_SCORE_SCALE: Float = 100.0f
         private const val STRONG_THRESHOLD: Double = 0.60
         private const val POSSIBLE_THRESHOLD: Double = 0.43
+        private const val MAX_EXPLICIT_PER_BATCH: Int = 20
+        private const val MAX_FOUNDATION_SELECTIONS: Int = 100
+        private const val MAX_CLOSURE_PER_BATCH: Int = 100
+        private const val MAX_DEPENDENCY_DEPTH: Int = 16
 
         public fun open(
             root: Path,
@@ -349,7 +499,7 @@ public class DomainRecommendationService private constructor(
             require(packageFingerprint == DomainOntologyProfileIdentity.PACKAGE_FINGERPRINT)
             val indexFingerprint = DomainSearchAssetSupport.sha256(root.resolve(DomainSearchAssetSupport.SEARCH_MANIFEST))
             val records = readRecords(root.resolve("descriptors-v1.jsonl"))
-            val foundations = readFoundationIris(root.resolve("foundation-profile-v1.json"))
+            val foundations = readFoundationGroups(root.resolve("foundation-profile-v1.json"), packageFingerprint)
             return try {
                 val index = DomainSearchIndex.openFull(root)
                 val embedding = LocalSentenceEmbeddingService.open(modelRoot)
@@ -413,12 +563,27 @@ public class DomainRecommendationService private constructor(
             }
         }
 
-        private fun readFoundationIris(path: Path): Set<String> {
+        private fun readFoundationGroups(path: Path, packageFingerprint: String): List<DomainFoundationGroup> {
             val loader = Load(LoadSettings.builder().setLabel("domain-foundation-members").build())
             val root = loader.loadFromString(Files.readString(path)) as Map<*, *>
-            return (root["groups"] as List<*>).flatMap { group ->
-                ((group as Map<*, *>)["members"] as List<*>).map { member -> (member as Map<*, *>).string("iri") }
-            }.toSet()
+            return (root["groups"] as List<*>).map { groupValue ->
+                val group = groupValue as Map<*, *>
+                DomainFoundationGroup(
+                    groupId = group.string("id"),
+                    label = group.string("label"),
+                    members = (group["members"] as List<*>).map { memberValue ->
+                        val member = memberValue as Map<*, *>
+                        val iri = member.string("iri")
+                        DomainFoundationMember(
+                            elementId = "dfe_" + sha256("$packageFingerprint\u0000$iri").take(40),
+                            iri = Iri(iri),
+                            label = member.string("label"),
+                            kind = ExternalEntityKind.valueOf(member.string("kind")),
+                            sourceFamily = member.string("sourceFamily"),
+                        )
+                    }.sortedBy { it.iri.value },
+                )
+            }.sortedBy(DomainFoundationGroup::groupId)
         }
 
         private fun normalize(value: String): String =
@@ -542,8 +707,26 @@ public class DomainRecommendationStateStore(
         cleanup(scope)
         val values = plans.getOrPut(scope) { mutableListOf() }
         values.removeAll { it.id == planId }
-        values += StoredPlan(planId, recommendationIds, clock.instant(), sequence.incrementAndGet())
+        values += StoredPlan(planId, recommendationIds, null, clock.instant(), sequence.incrementAndGet())
         evictOldest(values, planCapacity)
+    }
+
+    @Synchronized
+    public fun putFoundationPlan(userId: String, projectId: String, plan: DomainFoundationPlan): Unit {
+        val scope = Scope(projectId, userId)
+        cleanup(scope)
+        val values = plans.getOrPut(scope) { mutableListOf() }
+        values.removeAll { it.id == plan.planId }
+        values += StoredPlan(plan.planId, emptySet(), plan, clock.instant(), sequence.incrementAndGet())
+        evictOldest(values, planCapacity)
+    }
+
+    @Synchronized
+    public fun resolveFoundationPlan(userId: String, projectId: String, planId: String): DomainFoundationPlan {
+        val scope = Scope(projectId, userId)
+        cleanup(scope)
+        return plans[scope]?.singleOrNull { it.id == planId }?.foundationPlan
+            ?: throw DomainRecommendationStaleException("domain-foundation-plan-stale: refresh the foundation plan")
     }
 
     @Synchronized
@@ -558,7 +741,9 @@ public class DomainRecommendationStateStore(
         records[scope]?.removeAll { !it.createdAt.isAfter(cutoff) }
         plans[scope]?.removeAll { !it.createdAt.isAfter(cutoff) }
         val liveIds = records[scope].orEmpty().map { it.recommendation.recommendationId }.toSet()
-        plans[scope]?.removeAll { plan -> plan.recommendationIds.any { it !in liveIds } }
+        plans[scope]?.removeAll { plan ->
+            plan.recommendationIds.isNotEmpty() && plan.recommendationIds.any { it !in liveIds }
+        }
         if (records[scope].isNullOrEmpty()) records.remove(scope)
         if (plans[scope].isNullOrEmpty()) plans.remove(scope)
     }
@@ -579,6 +764,7 @@ public class DomainRecommendationStateStore(
     private data class StoredPlan(
         val id: String,
         val recommendationIds: Set<String>,
+        val foundationPlan: DomainFoundationPlan?,
         val createdAt: Instant,
         override val createdSequence: Long,
     ) : Sequenced

@@ -31,6 +31,7 @@ import com.entio.web.contract.WebPresenceUser
 import com.entio.core.Iri
 import com.entio.core.SemanticDescriptorKind
 import com.entio.core.SemanticSearchQuery
+import com.entio.semantic.DomainRecommendationStaleException
 import io.ktor.server.application.ApplicationCall
 import com.entio.web.ai.AiCredentialRequest
 import com.entio.web.ai.AiCredentialService
@@ -48,6 +49,9 @@ import com.entio.web.ai.AiProposalService
 import com.entio.web.contract.WebAiModelSelectionRequest
 import com.entio.web.contract.WebAiProposalCreateRequest
 import com.entio.web.contract.WebInferenceMaterializationRequest
+import com.entio.web.contract.WebDomainFoundationPlanRequest
+import com.entio.web.contract.WebDomainProfileActionRequest
+import com.entio.web.contract.WebDomainRecommendationRequest
 import java.time.Clock
 import com.entio.web.ingestion.DocumentIngestionConfiguration
 import com.entio.web.ingestion.DocumentIngestionFailure
@@ -74,6 +78,13 @@ public fun Application.module(
     val loadedProjects = LoadedProjectCache()
     val readOnly = ReadOnlyProjectAdapter(dependencies.projectRegistry, loadedProjects = loadedProjects)
     val staging = StagingWorkflowService(dependencies.projectRegistry)
+    val domainOntologies = DomainOntologyWebService(
+        dependencies.projectRegistry,
+        staging,
+        loadedProjects,
+        dependencies.domainAssets,
+        assetVerifier = dependencies.domainAssetVerifier,
+    )
     val collaboration = CollaborationHub(dependencies.projectRegistry, staging::snapshot)
     val fibo = FiboWebService(dependencies.projectRegistry, staging)
     val aiCredentials = AiCredentialService(dependencies.aiCredentials, dependencies.aiProvider)
@@ -144,6 +155,7 @@ public fun Application.module(
     staging.installDocumentApplyHooks(documentIngestion.provenanceCoordinator)
     monitor.subscribe(io.ktor.server.application.ApplicationStopped) {
         documentIngestion.close()
+        domainOntologies.close()
     }
 
     routing {
@@ -175,6 +187,136 @@ public fun Application.module(
                         permissions = dependencies.authorization.permissionsFor(user.role),
                     ),
                 )
+            }
+        }
+
+        get("/api/v1/domain-ontologies") {
+            call.respondDomain {
+                call.requireUser(dependencies)
+                domainOntologies.list()
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/domain-ontology") {
+            call.respondDomain {
+                call.requireUser(dependencies)
+                domainOntologies.status(call.requiredProjectId())
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/domain-ontology/activation-preview") {
+            call.respondDomain {
+                val user = call.requireDomainEditor(dependencies)
+                domainOntologies.previewActivation(call.requiredProjectId(), user.id)
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/domain-ontology/activate") {
+            call.respondDomain {
+                val user = call.requireDomainEditor(dependencies)
+                val request = call.receive<WebDomainProfileActionRequest>()
+                domainOntologies.activate(
+                    call.requiredProjectId(),
+                    user.id,
+                    request.confirmationToken,
+                    call.requiredDomainIdempotencyKey(),
+                )
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/domain-ontology/deactivation-preview") {
+            call.respondDomain {
+                val user = call.requireDomainEditor(dependencies)
+                domainOntologies.previewDeactivation(call.requiredProjectId(), user.id)
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/domain-ontology/deactivate") {
+            call.respondDomain {
+                val user = call.requireDomainEditor(dependencies)
+                val request = call.receive<WebDomainProfileActionRequest>()
+                domainOntologies.deactivate(
+                    call.requiredProjectId(),
+                    user.id,
+                    request.confirmationToken,
+                    call.requiredDomainIdempotencyKey(),
+                )
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/domain-ontology/foundation") {
+            call.respondDomain {
+                call.requireUser(dependencies)
+                domainOntologies.foundations(call.requiredProjectId())
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/domain-ontology/foundation-plans") {
+            call.respondDomain {
+                val user = call.requireDomainEditor(dependencies)
+                domainOntologies.planFoundation(
+                    call.requiredProjectId(),
+                    user.id,
+                    call.receive<WebDomainFoundationPlanRequest>(),
+                )
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/domain-ontology/foundation-plans/{planId}") {
+            call.respondDomain {
+                val user = call.requireUser(dependencies)
+                domainOntologies.foundationPlan(
+                    call.requiredProjectId(),
+                    user.id,
+                    call.requiredDomainPlanId(),
+                )
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/domain-recommendations") {
+            call.respondDomain {
+                val user = call.requireUser(dependencies)
+                domainOntologies.recommend(
+                    call.requiredProjectId(),
+                    user.id,
+                    call.receive<WebDomainRecommendationRequest>(),
+                )
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/domain-recommendations/{recommendationId}") {
+            call.respondDomain {
+                val user = call.requireUser(dependencies)
+                domainOntologies.recommendation(
+                    call.requiredProjectId(),
+                    user.id,
+                    call.requiredDomainRecommendationId(),
+                )
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/domain-recommendations/{recommendationId}/dependency-preview") {
+            call.respondDomain {
+                val user = call.requireUser(dependencies)
+                domainOntologies.dependencyPreview(
+                    call.requiredProjectId(),
+                    user.id,
+                    call.requiredDomainRecommendationId(),
+                )
+            }
+        }
+
+        get("/api/v1/projects/{projectId}/domain-migration") {
+            call.respondDomain {
+                call.requireUser(dependencies)
+                domainOntologies.migration(call.requiredProjectId())
+            }
+        }
+
+        post("/api/v1/projects/{projectId}/domain-migration/preview") {
+            call.respondDomain {
+                call.requireDomainEditor(dependencies)
+                domainOntologies.migration(call.requiredProjectId(), preview = true)
             }
         }
 
@@ -820,6 +962,18 @@ private fun ApplicationCall.requiredIngestionRecommendationId(): String = parame
     ?.takeIf { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,199}")) }
     ?: throw DocumentIngestionFailure("document-recommendation-not-found", "The requested recommendation was not found.")
 
+private fun ApplicationCall.requiredDomainRecommendationId(): String = parameters["recommendationId"]
+    ?.takeIf { it.matches(Regex("dr_[0-9a-f]{40}")) }
+    ?: throw DomainOntologyWebFailure("domain-recommendation-not-found", "The requested recommendation was not found.")
+
+private fun ApplicationCall.requiredDomainPlanId(): String = parameters["planId"]
+    ?.takeIf { it.matches(Regex("dfp_[0-9a-f]{40}")) }
+    ?: throw DomainOntologyWebFailure("domain-foundation-plan-not-found", "The requested foundation plan was not found.")
+
+private fun ApplicationCall.requiredDomainIdempotencyKey(): String = request.header("Idempotency-Key")
+    ?.takeIf { it.isNotBlank() && it.length <= 256 }
+    ?: throw DomainOntologyWebFailure("missing-idempotency-key", "An Idempotency-Key header is required.")
+
 private fun ApplicationCall.requiredIngestionIdempotencyKey(): String = request.header("Idempotency-Key")
     ?.takeIf(String::isNotBlank)
     ?: throw DocumentIngestionFailure("missing-idempotency-key", "An Idempotency-Key header is required for this request.")
@@ -827,6 +981,16 @@ private fun ApplicationCall.requiredIngestionIdempotencyKey(): String = request.
 private fun ApplicationCall.requireUser(dependencies: WebApplicationDependencies): com.entio.web.contract.WebSessionUser {
     val user = dependencies.identityProvider.find(request.headers["X-Entio-User"])
         ?: throw WebWorkflowFailure("unknown-development-user", "The requested development user is not configured.")
+    return user
+}
+
+private fun ApplicationCall.requireDomainEditor(
+    dependencies: WebApplicationDependencies,
+): com.entio.web.contract.WebSessionUser {
+    val user = requireUser(dependencies)
+    if (!dependencies.authorization.isAllowed(user.role, com.entio.web.contract.WebAction.PREPARE_EDIT)) {
+        throw DomainOntologyWebFailure("forbidden", "The current user cannot change domain ontology configuration.")
+    }
     return user
 }
 
@@ -878,6 +1042,56 @@ private suspend fun ApplicationCall.respondReadOnly(block: () -> Any): Unit = tr
             requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
             code = failure.code,
             message = failure.message ?: "The read request could not be completed.",
+        ),
+    )
+}
+
+private suspend fun ApplicationCall.respondDomain(block: suspend () -> Any): Unit = try {
+    respond(block())
+} catch (failure: DomainOntologyWebFailure) {
+    val status = when (failure.code) {
+        "unknown-project", "domain-recommendation-not-found", "domain-foundation-plan-not-found" -> HttpStatusCode.NotFound
+        "forbidden" -> HttpStatusCode.Forbidden
+        "domain-profile-inactive", "domain-activation-stale", "domain-foundation-plan-stale",
+        "domain-recommendation-stale", "idempotency-conflict" -> HttpStatusCode.Conflict
+        "domain-assets-unavailable", "project-load-failed" -> HttpStatusCode.ServiceUnavailable
+        "domain-recommendation-timeout" -> HttpStatusCode.RequestTimeout
+        else -> HttpStatusCode.BadRequest
+    }
+    respond(
+        status,
+        WebErrorResponse(
+            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
+            code = failure.code,
+            message = failure.message ?: "The domain ontology request could not be completed.",
+        ),
+    )
+} catch (failure: DomainRecommendationStaleException) {
+    respond(
+        HttpStatusCode.Conflict,
+        WebErrorResponse(
+            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
+            code = failure.message?.substringBefore(':') ?: "domain-recommendation-stale",
+            message = failure.message ?: "The domain recommendation is stale.",
+        ),
+    )
+} catch (failure: WebWorkflowFailure) {
+    val status = if (failure.code == "unknown-development-user") HttpStatusCode.Unauthorized else HttpStatusCode.BadRequest
+    respond(
+        status,
+        WebErrorResponse(
+            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
+            code = failure.code,
+            message = failure.message ?: "The domain ontology request could not be completed.",
+        ),
+    )
+} catch (failure: IllegalArgumentException) {
+    respond(
+        HttpStatusCode.BadRequest,
+        WebErrorResponse(
+            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
+            code = failure.message?.takeIf { it.matches(Regex("[a-z0-9-]+")) } ?: "invalid-domain-request",
+            message = "The domain ontology request is invalid.",
         ),
     )
 }

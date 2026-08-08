@@ -1,6 +1,7 @@
 package com.entio.semantic
 
 import com.entio.core.DomainModelingIntent
+import com.entio.core.DomainFoundationPlanItemRole
 import com.entio.core.DomainOntologyProfileIdentity
 import com.entio.core.DomainOperationKind
 import com.entio.core.DomainRecommendationAction
@@ -157,6 +158,44 @@ class DomainRecommendationServiceTest {
             val intent = intent("agreement", ExternalEntityKind.Class)
             assertFailsWith<DomainRecommendationStaleException> {
                 restarted.resolve("user-1", "project-1", "dr_from_previous_process", fingerprints(intent))
+            }
+        }
+    }
+
+    @Test
+    fun foundationPlansUseOpaqueSelectionsDeterministicBoundsAndOwnerScopedResolution(): Unit {
+        DomainRecommendationService.open(root, modelRoot).use { service ->
+            val intent = intent("agreement", ExternalEntityKind.Class)
+            val fingerprints = fingerprints(intent)
+            val foundations = service.foundations()
+            val selected = foundations.flatMap { it.members }.take(2)
+            val first = service.planFoundation(
+                userId = "user-1",
+                projectId = intent.projectId,
+                selectedElementIds = selected.map { it.elementId }.toSet(),
+                selectAll = false,
+                alreadyPresentIris = setOf(selected.first().iri),
+                fingerprints = fingerprints,
+            )
+            val repeated = service.planFoundation(
+                userId = "user-1",
+                projectId = intent.projectId,
+                selectedElementIds = selected.map { it.elementId }.reversed().toSet(),
+                selectAll = false,
+                alreadyPresentIris = setOf(selected.first().iri),
+                fingerprints = fingerprints,
+            )
+
+            assertEquals(8, foundations.size)
+            assertTrue(foundations.flatMap { it.members }.all { it.elementId.matches(Regex("dfe_[0-9a-f]{40}")) })
+            assertEquals(first.planId, repeated.planId)
+            assertTrue(first.batches.all { it.explicitSelectionCount <= 20 && it.items.size <= 100 })
+            assertTrue(first.batches.flatMap { it.items }.any {
+                it.iri == selected.first().iri && it.role == DomainFoundationPlanItemRole.AlreadyPresent
+            })
+            assertEquals(first, service.resolveFoundationPlan("user-1", intent.projectId, first.planId))
+            assertFailsWith<DomainRecommendationStaleException> {
+                service.resolveFoundationPlan("user-2", intent.projectId, first.planId)
             }
         }
     }
