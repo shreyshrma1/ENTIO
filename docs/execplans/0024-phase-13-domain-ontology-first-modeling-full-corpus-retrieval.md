@@ -827,6 +827,29 @@ unverified claims, repeated frozen inputs reorder, ranking is tuned against the
 locked acceptance set, benchmark quality misses the approved gates, or
 recommendation policy leaks into clients.
 
+### Approved locked-run conformance correction
+
+The first locked-set run on 2026-08-08 missed only recall@10: `0.8333333333`
+against the `0.85` gate. Precision@3 was `0.75`; kind correctness, hard-
+negative action suppression, no-match correctness, and repeated ordering were
+all `1.00` or identical as applicable. The immutable run record is
+`docs/decisions/phase-13-locked-benchmark-v1-first-run.md`.
+
+Repository-owner approval permits exactly one conformance correction before a
+single rerun. For a one-token query, a non-exact descriptor token-coverage
+feature must not normalize to full lexical relevance. Only an exact preferred
+label, exact alternate label, or exact acronym may provide full lexical
+relevance for that one-token query. This corrects the implementation's loss of
+the distinction between an exact base label and longer specialized labels; it
+does not use or change a locked relevance judgment.
+
+The correction must not change the `domain-ranking-v1` weights, confidence
+thresholds, candidate limits, benchmark cases, relevant IRIs, hard negatives,
+or metric definitions. After the correction, run the development and
+regression sets first, then run the unchanged locked set once. Record both the
+first run and rerun in the Slice 4 completion record. If any locked gate still
+fails, the stop condition applies again and implementation must not continue.
+
 ## Slice 5: Web Profile, Foundation, And Recommendation Read Contracts
 
 ### Goal
