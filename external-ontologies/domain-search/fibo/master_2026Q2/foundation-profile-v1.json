@@ -1,0 +1,66 @@
+{
+  "schema":"entio-domain-foundation-profile-v1",
+  "profileId":"entio-fibo-foundation-master-2026q2-v1",
+  "release":"master_2026Q2",
+  "reviewed":true,
+  "groups":[
+    {"id":"agents-organizations","label":"Agents and organizations","members":[
+      {"iri":"https://www.omg.org/spec/Commons/PartiesAndSituations/Agent","kind":"Class","label":"agent","sourceFamily":"FIBO"},
+      {"iri":"https://www.omg.org/spec/Commons/PartiesAndSituations/Party","kind":"Class","label":"party","sourceFamily":"FIBO"},
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/AgentsAndPeople/People/Person","kind":"Class","label":"person","sourceFamily":"FIBO"},
+      {"iri":"https://www.omg.org/spec/Commons/Organizations/Organization","kind":"Class","label":"organisation","sourceFamily":"FIBO"},
+      {"iri":"https://www.omg.org/spec/Commons/Organizations/LegalEntity","kind":"Class","label":"legal entity","sourceFamily":"FIBO"},
+      {"iri":"https://www.omg.org/spec/Commons/Organizations/hasOrganizationMember","kind":"ObjectProperty","label":"has organization member","sourceFamily":"OMG_COMMONS"}
+    ]},
+    {"id":"agreements-commitments","label":"Agreements and commitments","members":[
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement","kind":"Class","label":"agreement","sourceFamily":"FIBO"},
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Commitment","kind":"Class","label":"commitment","sourceFamily":"FIBO"},
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/Contract","kind":"Class","label":"contract","sourceFamily":"FIBO"},
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/ContractualCommitment","kind":"Class","label":"contractual commitment","sourceFamily":"FIBO"},
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/hasContractParty","kind":"ObjectProperty","label":"has contract party","sourceFamily":"FIBO"}
+    ]},
+    {"id":"identifiers-classifications","label":"Identifiers and classifications","members":[
+      {"iri":"https://www.omg.org/spec/Commons/Identifiers/Identifier","kind":"Class","label":"identifier","sourceFamily":"OMG_COMMONS"},
+      {"iri":"https://www.omg.org/spec/Commons/Classifiers/Classifier","kind":"Class","label":"classifier","sourceFamily":"OMG_COMMONS"},
+      {"iri":"https://www.omg.org/spec/Commons/Classifiers/ClassificationScheme","kind":"Class","label":"classification scheme","sourceFamily":"FIBO"},
+      {"iri":"https://www.omg.org/spec/Commons/Organizations/OrganizationIdentifier","kind":"Class","label":"organisation identifier","sourceFamily":"FIBO"},
+      {"iri":"https://www.omg.org/spec/Commons/Identifiers/identifies","kind":"ObjectProperty","label":"identifies","sourceFamily":"OMG_COMMONS"}
+    ]},
+    {"id":"dates-temporal","label":"Dates and temporal concepts","members":[
+      {"iri":"https://www.omg.org/spec/Commons/DatesAndTimes/Date","kind":"Class","label":"date","sourceFamily":"OMG_COMMONS"},
+      {"iri":"https://www.omg.org/spec/Commons/DatesAndTimes/DatePeriod","kind":"Class","label":"date period","sourceFamily":"OMG_COMMONS"},
+      {"iri":"https://www.omg.org/spec/Commons/DatesAndTimes/DateTime","kind":"Class","label":"date time","sourceFamily":"OMG_COMMONS"},
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/DatesAndTimes/FinancialDates/CalendarPeriod","kind":"Class","label":"calendar period","sourceFamily":"FIBO"},
+      {"iri":"https://www.omg.org/spec/Commons/DatesAndTimes/hasStartDate","kind":"ObjectProperty","label":"has start date","sourceFamily":"OMG_COMMONS"}
+    ]},
+    {"id":"quantities-units-measures","label":"Quantities, units, and measures","members":[
+      {"iri":"https://www.omg.org/spec/Commons/QuantitiesAndUnits/Measure","kind":"Class","label":"measure","sourceFamily":"OMG_COMMONS"},
+      {"iri":"https://www.omg.org/spec/Commons/QuantitiesAndUnits/MeasurementUnit","kind":"Class","label":"measurement unit","sourceFamily":"OMG_COMMONS"},
+      {"iri":"https://www.omg.org/spec/Commons/QuantitiesAndUnits/QuantityKind","kind":"Class","label":"quantity kind","sourceFamily":"OMG_COMMONS"},
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/Accounting/CurrencyAmount/MonetaryAmount","kind":"Class","label":"monetary amount","sourceFamily":"FIBO"},
+      {"iri":"https://www.omg.org/spec/Commons/QuantitiesAndUnits/hasMeasurementUnit","kind":"ObjectProperty","label":"has measurement unit","sourceFamily":"OMG_COMMONS"},
+      {"iri":"https://www.omg.org/spec/Commons/QuantitiesAndUnits/hasNumericValue","kind":"DatatypeProperty","label":"has numeric value","sourceFamily":"OMG_COMMONS"}
+    ]},
+    {"id":"ownership-control","label":"Ownership and control","members":[
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/Ownership/Ownership","kind":"Class","label":"ownership","sourceFamily":"FIBO"},
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/Ownership/Owner","kind":"Class","label":"owner","sourceFamily":"FIBO"},
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/Control/Control","kind":"Class","label":"control","sourceFamily":"FIBO"},
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/Control/ControllingParty","kind":"Class","label":"controlling party","sourceFamily":"FIBO"},
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/OwnershipAndControl/Ownership/isOwnedBy","kind":"ObjectProperty","label":"is owned by","sourceFamily":"FIBO"}
+    ]},
+    {"id":"products-services","label":"Products and services","members":[
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/Product","kind":"Class","label":"Product","sourceFamily":"FIBO"},
+      {"iri":"https://www.omg.org/spec/Commons/Organizations/Service","kind":"Class","label":"service","sourceFamily":"FIBO"},
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/ServiceAgreement","kind":"Class","label":"service agreement","sourceFamily":"FIBO"},
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/PaymentsAndSchedules/Payment","kind":"Class","label":"payment","sourceFamily":"FIBO"},
+      {"iri":"https://www.omg.org/spec/Commons/Organizations/provides","kind":"ObjectProperty","label":"provides","sourceFamily":"OMG_COMMONS"}
+    ]},
+    {"id":"places-addresses","label":"Places and addresses","members":[
+      {"iri":"https://www.omg.org/spec/Commons/Locations/Location","kind":"Class","label":"location","sourceFamily":"OMG_COMMONS"},
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/Places/Addresses/Address","kind":"Class","label":"address","sourceFamily":"FIBO"},
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/Places/Addresses/PhysicalAddress","kind":"Class","label":"physical address","sourceFamily":"FIBO"},
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/Places/RealProperty/RealProperty","kind":"Class","label":"real property","sourceFamily":"FIBO"},
+      {"iri":"https://spec.edmcouncil.org/fibo/ontology/FND/Places/Addresses/hasAddress","kind":"ObjectProperty","label":"has address","sourceFamily":"FIBO"}
+    ]}
+  ]
+}
