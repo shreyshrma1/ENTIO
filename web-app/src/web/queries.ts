@@ -69,8 +69,13 @@ import {
   planDomainFoundation,
   previewDomainActivation,
   previewDomainDeactivation,
+  previewDomainRecommendationDependencies,
+  recommendDomainOntology,
   searchDomainOntology,
   stageDomainRecommendation,
+  stageDomainRecommendationAction,
+  type WebDomainRecommendationRequest,
+  type WebDomainStageRequest,
 } from "./projectApi";
 import type {
   WebAiProviderSettings,
@@ -100,6 +105,8 @@ export const queryKeys = {
   domainStatus: (projectId: string) => ["project", projectId, "domain-ontology"] as const,
   domainFoundation: (projectId: string) => ["project", projectId, "domain-ontology", "foundation"] as const,
   domainSearch: (projectId: string, text: string) => ["project", projectId, "domain-recommendations", text] as const,
+  contextualDomainSearch: (projectId: string, request: WebDomainRecommendationRequest | null) =>
+    ["project", projectId, "contextual-domain-recommendations", request] as const,
   domainRecommendation: (projectId: string, recommendationId: string) =>
     ["project", projectId, "domain-recommendation", recommendationId] as const,
   aiProviderSettings: ["ai", "provider-settings"] as const,
@@ -488,6 +495,35 @@ export function useDomainRecommendation(projectId: string, recommendationId: str
     queryKey: queryKeys.domainRecommendation(projectId, recommendationId ?? ""),
     queryFn: () => loadDomainRecommendation(projectId, recommendationId!),
     enabled: Boolean(projectId && recommendationId),
+    retry: false,
+  });
+}
+
+export function useContextualDomainRecommendations(projectId: string, request: WebDomainRecommendationRequest | null) {
+  const queryClient = useQueryClient();
+  const status = useDomainOntologyStatus(projectId, Boolean(request));
+  const active = status.data?.status?.availability === "Active";
+  return {
+    status,
+    search: useQuery({
+      queryKey: queryKeys.contextualDomainSearch(projectId, request),
+      queryFn: ({ signal }) => recommendDomainOntology(projectId, request!, signal),
+      enabled: active && Boolean(request?.draftLabel.trim()),
+      retry: false,
+    }),
+    stage: useMutation({
+      mutationFn: ({ recommendationId, stageRequest }: { recommendationId: string; stageRequest: WebDomainStageRequest }) =>
+        stageDomainRecommendationAction(projectId, recommendationId, stageRequest),
+      onSuccess: async () => queryClient.invalidateQueries({ queryKey: queryKeys.staged(projectId) }),
+    }),
+  };
+}
+
+export function useDomainDependencyPreview(projectId: string, recommendationId: string | null, action: string | null) {
+  return useQuery({
+    queryKey: ["project", projectId, "domain-recommendation", recommendationId, "dependency-preview", action],
+    queryFn: ({ signal }) => previewDomainRecommendationDependencies(projectId, recommendationId!, signal),
+    enabled: Boolean(projectId && recommendationId && action && action !== "ContinueLocally"),
     retry: false,
   });
 }

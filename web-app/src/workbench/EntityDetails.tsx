@@ -15,6 +15,7 @@ import type {
 import StatusBadge from "../components/ui/StatusBadge";
 import SemanticClassPicker, { type SemanticClassChoice } from "./SemanticClassPicker";
 import SemanticEntityPicker, { type SemanticEntityChoice } from "./SemanticEntityPicker";
+import DomainRecommendationPanel from "./DomainRecommendationPanel";
 
 interface EntityDetailsProps {
   projectId: string;
@@ -532,6 +533,7 @@ function EntityDetailWorkspace({ projectId, entity, appliedEntity, stagedFields,
 
     <div className="entity-tab-panel" role="tabpanel">
       {activeSection === "overview" ? <OverviewTab
+        projectId={projectId}
         entity={entity}
         stagedFields={stagedFields}
         preferredLabel={preferredLabel}
@@ -559,7 +561,7 @@ function EntityDetailWorkspace({ projectId, entity, appliedEntity, stagedFields,
                 (entry) => entry.editType === "assign-type" && entry.normalizedValues.resourceIri === entity.iri,
                 requestTypeKey,
               );
-            }} excludeIri={entity.iri} selectionPresentation="list" appliedIris={appliedEntity.assertedTypes.map((item) => item.iri)} removableApplied={false} />
+            }} excludeIri={entity.iri} selectionPresentation="list" appliedIris={appliedEntity.assertedTypes.map((item) => item.iri)} removableApplied={false} domainRecommendation={{ operationKind: "CreateIndividualTypeSelection", requestedKind: "Class", currentEntityIri: entity.iri, targetSourceId: entity.sourceId }} />
           </div>
         </SemanticListSection> : null}
 
@@ -578,7 +580,7 @@ function EntityDetailWorkspace({ projectId, entity, appliedEntity, stagedFields,
                 (entry) => ["add-superclass", "remove-superclass"].includes(entry.editType) && entry.normalizedValues.classIri === entity.iri,
                 requestHierarchyKey,
               );
-            }} excludeIri={entity.iri} multiple={false} selectionPresentation="list" appliedIris={appliedEntity.directSuperclasses.map((item) => item.iri)} />
+            }} excludeIri={entity.iri} multiple={false} selectionPresentation="list" appliedIris={appliedEntity.directSuperclasses.map((item) => item.iri)} domainRecommendation={{ operationKind: "EditClassHierarchy", requestedKind: "Class", currentEntityIri: entity.iri, targetSourceId: entity.sourceId }} domainLocalTarget={{ iri: entity.iri, sourceId: entity.sourceId }} />
           </div>
         </SemanticListSection> : null}
 
@@ -597,7 +599,7 @@ function EntityDetailWorkspace({ projectId, entity, appliedEntity, stagedFields,
                 (entry) => ["add-superclass", "remove-superclass"].includes(entry.editType) && entry.normalizedValues.superclassIri === entity.iri && entry.normalizedValues.classIri !== entity.iri,
                 requestHierarchyKey,
               );
-            }} excludeIri={entity.iri} selectionPresentation="list" appliedIris={appliedEntity.directSubclasses.map((item) => item.iri)} />
+            }} excludeIri={entity.iri} selectionPresentation="list" appliedIris={appliedEntity.directSubclasses.map((item) => item.iri)} domainRecommendation={{ operationKind: "EditClassHierarchy", requestedKind: "Class", requiredParentIri: entity.iri, targetSourceId: entity.sourceId }} />
           </div>
         </SemanticListSection> : null}
 
@@ -704,6 +706,7 @@ function EntityDetailWorkspace({ projectId, entity, appliedEntity, stagedFields,
 }
 
 interface OverviewTabProps {
+  projectId: string;
   entity: WebEntityDetailResponse;
   stagedFields: ReadonlySet<StagedField>;
   preferredLabel: string;
@@ -720,6 +723,7 @@ function OverviewTab(props: OverviewTabProps) {
   const kind = props.entity.kind.toLowerCase().replaceAll(" ", "");
   const isClass = kind === "class";
   const isProperty = kind.endsWith("property");
+  const domainKind = isClass ? "Class" : kind === "objectproperty" ? "ObjectProperty" : kind === "datatypeproperty" ? "DatatypeProperty" : null;
   const directType = props.directType ?? props.entity.assertedTypes.find((type) => !isBuiltInIndividualType(type.iri)) ?? null;
   return <div className="entity-tab-sections">
     <EditableFactSection title="Preferred label" values={[props.entity.label]} staged={props.stagedFields.has("preferredLabel")}>
@@ -734,6 +738,7 @@ function OverviewTab(props: OverviewTabProps) {
         <textarea id="entity-definition" value={props.definition} onChange={(event) => props.onDefinitionChange(event.target.value)} placeholder="Add a human-readable definition" rows={2} />
       </div>
     </EditableFactSection>
+    {domainKind ? <DomainRecommendationPanel projectId={props.projectId} draftLabel={props.preferredLabel} intent={{ operationKind: "EditLabelOrDefinition", requestedKind: domainKind, alternateWording: props.alternateLabel || undefined, definition: props.definition || undefined, currentEntityIri: props.entity.iri, targetSourceId: props.entity.sourceId }} localTarget={{ iri: props.entity.iri, sourceId: props.entity.sourceId }} compact /> : null}
     <EditableFactSection title="Alternate labels" values={props.entity.alternateLabels.map((item) => item.value)} staged={props.stagedFields.has("alternateLabel")}>
       <div className="inline-value-editor auto-staged-editor">
         <label className="visually-hidden" htmlFor="entity-alternate-label">Alternate label</label>
@@ -893,10 +898,11 @@ function ClassPropertyDialog({
           : range[0];
         if (propertyLabel && domain[0] && selectedRange) void onSubmit(propertyLabel, domain[0], selectedRange, direction === "datatype" ? "datatype" : "object");
       }}>
-        <SemanticClassPicker projectId={projectId} id="class-property-domain" label="Domain class" selected={domain} onChange={setDomain} multiple={false} />
+        <SemanticClassPicker projectId={projectId} id="class-property-domain" label="Domain class" selected={domain} onChange={setDomain} multiple={false} domainRecommendation={{ operationKind: "EditDomain", requestedKind: "Class", targetSourceId: entity.sourceId }} />
         <label htmlFor="class-property-label">Property name<input id="class-property-label" autoFocus value={label} onChange={(event) => setLabel(event.target.value)} placeholder="owns account" required /></label>
+        <DomainRecommendationPanel projectId={projectId} draftLabel={label} intent={{ operationKind: direction === "datatype" ? "CreateDatatypeProperty" : "CreateObjectProperty", requestedKind: direction === "datatype" ? "DatatypeProperty" : "ObjectProperty", requiredDomainIri: domain[0]?.iri, requiredRangeIri: direction === "datatype" ? undefined : range[0]?.iri, requiredDatatypeIri: direction === "datatype" ? datatypeRange : undefined, targetSourceId: entity.sourceId }} compact />
         {direction === "datatype" ? <label htmlFor="class-property-datatype">Datatype range<select id="class-property-datatype" value={datatypeRange} onChange={(event) => setDatatypeRange(event.target.value)}>{LITERAL_DATATYPES.map((datatype) => <option key={datatype.iri} value={datatype.iri}>{datatype.label}</option>)}</select></label>
-          : <SemanticClassPicker projectId={projectId} id="class-property-range" label="Range class" selected={range} onChange={setRange} multiple={false} />}
+          : <SemanticClassPicker projectId={projectId} id="class-property-range" label="Range class" selected={range} onChange={setRange} multiple={false} domainRecommendation={{ operationKind: "EditRangeOrDatatype", requestedKind: "Class", requiredDomainIri: domain[0]?.iri, targetSourceId: entity.sourceId }} />}
         <div className="dialog-actions">
           <button className="button" type="button" onClick={onClose}>Cancel</button>
           <button className="button primary" type="submit" disabled={pending || !label.trim() || domain.length === 0 || (direction !== "datatype" && range.length === 0)}>{pending ? "Adding…" : "Add property"}</button>
@@ -921,10 +927,19 @@ interface SchemaTabProps {
 }
 
 function SchemaTab(props: SchemaTabProps) {
+  const propertyKind = props.isDatatypeProperty ? "DatatypeProperty" : "ObjectProperty";
+  const [hierarchyDraft, setHierarchyDraft] = useState(props.entity.label);
+  useEffect(() => setHierarchyDraft(props.entity.label), [props.entity.iri, props.entity.label]);
   return <div className="entity-tab-sections">
+    {props.isProperty ? <details className="editable-fact-section domain-property-hierarchy">
+      <summary>Find a related FIBO superproperty</summary>
+      <p className="muted">Entio can compare this property with the canonical domain model. Property hierarchy editing remains advisory because it is not a supported local typed operation.</p>
+      <label htmlFor="entity-property-hierarchy-search">Property meaning<input id="entity-property-hierarchy-search" value={hierarchyDraft} onChange={(event) => setHierarchyDraft(event.target.value)} /></label>
+      <DomainRecommendationPanel projectId={props.projectId} draftLabel={hierarchyDraft} intent={{ operationKind: "EditPropertyHierarchy", requestedKind: propertyKind, currentEntityIri: props.entity.iri, targetSourceId: props.entity.sourceId }} localTarget={{ iri: props.entity.iri, sourceId: props.entity.sourceId }} compact />
+    </details> : null}
     <EditableFactSection title="Domains" values={props.entity.domains.map((item) => item.label)} staged={props.stagedFields.has("domains")} unavailable={!props.isProperty ? "Domain declarations apply to properties." : undefined}>
       {props.isProperty ? <div className="inline-semantic-editor auto-staged-editor">
-        <SemanticClassPicker projectId={props.projectId} id="entity-domain" label="Set domain" selected={props.domain} onChange={props.onDomainChange} multiple={false} />
+        <SemanticClassPicker projectId={props.projectId} id="entity-domain" label="Set domain" selected={props.domain} onChange={props.onDomainChange} multiple={false} domainRecommendation={{ operationKind: "EditDomain", requestedKind: "Class", currentEntityIri: props.entity.iri, targetSourceId: props.entity.sourceId }} />
       </div> : null}
     </EditableFactSection>
 
@@ -934,9 +949,10 @@ function SchemaTab(props: SchemaTabProps) {
         <select id="entity-datatype-range" value={props.datatypeRange} onChange={(event) => props.onDatatypeRangeChange(event.target.value)}>
           {STANDARD_DATATYPES.map((datatype) => <option key={datatype} value={datatype}>{datatype}</option>)}
         </select>
+        <DomainRecommendationPanel projectId={props.projectId} draftLabel={props.entity.label} intent={{ operationKind: "EditRangeOrDatatype", requestedKind: "DatatypeProperty", currentEntityIri: props.entity.iri, requiredDatatypeIri: `${XSD_NAMESPACE}${props.datatypeRange}`, targetSourceId: props.entity.sourceId }} localTarget={{ iri: props.entity.iri, sourceId: props.entity.sourceId }} compact />
       </div> : null}
       {props.isProperty && !props.isDatatypeProperty ? <div className="inline-semantic-editor auto-staged-editor">
-        <SemanticClassPicker projectId={props.projectId} id="entity-range" label="Set range" selected={props.range} onChange={props.onRangeChange} multiple={false} />
+        <SemanticClassPicker projectId={props.projectId} id="entity-range" label="Set range" selected={props.range} onChange={props.onRangeChange} multiple={false} domainRecommendation={{ operationKind: "EditRangeOrDatatype", requestedKind: "Class", currentEntityIri: props.entity.iri, requiredDomainIri: props.domain[0]?.iri, targetSourceId: props.entity.sourceId }} />
       </div> : null}
     </EditableFactSection>
   </div>;
@@ -980,21 +996,21 @@ function RelationshipsTab(props: RelationshipsTabProps) {
     <div className="relationship-subtab-panel" role="tabpanel">
       {activeRelationship === "outgoing" ? <>
         {props.editable ? <form className="individual-relationship-editor relationship-search-editor" onSubmit={(event) => { event.preventDefault(); props.onCommitOutgoing(); }}>
-          <SemanticEntityPicker projectId={props.projectId} id="entity-outgoing-property" label="Object property" selected={props.outgoingProperty} onChange={props.onOutgoingPropertyChange} onCommit={props.onCommitOutgoing} accepts={acceptsObjectProperty} placeholder="Search object properties" help="Choose the relationship predicate." multiple={false} selectedValueInInput selectionPresentation="hidden" appliedIris={[]} />
-          <SemanticEntityPicker projectId={props.projectId} id="entity-outgoing-object" label="Object" selected={props.outgoingObject} onChange={props.onOutgoingObjectChange} onCommit={props.onCommitOutgoing} accepts={acceptsIndividual} placeholder="Search individuals" help="Choose the individual that receives this relationship." multiple={false} excludeIri={props.entity.iri} selectedValueInInput selectionPresentation="hidden" appliedIris={[]} />
+          <SemanticEntityPicker projectId={props.projectId} id="entity-outgoing-property" label="Object property" selected={props.outgoingProperty} onChange={props.onOutgoingPropertyChange} onCommit={props.onCommitOutgoing} accepts={acceptsObjectProperty} placeholder="Search object properties" help="Choose the relationship predicate." multiple={false} selectedValueInInput selectionPresentation="hidden" appliedIris={[]} domainRecommendation={{ operationKind: "AddAssertionOrValue", requestedKind: "ObjectProperty", currentEntityIri: props.entity.iri, nearbyProjectIris: props.outgoingObject.map((item) => item.iri), targetSourceId: props.entity.sourceId }} />
+          <SemanticEntityPicker projectId={props.projectId} id="entity-outgoing-object" label="Object" selected={props.outgoingObject} onChange={props.onOutgoingObjectChange} onCommit={props.onCommitOutgoing} accepts={acceptsIndividual} placeholder="Search individuals" help="Choose the individual that receives this relationship." multiple={false} excludeIri={props.entity.iri} selectedValueInInput selectionPresentation="hidden" appliedIris={[]} domainRecommendation={{ operationKind: "AddAssertionOrValue", requestedKind: "Class", currentEntityIri: props.entity.iri, targetSourceId: props.entity.sourceId }} />
         </form> : null}
         <RelationshipRows title="Outgoing relationships" empty="No outgoing object relationships." rows={rows} onDiscard={props.onDiscard} />
       </> : null}
       {activeRelationship === "incoming" ? <>
         {props.editable ? <form className="individual-relationship-editor relationship-search-editor" onSubmit={(event) => { event.preventDefault(); props.onCommitIncoming(); }}>
-          <SemanticEntityPicker projectId={props.projectId} id="entity-incoming-subject" label="Subject" selected={props.incomingSubject} onChange={props.onIncomingSubjectChange} onCommit={props.onCommitIncoming} accepts={acceptsIndividual} placeholder="Search individuals" help="Choose the individual that points here." multiple={false} excludeIri={props.entity.iri} selectedValueInInput selectionPresentation="hidden" appliedIris={[]} />
-          <SemanticEntityPicker projectId={props.projectId} id="entity-incoming-property" label="Object property" selected={props.incomingProperty} onChange={props.onIncomingPropertyChange} onCommit={props.onCommitIncoming} accepts={acceptsObjectProperty} placeholder="Search object properties" help="Choose the relationship predicate." multiple={false} selectedValueInInput selectionPresentation="hidden" appliedIris={[]} />
+          <SemanticEntityPicker projectId={props.projectId} id="entity-incoming-subject" label="Subject" selected={props.incomingSubject} onChange={props.onIncomingSubjectChange} onCommit={props.onCommitIncoming} accepts={acceptsIndividual} placeholder="Search individuals" help="Choose the individual that points here." multiple={false} excludeIri={props.entity.iri} selectedValueInInput selectionPresentation="hidden" appliedIris={[]} domainRecommendation={{ operationKind: "AddAssertionOrValue", requestedKind: "Class", currentEntityIri: props.entity.iri, targetSourceId: props.entity.sourceId }} />
+          <SemanticEntityPicker projectId={props.projectId} id="entity-incoming-property" label="Object property" selected={props.incomingProperty} onChange={props.onIncomingPropertyChange} onCommit={props.onCommitIncoming} accepts={acceptsObjectProperty} placeholder="Search object properties" help="Choose the relationship predicate." multiple={false} selectedValueInInput selectionPresentation="hidden" appliedIris={[]} domainRecommendation={{ operationKind: "AddAssertionOrValue", requestedKind: "ObjectProperty", currentEntityIri: props.entity.iri, nearbyProjectIris: props.incomingSubject.map((item) => item.iri), targetSourceId: props.entity.sourceId }} />
         </form> : null}
         <RelationshipRows title="Incoming relationships" empty="No incoming object relationships." rows={rows} onDiscard={props.onDiscard} />
       </> : null}
       {activeRelationship === "datatype" ? <>
         {props.editable ? <form className="individual-relationship-editor relationship-search-editor" onSubmit={(event) => { event.preventDefault(); props.onCommitDatatype(); }}>
-          <SemanticEntityPicker projectId={props.projectId} id="entity-datatype-property" label="Datatype property" selected={props.datatypeProperty} onChange={props.onDatatypePropertyChange} onCommit={props.onCommitDatatype} accepts={acceptsDatatypeProperty} placeholder="Search datatype properties" help="Choose the literal-valued property." multiple={false} selectedValueInInput selectionPresentation="hidden" appliedIris={[]} />
+          <SemanticEntityPicker projectId={props.projectId} id="entity-datatype-property" label="Datatype property" selected={props.datatypeProperty} onChange={props.onDatatypePropertyChange} onCommit={props.onCommitDatatype} accepts={acceptsDatatypeProperty} placeholder="Search datatype properties" help="Choose the literal-valued property." multiple={false} selectedValueInInput selectionPresentation="hidden" appliedIris={[]} domainRecommendation={{ operationKind: "AddAssertionOrValue", requestedKind: "DatatypeProperty", currentEntityIri: props.entity.iri, requiredDatatypeIri: props.literalDatatype, targetSourceId: props.entity.sourceId }} />
           <label className="relationship-value-field" htmlFor="entity-literal-value">
             <span>Value</span>
             <span className="typed-literal-control">

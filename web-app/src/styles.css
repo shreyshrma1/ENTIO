@@ -1288,6 +1288,23 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .document-evidence-dialog header { display: flex; align-items: center; justify-content: space-between; }
 .document-evidence-dialog pre { overflow: auto; padding: 16px; border: 1px solid var(--border-subtle); background: var(--surface-2); white-space: pre-wrap; word-break: break-word; }
 .document-evidence-dialog mark { background: #fde68a; color: inherit; }
+.domain-recommendation-panel { display: grid; gap: 10px; margin-top: 10px; padding: 14px; border: 1px solid var(--primary-100); border-radius: 10px; background: var(--primary-50); }
+.domain-recommendation-panel.compact { padding: 12px; }
+.domain-recommendation-panel h3, .domain-recommendation-panel h4, .domain-recommendation-panel p { margin: 0; }
+.domain-context-results { display: grid; gap: 6px; }
+.domain-context-results button { display: grid; gap: 3px; width: 100%; padding: 9px 10px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--surface-1); text-align: left; }
+.domain-context-results button.selected-list-item { border-color: var(--primary-500); box-shadow: 0 0 0 1px var(--primary-500); }
+.domain-context-results small { color: var(--text-muted); }
+.domain-context-detail { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--primary-100); }
+.domain-meaning-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.domain-meaning-grid section, .domain-action-preview { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--surface-1); }
+.domain-action-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.domain-action-row button { padding: 6px 9px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--surface-1); }
+.domain-customization-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.domain-customization-fields label, .domain-property-hierarchy label { display: grid; gap: 5px; }
+.domain-advisory { padding: 9px; border-left: 3px solid var(--warning); background: var(--surface-1); }
+.domain-property-hierarchy { display: grid; gap: 10px; }
+.domain-property-hierarchy summary { cursor: pointer; font-weight: 700; }
 /* Reflow against the workspace width, which changes independently when the AI sidebar opens. */
 @container workspace (max-width: 1050px) {
   .document-workspace-header { display: grid; }

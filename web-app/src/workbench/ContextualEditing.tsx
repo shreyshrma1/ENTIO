@@ -7,6 +7,8 @@ import {
 } from "../web/projectApi";
 import { useStagingActions } from "../web/queries";
 import SemanticClassPicker, { type SemanticClassChoice } from "./SemanticClassPicker";
+import DomainRecommendationPanel from "./DomainRecommendationPanel";
+import { recommendationConfigForEdit } from "./domainRecommendationIntegration";
 import {
   buildStageChangeRequest,
   stagingEditDefinition,
@@ -137,7 +139,8 @@ function ClassEditDialog({ projectId, sourceId, parent, onClose }: { projectId: 
     <DialogHeader eyebrow="Ontology edit" title={parent ? `Add subclass of ${parent.label}` : "Add class"} headingId="class-edit-heading" onClose={onClose} />
     <form onSubmit={submit}>
       <label htmlFor="context-class-label">Class label<input id="context-class-label" autoFocus value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Checking Account" required /></label>
-      <SemanticClassPicker projectId={projectId} id="context-superclasses" label="Superclass" selected={superclasses} onChange={setSuperclasses} multiple={false} />
+      <DomainRecommendationPanel projectId={projectId} draftLabel={label} intent={{ operationKind: "CreateClass", requestedKind: "Class", requiredParentIri: parent?.iri, targetSourceId: sourceId }} compact />
+      <SemanticClassPicker projectId={projectId} id="context-superclasses" label="Superclass" selected={superclasses} onChange={setSuperclasses} multiple={false} domainRecommendation={{ operationKind: "EditClassHierarchy", requestedKind: "Class", targetSourceId: sourceId }} />
       <fieldset className="property-associations"><legend>Property associations</legend>
         {associations.map((association) => <div className="property-association-row" key={association.id}>
           <input aria-label="Property label" value={association.propertyLabel} onChange={(event) => setAssociations((current) => current.map((item) => item.id === association.id ? { ...item, propertyLabel: event.target.value } : item))} placeholder="owns account" />
@@ -163,6 +166,7 @@ function TypedEditDialog({ projectId, sourceId, editType, initialValues = {}, on
   const [error, setError] = useState<string | null>(null);
   const [idempotencyKey] = useState(() => `web-context-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const createsProperty = editType === "create-object-property" || editType === "create-datatype-property";
+  const recommendationConfig = recommendationConfigForEdit(editType);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -239,6 +243,7 @@ function TypedEditDialog({ projectId, sourceId, editType, initialValues = {}, on
           multiple={false}
           selectedValueInInput
           required
+          domainRecommendation={{ operationKind: "CreateIndividualTypeSelection", requestedKind: "Class", targetSourceId: sourceId }}
         /> : null}
         {createsProperty ? <SemanticClassPicker
           projectId={projectId}
@@ -248,6 +253,7 @@ function TypedEditDialog({ projectId, sourceId, editType, initialValues = {}, on
           onChange={setPropertyDomain}
           multiple={false}
           selectedValueInInput
+          domainRecommendation={{ operationKind: "EditDomain", requestedKind: "Class", targetSourceId: sourceId }}
         /> : null}
         {editType === "create-object-property" ? <SemanticClassPicker
           projectId={projectId}
@@ -257,6 +263,7 @@ function TypedEditDialog({ projectId, sourceId, editType, initialValues = {}, on
           onChange={setPropertyRange}
           multiple={false}
           selectedValueInInput
+          domainRecommendation={{ operationKind: "EditRangeOrDatatype", requestedKind: "Class", requiredDomainIri: propertyDomain[0]?.iri, targetSourceId: sourceId }}
         /> : null}
         {editType === "create-datatype-property" ? <label htmlFor="context-property-datatype-range">Range datatype<select
           id="context-property-datatype-range"
@@ -267,6 +274,19 @@ function TypedEditDialog({ projectId, sourceId, editType, initialValues = {}, on
           {PROPERTY_DATATYPES.map((datatype) => <option key={datatype.iri} value={datatype.iri}>{datatype.label}</option>)}
         </select></label> : null}
       </div>
+      {recommendationConfig && editType !== "create-individual" ? <DomainRecommendationPanel
+        projectId={projectId}
+        draftLabel={values[recommendationConfig.draftField] ?? ""}
+        intent={{
+          operationKind: recommendationConfig.operationKind,
+          requestedKind: recommendationConfig.requestedKind,
+          requiredDomainIri: propertyDomain[0]?.iri,
+          requiredRangeIri: propertyRange[0]?.iri,
+          requiredDatatypeIri: datatypeRange || undefined,
+          targetSourceId: sourceId,
+        }}
+        compact
+      /> : null}
       {error ? <p className="workflow-error" role="alert">{error}</p> : null}
       <div className="dialog-actions"><button className="button" type="button" onClick={onClose}>Cancel</button><button className="button primary" type="submit" disabled={actions.stage.isPending}>{actions.stage.isPending ? "Adding…" : "Add to review queue"}</button></div>
     </form>

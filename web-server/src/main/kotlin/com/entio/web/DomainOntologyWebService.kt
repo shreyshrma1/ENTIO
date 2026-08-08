@@ -4,9 +4,11 @@ import com.entio.core.DomainModelingIntent
 import com.entio.core.DomainOntologyMigrationStatus
 import com.entio.core.DomainOntologyProfile
 import com.entio.core.DomainOntologyProfileIdentity
+import com.entio.core.DomainOperationKind
 import com.entio.core.DomainProfileDeactivationContext
 import com.entio.core.EntioProject
 import com.entio.core.EntioResult
+import com.entio.core.ExternalEntityKind
 import com.entio.core.Iri
 import com.entio.semantic.DomainFileTransactionManager
 import com.entio.semantic.DomainProfileRepository
@@ -232,14 +234,16 @@ public class DomainOntologyWebService(
     ): WebDomainRecommendationResponse {
         val project = requireActive(projectId)
         require(request.draftLabel.length <= 2_000) { "domain-query-too-large" }
+        requireRecommendationContract(request)
         val context = listOfNotNull(
             request.currentEntityIri,
             request.requiredParentIri,
             request.requiredDomainIri,
             request.requiredRangeIri,
-            request.requiredDatatypeIri,
         ) + request.nearbyProjectIris
         context.forEach { requireProjectIri(project, it) }
+        request.requiredDatatypeIri?.let { requireDatatypeIri(project, it) }
+        resolveRecommendationContext(project, request)
         request.targetSourceId?.let { sourceId ->
             if (project.resolvedSources.none { it.id == sourceId }) {
                 throw DomainOntologyWebFailure("unknown-source", "The target ontology source was not found.")
@@ -460,6 +464,78 @@ public class DomainOntologyWebService(
         }
     }
 
+    private fun requireDatatypeIri(project: EntioProject, value: String): Unit {
+        if (value.startsWith(XSD_PREFIX)) return
+        requireProjectIri(project, value)
+    }
+
+    private fun requireRecommendationContract(request: WebDomainRecommendationRequest): Unit {
+        if (request.operationKind != DomainOperationKind.GlobalSemanticSearch && request.requestedKind == null) {
+            throw DomainOntologyWebFailure(
+                "domain-recommendation-kind-required",
+                "Contextual domain recommendations require an explicit entity kind.",
+            )
+        }
+        val requiredKind = when (request.operationKind) {
+            DomainOperationKind.CreateClass,
+            DomainOperationKind.CreateIndividualTypeSelection,
+            DomainOperationKind.EditClassHierarchy,
+            DomainOperationKind.EditDomain -> ExternalEntityKind.Class
+            DomainOperationKind.CreateObjectProperty -> ExternalEntityKind.ObjectProperty
+            DomainOperationKind.CreateDatatypeProperty -> ExternalEntityKind.DatatypeProperty
+            else -> null
+        }
+        if (requiredKind != null && request.requestedKind != requiredKind) {
+            throw DomainOntologyWebFailure(
+                "domain-recommendation-kind-mismatch",
+                "The requested entity kind does not match the authoring operation.",
+            )
+        }
+    }
+
+    private fun resolveRecommendationContext(project: EntioProject, request: WebDomainRecommendationRequest): Unit {
+        request.requiredParentIri?.let { requireProjectKind(project, it, setOf(ExternalEntityKind.Class)) }
+        request.requiredDomainIri?.let { requireProjectKind(project, it, setOf(ExternalEntityKind.Class)) }
+        request.requiredRangeIri?.let { requireProjectKind(project, it, setOf(ExternalEntityKind.Class)) }
+        val currentIri = request.currentEntityIri ?: return
+        val expectedCurrentKinds = when (request.operationKind) {
+            DomainOperationKind.EditLabelOrDefinition -> setOfNotNull(request.requestedKind)
+            DomainOperationKind.EditClassHierarchy -> setOf(ExternalEntityKind.Class)
+            DomainOperationKind.EditPropertyHierarchy -> setOfNotNull(request.requestedKind)
+            DomainOperationKind.EditDomain,
+            DomainOperationKind.EditRangeOrDatatype -> setOf(
+                ExternalEntityKind.ObjectProperty,
+                ExternalEntityKind.DatatypeProperty,
+            )
+            else -> emptySet()
+        }
+        if (expectedCurrentKinds.isNotEmpty()) requireProjectKind(project, currentIri, expectedCurrentKinds)
+    }
+
+    private fun requireProjectKind(
+        project: EntioProject,
+        value: String,
+        expected: Set<ExternalEntityKind>,
+    ): Unit {
+        val iri = Iri(value)
+        val types = project.graph.triples
+            .filter { it.subjectResource == iri && it.predicate.value == RDF_TYPE }
+            .mapNotNull { (it.objectTerm as? Iri)?.value }
+            .toSet()
+        val actual = when {
+            OWL_OBJECT_PROPERTY in types || RDF_PROPERTY in types -> ExternalEntityKind.ObjectProperty
+            OWL_DATATYPE_PROPERTY in types -> ExternalEntityKind.DatatypeProperty
+            OWL_CLASS in types || RDFS_CLASS in types -> ExternalEntityKind.Class
+            else -> null
+        }
+        if (actual !in expected) {
+            throw DomainOntologyWebFailure(
+                "domain-recommendation-context-kind-mismatch",
+                "A supplied semantic context entity has an incompatible project kind.",
+            )
+        }
+    }
+
     private fun EntioProject.externalIris(): Set<Iri> = graph.triples.flatMap { triple ->
         listOfNotNull(triple.subjectResource as? Iri, triple.objectTerm as? Iri)
     }.filter { iri -> iri.value.startsWith(FIBO_PREFIX) || iri.value.startsWith(COMMONS_PREFIX) }.toSet()
@@ -558,6 +634,13 @@ public class DomainOntologyWebService(
         const val RECOMMENDATION_TIMEOUT_MILLIS: Long = 10_000
         const val FIBO_PREFIX: String = "https://spec.edmcouncil.org/fibo/ontology/"
         const val COMMONS_PREFIX: String = "https://www.omg.org/spec/Commons/"
+        const val XSD_PREFIX: String = "http://www.w3.org/2001/XMLSchema#"
+        const val RDF_TYPE: String = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+        const val RDF_PROPERTY: String = "http://www.w3.org/1999/02/22-rdf-syntax-ns#Property"
+        const val RDFS_CLASS: String = "http://www.w3.org/2000/01/rdf-schema#Class"
+        const val OWL_CLASS: String = "http://www.w3.org/2002/07/owl#Class"
+        const val OWL_OBJECT_PROPERTY: String = "http://www.w3.org/2002/07/owl#ObjectProperty"
+        const val OWL_DATATYPE_PROPERTY: String = "http://www.w3.org/2002/07/owl#DatatypeProperty"
 
         fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
             .digest(bytes).joinToString("") { "%02x".format(it) }

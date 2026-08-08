@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useProjectSearch, useStagedChanges } from "../web/queries";
+import type { WebDomainRecommendationRequest } from "../web/projectApi";
+import DomainRecommendationPanel from "./DomainRecommendationPanel";
 
 export interface SemanticEntityChoice {
   iri: string;
@@ -27,6 +29,8 @@ interface SemanticEntityPickerProps {
   appliedIris?: readonly string[];
   removableApplied?: boolean;
   onCommit?: () => void;
+  domainRecommendation?: Omit<WebDomainRecommendationRequest, "draftLabel">;
+  domainLocalTarget?: { iri: string; sourceId: string };
 }
 
 export default function SemanticEntityPicker({
@@ -47,6 +51,8 @@ export default function SemanticEntityPicker({
   appliedIris,
   removableApplied = true,
   onCommit,
+  domainRecommendation,
+  domainLocalTarget,
 }: SemanticEntityPickerProps) {
   const root = useRef<HTMLDivElement>(null);
   const editingSelectedValue = useRef(false);
@@ -169,6 +175,7 @@ export default function SemanticEntityPicker({
     {selectionPresentation === "list" ? combobox : !selectedValueInInput ? selectionList : null}
     {selectionPresentation !== "list" ? combobox : selectionList}
     <small>{help}</small>
+    {domainRecommendation ? <DomainRecommendationPanel projectId={projectId} draftLabel={input} intent={domainRecommendation} localTarget={domainLocalTarget} compact /> : null}
   </div>;
 }
 
