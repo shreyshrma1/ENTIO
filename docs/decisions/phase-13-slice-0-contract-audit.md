@@ -130,6 +130,10 @@ tests.
 Benchmark v1 has 10 development, 10 regression, and 15 locked cases. Cases
 cover exact labels, paraphrases, finance terminology, abbreviation, three
 entity kinds, directional opposites, Commons, hard negatives, and no-match.
+The complete machine-readable judgments are versioned at
+`docs/decisions/phase-13-retrieval-benchmark-v1.json`; the summary in this
+record is not a substitute for that normative artifact. Benchmark v1 has
+SHA-256 `d47230480bb458b1d65e0fdd4326d82f7b880f0497493f1f512386e32f25dab1`.
 The implementation reviewer supplied reviewer 1 judgments. The repository
 owner reviewed and approved all locked judgments as reviewer 2 on 2026-08-08.
 The set was then locked before ranking implementation.
