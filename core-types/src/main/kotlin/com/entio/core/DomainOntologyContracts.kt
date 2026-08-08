@@ -121,3 +121,138 @@ public data class DomainProfileDeactivationContext(
         require(managedSourceStatementCount >= 0) { "Managed source statement count must not be negative." }
     }
 }
+
+public enum class DomainOperationKind {
+    GlobalSemanticSearch,
+    CreateClass,
+    CreateObjectProperty,
+    CreateDatatypeProperty,
+    CreateIndividualTypeSelection,
+    EditLabelOrDefinition,
+    EditClassHierarchy,
+    EditPropertyHierarchy,
+    EditDomain,
+    EditRangeOrDatatype,
+    AddAssertionOrValue,
+    DeleteOrReplaceEntity,
+    ProposalReuseReview,
+    ShaclTargetClass,
+    ShaclPropertyPath,
+    ShaclClassOrDatatypeConstraint,
+    OntologyMapRelatedSearch,
+    ReasoningWorkspaceRelatedSearch,
+    FoundationExpansion,
+}
+
+public enum class DomainRetrievalAvailability {
+    Full,
+    LexicalStructural,
+    Unavailable,
+}
+
+public enum class DomainRecommendationConfidence {
+    Strong,
+    Possible,
+    Low,
+}
+
+public enum class DomainRecommendationAction {
+    Browse,
+    Reuse,
+    Extend,
+    MapAnnotation,
+}
+
+public enum class DomainRecommendationReasonType {
+    PreferredLabelMatch,
+    AlternateLabelMatch,
+    DefinitionMatch,
+    ParaphraseSimilarity,
+    CompatibleEntityKind,
+    CompatibleDomain,
+    CompatibleRange,
+    AlreadyReused,
+    ConnectedProjectEntity,
+    FoundationMember,
+    SourceModuleAlreadyUsed,
+}
+
+public enum class DomainRecommendationWarningType {
+    DeprecatedEntity,
+    AdditionalDependencyCost,
+    SourceModuleNotUsed,
+    SimilarLocalConcept,
+    CustomizedFromSource,
+    IncompleteOptionalStructure,
+    LowConfidence,
+    InformativeEntity,
+}
+
+public data class DomainModelingIntent(
+    public val projectId: String,
+    public val operationKind: DomainOperationKind,
+    public val requestedKind: ExternalEntityKind? = null,
+    public val draftLabel: String,
+    public val alternateWording: String? = null,
+    public val definition: String? = null,
+    public val currentEntityIri: Iri? = null,
+    public val requiredParentIri: Iri? = null,
+    public val requiredDomainIri: Iri? = null,
+    public val requiredRangeIri: Iri? = null,
+    public val requiredDatatypeIri: Iri? = null,
+    public val nearbyProjectIris: Set<Iri> = emptySet(),
+    public val alreadyReusedIris: Set<Iri> = emptySet(),
+    public val usedSourceModuleIris: Set<Iri> = emptySet(),
+    public val targetSourceId: String? = null,
+    public val languagePreference: String? = null,
+    public val projectFingerprint: String,
+    public val profileFingerprint: String,
+    public val ontologyFingerprint: String,
+    public val currentWorkFingerprint: String,
+    public val packageFingerprint: String,
+    public val indexFingerprint: String,
+    public val broadSearch: Boolean = false,
+) {
+    init {
+        require(projectId.isNotBlank() && projectId.length <= 256)
+        require(draftLabel.isNotBlank() && draftLabel.toByteArray().size <= 4_096)
+        require(alternateWording == null || alternateWording.toByteArray().size <= 4_096)
+        require(definition == null || definition.toByteArray().size <= 16_384)
+        require(nearbyProjectIris.size <= 100 && alreadyReusedIris.size <= 500)
+        require(listOf(
+            projectFingerprint,
+            profileFingerprint,
+            ontologyFingerprint,
+            currentWorkFingerprint,
+            packageFingerprint,
+            indexFingerprint,
+        ).all(String::isNotBlank))
+    }
+}
+
+public data class DomainRecommendationReason(
+    public val type: DomainRecommendationReasonType,
+    public val relatedIri: Iri? = null,
+)
+
+public data class DomainRecommendation(
+    public val recommendationId: String,
+    public val iri: Iri,
+    public val preferredLabel: String,
+    public val kind: ExternalEntityKind,
+    public val sourceFamily: String,
+    public val sourceModuleIri: Iri,
+    public val maturity: ExternalOntologyMaturity,
+    public val confidence: DomainRecommendationConfidence,
+    public val permittedActions: Set<DomainRecommendationAction>,
+    public val reasons: List<DomainRecommendationReason>,
+    public val warnings: List<DomainRecommendationWarningType>,
+    public val rankingContract: String = "domain-ranking-v1",
+)
+
+public data class DomainRecommendationResult(
+    public val availability: DomainRetrievalAvailability,
+    public val recommendations: List<DomainRecommendation>,
+    public val noConfidentMatch: Boolean,
+    public val normalizedIntentFingerprint: String,
+)
