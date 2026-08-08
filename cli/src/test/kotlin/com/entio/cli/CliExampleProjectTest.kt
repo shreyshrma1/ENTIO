@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
 class CliExampleProjectTest {
     @Test
     fun emptyDemoProjectIsValidAndContainsNoSymbols(): Unit {
-        val emptyDemoProject = repositoryRoot().resolve("examples/empty-demo")
+        val emptyDemoProject = repositoryRoot().resolve("examples/demo")
 
         val validation = runCli("validate", emptyDemoProject.toString())
         assertEquals(0, validation.exitCode)

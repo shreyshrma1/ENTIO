@@ -10,7 +10,7 @@ class ServerMainTest {
     fun developmentDependenciesRegistersTheExampleProject() {
         val examplesRoot = Files.createTempDirectory("entio-web-examples")
         val projectRoot = Files.createDirectory(examplesRoot.resolve("simple-ontology"))
-        val emptyDemoRoot = Files.createDirectory(examplesRoot.resolve("empty-demo"))
+        val demoRoot = Files.createDirectory(examplesRoot.resolve("demo"))
 
         val dependencies = developmentDependencies(projectRoot)
 
@@ -18,9 +18,9 @@ class ServerMainTest {
         assertNotNull(simpleProject)
         assertEquals("Simple ontology", simpleProject.displayName)
         assertEquals(projectRoot.toAbsolutePath().normalize(), dependencies.projectRegistry.rootFor("simple"))
-        val emptyDemo = dependencies.projectRegistry.find("empty-demo")
-        assertNotNull(emptyDemo)
-        assertEquals("Empty demo", emptyDemo.displayName)
-        assertEquals(emptyDemoRoot.toAbsolutePath().normalize(), dependencies.projectRegistry.rootFor("empty-demo"))
+        val demo = dependencies.projectRegistry.find("demo")
+        assertNotNull(demo)
+        assertEquals("Demo", demo.displayName)
+        assertEquals(demoRoot.toAbsolutePath().normalize(), dependencies.projectRegistry.rootFor("demo"))
     }
 }
