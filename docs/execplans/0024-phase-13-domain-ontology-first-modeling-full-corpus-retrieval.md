@@ -850,6 +850,19 @@ regression sets first, then run the unchanged locked set once. Record both the
 first run and rerun in the Slice 4 completion record. If any locked gate still
 fails, the stop condition applies again and implementation must not continue.
 
+The first conformance rerun still produced recall@10 `0.8333333333`; its other
+gates passed. Review found that the correction had unintentionally narrowed
+the pre-existing multi-token acronym signal even though the approved change
+was limited to one-token queries. Repository-owner approval therefore permits
+one final conformance correction: retain exact acronym matching for a one-token
+query while restoring the previous behavior in which an acronym token may
+match within a multi-token query. No other ranking behavior may change.
+
+Run development and regression first, followed by one final unchanged locked-
+set rerun. The same restrictions on weights, confidence thresholds, candidate
+limits, benchmark data, and metrics remain in force. If any locked gate fails,
+stop again; no additional rerun is approved by this plan.
+
 ## Slice 5: Web Profile, Foundation, And Recommendation Read Contracts
 
 ### Goal
