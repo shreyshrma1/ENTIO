@@ -28,6 +28,7 @@ class CliExampleProjectTest {
                 Class https://example.com/entio/simple#Account "Account" [simple]
                 Individual https://example.com/entio/simple#Account101 "Account 101" [simple]
                 Individual https://example.com/entio/simple#Account33271 "Checking Account 33271" [simple]
+                Individual https://example.com/entio/simple#Bob [simple]
                 Class https://example.com/entio/simple#Checking "Checking Account" [simple]
                 Class https://example.com/entio/simple#Invoice "Invoice" [simple]
                 Individual https://example.com/entio/simple#Shrey "Shrey" [simple]
@@ -37,6 +38,7 @@ class CliExampleProjectTest {
                 Class https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Beneficiary "Beneficiary" [simple]
                 Property https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/isBeneficiaryOf "is beneficiary of" [simple]
                 Class https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/Customer "Customer" [simple]
+                Class https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansGeneral/Loans/Loan "loan" [simple]
                 Class https://www.omg.org/spec/Commons/PartiesAndSituations/Situation "Situation" [simple]
             """.trimIndent() + "\n",
             symbols.out,
