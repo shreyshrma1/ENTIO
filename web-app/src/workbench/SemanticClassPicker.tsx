@@ -1,4 +1,5 @@
 import SemanticEntityPicker, { type SemanticEntityChoice } from "./SemanticEntityPicker";
+import type { WebDomainRecommendationRequest } from "../web/projectApi";
 
 export type SemanticClassChoice = SemanticEntityChoice;
 
@@ -15,6 +16,8 @@ interface SemanticClassPickerProps {
   selectionPresentation?: "chips" | "list" | "hidden";
   appliedIris?: readonly string[];
   removableApplied?: boolean;
+  domainRecommendation?: Omit<WebDomainRecommendationRequest, "draftLabel">;
+  domainLocalTarget?: { iri: string; sourceId: string };
 }
 
 export default function SemanticClassPicker({
@@ -30,6 +33,8 @@ export default function SemanticClassPicker({
   selectionPresentation = "chips",
   appliedIris,
   removableApplied = true,
+  domainRecommendation,
+  domainLocalTarget,
 }: SemanticClassPickerProps) {
   return <SemanticEntityPicker
     projectId={projectId}
@@ -47,5 +52,7 @@ export default function SemanticClassPicker({
     selectionPresentation={selectionPresentation}
     appliedIris={appliedIris}
     removableApplied={removableApplied}
+    domainRecommendation={domainRecommendation}
+    domainLocalTarget={domainLocalTarget}
   />;
 }

@@ -982,6 +982,45 @@ export interface WebFiboProposalRequest {
 export type DomainRetrievalAvailability = "Full" | "LexicalStructural" | "Unavailable";
 export type DomainOntologyAvailability = "Inactive" | "Active" | "Invalid" | "Stale" | "RecoveryRequired";
 export type DomainEntityKind = "Class" | "ObjectProperty" | "DatatypeProperty";
+export type WebDomainOperationKind =
+  | "GlobalSemanticSearch"
+  | "CreateClass"
+  | "CreateObjectProperty"
+  | "CreateDatatypeProperty"
+  | "CreateIndividualTypeSelection"
+  | "EditLabelOrDefinition"
+  | "EditClassHierarchy"
+  | "EditPropertyHierarchy"
+  | "EditDomain"
+  | "EditRangeOrDatatype"
+  | "AddAssertionOrValue";
+
+export interface WebDomainRecommendationRequest {
+  operationKind: WebDomainOperationKind;
+  requestedKind?: DomainEntityKind;
+  draftLabel: string;
+  alternateWording?: string;
+  definition?: string;
+  currentEntityIri?: string;
+  requiredParentIri?: string;
+  requiredDomainIri?: string;
+  requiredRangeIri?: string;
+  requiredDatatypeIri?: string;
+  nearbyProjectIris?: string[];
+  targetSourceId?: string;
+  languagePreference?: string;
+  broadSearch?: boolean;
+}
+
+export type WebDomainReuseAction = "Reuse" | "ReuseAndCustomize" | "ExtendLocally" | "MapClose" | "MapRelated" | "ContinueLocally";
+
+export interface WebDomainStageRequest {
+  action: WebDomainReuseAction;
+  customization?: { preferredLabel?: string; definition?: string };
+  partialMaterializationAcknowledged?: boolean;
+  localIri?: string;
+  localSourceId?: string;
+}
 
 export interface WebDomainOntologyDescriptor {
   sourceId: string;
@@ -1133,7 +1172,11 @@ export async function planDomainFoundation(projectId: string, request: { element
 }
 
 export async function searchDomainOntology(projectId: string, draftLabel: string, fetcher: WebFetcher = defaultFetcher): Promise<WebDomainRecommendationResponse> {
-  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-recommendations`, "POST", { operationKind: "GlobalSemanticSearch", draftLabel, broadSearch: true }, fetcher);
+  return recommendDomainOntology(projectId, { operationKind: "GlobalSemanticSearch", draftLabel, broadSearch: true }, undefined, fetcher);
+}
+
+export async function recommendDomainOntology(projectId: string, request: WebDomainRecommendationRequest, signal?: AbortSignal, fetcher: WebFetcher = defaultFetcher): Promise<WebDomainRecommendationResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-recommendations`, "POST", request, fetcher, {}, undefined, signal);
 }
 
 export async function loadDomainRecommendation(projectId: string, recommendationId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebDomainRecommendationDetailResponse> {
@@ -1141,7 +1184,18 @@ export async function loadDomainRecommendation(projectId: string, recommendation
 }
 
 export async function stageDomainRecommendation(projectId: string, recommendationId: string, partialMaterializationAcknowledged: boolean, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
-  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-recommendations/${encodeURIComponent(recommendationId)}/stage`, "POST", { action: "Reuse", partialMaterializationAcknowledged }, fetcher, { "Idempotency-Key": `domain-reuse-${recommendationId}` });
+  return stageDomainRecommendationAction(projectId, recommendationId, { action: "Reuse", partialMaterializationAcknowledged }, fetcher);
+}
+
+export async function previewDomainRecommendationDependencies(projectId: string, recommendationId: string, signal?: AbortSignal, fetcher: WebFetcher = defaultFetcher): Promise<{ apiVersion: "v1"; projectId: string; recommendationId: string; dependencyIris: string[] }> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-recommendations/${encodeURIComponent(recommendationId)}/dependency-preview`, "POST", undefined, fetcher, {}, undefined, signal);
+}
+
+export async function stageDomainRecommendationAction(projectId: string, recommendationId: string, request: WebDomainStageRequest, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
+  const actionFingerprint = JSON.stringify(request);
+  let checksum = 0;
+  for (let index = 0; index < actionFingerprint.length; index += 1) checksum = ((checksum * 31) + actionFingerprint.charCodeAt(index)) >>> 0;
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-recommendations/${encodeURIComponent(recommendationId)}/stage`, "POST", request, fetcher, { "Idempotency-Key": `domain-action-${recommendationId}-${checksum.toString(16)}` });
 }
 
 export type WebAiCredentialTestStatus = "NOT_CONFIGURED" | "NOT_TESTED" | "PASSED" | "FAILED";
