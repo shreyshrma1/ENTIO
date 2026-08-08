@@ -2,15 +2,15 @@
 
 ## Status
 
-Approved Phase 13 ExecPlan as of 2026-08-08. No Phase 13 implementation has
-started.
+Approved Phase 13 ExecPlan as revised by the Slice 0 audit on 2026-08-08.
+Production implementation begins with Slice 1 only after the completed Slice 0
+branch is merged locally.
 
-Phase 13 is the repository's active phase, while implementation remains
-complete only through Phase 12. This ExecPlan authorizes Slice 0 audit and ADR
-work. Production code, dependencies, model binaries, generated search assets,
-routes, and UI work remain blocked until Slice 0 is complete and its decisions
-have been incorporated into an approved revision of the Phase 13 scope, spec,
-and ExecPlan.
+Phase 13 is the repository's active phase, while product implementation remains
+complete only through Phase 12 until Slice 1 lands. Slice 0 resolved the audit
+and ADR gates and incorporated them into this approved revision. Production
+code, dependencies, model binaries, generated search assets, routes, and UI
+work remain ordered by the slice dependencies below.
 
 This plan implements the approved Phase 13 specification in small, reviewable
 slices. Slice 0 is an approval gate. It resolves dependency, model, storage,
@@ -241,9 +241,9 @@ The implementation must not add:
 - Dense vectors are stored in canonical-IRI order and searched by exact cosine
   scan. Approximate nearest-neighbor search is not justified for the current
   corpus.
-- ONNX Runtime supplies local JVM inference only if Slice 0 selects a model and
-  verifies its complete tokenizer/pooling contract. `all-MiniLM-L6-v2` is the
-  baseline candidate, not a preselected final model.
+- ONNX Runtime supplies local JVM inference with the Slice 0-selected,
+  revision-pinned `all-MiniLM-L6-v2` model and verified tokenizer, mean-pooling,
+  L2-normalization, 256-token, and 384-dimension contract.
 - No project content crosses an external embedding boundary.
 - The active profile is serialized in `.entio/domain-profile.yaml`; existing
   hand-authored `entio.yaml` is not rewritten by activation.
@@ -467,6 +467,29 @@ Required ADRs:
 - project domain-profile persistence;
 - editable external-IRI reuse and atomic provenance.
 
+### Approved Slice 0 resolution
+
+The approved values and evidence are recorded in the three required ADRs and
+`docs/decisions/phase-13-slice-0-contract-audit.md`. Those documents are
+normative where this slice previously named an open choice. In particular:
+
+- the selected versions are Lucene `10.5.0`, ONNX Runtime CPU `1.28.0`, DJL
+  tokenizers/API `0.36.0`, and the pinned unquantized `all-MiniLM-L6-v2` ONNX
+  artifact;
+- full-mode performance acceptance is macOS ARM64/Apple Silicon on Temurin
+  Java 21, with explicit lexical-structural degradation when approved natives
+  are unavailable;
+- the model and generated Phase 13 assets are committed beneath the separate
+  `external-ontologies/domain-search/` manifest and must remain under `250
+  MiB`;
+- project/profile and ontology/provenance transactions use the fixed journal
+  and recovery rules in the ADRs;
+- no new typed removal or raw-RDF operation is authorized;
+- locked relevance judgments are two-reviewer approved and cannot tune weights
+  or confidence thresholds; the completed hybrid service is the quality gate;
+- Phase 5 and Phase 12 files and fingerprints are compatibility baselines, not
+  inputs to be rewritten.
+
 ### Tests
 
 - standalone Java 21 model smoke test;
@@ -486,12 +509,19 @@ Required ADRs:
 ./gradlew :semantic-engine:verifyFiboCatalog
 ./gradlew :semantic-engine:test --tests '*Fibo*'
 ./gradlew :web-server:test --tests '*Document*Retrieval*'
-./gradlew :web-server:test --tests '*Ai*Fibo*'
+./gradlew :web-server:test \
+  --tests 'com.entio.web.ai.OpenAiProposalClientTest.asksTheModelForFocusedExternalContextWhenNeeded' \
+  --tests 'com.entio.web.AiProposalWorkflowTest.followUpCanReviseAndRetractPrivateDraftEdits'
 git diff --check
 ```
 
 Temporary audit commands must be copied into the completion record with their
 versions and results.
+
+The original planning filter `*Ai*Fibo*` matched no test because the existing
+assistant/FIBO compatibility behavior is named by intent rather than by the
+word `Fibo`. Slice 0 replaces that invalid filter with the two exact existing
+tests above; it does not weaken or add compatibility behavior.
 
 ### Stop conditions
 
@@ -507,7 +537,8 @@ Stop and amend the spec before Slice 1 if:
 - Phase 13 assets change Phase 5 manifest, catalog metadata, retrieval ordering,
   or work-key fingerprints;
 - exact vector scan cannot meet the approved latency on the measured corpus;
-- no locally runnable embedding candidate meets the locked acceptance set;
+- no locally runnable embedding candidate can participate in a completed
+  hybrid service that meets the locked acceptance set;
 - the pinned FIBO package is not actually the complete approved source needed
   by the spec;
 - acceptance thresholds are infeasible on measured baseline hardware.

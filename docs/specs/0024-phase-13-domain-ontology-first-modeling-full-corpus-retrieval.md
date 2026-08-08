@@ -1358,35 +1358,32 @@ Phase 13 is accepted only when:
 29. Every row of the ExecPlan integration completeness matrix is implemented
     or is explicitly documented as out of scope by this specification.
 
-## Open Questions
+## Slice 0 Decisions
 
-The following are deliberate pre-implementation approval gates, not permission
-for an implementation slice to choose silently:
+The pre-implementation gates were resolved on 2026-08-08. The normative detail
+is recorded in:
 
-1. Which exact Lucene and ONNX Runtime versions pass the Java 21, platform,
-   license, vulnerability, and reproducibility audit?
-2. Is the pinned FIBO commit an official production publication or an
-   Entio-approved snapshot of master, and what user-facing wording follows?
-3. Should OMG Commons appear in default recommendations or only when verified
-   FIBO structure or dependencies make it relevant?
-4. Which audited local embedding candidate, revision, and ONNX export best
-   meets the locked quality, platform, size, and latency requirements with a
-   verified tokenizer, pooling, and normalization contract?
-5. Does committing the model and generated Lucene index keep repository and
-   distribution size within the approved `250 MiB` budget, or should the
-   reproducible build package them as verified release artifacts?
-6. Which current typed operation represents removal of one source-derived
-   annotation or structural statement from the managed reuse source, and does
-   it need a narrowly scoped extension?
-7. Which focused apply hook should own the journaled managed-source and
-   provenance transaction without changing generic proposal semantics?
-8. Which current web authoring forms require small extraction before one shared
-   recommendation component can be reused without creating a broad UI
-   abstraction?
+- `docs/decisions/phase-13-local-hybrid-retrieval.md`;
+- `docs/decisions/phase-13-project-domain-profile-persistence.md`;
+- `docs/decisions/phase-13-editable-external-iri-reuse.md`;
+- `docs/decisions/phase-13-slice-0-contract-audit.md`.
 
-ExecPlan Slice 0 must answer questions 1 through 7 with an approved audit and
-ADRs before production code or binary assets are added. Slice-specific audits
-must answer question 8 before changing the affected UI.
+In summary, the approved source is an Entio-approved master snapshot rather
+than an official production publication; Commons is contextual by default;
+Lucene `10.5.0`, ONNX Runtime CPU `1.28.0`, DJL tokenizers/API `0.36.0`, and
+`all-MiniLM-L6-v2` at revision
+`94ea1512acaefbfe2e255b2d2ea4bf0d9d7b3dc3` are pinned; assets are committed
+under the separate Phase 13 manifest; existing typed removals and IRI-valued
+annotations are sufficient; and a narrow sidecar participant extends the
+existing atomic apply path. Full-mode performance acceptance uses the recorded
+Apple Silicon/Java 21 baseline and retains explicit lexical-structural degraded
+mode elsewhere.
+
+The locked benchmark judgments were approved by two reviewers before being
+locked. They are executable acceptance data, not tuning data. The hybrid
+service—not the vector signal in isolation—must meet the locked quality gates.
+Each affected UI slice must still perform its approved extraction audit before
+changing a form.
 
 ## Boundary Check
 
