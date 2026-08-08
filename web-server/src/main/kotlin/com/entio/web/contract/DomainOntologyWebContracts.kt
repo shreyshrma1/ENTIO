@@ -11,6 +11,9 @@ import com.entio.core.DomainProfileDeactivationPreview
 import com.entio.core.DomainRecommendation
 import com.entio.core.DomainRecommendationResult
 import com.entio.core.DomainRetrievalAvailability
+import com.entio.core.DomainReuseAction
+import com.entio.core.DomainReuseCustomization
+import com.entio.core.DomainReuseDifference
 import com.entio.core.ExternalEntityKind
 
 public data class WebDomainOntologyDescriptor(
@@ -98,6 +101,20 @@ public data class WebDomainRecommendationDetailResponse(
     val apiVersion: String = WEB_API_VERSION,
     val projectId: String,
     val recommendation: DomainRecommendation,
+)
+
+public data class WebDomainReuseStageRequest(
+    val action: DomainReuseAction,
+    val customization: DomainReuseCustomization = DomainReuseCustomization(),
+    val partialMaterializationAcknowledged: Boolean = false,
+    val localIri: String? = null,
+    val localSourceId: String? = null,
+)
+
+public data class WebDomainReuseDetailResponse(
+    val apiVersion: String = WEB_API_VERSION,
+    val projectId: String,
+    val difference: DomainReuseDifference,
 )
 
 public data class WebDomainDependencyPreviewResponse(

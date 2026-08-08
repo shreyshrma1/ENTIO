@@ -43,6 +43,9 @@ import com.entio.core.StagedChangeSetStatus
 import com.entio.core.SymbolKind
 import com.entio.core.TypedOntologyEdit
 import com.entio.core.DocumentDraftProvenance
+import com.entio.core.DomainOntologyProfileIdentity
+import com.entio.core.DomainReuseDraftProvenance
+import com.entio.core.DomainReusePreparedBatch
 import com.entio.diff.GraphDiffer
 import com.entio.semantic.DeletionDependencyAnalyzer
 import com.entio.semantic.DeterministicIriGenerator
@@ -75,6 +78,8 @@ import com.entio.web.contract.WebStagingResponse
 import com.entio.web.contract.WebDiffEntry
 import java.time.Clock
 import java.time.Instant
+import java.security.MessageDigest
+import java.util.Locale
 
 public class WebWorkflowFailure(
     public val code: String,
@@ -157,6 +162,7 @@ public class StagingWorkflowService(
     private val clock: Clock = Clock.systemUTC(),
 ) {
     private var documentApplyHooks: DocumentApplyHooks? = null
+    private var domainReuseApplyHooks: DomainReuseApplyHooks? = null
     private val sessions: MutableMap<String, ProjectSession> = linkedMapOf()
     private val proposalPlanner: WebProposalPlanner = WebProposalPlanner(
         normalizer = normalizer,
@@ -172,6 +178,11 @@ public class StagingWorkflowService(
     internal fun installDocumentApplyHooks(hooks: DocumentApplyHooks): Unit {
         check(documentApplyHooks == null) { "Document apply hooks are already installed." }
         documentApplyHooks = hooks
+    }
+
+    internal fun installDomainReuseApplyHooks(hooks: DomainReuseApplyHooks): Unit {
+        check(domainReuseApplyHooks == null) { "Domain reuse apply hooks are already installed." }
+        domainReuseApplyHooks = hooks
     }
 
     @Synchronized
@@ -566,6 +577,85 @@ public class StagingWorkflowService(
         return response(projectId, session)
     }
 
+    /** Stages a Kotlin-verified Phase 13 reuse batch through the shared proposal queue. */
+    @Synchronized
+    public fun stageDomainReuse(
+        projectId: String,
+        batch: DomainReusePreparedBatch,
+        userId: String,
+        idempotencyKey: String,
+    ): WebStagingResponse {
+        val session = session(projectId)
+        when (val decision = session.idempotency.begin(idempotencyKey, batch.toString())) {
+            is IdempotencyDecision.Replay -> return response(projectId, session)
+            is IdempotencyDecision.Conflict -> throw WebWorkflowFailure(
+                "idempotency-conflict",
+                "The idempotency key was already used for another domain reuse request.",
+            )
+            is IdempotencyDecision.Accepted -> Unit
+        }
+        val project = load(projectId)
+        require(project.activeDomainOntology != null) { "domain-profile-inactive" }
+        batch.entries.forEach { entry ->
+            val source = project.resolvedSources.singleOrNull { it.id == entry.targetSourceId }
+                ?: throw WebWorkflowFailure("unknown-source", "A prepared domain reuse target source was not found.")
+            if (entry.targetSourceId == DomainOntologyProfileIdentity.MANAGED_SOURCE_ID &&
+                source.path != project.activeDomainOntology?.paths?.managedSource
+            ) {
+                throw WebWorkflowFailure("domain-managed-source-mismatch", "Domain reuse must target the managed source.")
+            }
+        }
+        if (batch.sourceSnapshot.classification == com.entio.core.DomainMaterializationClassification.PartialMaterialization &&
+            !batch.partialMaterializationAcknowledged &&
+            batch.action in setOf(
+                com.entio.core.DomainReuseAction.Reuse,
+                com.entio.core.DomainReuseAction.ReuseAndCustomize,
+                com.entio.core.DomainReuseAction.ExtendLocally,
+            )
+        ) {
+            throw WebWorkflowFailure(
+                "domain-partial-materialization-acknowledgement-required",
+                "Partial source meaning must be acknowledged before staging.",
+            )
+        }
+        val dependencyFingerprint = sha256(
+            batch.dependencies.joinToString("\n") { "${it.iri.value}|${it.disposition.name}" },
+        )
+        val provenance = DomainReuseDraftProvenance(
+            action = batch.action,
+            canonicalIri = batch.canonicalIri,
+            sourceSnapshot = batch.sourceSnapshot,
+            dependencySetFingerprint = dependencyFingerprint,
+            targetManagedSourceId = DomainOntologyProfileIdentity.MANAGED_SOURCE_ID,
+        )
+        val firstOrder = session.nextOrder
+        batch.entries.forEachIndexed { index, entry ->
+            val order = session.nextOrder++
+            session.entries += StoredEntry(
+                staged = StagedChange(
+                    id = "stage-$order",
+                    order = order,
+                    targetSourceId = entry.targetSourceId,
+                    summary = "${batch.action.name} · ${batch.sourceSnapshot.canonicalIri.value}",
+                    operation = StagedChangeOperation.GraphChanges(entry.changeSet),
+                    normalizedValues = mapOf(
+                        "domainReuseAction" to batch.action.name,
+                        "canonicalIri" to batch.canonicalIri.value,
+                        "materialization" to batch.sourceSnapshot.classification.name,
+                        "omittedSourceAxiomCount" to batch.sourceSnapshot.omittedSourceAxioms.size.toString(),
+                    ),
+                    domainReuseProvenance = provenance.takeIf { index == 0 },
+                ),
+                editType = "domain-reuse",
+                authorId = userId,
+                latestEditorId = userId,
+                comment = "Domain reuse batch $firstOrder staged for human review.",
+            )
+        }
+        session.clearPreparedProposal()
+        return response(projectId, session, "Domain reuse changes added to shared staging.")
+    }
+
     /** Stages already-translated generic graph changes without touching source files. */
     @Synchronized
     public fun stageGraphChanges(
@@ -697,20 +787,41 @@ public class StagingWorkflowService(
         val prepared = session.preparedProposal
             ?: throw WebWorkflowFailure("missing-prepared-application", "Preview the staged changes again before applying.")
         val documentEntries = session.entries.map(StoredEntry::staged).filter { it.documentDraftProvenance != null }
-        if (documentEntries.isNotEmpty()) {
-            val hooks = documentApplyHooks
-                ?: throw WebWorkflowFailure("document-provenance-unavailable", "Document provenance is unavailable.")
+        val domainEntries = session.entries.map(StoredEntry::staged).filter { it.domainReuseProvenance != null }
+        if (domainEntries.isNotEmpty()) {
+            val hooks = domainReuseApplyHooks
+                ?: throw WebWorkflowFailure("domain-provenance-unavailable", "Domain reuse provenance is unavailable.")
+            val expectedGraph = proposal.preview?.graph
+                ?: throw WebWorkflowFailure("missing-proposal-preview", "The approved proposal preview is unavailable.")
             hooks.begin(
                 projectId = projectId,
                 proposalId = proposal.id,
                 baselineFingerprint = webGraphFingerprint(load(projectId).graph),
-                expectedFingerprint = webGraphFingerprint(
-                    proposal.preview?.graph
-                        ?: throw WebWorkflowFailure("missing-proposal-preview", "The approved proposal preview is unavailable."),
-                ),
-                staged = documentEntries,
+                expectedFingerprint = webGraphFingerprint(expectedGraph),
+                expectedGraph = expectedGraph,
+                staged = domainEntries,
                 appliedByUserId = userId,
             )
+        }
+        if (documentEntries.isNotEmpty()) {
+            try {
+                val hooks = documentApplyHooks
+                    ?: throw WebWorkflowFailure("document-provenance-unavailable", "Document provenance is unavailable.")
+                hooks.begin(
+                    projectId = projectId,
+                    proposalId = proposal.id,
+                    baselineFingerprint = webGraphFingerprint(load(projectId).graph),
+                    expectedFingerprint = webGraphFingerprint(
+                        proposal.preview?.graph
+                            ?: throw WebWorkflowFailure("missing-proposal-preview", "The approved proposal preview is unavailable."),
+                    ),
+                    staged = documentEntries,
+                    appliedByUserId = userId,
+                )
+            } catch (failure: Exception) {
+                if (domainEntries.isNotEmpty()) domainReuseApplyHooks?.rolledBack(projectId)
+                throw failure
+            }
         }
         val result = MultiSourceAtomicApplier(
             postSaveVerification = {
@@ -724,8 +835,14 @@ public class StagingWorkflowService(
                     is EntioResult.Success -> when (val additional = additionalPostApplyVerification(projectId, reloaded)) {
                         is EntioResult.Failure -> additional
                         is EntioResult.Success -> try {
+                            if (domainEntries.isNotEmpty()) {
+                                domainReuseApplyHooks?.commit(projectId)
+                            }
                             if (documentEntries.isNotEmpty()) {
                                 documentApplyHooks?.commit(projectId)
+                            }
+                            if (domainEntries.isNotEmpty()) {
+                                domainReuseApplyHooks?.applied(projectId)
                             }
                             EntioResult.Success(Unit)
                         } catch (failure: Exception) {
@@ -743,6 +860,9 @@ public class StagingWorkflowService(
                 response(projectId, session, "Proposal applied by $userId; source was reloaded.")
             }
             MultiSourceApplyStatus.RolledBack -> {
+                if (domainEntries.isNotEmpty()) {
+                    domainReuseApplyHooks?.rolledBack(projectId)
+                }
                 if (documentEntries.isNotEmpty()) {
                     documentApplyHooks?.rolledBack(projectId)
                 }
@@ -750,10 +870,16 @@ public class StagingWorkflowService(
                 response(projectId, session, result.reason ?: "Proposal application failed and source files were restored.")
             }
             MultiSourceApplyStatus.RollbackFailed -> {
+                if (domainEntries.isNotEmpty()) {
+                    domainReuseApplyHooks?.rolledBack(projectId)
+                }
                 session.proposal = proposal.copy(status = ChangeProposalStatus.RolledBack)
                 response(projectId, session, result.reason ?: "Proposal application failed and source rollback could not be verified.")
             }
             MultiSourceApplyStatus.Failed -> {
+                if (domainEntries.isNotEmpty()) {
+                    domainReuseApplyHooks?.rolledBack(projectId)
+                }
                 if (documentEntries.isNotEmpty()) {
                     documentApplyHooks?.rolledBack(projectId)
                 }
@@ -1258,5 +1384,9 @@ public class StagingWorkflowService(
             "http://www.w3.org/2002/07/owl#DatatypeProperty" to "Datatype property",
             "http://www.w3.org/2002/07/owl#NamedIndividual" to "Individual",
         )
+
+        private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(Locale.ROOT, it) }
     }
 }
