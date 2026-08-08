@@ -3,11 +3,14 @@ package com.entio.semantic
 import com.entio.core.EntioProject
 import com.entio.core.EntioResult
 import com.entio.core.GraphState
+import com.entio.core.Iri
 import com.entio.core.LoadedOntology
 import com.entio.core.LoadedSymbol
+import com.entio.core.OntologyFormat
 import com.entio.core.ResolvedOntologySource
 import com.entio.core.ValidationIssue
 import com.entio.core.ValidationSeverity
+import java.nio.file.Files
 import java.nio.file.Path
 
 public class ProjectLoader(
@@ -15,6 +18,8 @@ public class ProjectLoader(
     private val sourceResolver: OntologySourceResolver = OntologySourceResolver(),
     private val ontologyParser: OntologyParser = OntologyParser(),
     private val extractSymbols: (LoadedOntology) -> List<LoadedSymbol> = SymbolExtractor()::extractSymbols,
+    private val domainProfiles: DomainProfileRepository = DomainProfileRepository(),
+    private val domainTransactions: DomainFileTransactionManager = DomainFileTransactionManager(domainProfiles),
 ) {
     public fun loadProject(projectRoot: Path): EntioResult<EntioProject> {
         val config = when (val result = configLoader.loadConfig(projectRoot)) {
@@ -22,14 +27,71 @@ public class ProjectLoader(
             is EntioResult.Success -> result.value
         }
 
-        val resolvedSources = when (val result = sourceResolver.resolveSources(projectRoot, config)) {
+        when (val recovery = domainTransactions.recover(projectRoot)) {
+            is EntioResult.Failure -> return recovery
+            is EntioResult.Success -> Unit
+        }
+
+        val domainProfile = when (val result = domainProfiles.read(projectRoot)) {
             is EntioResult.Failure -> return result
             is EntioResult.Success -> result.value
         }
 
+        val configuredSources = when (val result = sourceResolver.resolveSources(projectRoot, config)) {
+            is EntioResult.Failure -> return result
+            is EntioResult.Success -> result.value
+        }
+        val activeDomain = domainProfile.activeDomainOntology
+        if (activeDomain != null && configuredSources.any {
+                it.id == activeDomain.profile.managedSourceId ||
+                    Files.isSameFile(it.path, activeDomain.paths.managedSource)
+            }
+        ) {
+            return EntioResult.Failure(
+                message = "The managed domain source must not be duplicated in entio.yaml.",
+                issues = listOf(
+                    ValidationIssue(
+                        ValidationSeverity.Error,
+                        "duplicate-domain-managed-source",
+                        "The managed domain source must be derived from the active profile only.",
+                        activeDomain.profile.managedSourceId,
+                    ),
+                ),
+            )
+        }
+        val resolvedSources = configuredSources + listOfNotNull(
+            activeDomain?.let {
+                ResolvedOntologySource(
+                    id = it.profile.managedSourceId,
+                    path = it.paths.managedSource,
+                    format = OntologyFormat.Turtle,
+                )
+            },
+        )
+
         val ontologies = when (val result = parseOntologies(resolvedSources)) {
             is EntioResult.Failure -> return result
             is EntioResult.Success -> result.value
+        }
+        if (activeDomain != null) {
+            val managedOntology = ontologies.single { it.source.id == activeDomain.profile.managedSourceId }
+            val declaresOntology = managedOntology.graph.triples.any { triple ->
+                triple.predicate.value == RDF_TYPE &&
+                    triple.objectTerm == Iri(OWL_ONTOLOGY)
+            }
+            if (declaresOntology) {
+                return EntioResult.Failure(
+                    message = "The managed domain source must not declare a separate ontology.",
+                    issues = listOf(
+                        ValidationIssue(
+                            ValidationSeverity.Error,
+                            "unexpected-domain-ontology-declaration",
+                            "The managed reuse source is a project-owned statement container, not an imported ontology.",
+                            activeDomain.profile.managedSourceId,
+                        ),
+                    ),
+                )
+            }
         }
 
         val symbols = when (val result = extractProjectSymbols(ontologies)) {
@@ -48,6 +110,7 @@ public class ProjectLoader(
                         .flatMap { ontology -> ontology.graph.triples }
                         .toSet(),
                 ),
+                activeDomainOntology = activeDomain,
             ),
         )
     }
@@ -107,6 +170,8 @@ public class ProjectLoader(
     }
 
     private companion object {
+        private const val RDF_TYPE: String = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+        private const val OWL_ONTOLOGY: String = "http://www.w3.org/2002/07/owl#Ontology"
         private val symbolComparator: Comparator<LoadedSymbol> =
             compareBy<LoadedSymbol> { it.iri.value }
                 .thenBy { it.sourceId }
