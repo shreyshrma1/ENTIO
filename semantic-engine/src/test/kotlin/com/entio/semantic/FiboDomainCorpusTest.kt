@@ -80,6 +80,20 @@ class FiboDomainCorpusTest {
     }
 
     @Test
+    fun descriptorsUseSemanticIriFallbackWhenCatalogLabelsAreAbsent(): Unit {
+        val records = descriptors()
+        val contractType = records.single {
+            it.string("iri") ==
+                "https://spec.edmcouncil.org/fibo/ontology/ACTUS/ACTUSTaxonomy/ACTUSContractType"
+        }
+
+        assertTrue(records.all { it.string("preferredLabel").isNotBlank() })
+        assertTrue(records.all { it.string("descriptorText").isNotBlank() })
+        assertEquals("ACTUSContract Type", contractType.string("preferredLabel"))
+        assertTrue(contractType.string("descriptorText").startsWith("ACTUSContract Type"))
+    }
+
+    @Test
     fun unsupportedConstructsAreReportedWithoutChangingNamedGraphContext(): Unit {
         val agreement = descriptors().single {
             it.string("iri") == "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement"

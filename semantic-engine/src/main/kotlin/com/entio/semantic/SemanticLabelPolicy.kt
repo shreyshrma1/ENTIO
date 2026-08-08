@@ -103,7 +103,7 @@ public class SemanticLabelPolicy {
             datatypeIri = datatypeIri,
         )
 
-    private fun readableLocalName(resource: RdfResource): String? {
+    internal fun readableLocalName(resource: RdfResource): String? {
         if (resource !is Iri) return null
         val value = resource.value
         val localName = value.substringAfterLast('#', value.substringAfterLast('/')).takeIf { it.isNotBlank() }
