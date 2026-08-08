@@ -117,6 +117,8 @@ public object DomainCorpusVerifier {
             require(record.string("schema") == DomainCorpusIdentity.RECORD_SCHEMA)
             require(record.string("kind") in setOf("Class", "ObjectProperty", "DatatypeProperty"))
             require(record.string("maturity") in setOf("Release", "Provisional", "Informative", "Deprecated", "Unknown"))
+            require(record.string("preferredLabel").isNotBlank()) { "Descriptor preferred label is blank." }
+            require(record.string("descriptorText").isNotBlank()) { "Descriptor embedding text is blank." }
             val path = record.string("sourcePath")
             val family = record.string("sourceFamily")
             require(

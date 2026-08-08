@@ -1,5 +1,6 @@
 package com.entio.semantic
 
+import com.entio.core.Iri
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
@@ -70,6 +71,7 @@ public object DomainCorpusGenerator {
     )
     private val structuralPredicates: Set<String> = setOf(RDFS_SUBCLASS, RDFS_SUBPROPERTY, RDFS_DOMAIN, RDFS_RANGE)
     private val yamlLoader: Load = Load(LoadSettings.builder().setLabel("phase-5-catalog-record").build())
+    private val semanticLabelPolicy: SemanticLabelPolicy = SemanticLabelPolicy()
 
     @JvmStatic
     public fun main(args: Array<String>): Unit {
@@ -133,8 +135,11 @@ public object DomainCorpusGenerator {
         require((parents + domains + ranges).distinct().size <= MAX_GRAPH_CONTEXT_IRIS) {
             "Named graph context exceeds the approved bound: $iri"
         }
-        val textValues = listOfNotNull(preferredLabel) + alternateLabels + definitions
+        val effectivePreferredLabel = preferredLabel ?: semanticLabelPolicy.readableLocalName(Iri(iri))
+        require(!effectivePreferredLabel.isNullOrBlank()) { "Eligible descriptor has no readable label: $iri" }
+        val textValues = listOf(effectivePreferredLabel) + alternateLabels + definitions
         val descriptorText = textValues.filter(String::isNotBlank).distinct().joinToString(". ")
+        require(descriptorText.isNotBlank()) { "Eligible descriptor has no embedding text: $iri" }
         require(descriptorText.toByteArray(Charsets.UTF_8).size <= MAX_DESCRIPTOR_TEXT_BYTES) {
             "Descriptor text exceeds the approved bound: $iri"
         }
@@ -160,7 +165,7 @@ public object DomainCorpusGenerator {
             sourcePath = sourcePath,
             ontologyIri = ontologyIri,
             maturity = maturity,
-            preferredLabel = preferredLabel,
+            preferredLabel = effectivePreferredLabel,
             alternateLabels = alternateLabels.distinct().sorted(),
             definitions = definitions.distinct().sorted(),
             parents = parents.distinct().sorted(),

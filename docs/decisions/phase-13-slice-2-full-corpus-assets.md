@@ -6,6 +6,8 @@ Status: Complete
 
 Branch: `feature/phase-13-slice-2-full-corpus-assets`
 
+Corrective branch: `fix/phase-13-slice-2-semantic-label-fallback`
+
 ## Scope
 
 Slice 2 adds deterministic text assets for the complete Phase 13 FIBO and OMG
@@ -40,6 +42,17 @@ descriptor text, source family, maturity, dependency fingerprint, record
 fingerprint, and explicitly reported unsupported constructs. Descriptor text
 is bounded to 64 KiB and named graph context to 128 distinct IRIs without
 silent truncation.
+
+Eligible records whose compact source record has no explicit label use the
+existing `SemanticLabelPolicy` readable-IRI fallback. Generation and
+verification reject blank preferred labels and blank descriptor text. This
+correction guarantees that every one of the 4,579 records has deterministic
+input for the Slice 3 embedding pipeline without adding structural IRIs to the
+embedding text.
+
+The corrective branch regenerated 126 formerly empty-label records and passed
+the complete Slice 2 verification set shown below before commit and local
+merge.
 
 Maturity is read from the source ontology, with entity-level
 `owl:deprecated true` taking precedence. The generated package contains 3,300
