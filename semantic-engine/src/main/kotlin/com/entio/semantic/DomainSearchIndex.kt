@@ -25,6 +25,7 @@ import org.apache.lucene.index.IndexWriterConfig
 import org.apache.lucene.index.Term
 import org.apache.lucene.search.BooleanClause
 import org.apache.lucene.search.BooleanQuery
+import org.apache.lucene.search.BoostQuery
 import org.apache.lucene.search.IndexSearcher
 import org.apache.lucene.search.TermQuery
 import org.apache.lucene.search.similarities.BM25Similarity
@@ -60,7 +61,13 @@ public class DomainSearchIndex private constructor(
         }
         if (tokens.isEmpty()) return emptyList()
         val queryValue = BooleanQuery.Builder().apply {
-            tokens.forEach { add(TermQuery(Term("text", it)), BooleanClause.Occur.SHOULD) }
+            tokens.forEach { token ->
+                add(BoostQuery(TermQuery(Term("preferredLabel", token)), 4.0f), BooleanClause.Occur.SHOULD)
+                add(BoostQuery(TermQuery(Term("labelAcronym", token)), 4.0f), BooleanClause.Occur.SHOULD)
+                add(BoostQuery(TermQuery(Term("alternateLabels", token)), 3.0f), BooleanClause.Occur.SHOULD)
+                add(TermQuery(Term("definitions", token)), BooleanClause.Occur.SHOULD)
+                add(BoostQuery(TermQuery(Term("text", token)), 0.5f), BooleanClause.Occur.SHOULD)
+            }
         }.build()
         return searcher.search(queryValue, limit).scoreDocs.map { score ->
             DomainSearchHit(searcher.storedFields().document(score.doc).get("iri"), score.score)
@@ -113,6 +120,10 @@ public class DomainSearchIndex private constructor(
                     documents.forEach { source ->
                         val document = Document()
                         document.add(StringField("iri", source.iri, Field.Store.YES))
+                        document.add(TextField("preferredLabel", source.preferredLabel, Field.Store.NO))
+                        document.add(TextField("labelAcronym", acronym(source.preferredLabel), Field.Store.NO))
+                        document.add(TextField("alternateLabels", source.alternateLabels.joinToString(" "), Field.Store.NO))
+                        document.add(TextField("definitions", source.definitions.joinToString(" "), Field.Store.NO))
                         document.add(TextField("text", source.descriptorText, Field.Store.NO))
                         writer.addDocument(document)
                     }
@@ -165,5 +176,11 @@ public class DomainSearchIndex private constructor(
                 "Vector is not normalized: $identity"
             }
         }
+
+        private fun acronym(label: String): String = label.split(Regex("[^A-Za-z0-9]+"))
+            .filter(String::isNotBlank)
+            .takeIf { it.size > 1 }
+            ?.joinToString("") { it.first().lowercaseChar().toString() }
+            .orEmpty()
     }
 }
