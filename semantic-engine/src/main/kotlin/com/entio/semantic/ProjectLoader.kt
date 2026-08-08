@@ -20,6 +20,7 @@ public class ProjectLoader(
     private val extractSymbols: (LoadedOntology) -> List<LoadedSymbol> = SymbolExtractor()::extractSymbols,
     private val domainProfiles: DomainProfileRepository = DomainProfileRepository(),
     private val domainTransactions: DomainFileTransactionManager = DomainFileTransactionManager(domainProfiles),
+    private val recoverDomainTransactions: Boolean = true,
 ) {
     public fun loadProject(projectRoot: Path): EntioResult<EntioProject> {
         val config = when (val result = configLoader.loadConfig(projectRoot)) {
@@ -27,9 +28,11 @@ public class ProjectLoader(
             is EntioResult.Success -> result.value
         }
 
-        when (val recovery = domainTransactions.recover(projectRoot)) {
-            is EntioResult.Failure -> return recovery
-            is EntioResult.Success -> Unit
+        if (recoverDomainTransactions) {
+            when (val recovery = domainTransactions.recover(projectRoot)) {
+                is EntioResult.Failure -> return recovery
+                is EntioResult.Success -> Unit
+            }
         }
 
         val domainProfile = when (val result = domainProfiles.read(projectRoot)) {

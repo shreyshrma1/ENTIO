@@ -256,3 +256,46 @@ public data class DomainRecommendationResult(
     public val noConfidentMatch: Boolean,
     public val normalizedIntentFingerprint: String,
 )
+
+public data class DomainFoundationMember(
+    public val elementId: String,
+    public val iri: Iri,
+    public val label: String,
+    public val kind: ExternalEntityKind,
+    public val sourceFamily: String,
+)
+
+public data class DomainFoundationGroup(
+    public val groupId: String,
+    public val label: String,
+    public val members: List<DomainFoundationMember>,
+)
+
+public enum class DomainFoundationPlanItemRole {
+    ExplicitSelection,
+    RequiredDependency,
+    AlreadyPresent,
+}
+
+public data class DomainFoundationPlanItem(
+    public val iri: Iri,
+    public val label: String,
+    public val kind: ExternalEntityKind,
+    public val role: DomainFoundationPlanItemRole,
+)
+
+public data class DomainFoundationPlanBatch(
+    public val batchNumber: Int,
+    public val explicitSelectionCount: Int,
+    public val items: List<DomainFoundationPlanItem>,
+)
+
+public data class DomainFoundationPlan(
+    public val planId: String,
+    public val projectId: String,
+    public val batches: List<DomainFoundationPlanBatch>,
+    public val explicitSelectionCount: Int,
+    public val dependencyCount: Int,
+    public val packageFingerprint: String,
+    public val indexFingerprint: String,
+)

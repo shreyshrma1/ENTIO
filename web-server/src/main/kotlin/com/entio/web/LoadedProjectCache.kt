@@ -45,6 +45,11 @@ public class LoadedProjectCache(
         return loaded
     }
 
+    @Synchronized
+    public fun invalidate(projectRoot: Path): Unit {
+        entries.remove(projectRoot.toAbsolutePath().normalize())
+    }
+
     private fun stamps(projectRoot: Path, project: EntioProject): List<FileStamp> =
         (listOf(projectRoot.resolve(CONFIG_FILE_NAME)) + project.resolvedSources.map { it.path })
             .distinct()

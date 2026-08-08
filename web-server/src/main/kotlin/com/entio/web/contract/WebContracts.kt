@@ -1,14 +1,15 @@
 package com.entio.web.contract
 
-import java.nio.file.Path
-import java.util.UUID
 import com.entio.web.ai.AiCredentialStore
 import com.entio.web.ai.AiProviderClient
-import com.entio.web.ai.defaultOpenAiCredentialClient
 import com.entio.web.ai.AiProposalProvider
 import com.entio.web.ai.defaultOpenAiProposalClient
+import com.entio.web.ai.defaultOpenAiCredentialClient
 import com.entio.web.ai.provider.AiModelProviderClient
 import com.entio.web.ai.provider.openai.OpenAiModelDiscoveryClient
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.UUID
 
 public const val WEB_API_VERSION: String = "v1"
 
@@ -107,6 +108,27 @@ public data class WebApplicationDependencies(
     val aiProvider: AiProviderClient = defaultOpenAiCredentialClient(),
     val aiModelProvider: AiModelProviderClient = OpenAiModelDiscoveryClient(),
     val aiProposalProvider: AiProposalProvider = defaultOpenAiProposalClient(),
+    val domainAssets: DomainWebAssetPaths = DomainWebAssetPaths.discover(),
+    val domainAssetVerifier: (() -> Unit)? = null,
 )
+
+public data class DomainWebAssetPaths(
+    val fiboPackageRoot: Path,
+    val searchRoot: Path,
+    val modelRoot: Path,
+) {
+    public companion object {
+        public fun discover(workingDirectory: Path = Path.of(System.getProperty("user.dir"))): DomainWebAssetPaths {
+            val repositoryRoot = generateSequence(workingDirectory.toAbsolutePath().normalize()) { it.parent }
+                .firstOrNull { Files.isDirectory(it.resolve("external-ontologies/domain-search")) }
+                ?: workingDirectory.toAbsolutePath().normalize()
+            return DomainWebAssetPaths(
+                fiboPackageRoot = repositoryRoot.resolve("external-ontologies/fibo/master_2026Q2"),
+                searchRoot = repositoryRoot.resolve("external-ontologies/domain-search/fibo/master_2026Q2"),
+                modelRoot = repositoryRoot.resolve("external-ontologies/domain-search/models/all-MiniLM-L6-v2"),
+            )
+        }
+    }
+}
 
 public fun normalizeProjectRoot(path: Path): Path = path.toAbsolutePath().normalize()
