@@ -14,16 +14,22 @@ dependencies {
 
 tasks.register<JavaExec>("generateFiboCatalog") {
     group = "entio"
-    description = "Generate deterministic indexes for the pinned local FIBO package."
+    description = "Verify Phase 5 and generate deterministic Phase 13 FIBO descriptors."
     classpath = sourceSets["main"].runtimeClasspath
-    mainClass.set("com.entio.semantic.FiboCatalogGenerator")
-    args(rootProject.projectDir.resolve("external-ontologies/fibo").absolutePath)
+    mainClass.set("com.entio.semantic.Phase13FiboAssetGenerator")
+    args(
+        rootProject.projectDir.resolve("external-ontologies/fibo").absolutePath,
+        rootProject.projectDir.resolve("external-ontologies/domain-search/fibo/master_2026Q2").absolutePath,
+    )
 }
 
 tasks.register<JavaExec>("verifyFiboCatalog") {
     group = "verification"
-    description = "Verify the pinned local FIBO package and generated indexes offline."
+    description = "Verify the pinned Phase 5 package and Phase 13 domain assets offline."
     classpath = sourceSets["main"].runtimeClasspath
-    mainClass.set("com.entio.semantic.FiboPackageVerifier")
-    args(rootProject.projectDir.resolve("external-ontologies/fibo").absolutePath)
+    mainClass.set("com.entio.semantic.Phase13FiboAssetVerifier")
+    args(
+        rootProject.projectDir.resolve("external-ontologies/fibo").absolutePath,
+        rootProject.projectDir.resolve("external-ontologies/domain-search/fibo/master_2026Q2").absolutePath,
+    )
 }
