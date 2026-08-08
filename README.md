@@ -123,7 +123,7 @@ Implemented CLI commands:
 
 Note: Gradle runs `:cli:run` from the `cli` module working directory, so the example path uses `../examples/simple-ontology`.
 
-`examples/empty-demo` is a valid, selectable development project with an empty ontology source. It contains no RDF statements, symbols, shapes, imports, or documents.
+`examples/demo` is a valid, selectable development project with an empty ontology source. It contains no RDF statements, symbols, shapes, imports, or documents.
 
 ## Developer Commands
 

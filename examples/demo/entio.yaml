@@ -1,4 +1,4 @@
-name: empty-demo
+name: demo
 iriNamespace: https://example.com/entio/empty#
 ontologySources:
   - id: empty

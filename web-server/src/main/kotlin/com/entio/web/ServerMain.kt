@@ -21,9 +21,9 @@ internal fun developmentDependencies(projectRoot: Path = configuredProjectRoot()
     val normalizedRoot = projectRoot.toAbsolutePath().normalize()
     val registry = InMemoryProjectRegistry(setOf(normalizedRoot.parent))
     registry.register("simple", "Simple ontology", normalizedRoot)
-    val emptyDemoRoot = normalizedRoot.parent.resolve("empty-demo")
-    if (Files.isDirectory(emptyDemoRoot)) {
-        registry.register("empty-demo", "Empty demo", emptyDemoRoot)
+    val demoRoot = normalizedRoot.parent.resolve("demo")
+    if (Files.isDirectory(demoRoot)) {
+        registry.register("demo", "Demo", demoRoot)
     }
     return WebApplicationDependencies(projectRegistry = registry)
 }
