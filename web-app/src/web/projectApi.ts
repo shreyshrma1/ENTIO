@@ -979,6 +979,171 @@ export interface WebFiboProposalRequest {
   idempotencyKey?: string;
 }
 
+export type DomainRetrievalAvailability = "Full" | "LexicalStructural" | "Unavailable";
+export type DomainOntologyAvailability = "Inactive" | "Active" | "Invalid" | "Stale" | "RecoveryRequired";
+export type DomainEntityKind = "Class" | "ObjectProperty" | "DatatypeProperty";
+
+export interface WebDomainOntologyDescriptor {
+  sourceId: string;
+  displayName: string;
+  release: string;
+  packageFingerprint: string;
+  retrievalAvailability: DomainRetrievalAvailability;
+  selectable: boolean;
+}
+
+export interface WebDomainOntologyStatusResponse {
+  apiVersion: "v1";
+  projectId: string;
+  status: {
+    availability: DomainOntologyAvailability;
+    profile: null | { sourceId: string; release: string; packageFingerprint: string; managedSourceId: string };
+    migrationStatus: string;
+    issues: Array<{ type: string; code: string; message: string; path: string | null }>;
+  };
+}
+
+export interface WebDomainActivationPreviewResponse {
+  apiVersion: "v1";
+  projectId: string;
+  activationToken: string;
+  preview: {
+    profile: { sourceId: string; release: string; packageFingerprint: string; managedSourceId: string };
+    profilePath: string;
+    managedSourcePath: string;
+    serializedProfile: string;
+    serializedEmptyManagedSource: string;
+    changesProjectOntology: boolean;
+  };
+}
+
+export interface WebDomainDeactivationPreviewResponse {
+  apiVersion: "v1";
+  projectId: string;
+  deactivationToken: string | null;
+  preview: { active: boolean; eligible: boolean; blockers: string[]; profilePath: string; removeEmptyManagedSource: boolean; changesProjectOntology: boolean };
+}
+
+export interface WebDomainFoundationMember {
+  elementId: string;
+  iri: string;
+  label: string;
+  kind: DomainEntityKind;
+  sourceFamily: string;
+}
+
+export interface WebDomainFoundationResponse {
+  apiVersion: "v1";
+  projectId: string;
+  groups: Array<{ groupId: string; label: string; members: WebDomainFoundationMember[] }>;
+}
+
+export interface WebDomainFoundationPlanResponse {
+  apiVersion: "v1";
+  plan: {
+    planId: string;
+    projectId: string;
+    batches: Array<{ batchNumber: number; explicitSelectionCount: number; items: Array<{ iri: string; label: string; kind: DomainEntityKind; role: string }> }>;
+    explicitSelectionCount: number;
+    dependencyCount: number;
+    packageFingerprint: string;
+    indexFingerprint: string;
+  };
+}
+
+export interface WebDomainRecommendation {
+  recommendationId: string;
+  iri: string;
+  preferredLabel: string;
+  kind: DomainEntityKind;
+  sourceFamily: string;
+  sourceModuleIri: string;
+  maturity: string;
+  confidence: string;
+  permittedActions: string[];
+  reasons: Array<{ type: string; relatedIri: string | null }>;
+  warnings: string[];
+  rankingContract: string;
+}
+
+export interface WebDomainRecommendationResponse {
+  apiVersion: "v1";
+  projectId: string;
+  result: { availability: DomainRetrievalAvailability; recommendations: WebDomainRecommendation[]; noConfidentMatch: boolean; normalizedIntentFingerprint: string };
+}
+
+export interface WebDomainDifference {
+  entityId: string;
+  canonicalIri: string;
+  sourceSnapshot: {
+    canonicalIri: string;
+    kind: DomainEntityKind;
+    sourceFamily: string;
+    sourceOntologyIri: string;
+    sourcePath: string;
+    recordFingerprint: string;
+    statementFingerprint: string;
+    statements: Array<{ subjectResource: string; predicate: string; objectTerm: unknown }>;
+    omittedSourceAxioms: string[];
+    classification: string;
+  };
+  projectStatements: Array<{ subjectResource: string; predicate: string; objectTerm: unknown }>;
+  addedProjectStatements: unknown[];
+  removedSourceStatements: unknown[];
+  classification: string;
+}
+
+export interface WebDomainRecommendationDetailResponse {
+  apiVersion: "v1";
+  projectId: string;
+  recommendation: WebDomainRecommendation;
+  difference: WebDomainDifference;
+}
+
+export async function loadDomainOntologies(fetcher: WebFetcher = defaultFetcher): Promise<{ apiVersion: "v1"; domainOntologies: WebDomainOntologyDescriptor[] }> {
+  return getJson("/api/v1/domain-ontologies", fetcher);
+}
+
+export async function loadDomainOntologyStatus(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebDomainOntologyStatusResponse> {
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-ontology`, fetcher);
+}
+
+export async function previewDomainActivation(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebDomainActivationPreviewResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-ontology/activation-preview`, "POST", undefined, fetcher);
+}
+
+export async function activateDomainOntology(projectId: string, confirmationToken: string, fetcher: WebFetcher = defaultFetcher): Promise<WebDomainOntologyStatusResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-ontology/activate`, "POST", { confirmationToken }, fetcher, { "Idempotency-Key": `domain-activate-${confirmationToken}` });
+}
+
+export async function previewDomainDeactivation(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebDomainDeactivationPreviewResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-ontology/deactivation-preview`, "POST", undefined, fetcher);
+}
+
+export async function deactivateDomainOntology(projectId: string, confirmationToken: string, fetcher: WebFetcher = defaultFetcher): Promise<WebDomainOntologyStatusResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-ontology/deactivate`, "POST", { confirmationToken }, fetcher, { "Idempotency-Key": `domain-deactivate-${confirmationToken}` });
+}
+
+export async function loadDomainFoundation(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebDomainFoundationResponse> {
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-ontology/foundation`, fetcher);
+}
+
+export async function planDomainFoundation(projectId: string, request: { elementIds?: string[]; selectAll?: boolean }, fetcher: WebFetcher = defaultFetcher): Promise<WebDomainFoundationPlanResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-ontology/foundation-plans`, "POST", request, fetcher);
+}
+
+export async function searchDomainOntology(projectId: string, draftLabel: string, fetcher: WebFetcher = defaultFetcher): Promise<WebDomainRecommendationResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-recommendations`, "POST", { operationKind: "GlobalSemanticSearch", draftLabel, broadSearch: true }, fetcher);
+}
+
+export async function loadDomainRecommendation(projectId: string, recommendationId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebDomainRecommendationDetailResponse> {
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-recommendations/${encodeURIComponent(recommendationId)}`, fetcher);
+}
+
+export async function stageDomainRecommendation(projectId: string, recommendationId: string, partialMaterializationAcknowledged: boolean, fetcher: WebFetcher = defaultFetcher): Promise<WebStagingResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-recommendations/${encodeURIComponent(recommendationId)}/stage`, "POST", { action: "Reuse", partialMaterializationAcknowledged }, fetcher, { "Idempotency-Key": `domain-reuse-${recommendationId}` });
+}
+
 export type WebAiCredentialTestStatus = "NOT_CONFIGURED" | "NOT_TESTED" | "PASSED" | "FAILED";
 
 export interface WebAiCredentialStatus {
