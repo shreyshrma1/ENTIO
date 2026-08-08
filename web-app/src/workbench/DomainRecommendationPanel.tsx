@@ -105,7 +105,7 @@ export default function DomainRecommendationPanel({ projectId, draftLabel, inten
 
 function RecommendationList({ recommendations, selectedId, onSelect }: { recommendations: Array<{ recommendationId: string; preferredLabel: string; kind: string; sourceFamily: string; confidence: string; reasons: Array<{ type: string }>; warnings: string[] }>; selectedId: string | null; onSelect: (id: string) => void }) {
   if (!recommendations.length) return <p>No domain matches.</p>;
-  return <div className="domain-context-results">{recommendations.map((item) => <button type="button" className={selectedId === item.recommendationId ? "selected-list-item" : "list-item"} key={item.recommendationId} onClick={() => onSelect(item.recommendationId)}><strong>{item.preferredLabel}</strong><small>{item.sourceFamily === "OMG_COMMONS" ? "OMG Commons" : "FIBO"} · {humanize(item.kind)} · {item.confidence}</small></button>)}</div>;
+  return <div className="domain-context-results">{recommendations.map((item) => <button type="button" className={selectedId === item.recommendationId ? "selected-list-item" : "list-item"} key={item.recommendationId} onClick={() => onSelect(item.recommendationId)}><strong>{item.preferredLabel}</strong><small>{item.sourceFamily === "OMG_COMMONS" ? "OMG Commons" : "FIBO"} · {humanize(item.kind)} · {item.confidence} · Available, not applied</small></button>)}</div>;
 }
 
 interface RecommendationActionsProps {

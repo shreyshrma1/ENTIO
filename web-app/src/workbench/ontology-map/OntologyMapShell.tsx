@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import type { OntologyGraphExpansionCategory, OntologyGraphEdgeKind, OntologyGraphNodeKind, WebOntologyGraphEdge, WebOntologyGraphNode } from "../../web/contracts";
 import type { WebEntityReference } from "../../web/projectApi";
 import { useOntologyGraph } from "../../web/queries";
 import OntologyGraphRenderer, { type RendererState } from "./OntologyGraphRenderer";
 import { classChildCounts, layeredGraphLayout } from "./graphLayout";
+import DomainRecommendationPanel from "../DomainRecommendationPanel";
+import { domainKindForEntityKind } from "../domainRecommendationIntegration";
 
 export interface OntologyMapViewState extends RendererState {
   nodes?: WebOntologyGraphNode[];
@@ -40,6 +42,7 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
   const popupRef = useRef<HTMLElement>(null);
   const popupDrag = useRef<{ pointerId: number; clientX: number; clientY: number; x: number; y: number; latestX: number; latestY: number } | null>(null);
   const outsidePointer = useRef<{ pointerId: number; clientX: number; clientY: number } | null>(null);
+  const [domainSearchNodeId, setDomainSearchNodeId] = useState<string | null>(null);
   const graph = useOntologyGraph(projectId, {
     sourceIds: [sourceId],
     seed: seed?.sourceId ? { sourceId: seed.sourceId, entityIri: seed.iri } : undefined,
@@ -167,6 +170,7 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
     popupDrag.current = null;
     if (drag) onStateChange({ ...state, popupPosition: { x: drag.latestX, y: drag.latestY }, popupCoordinateSpace: "graph" });
   }
+  const selectedDomainKind = domainKindForEntityKind(selected?.kind);
   const selectedCard = selected ? <aside ref={popupRef} className="ontology-node-popup" role="dialog" aria-label={`${selected.label} map summary`}>
       <button className="ontology-node-popup-close" type="button" aria-label="Close entity summary" onClick={() => onStateChange({ ...state, selectedNodeId: null })}>×</button>
       <header className="ontology-node-popup-drag-handle" onPointerDown={startPopupDrag} onPointerMove={movePopup} onPointerUp={stopPopupDrag} onPointerCancel={stopPopupDrag}><h3>{selected.label}</h3><p>{selected.kind} · Asserted</p></header>
@@ -177,6 +181,7 @@ export default function OntologyMapShell({ projectId, sourceId, seed, state, onS
         <p><strong>Loaded relationships:</strong> {selected.summary.loadedRelationshipCount}</p>
         <p><strong>Available relationships:</strong> {selected.summary.availableRelationshipCount}</p>
       </section>
+      {selectedDomainKind ? <details className="ontology-node-domain-results" onToggle={(event) => setDomainSearchNodeId(event.currentTarget.open ? selected.identity.id : null)}><summary>Related FIBO concepts</summary><p className="muted">Available domain results are not graph nodes and do not affect asserted layout.</p>{domainSearchNodeId === selected.identity.id ? <DomainRecommendationPanel projectId={projectId} draftLabel={selected.label} intent={{ operationKind: "OntologyMapRelatedSearch", requestedKind: selectedDomainKind, currentEntityIri: selected.identity.entityIri, nearbyProjectIris: [...emphasizedIds].map((id) => nodes.find((node) => node.identity.id === id)?.identity.entityIri).filter((iri): iri is string => Boolean(iri)).sort().slice(0, 20), targetSourceId: selected.identity.sourceId }} localTarget={{ iri: selected.identity.entityIri, sourceId: selected.identity.sourceId }} compact /> : null}</details> : null}
       <button className="ontology-node-popup-view" type="button" onClick={() => onViewDetails({ iri: selected.identity.entityIri, label: selected.label, kind: selected.kind, sourceId: selected.identity.sourceId })}>View Details</button>
     </aside> : null;
   return <section className="ontology-map-shell" aria-label="Ontology map">

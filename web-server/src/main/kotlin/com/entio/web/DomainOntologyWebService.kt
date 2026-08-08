@@ -234,7 +234,6 @@ public class DomainOntologyWebService(
     ): WebDomainRecommendationResponse {
         val project = requireActive(projectId)
         require(request.draftLabel.length <= 2_000) { "domain-query-too-large" }
-        requireRecommendationContract(request)
         val context = listOfNotNull(
             request.currentEntityIri,
             request.requiredParentIri,
@@ -243,7 +242,8 @@ public class DomainOntologyWebService(
         ) + request.nearbyProjectIris
         context.forEach { requireProjectIri(project, it) }
         request.requiredDatatypeIri?.let { requireDatatypeIri(project, it) }
-        resolveRecommendationContext(project, request)
+        val requestedKind = resolveRecommendationKind(project, request)
+        resolveRecommendationContext(project, request, requestedKind)
         request.targetSourceId?.let { sourceId ->
             if (project.resolvedSources.none { it.id == sourceId }) {
                 throw DomainOntologyWebFailure("unknown-source", "The target ontology source was not found.")
@@ -253,7 +253,7 @@ public class DomainOntologyWebService(
         val intent = DomainModelingIntent(
             projectId = projectId,
             operationKind = request.operationKind,
-            requestedKind = request.requestedKind,
+            requestedKind = requestedKind,
             draftLabel = request.draftLabel,
             alternateWording = request.alternateWording,
             definition = request.definition,
@@ -469,8 +469,16 @@ public class DomainOntologyWebService(
         requireProjectIri(project, value)
     }
 
-    private fun requireRecommendationContract(request: WebDomainRecommendationRequest): Unit {
-        if (request.operationKind != DomainOperationKind.GlobalSemanticSearch && request.requestedKind == null) {
+    private fun resolveRecommendationKind(
+        project: EntioProject,
+        request: WebDomainRecommendationRequest,
+    ): ExternalEntityKind? {
+        val resolved = request.requestedKind ?: if (request.operationKind == DomainOperationKind.ProposalReuseReview) {
+            request.currentEntityIri?.let { projectEntityKind(project, it) }
+        } else {
+            null
+        }
+        if (request.operationKind != DomainOperationKind.GlobalSemanticSearch && resolved == null) {
             throw DomainOntologyWebFailure(
                 "domain-recommendation-kind-required",
                 "Contextual domain recommendations require an explicit entity kind.",
@@ -480,28 +488,39 @@ public class DomainOntologyWebService(
             DomainOperationKind.CreateClass,
             DomainOperationKind.CreateIndividualTypeSelection,
             DomainOperationKind.EditClassHierarchy,
-            DomainOperationKind.EditDomain -> ExternalEntityKind.Class
+            DomainOperationKind.EditDomain,
+            DomainOperationKind.ShaclTargetClass,
+            DomainOperationKind.ShaclClassOrDatatypeConstraint -> ExternalEntityKind.Class
             DomainOperationKind.CreateObjectProperty -> ExternalEntityKind.ObjectProperty
             DomainOperationKind.CreateDatatypeProperty -> ExternalEntityKind.DatatypeProperty
             else -> null
         }
-        if (requiredKind != null && request.requestedKind != requiredKind) {
+        if (requiredKind != null && resolved != requiredKind) {
             throw DomainOntologyWebFailure(
                 "domain-recommendation-kind-mismatch",
                 "The requested entity kind does not match the authoring operation.",
             )
         }
+        return resolved
     }
 
-    private fun resolveRecommendationContext(project: EntioProject, request: WebDomainRecommendationRequest): Unit {
+    private fun resolveRecommendationContext(
+        project: EntioProject,
+        request: WebDomainRecommendationRequest,
+        requestedKind: ExternalEntityKind?,
+    ): Unit {
         request.requiredParentIri?.let { requireProjectKind(project, it, setOf(ExternalEntityKind.Class)) }
         request.requiredDomainIri?.let { requireProjectKind(project, it, setOf(ExternalEntityKind.Class)) }
         request.requiredRangeIri?.let { requireProjectKind(project, it, setOf(ExternalEntityKind.Class)) }
         val currentIri = request.currentEntityIri ?: return
         val expectedCurrentKinds = when (request.operationKind) {
-            DomainOperationKind.EditLabelOrDefinition -> setOfNotNull(request.requestedKind)
+            DomainOperationKind.EditLabelOrDefinition,
+            DomainOperationKind.DeleteOrReplaceEntity,
+            DomainOperationKind.ProposalReuseReview,
+            DomainOperationKind.OntologyMapRelatedSearch,
+            DomainOperationKind.ReasoningWorkspaceRelatedSearch -> setOfNotNull(requestedKind)
             DomainOperationKind.EditClassHierarchy -> setOf(ExternalEntityKind.Class)
-            DomainOperationKind.EditPropertyHierarchy -> setOfNotNull(request.requestedKind)
+            DomainOperationKind.EditPropertyHierarchy -> setOfNotNull(requestedKind)
             DomainOperationKind.EditDomain,
             DomainOperationKind.EditRangeOrDatatype -> setOf(
                 ExternalEntityKind.ObjectProperty,
@@ -517,22 +536,26 @@ public class DomainOntologyWebService(
         value: String,
         expected: Set<ExternalEntityKind>,
     ): Unit {
-        val iri = Iri(value)
-        val types = project.graph.triples
-            .filter { it.subjectResource == iri && it.predicate.value == RDF_TYPE }
-            .mapNotNull { (it.objectTerm as? Iri)?.value }
-            .toSet()
-        val actual = when {
-            OWL_OBJECT_PROPERTY in types || RDF_PROPERTY in types -> ExternalEntityKind.ObjectProperty
-            OWL_DATATYPE_PROPERTY in types -> ExternalEntityKind.DatatypeProperty
-            OWL_CLASS in types || RDFS_CLASS in types -> ExternalEntityKind.Class
-            else -> null
-        }
+        val actual = projectEntityKind(project, value)
         if (actual !in expected) {
             throw DomainOntologyWebFailure(
                 "domain-recommendation-context-kind-mismatch",
                 "A supplied semantic context entity has an incompatible project kind.",
             )
+        }
+    }
+
+    private fun projectEntityKind(project: EntioProject, value: String): ExternalEntityKind? {
+        val iri = Iri(value)
+        val types = project.graph.triples
+            .filter { it.subjectResource == iri && it.predicate.value == RDF_TYPE }
+            .mapNotNull { (it.objectTerm as? Iri)?.value }
+            .toSet()
+        return when {
+            OWL_OBJECT_PROPERTY in types || RDF_PROPERTY in types -> ExternalEntityKind.ObjectProperty
+            OWL_DATATYPE_PROPERTY in types -> ExternalEntityKind.DatatypeProperty
+            OWL_CLASS in types || RDFS_CLASS in types -> ExternalEntityKind.Class
+            else -> null
         }
     }
 

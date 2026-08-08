@@ -1305,6 +1305,12 @@ input:hover, select:hover, textarea:hover { border-color: var(--border-strong); 
 .domain-advisory { padding: 9px; border-left: 3px solid var(--warning); background: var(--surface-1); }
 .domain-property-hierarchy { display: grid; gap: 10px; }
 .domain-property-hierarchy summary { cursor: pointer; font-weight: 700; }
+.deletion-domain-alternatives, .ontology-node-domain-results { margin-top: 10px; }
+.deletion-domain-alternatives > summary, .ontology-node-domain-results > summary { cursor: pointer; font-weight: 700; }
+.proposal-domain-review, .reasoning-domain-related { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--primary-100); border-radius: 9px; background: var(--primary-50); }
+.proposal-domain-review h4, .reasoning-domain-related h3, .proposal-domain-review p, .reasoning-domain-related p { margin: 0; }
+.proposal-domain-review label, .reasoning-domain-related label { display: grid; gap: 5px; }
+.ontology-node-domain-results .domain-recommendation-panel { max-height: 280px; overflow: auto; }
 /* Reflow against the workspace width, which changes independently when the AI sidebar opens. */
 @container workspace (max-width: 1050px) {
   .document-workspace-header { display: grid; }
