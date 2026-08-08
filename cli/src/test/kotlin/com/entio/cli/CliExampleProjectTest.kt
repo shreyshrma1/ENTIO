@@ -11,6 +11,21 @@ import kotlin.test.assertTrue
 
 class CliExampleProjectTest {
     @Test
+    fun emptyDemoProjectIsValidAndContainsNoSymbols(): Unit {
+        val emptyDemoProject = repositoryRoot().resolve("examples/empty-demo")
+
+        val validation = runCli("validate", emptyDemoProject.toString())
+        assertEquals(0, validation.exitCode)
+        assertEquals("Validation: valid\n", validation.out)
+        assertEquals("", validation.err)
+
+        val symbols = runCli("symbols", emptyDemoProject.toString())
+        assertEquals(0, symbols.exitCode)
+        assertEquals("No symbols found.\n", symbols.out)
+        assertEquals("", symbols.err)
+    }
+
+    @Test
     fun exampleProjectSupportsFullCliPath(): Unit {
         val exampleProject = repositoryRoot().resolve("examples/simple-ontology")
 

@@ -1,0 +1,9 @@
+name: empty-demo
+iriNamespace: https://example.com/entio/empty#
+ontologySources:
+  - id: empty
+    path: ontology/empty.ttl
+    format: turtle
+    roles:
+      - ontology
+      - data
