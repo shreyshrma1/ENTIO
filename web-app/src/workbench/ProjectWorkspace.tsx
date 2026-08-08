@@ -153,7 +153,7 @@ export default function ProjectWorkspace({ initialModule = "explore" }: { initia
   const outline = useProjectOutline(projectId, sourceId, includeAppliedInferred, includeProposalInferred, Boolean(sourceId));
   const search = useProjectSearch(projectId, searchText);
   const domainStatus = useDomainOntologyStatus(projectId, activeModule === "explore" && Boolean(searchText));
-  const domainSearch = useDomainSearch(projectId, domainStatus.data?.status.availability === "Active" ? searchText : "");
+  const domainSearch = useDomainSearch(projectId, domainStatus.data?.status?.availability === "Active" ? searchText : "");
   const staged = useStagedChanges(projectId);
   const mapActive = searchParams.get("view") === "map";
   const mapPageActive = activeModule === "explore" && mapOpen && mapActive;
@@ -770,7 +770,7 @@ function Unavailable() { return <div className="empty-state"><h2>Source unavaila
 function SearchResults({ query, domainStatus, domainQuery, onOpen, onBrowseDomain, allowedKinds, sourceVisible }: { query: ReturnType<typeof useProjectSearch>; domainStatus: ReturnType<typeof useDomainOntologyStatus>; domainQuery: ReturnType<typeof useDomainSearch>["search"]; onOpen: (entity: WebEntityReference) => void; onBrowseDomain: () => void; allowedKinds: ReadonlySet<OntologyGraphNodeKind>; sourceVisible: boolean }) {
   const results = sourceVisible ? (query.data?.page.items ?? []).filter((result) => allowedKinds.has(result.kind as OntologyGraphNodeKind)) : [];
   const domainResults = sourceVisible ? (domainQuery.data?.result.recommendations ?? []).filter((result) => allowedKinds.has(result.kind as OntologyGraphNodeKind)) : [];
-  const domainActive = domainStatus.data?.status.availability === "Active";
+  const domainActive = domainStatus.data?.status?.availability === "Active";
   if (query.isPending || domainStatus.isPending || (domainActive && domainQuery.isPending)) return <p role="status">Searching...</p>;
   return <>{query.isError ? <p role="alert">Project search unavailable.</p> : null}{domainStatus.isError ? <p className="muted">Domain reuse status unavailable; showing project results only.</p> : null}{!results.length && !domainResults.length ? <p className="muted">No matching entities.</p> : null}{results.length ? <ul className="search-results">{results.map((result) => {
     const presentation = entityKindPresentation(result.kind);

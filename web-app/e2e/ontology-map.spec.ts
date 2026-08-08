@@ -18,6 +18,8 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
     if (path.endsWith("/hierarchy")) return json(route, { apiVersion: "v1", sourceId: "simple", parentIri: null, page: { items: [{ iri: "urn:n0", label: "Entity 0000", kind: "class", sourceId: "simple", childCount: 1 }], offset: 0, limit: 50, total: 1, nextOffset: null } });
     if (path.endsWith("/outline")) return json(route, { apiVersion: "v1", sourceId: "simple", page: { items: fixture.nodes.slice(0, 4).map((node) => ({ iri: node.identity.entityIri, label: node.label, kind: node.kind, sourceId: "simple" })), offset: 0, limit: 100, total: 4, nextOffset: null } });
     if (path.endsWith("/entities")) return json(route, { apiVersion: "v1", iri: url.searchParams.get("iri"), label: "Entity 0000", kind: "Class", sourceId: "simple", sourceOntologyId: "simple", locality: "Local", preferredLabelSource: "RdfsLabel", alternateLabels: [], definitions: [], annotations: [], directSuperclasses: [], directSubclasses: [], directlyTypedIndividuals: [], assertedTypes: [], domains: [], ranges: [], outgoingRelationships: [], incomingRelationships: [] });
+    if (path.endsWith("/domain-ontology")) return json(route, { apiVersion: "v1", projectId: "simple", status: { availability: "Active", profile: {}, migrationStatus: "Current", issues: [] } });
+    if (path.endsWith("/domain-recommendations") && request.method() === "POST") return json(route, { apiVersion: "v1", projectId: "simple", result: { availability: "Full", noConfidentMatch: false, normalizedIntentFingerprint: "map-related", recommendations: [{ recommendationId: "map-rec-1", iri: "https://example.com/fibo/Entity", preferredLabel: "FIBO entity", kind: "Class", sourceFamily: "FIBO", sourceModuleIri: "https://example.com/fibo/module", maturity: "Release", confidence: "Possible", permittedActions: ["Browse"], reasons: [{ type: "DefinitionMatch", relatedIri: null }], warnings: [], rankingContract: "server-ranked" }] } });
     if (path.endsWith("/staged")) return json(route, { apiVersion: "v1", projectId: "simple", status: "READY", entries: [], proposal: null });
     if (path.endsWith("/activity")) return json(route, { events: [], truncated: false });
     return json(route, { apiVersion: "v1", page: { items: [], offset: 0, limit: 50, total: 0, nextOffset: null } });
@@ -126,6 +128,10 @@ test("ontology map remains bounded, accessible, interactive, and read-only", asy
   await expect(popup.getByRole("button", { name: /edit/i })).toHaveCount(0);
   await expect(popup.getByRole("button")).toHaveCount(2);
   await expect(popup).toHaveScreenshot("ontology-map-popup.png");
+  const assertedNodeCountBeforeDomainSearch = await page.locator(".ontology-node").count();
+  await popup.getByText("Related FIBO concepts").click();
+  await expect(popup).toContainText("Available, not applied");
+  await expect(page.locator(".ontology-node")).toHaveCount(assertedNodeCountBeforeDomainSearch);
   const popupBeforeDrag = await popup.boundingBox();
   const popupHandle = await popup.locator("header").boundingBox();
   await page.mouse.move(popupHandle!.x + 20, popupHandle!.y + 12);

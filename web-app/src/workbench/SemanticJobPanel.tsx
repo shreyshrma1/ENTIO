@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSemanticJob, useSemanticJobActions, useSemanticJobDetails, useStagedChanges } from "../web/queries";
-import type { WebSemanticJobStatus } from "../web/projectApi";
+import type { DomainEntityKind, WebReasoningFact, WebSemanticJobStatus } from "../web/projectApi";
 import InferenceMaterializationPanel from "./InferenceMaterializationPanel";
+import DomainRecommendationPanel from "./DomainRecommendationPanel";
 
 interface SemanticJobPanelProps {
   projectId: string;
@@ -18,6 +19,7 @@ interface SemanticJobPanelProps {
 export default function SemanticJobPanel({ projectId, initialJobId = null, onJobSubmitted, showReasoning = true, showShacl = true, showHeading = true, autoStartReasoning = true, headingId = "semantic-jobs-heading", onOpenChanges = () => {} }: SemanticJobPanelProps) {
   const [scope, setScope] = useState<"applied" | "proposal">("applied");
   const [jobId, setJobId] = useState<string | null>(initialJobId);
+  const [selectedFactKey, setSelectedFactKey] = useState("");
   const job = useSemanticJob(projectId, jobId);
   const details = useSemanticJobDetails(projectId, jobId);
   const actions = useSemanticJobActions(projectId);
@@ -48,6 +50,8 @@ export default function SemanticJobPanel({ projectId, initialJobId = null, onJob
 
   const status = job.data;
   const terminal = status && ["Completed", "Failed", "Cancelled", "Incomplete", "Stale"].includes(status.status);
+  const domainFacts = useMemo(() => (details.data?.facts ?? []).map(domainFactContext).filter((item): item is DomainFactContext => item !== null).slice(0, 50), [details.data?.facts]);
+  const selectedDomainFact = domainFacts.find((item) => item.key === selectedFactKey) ?? domainFacts[0];
 
   return (
     <section className="semantic-job-panel" aria-labelledby={showHeading ? headingId : undefined} aria-label={showHeading ? undefined : "SHACL validation"} aria-busy={busy || job.isPending}>
@@ -89,8 +93,55 @@ export default function SemanticJobPanel({ projectId, initialJobId = null, onJob
         </div>
       ) : showReasoning && !showShacl ? null : <p className="muted">Choose a graph, then run validation.</p>}
       {showReasoning && status?.status === "Completed" && details.isError ? <p role="alert">Could not load bounded reasoning facts. {details.error.message}</p> : null}
+      {showReasoning && status?.status === "Completed" && selectedDomainFact ? <section className="reasoning-domain-related" aria-labelledby="reasoning-domain-related-heading">
+        <h3 id="reasoning-domain-related-heading">Related FIBO concepts</h3>
+        <p className="muted">Search from a bounded asserted or inferred fact. The fact remains read-only; a domain action enters the review queue separately and is not materialization.</p>
+        <label>Reasoning fact<select value={selectedDomainFact.key} onChange={(event) => setSelectedFactKey(event.target.value)}>{domainFacts.map((item) => <option key={item.key} value={item.key}>{item.origin} · {item.label}</option>)}</select></label>
+        <DomainRecommendationPanel projectId={projectId} draftLabel={selectedDomainFact.label} intent={{ operationKind: "ReasoningWorkspaceRelatedSearch", requestedKind: selectedDomainFact.kind, currentEntityIri: selectedDomainFact.contextIri, nearbyProjectIris: selectedDomainFact.nearbyIris, targetSourceId: selectedDomainFact.sourceId ?? undefined }} localTarget={selectedDomainFact.sourceId ? { iri: selectedDomainFact.contextIri, sourceId: selectedDomainFact.sourceId } : undefined} compact />
+      </section> : null}
     </section>
   );
+}
+
+interface DomainFactContext {
+  key: string;
+  label: string;
+  kind: DomainEntityKind;
+  contextIri: string;
+  nearbyIris: string[];
+  sourceId: string | null;
+  origin: WebReasoningFact["origin"];
+}
+
+export function domainFactContext(fact: WebReasoningFact, index: number): DomainFactContext | null {
+  const normalizedKind = fact.kind.toLowerCase();
+  if (normalizedKind.includes("subclass") || normalizedKind.includes("type")) {
+    return {
+      key: `${fact.kind}:${fact.subject}:${fact.objectValue}:${index}`,
+      label: fact.objectLabel || readableFactIri(fact.objectValue),
+      kind: "Class",
+      contextIri: fact.objectValue,
+      nearbyIris: [fact.subject, fact.objectValue],
+      sourceId: fact.sourceId,
+      origin: fact.origin,
+    };
+  }
+  if (normalizedKind.includes("objectproperty") && fact.predicate) {
+    return {
+      key: `${fact.kind}:${fact.subject}:${fact.predicate}:${fact.objectValue}:${index}`,
+      label: fact.predicateLabel || readableFactIri(fact.predicate),
+      kind: "ObjectProperty",
+      contextIri: fact.predicate,
+      nearbyIris: [fact.subject, fact.objectValue],
+      sourceId: fact.sourceId,
+      origin: fact.origin,
+    };
+  }
+  return null;
+}
+
+function readableFactIri(iri: string): string {
+  return decodeURIComponent(iri.split(/[#/]/).filter(Boolean).at(-1) ?? iri).replace(/([a-z0-9])([A-Z])/g, "$1 $2");
 }
 
 function SemanticResultSummary({ status }: { status: WebSemanticJobStatus }) {

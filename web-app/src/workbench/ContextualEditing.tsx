@@ -8,7 +8,7 @@ import {
 import { useStagingActions } from "../web/queries";
 import SemanticClassPicker, { type SemanticClassChoice } from "./SemanticClassPicker";
 import DomainRecommendationPanel from "./DomainRecommendationPanel";
-import { recommendationConfigForEdit } from "./domainRecommendationIntegration";
+import { domainKindForEntityKind, recommendationConfigForEdit } from "./domainRecommendationIntegration";
 import {
   buildStageChangeRequest,
   stagingEditDefinition,
@@ -311,6 +311,7 @@ function DeletionDialog({ projectId, sourceId, entity, onClose }: { projectId: s
   const [plan, setPlan] = useState<WebDeletionDependenciesResponse | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [showDomainAlternatives, setShowDomainAlternatives] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -321,6 +322,7 @@ function DeletionDialog({ projectId, sourceId, entity, onClose }: { projectId: s
   }, [entity.iri, entity.label, projectId, sourceId]);
 
   const allDependenciesSelected = plan?.dependentStatements.every((dependency) => selectedKeys.has(dependency.key)) ?? false;
+  const domainKind = domainKindForEntityKind(entity.kind);
 
   async function stageDeletion() {
     if (!plan || !allDependenciesSelected) return;
@@ -361,6 +363,11 @@ function DeletionDialog({ projectId, sourceId, entity, onClose }: { projectId: s
         </label>) : <p className="muted">No other statements depend on this entity.</p>}
       </fieldset>
       {!allDependenciesSelected ? <p className="deletion-guidance">Select every dependent statement to stage a safe deletion.</p> : null}
+      {domainKind ? <details className="deletion-domain-alternatives" onToggle={(event) => setShowDomainAlternatives(event.currentTarget.open)}>
+        <summary>Find a FIBO replacement or broader concept</summary>
+        <p className="muted">This optional search does not change the deletion plan. Any reuse or mapping action enters the shared review queue separately.</p>
+        {showDomainAlternatives ? <DomainRecommendationPanel projectId={projectId} draftLabel={entity.label} intent={{ operationKind: "DeleteOrReplaceEntity", requestedKind: domainKind, currentEntityIri: entity.iri, targetSourceId: sourceId }} localTarget={{ iri: entity.iri, sourceId }} compact /> : null}
+      </details> : null}
     </> : null}
     {error ? <p className="workflow-error" role="alert">{error}</p> : null}
     <div className="dialog-actions"><button className="button" type="button" onClick={onClose}>Cancel</button><button className="button danger" type="button" disabled={!allDependenciesSelected || actions.stage.isPending} onClick={stageDeletion}>{actions.stage.isPending ? "Staging…" : "Stage deletion"}</button></div>

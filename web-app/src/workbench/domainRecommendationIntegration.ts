@@ -33,6 +33,24 @@ export interface TypedEditRecommendationConfig {
   draftField: StagingField;
 }
 
+export const REMAINING_WORKFLOW_RECOMMENDATION_MATRIX = [
+  { slice: 9, workflow: "deletion-replacement", operationKind: "DeleteOrReplaceEntity", component: "DeletionDialog", invariant: "deletion dependencies unchanged" },
+  { slice: 9, workflow: "proposal-reuse-review", operationKind: "ProposalReuseReview", component: "ProposalDetailsDialog", invariant: "conversion invalidates proposal preview" },
+  { slice: 9, workflow: "shacl-target", operationKind: "ShaclTargetClass", component: "ShaclConstraintDialog", invariant: "validation remains Kotlin-owned" },
+  { slice: 9, workflow: "shacl-path", operationKind: "ShaclPropertyPath", component: "ShaclConstraintDialog", invariant: "strict property kind" },
+  { slice: 9, workflow: "shacl-constraint", operationKind: "ShaclClassOrDatatypeConstraint", component: "ShaclConstraintDialog", invariant: "standard XSD values remain local choices" },
+  { slice: 9, workflow: "map-related", operationKind: "OntologyMapRelatedSearch", component: "OntologyMapShell", invariant: "available results never enter layout" },
+  { slice: 9, workflow: "reasoning-related", operationKind: "ReasoningWorkspaceRelatedSearch", component: "SemanticJobPanel", invariant: "asserted and inferred facts stay read-only" },
+] as const;
+
+export function domainKindForEntityKind(kind: string | null | undefined): DomainEntityKind | null {
+  const normalized = kind?.toLowerCase().replaceAll(/[^a-z]/g, "");
+  if (normalized === "class") return "Class";
+  if (normalized === "objectproperty" || normalized === "property") return "ObjectProperty";
+  if (normalized === "datatypeproperty") return "DatatypeProperty";
+  return null;
+}
+
 export function recommendationConfigForEdit(editType: WebStagingEditType): TypedEditRecommendationConfig | null {
   switch (editType) {
     case "create-class": return { operationKind: "CreateClass", requestedKind: "Class", draftField: "label" };

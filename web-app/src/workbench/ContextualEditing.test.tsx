@@ -190,6 +190,37 @@ describe("contextual individual editing", () => {
 
     await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
+
+  it("keeps deletion dependencies unchanged while optional replacement retrieval is reviewed", async () => {
+    const recommendationRequests: Record<string, unknown>[] = [];
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/deletion-dependencies")) return json({
+        apiVersion: "v1", projectId: "simple", targetIri: "https://example.com/Account", targetLabel: "Account", status: "RequiresExplicitDependencies",
+        directStatements: [{ key: "direct", kind: "Declaration", subject: "https://example.com/Account", subjectLabel: "Account", predicate: "type", predicateLabel: "type", objectValue: "Class", objectLabel: "Class" }],
+        dependentStatements: [{ key: "dependent", kind: "Subclass", subject: "https://example.com/Checking", subjectLabel: "Checking", predicate: "subClassOf", predicateLabel: "subclass of", objectValue: "https://example.com/Account", objectLabel: "Account" }],
+      });
+      if (path.endsWith("/domain-ontology")) return json({ apiVersion: "v1", projectId: "simple", status: { availability: "Active", profile: {}, migrationStatus: "Current", issues: [] } });
+      if (path.endsWith("/domain-recommendations")) {
+        recommendationRequests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return json({ apiVersion: "v1", projectId: "simple", result: { availability: "Full", recommendations: [], noConfidentMatch: true, normalizedIntentFingerprint: "delete" } });
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${path}`);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+
+    render(<QueryClientProvider client={client}><ContextualEditDialog projectId="simple" sourceId="simple" editor={{ kind: "delete", entity: { iri: "https://example.com/Account", label: "Account", kind: "Class", sourceId: "simple" } }} onClose={vi.fn()} /></QueryClientProvider>);
+
+    expect(await screen.findByText(/Checking · subclass of/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stage deletion" })).toBeDisabled();
+    expect(recommendationRequests).toHaveLength(0);
+    fireEvent.click(screen.getByText("Find a FIBO replacement or broader concept"));
+    await vi.waitFor(() => expect(recommendationRequests).toHaveLength(1));
+    expect(recommendationRequests[0]).toMatchObject({ operationKind: "DeleteOrReplaceEntity", requestedKind: "Class", currentEntityIri: "https://example.com/Account" });
+    expect(screen.getByRole("checkbox")).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Stage deletion" })).toBeDisabled();
+  });
 });
 
 function staging(entries: unknown[]) {

@@ -993,7 +993,14 @@ export type WebDomainOperationKind =
   | "EditPropertyHierarchy"
   | "EditDomain"
   | "EditRangeOrDatatype"
-  | "AddAssertionOrValue";
+  | "AddAssertionOrValue"
+  | "DeleteOrReplaceEntity"
+  | "ProposalReuseReview"
+  | "ShaclTargetClass"
+  | "ShaclPropertyPath"
+  | "ShaclClassOrDatatypeConstraint"
+  | "OntologyMapRelatedSearch"
+  | "ReasoningWorkspaceRelatedSearch";
 
 export interface WebDomainRecommendationRequest {
   operationKind: WebDomainOperationKind;

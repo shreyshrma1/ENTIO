@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useStagedChanges, useStagingActions } from "../web/queries";
-import type { WebDiffEntry, WebStagedEntry } from "../web/projectApi";
+import type { DomainEntityKind, WebDiffEntry, WebDomainRecommendationRequest, WebStagedEntry } from "../web/projectApi";
+import DomainRecommendationPanel from "./DomainRecommendationPanel";
 
 export default function StagingPanel({ projectId }: { projectId: string }) {
   const staged = useStagedChanges(projectId);
@@ -129,6 +130,7 @@ export default function StagingPanel({ projectId }: { projectId: string }) {
         {proposal.shaclImpact ? <section className="proposal-impact" aria-labelledby="shacl-impact-heading"><h4 id="shacl-impact-heading">SHACL finding impact</h4><div className="proposal-impact-row"><div className="impact-counts"><span><strong>{proposal.shaclImpact.newFindings.length}</strong> new</span><span><strong>{proposal.shaclImpact.worsenedFindings.length}</strong> worsened</span><span><strong>{proposal.shaclImpact.resolvedFindings.length}</strong> resolved</span></div><button className="button small" type="button" onClick={() => setDetailsOpen(true)} disabled={!entries.length}>View Details</button></div>{proposal.shaclImpact.newFindings.length ? <ul aria-label="New SHACL findings">{proposal.shaclImpact.newFindings.map((finding) => <li key={finding.resultId}><strong>{finding.severity}</strong> · {finding.message}</li>)}</ul> : null}</section> : <div className="proposal-summary-footer"><button className="button small" type="button" onClick={() => setDetailsOpen(true)} disabled={!entries.length}>View Details</button></div>}
       </div> : null}
       {detailsOpen && proposal ? <ProposalDetailsDialog
+        projectId={projectId}
         entries={entries}
         diff={proposal.diff}
         onRemove={removeEntry}
@@ -152,11 +154,20 @@ function stagingActionError(actions: ReturnType<typeof useStagingActions>): stri
   return null;
 }
 
-function ProposalDetailsDialog({ entries, diff, onRemove, onAccept, onReject, onClose, canAccept, disabled }: { entries: WebStagedEntry[]; diff: WebDiffEntry[]; onRemove: (entry: WebStagedEntry) => Promise<void>; onAccept: () => Promise<void>; onReject: () => Promise<void>; onClose: () => void; canAccept: boolean; disabled: boolean }) {
+function ProposalDetailsDialog({ projectId, entries, diff, onRemove, onAccept, onReject, onClose, canAccept, disabled }: { projectId: string; entries: WebStagedEntry[]; diff: WebDiffEntry[]; onRemove: (entry: WebStagedEntry) => Promise<void>; onAccept: () => Promise<void>; onReject: () => Promise<void>; onClose: () => void; canAccept: boolean; disabled: boolean }) {
+  const reviewCandidates = entries.map(domainReviewCandidate).filter((item): item is DomainReviewCandidate => item !== null);
+  const [selectedReviewId, setSelectedReviewId] = useState<string>(reviewCandidates[0]?.entry.id ?? "");
+  const selectedReview = reviewCandidates.find((item) => item.entry.id === selectedReviewId) ?? reviewCandidates[0];
   return <div className="ai-modal-backdrop"><section className="ai-modal staging-details-modal" role="dialog" aria-modal="true" aria-labelledby="staging-details-heading">
     <header><div><span className="overline">Proposal</span><h2 id="staging-details-heading">View Details</h2></div><button className="icon-button" type="button" aria-label="Close proposal details" onClick={onClose}>×</button></header>
     <div className="staging-details-body">
       <p className="edit-dialog-description">Individual edits in this proposal. Labels are shown instead of IRIs wherever available.</p>
+      {selectedReview ? <section className="proposal-domain-review" aria-labelledby="proposal-domain-review-heading">
+        <h4 id="proposal-domain-review-heading">Domain reuse check</h4>
+        <p className="muted">Compare one new or substantially changed concept with FIBO. Converting a result adds a separate supported domain action and forces a new proposal preview.</p>
+        {reviewCandidates.length > 1 ? <label>Staged concept<select value={selectedReview.entry.id} onChange={(event) => setSelectedReviewId(event.target.value)}>{reviewCandidates.map((item) => <option key={item.entry.id} value={item.entry.id}>{item.label}</option>)}</select></label> : null}
+        <DomainRecommendationPanel projectId={projectId} draftLabel={selectedReview.label} intent={selectedReview.intent} localTarget={selectedReview.localTarget} compact />
+      </section> : null}
       <div className="staging-details-list">{entries.map((entry) => <article className="staging-detail-item" key={entry.id}>
         <div className="staging-detail-heading"><span className={`diff-kind diff-${entryOperation(entry)}`}>{entryOperationLabel(entry)}</span><strong>{stagedChangeTitle(entry)}</strong><span className="staged-status">{displayStatus(entry.status)}</span></div>
         <code>{stagedTriple(entry)}</code>
@@ -168,6 +179,51 @@ function ProposalDetailsDialog({ entries, diff, onRemove, onAccept, onReject, on
     </div>
     <footer className="staging-details-footer"><div><button className="button danger" type="button" onClick={() => void onReject()} disabled={disabled}>Reject</button>{canAccept ? <button className="button primary" type="button" onClick={() => void onAccept()} disabled={disabled}>Accept</button> : null}</div><button className="button" type="button" onClick={onClose}>Close</button></footer>
   </section></div>;
+}
+
+interface DomainReviewCandidate {
+  entry: WebStagedEntry;
+  label: string;
+  intent: Omit<WebDomainRecommendationRequest, "draftLabel">;
+  localTarget?: { iri: string; sourceId: string };
+}
+
+export function domainReviewCandidate(entry: WebStagedEntry): DomainReviewCandidate | null {
+  if (entry.editType === "domain-reuse") return null;
+  const createdKind: DomainEntityKind | null = entry.editType === "create-class"
+    ? "Class"
+    : entry.editType === "create-object-property"
+      ? "ObjectProperty"
+      : entry.editType === "create-datatype-property"
+        ? "DatatypeProperty"
+        : null;
+  if (createdKind) {
+    const label = entry.normalizedValues.label || stagedChangeTitle(entry);
+    return { entry, label, intent: { operationKind: "ProposalReuseReview", requestedKind: createdKind, targetSourceId: entry.sourceId } };
+  }
+  if (entry.editType === "set-entity-label") {
+    const iri = entry.normalizedValues.resourceIri;
+    const label = entry.normalizedValues.label;
+    if (!iri || !label) return null;
+    return {
+      entry,
+      label,
+      intent: { operationKind: "ProposalReuseReview", currentEntityIri: iri, targetSourceId: entry.sourceId },
+      localTarget: { iri, sourceId: entry.sourceId },
+    };
+  }
+  if (["add-definition", "replace-definition"].includes(entry.editType)) {
+    const iri = entry.normalizedValues.targetIri;
+    const label = entry.normalizedValues.targetLabel || stagedChangeTitle(entry);
+    if (!iri || !label) return null;
+    return {
+      entry,
+      label,
+      intent: { operationKind: "ProposalReuseReview", definition: entry.normalizedValues.value, currentEntityIri: iri, targetSourceId: entry.sourceId },
+      localTarget: { iri, sourceId: entry.sourceId },
+    };
+  }
+  return null;
 }
 
 function MaterializationProvenance({ entry }: { entry: WebStagedEntry }) {

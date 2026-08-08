@@ -28,6 +28,8 @@ test("browses asserted and inferred reasoning facts without writing from Reasoni
     if (path.endsWith("/semantic-jobs/job-1/details")) {
       return json(route, details(url.searchParams.get("factOrigin") ?? "Asserted"));
     }
+    if (path.endsWith("/domain-ontology")) return json(route, { apiVersion: "v1", projectId: "simple", status: { availability: "Active", profile: {}, migrationStatus: "Current", issues: [] } });
+    if (path.endsWith("/domain-recommendations") && method === "POST") return json(route, { apiVersion: "v1", projectId: "simple", result: { availability: "LexicalStructural", noConfidentMatch: false, normalizedIntentFingerprint: "reasoning-related", recommendations: [{ recommendationId: "reasoning-rec-1", iri: "https://example.com/fibo/FinancialEntity", preferredLabel: "financial entity", kind: "Class", sourceFamily: "FIBO", sourceModuleIri: "https://example.com/fibo/module", maturity: "Release", confidence: "Possible", permittedActions: ["Browse"], reasons: [{ type: "DefinitionMatch", relatedIri: null }], warnings: [], rankingContract: "server-ranked" }] } });
     if (method !== "GET" && (path.includes("/materializations") || path.includes("/proposal/"))) {
       writePaths.push(path);
     }
@@ -54,6 +56,7 @@ test("browses asserted and inferred reasoning facts without writing from Reasoni
   await inferredDialog.getByRole("button", { name: "Search" }).press("Enter");
   await expect(inferredDialog).toContainText("subclass of");
   await expect(page.getByRole("button", { name: "Stage as asserted" })).toHaveCount(0);
+  await expect(page.locator(".reasoning-domain-related")).toContainText("Available, not applied");
   expect(writePaths).toEqual([]);
 });
 

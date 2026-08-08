@@ -1,10 +1,13 @@
 package com.entio.web
 
 import com.entio.core.DomainOperationKind
+import com.entio.core.DomainReuseAction
 import com.entio.core.ExternalEntityKind
 import com.entio.web.contract.DomainWebAssetPaths
 import com.entio.web.contract.InMemoryProjectRegistry
 import com.entio.web.contract.WebDomainRecommendationRequest
+import com.entio.web.contract.WebDomainReuseStageRequest
+import com.entio.web.contract.WebStageChangeRequest
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -114,6 +117,68 @@ class DomainRecommendationContextWebServiceTest {
         }
     }
 
+    @Test
+    fun proposalReviewCanResolveAnExistingProjectEntityKind(): Unit = runBlocking {
+        fixture().use { fixture ->
+            fixture.activate()
+
+            val result = fixture.service.recommend(
+                "simple",
+                "alice",
+                WebDomainRecommendationRequest(
+                    operationKind = DomainOperationKind.ProposalReuseReview,
+                    draftLabel = "account",
+                    currentEntityIri = "https://example.com/entio/simple#Account",
+                    targetSourceId = "simple",
+                ),
+            ).result
+
+            assertTrue(result.recommendations.all { it.kind == ExternalEntityKind.Class })
+        }
+    }
+
+    @Test
+    fun convertingAProposalRecommendationRequiresANewProposalPreview(): Unit = runBlocking {
+        fixture().use { fixture ->
+            fixture.activate()
+            fixture.staging.stage(
+                "simple",
+                WebStageChangeRequest(
+                    sourceId = "simple",
+                    editType = "set-entity-label",
+                    resourceIri = "https://example.com/entio/simple#Account",
+                    label = "Financial account",
+                ),
+                "alice",
+            )
+            assertTrue(fixture.staging.preview("simple", "alice").proposal != null)
+            val recommendation = fixture.service.recommend(
+                "simple",
+                "alice",
+                WebDomainRecommendationRequest(
+                    operationKind = DomainOperationKind.ProposalReuseReview,
+                    requestedKind = ExternalEntityKind.Class,
+                    draftLabel = "agreement",
+                ),
+            ).result.recommendations.first { it.iri.value.endsWith("/Agreement") }
+
+            val converted = fixture.service.stageRecommendation(
+                "simple",
+                "alice",
+                recommendation.recommendationId,
+                WebDomainReuseStageRequest(
+                    action = DomainReuseAction.Reuse,
+                    partialMaterializationAcknowledged = true,
+                ),
+                "proposal-domain-conversion",
+            )
+
+            assertTrue(converted.proposal == null)
+            assertTrue(converted.entries.any { it.editType == "domain-reuse" })
+            assertTrue(fixture.staging.preview("simple", "alice").proposal != null)
+        }
+    }
+
     private fun fixture(): Fixture {
         val source = Path.of("../examples/simple-ontology").toAbsolutePath().normalize()
         val allowed = Files.createTempDirectory("entio-domain-recommendation-context")
@@ -136,10 +201,14 @@ class DomainRecommendationContextWebServiceTest {
                 DomainWebAssetPaths.discover(),
                 assetVerifier = {},
             ),
+            staging,
         )
     }
 
-    private data class Fixture(val service: DomainOntologyWebService) : AutoCloseable {
+    private data class Fixture(
+        val service: DomainOntologyWebService,
+        val staging: StagingWorkflowService,
+    ) : AutoCloseable {
         fun activate(): Unit {
             val preview = service.previewActivation("simple", "alice")
             service.activate("simple", "alice", preview.activationToken, "activate-context")
