@@ -65,10 +65,12 @@ import {
   loadDomainFoundation,
   loadDomainOntologies,
   loadDomainOntologyStatus,
+  loadDomainMigration,
   loadDomainRecommendation,
   planDomainFoundation,
   previewDomainActivation,
   previewDomainDeactivation,
+  previewDomainMigration,
   previewDomainRecommendationDependencies,
   recommendDomainOntology,
   searchDomainOntology,
@@ -103,6 +105,7 @@ export const queryKeys = {
   fiboDetails: (projectId: string, iri: string) => ["project", projectId, "fibo", "details", iri] as const,
   domainCatalog: ["domain-ontologies"] as const,
   domainStatus: (projectId: string) => ["project", projectId, "domain-ontology"] as const,
+  domainMigration: (projectId: string) => ["project", projectId, "domain-migration"] as const,
   domainFoundation: (projectId: string) => ["project", projectId, "domain-ontology", "foundation"] as const,
   domainSearch: (projectId: string, text: string) => ["project", projectId, "domain-recommendations", text] as const,
   contextualDomainSearch: (projectId: string, request: WebDomainRecommendationRequest | null) =>
@@ -434,6 +437,7 @@ export function useDomainOntology(projectId: string) {
   const status = useQuery({ queryKey: queryKeys.domainStatus(projectId), queryFn: () => loadDomainOntologyStatus(projectId), enabled: Boolean(projectId) });
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: queryKeys.domainStatus(projectId) });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.domainMigration(projectId) });
     await queryClient.invalidateQueries({ queryKey: queryKeys.summary(projectId) });
   };
   return {
@@ -443,6 +447,13 @@ export function useDomainOntology(projectId: string) {
     activate: useMutation({ mutationFn: (token: string) => activateDomainOntology(projectId, token), onSuccess: refresh }),
     previewDeactivation: useMutation({ mutationFn: () => previewDomainDeactivation(projectId) }),
     deactivate: useMutation({ mutationFn: (token: string) => deactivateDomainOntology(projectId, token), onSuccess: refresh }),
+    migration: useQuery({
+      queryKey: queryKeys.domainMigration(projectId),
+      queryFn: () => loadDomainMigration(projectId),
+      enabled: Boolean(projectId) && status.data?.status.availability === "Inactive",
+      retry: false,
+    }),
+    previewMigration: useMutation({ mutationFn: () => previewDomainMigration(projectId) }),
   };
 }
 

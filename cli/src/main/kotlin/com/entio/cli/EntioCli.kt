@@ -82,6 +82,8 @@ public class EntioCli(
             .addSubcommand("domain-describe", DomainDescribeCommand())
             .addSubcommand("domain-dependencies", DomainDependenciesCommand())
             .addSubcommand("domain-proposal", DomainProposalCommand())
+            .addSubcommand("domain-migration", DomainMigrationCommand())
+            .addSubcommand("domain-migration-preview", DomainMigrationPreviewCommand())
 
         return commandLine
             .setOut(out)

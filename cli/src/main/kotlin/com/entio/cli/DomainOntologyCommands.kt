@@ -12,6 +12,9 @@ import com.entio.core.EntioResult
 import com.entio.core.ExternalEntityKind
 import com.entio.core.Iri
 import com.entio.semantic.DomainProfileService
+import com.entio.semantic.DomainMigrationPreview
+import com.entio.semantic.DomainMigrationReport
+import com.entio.semantic.DomainMigrationService
 import com.entio.semantic.DomainRecommendationService
 import com.entio.semantic.DomainRecommendationFingerprints
 import com.entio.semantic.DomainReusePreparationRequest
@@ -33,6 +36,14 @@ internal class DomainOntologyCliSupport(
     private val profiles: DomainProfileService = DomainProfileService(),
 ) {
     fun status(projectRoot: Path) = profiles.status(resolveProjectRoot(projectRoot))
+
+    fun loadProject(projectRoot: Path): EntioResult<Pair<Path, EntioProject>> {
+        val root = resolveProjectRoot(projectRoot)
+        return when (val loaded = projectLoader.loadProject(root)) {
+            is EntioResult.Failure -> loaded
+            is EntioResult.Success -> EntioResult.Success(root to loaded.value)
+        }
+    }
 
     fun activationPreview(projectRoot: Path) = profiles.previewActivation(resolveProjectRoot(projectRoot))
 
@@ -58,6 +69,11 @@ internal class DomainOntologyCliSupport(
 
     fun reuseService(): DomainReuseService = DomainReuseService.open(
         repositoryRoot().resolve("external-ontologies/domain-search/fibo/master_2026Q2"),
+    )
+
+    fun migrationService(): DomainMigrationService = DomainMigrationService.open(
+        repositoryRoot().resolve("external-ontologies/domain-search/fibo/master_2026Q2"),
+        profiles,
     )
 
     fun intent(
@@ -109,6 +125,46 @@ internal class DomainOntologyCliSupport(
 
         private const val FIBO_PREFIX = "https://spec.edmcouncil.org/fibo/ontology/"
         private const val COMMONS_PREFIX = "https://www.omg.org/spec/Commons/"
+    }
+}
+
+@Command(name = "domain-migration", mixinStandardHelpOptions = true)
+internal class DomainMigrationCommand(
+    private val support: DomainOntologyCliSupport = DomainOntologyCliSupport(),
+) : Callable<Int> {
+    @Spec private lateinit var spec: CommandSpec
+    @Parameters(index = "0") private lateinit var projectRoot: String
+
+    override fun call(): Int = when (val loaded = support.loadProject(Path.of(projectRoot))) {
+        is EntioResult.Failure -> printDomainFailure(spec, "domain-migration", loaded)
+        is EntioResult.Success -> {
+            val report = support.migrationService().detect(loaded.value.second)
+            spec.commandLine().out.println(domainMigrationJson("domain-migration", report, null).encoded)
+            0
+        }
+    }
+}
+
+@Command(name = "domain-migration-preview", mixinStandardHelpOptions = true)
+internal class DomainMigrationPreviewCommand(
+    private val support: DomainOntologyCliSupport = DomainOntologyCliSupport(),
+) : Callable<Int> {
+    @Spec private lateinit var spec: CommandSpec
+    @Parameters(index = "0") private lateinit var projectRoot: String
+
+    override fun call(): Int = when (val loaded = support.loadProject(Path.of(projectRoot))) {
+        is EntioResult.Failure -> printDomainFailure(spec, "domain-migration-preview", loaded)
+        is EntioResult.Success -> when (
+            val preview = support.migrationService().preview(loaded.value.first, loaded.value.second)
+        ) {
+            is EntioResult.Failure -> printDomainFailure(spec, "domain-migration-preview", preview)
+            is EntioResult.Success -> {
+                spec.commandLine().out.println(
+                    domainMigrationJson("domain-migration-preview", preview.value.report, preview.value).encoded,
+                )
+                0
+            }
+        }
     }
 }
 
@@ -442,6 +498,37 @@ private fun domainRecommendationJson(recommendation: DomainRecommendation): Json
     "reasons" to jsonArray(recommendation.reasons.map { jsonObject("type" to it.type.name, "relatedIri" to it.relatedIri?.value) }),
     "warnings" to jsonArray(recommendation.warnings.map { it.name }),
     "rankingContract" to recommendation.rankingContract,
+)
+
+private fun domainMigrationJson(
+    command: String,
+    report: DomainMigrationReport,
+    preview: DomainMigrationPreview?,
+): JsonFragment = jsonObject(
+    "command" to command,
+    "ok" to true,
+    "readOnly" to true,
+    "status" to report.status.name,
+    "detectedIris" to jsonArray(report.detectedIris.map { it.value }),
+    "recognizedIris" to jsonArray(report.recognizedIris.map { it.value }),
+    "unsupportedIris" to jsonArray(report.unsupportedIris.map { it.value }),
+    "localExtensionCount" to report.localExtensionCount,
+    "verifiedCurrentRelease" to report.verifiedCurrentRelease,
+    "historicalRelease" to report.historicalRelease,
+    "provenanceSeedCandidates" to jsonArray(report.provenanceSeedCandidates.map { it.value }),
+    "provenanceSeedingEligible" to report.provenanceSeedingEligible,
+    "openWorkBaselineRetained" to report.openWorkBaselineRetained,
+    "issues" to jsonArray(report.issues),
+    "activationPreview" to preview?.activation?.let { activation -> jsonObject(
+        "profile" to domainProfileJson(activation.profile),
+        "profilePath" to activation.profilePath,
+        "managedSourcePath" to activation.managedSourcePath,
+        "changesProjectOntology" to activation.changesProjectOntology,
+    ) },
+    "movesExistingStatements" to (preview?.movesExistingStatements ?: false),
+    "seedsProvenance" to (preview?.seedsProvenance ?: false),
+    "requiresNormalProposalForStatementMovement" to
+        (preview?.requiresNormalProposalForStatementMovement ?: true),
 )
 
 private fun printDomainFailure(spec: CommandSpec, command: String, result: EntioResult.Failure): Int {
