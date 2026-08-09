@@ -202,7 +202,11 @@ public class ReasoningService(
 
     private fun GraphState.toTurtle(): String {
         val model = ModelFactory.createDefaultModel()
-        triples.forEach { triple ->
+        // Project loading resolves authorized imports into the graph before this
+        // preview path runs. Re-emitting owl:imports would make OWLAPI fetch the
+        // network a second time and make deterministic local reasoning depend on
+        // an external endpoint that is not part of the supplied graph.
+        triples.filterNot { it.predicate.value == OWL_IMPORTS }.forEach { triple ->
             model.add(
                 triple.subjectResource.toJenaResource(model),
                 model.createProperty(triple.predicate.value),
@@ -437,6 +441,7 @@ public class ReasoningService(
         private const val RDFS_SUBCLASS = "http://www.w3.org/2000/01/rdf-schema#subClassOf"
         private const val RDFS_CLASS = "http://www.w3.org/2000/01/rdf-schema#Class"
         private const val OWL_EQUIVALENT_CLASS = "http://www.w3.org/2002/07/owl#equivalentClass"
+        private const val OWL_IMPORTS = "http://www.w3.org/2002/07/owl#imports"
         private const val OWL_CLASS = "http://www.w3.org/2002/07/owl#Class"
         private const val OWL_OBJECT_PROPERTY = "http://www.w3.org/2002/07/owl#ObjectProperty"
         private val CLASS_DECLARATION_TYPES = setOf(OWL_CLASS, RDFS_CLASS)

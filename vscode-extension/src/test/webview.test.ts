@@ -30,7 +30,9 @@ test("renders project browser and preview form controls", () => {
   assert.match(html, /type: "external-browse"/);
   assert.match(html, /Previous page/);
   assert.match(html, /Next page/);
-  assert.match(html, /Back to curated modules/);
+  assert.match(html, /Back to all modules/);
+  assert.match(html, /Search full FIBO corpus/);
+  assert.match(html, /No domain ontology selected for this project/);
   assert.match(html, /overflow-y:\s*auto/);
   assert.match(html, /externalBrowseRequest/);
   assert.match(html, /type: "external-search"/);

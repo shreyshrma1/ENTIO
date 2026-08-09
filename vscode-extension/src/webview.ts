@@ -106,9 +106,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
           <option value="DatatypeProperty">Datatype property</option>
         </select>
       </label>
-      <label>Domain <input id="external-search-domain" type="text"></label>
-      <label><input id="external-search-curated" type="checkbox"> Curated Foundations only</label>
-      <button id="external-search-submit" type="submit">Search external catalog</button>
+      <button id="external-search-submit" type="submit">Search full FIBO corpus</button>
     </form>
     <div id="external-results" aria-live="polite">No external search requested.</div>
     <div id="external-details" aria-live="polite">Select an external element to inspect its details.</div>
@@ -285,8 +283,6 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     const externalSearchForm = document.getElementById("external-search-form");
     const externalSearchQuery = document.getElementById("external-search-query");
     const externalSearchKind = document.getElementById("external-search-kind");
-    const externalSearchDomain = document.getElementById("external-search-domain");
-    const externalSearchCurated = document.getElementById("external-search-curated");
     const externalResults = document.getElementById("external-results");
     const externalDetails = document.getElementById("external-details");
     const externalDependencies = document.getElementById("external-dependencies");
@@ -468,8 +464,6 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         payload: {
           query,
           kind: externalSearchKind.value || undefined,
-          domain: externalSearchDomain.value.trim() || undefined,
-          curatedOnly: externalSearchCurated.checked,
           page: 0,
           pageSize: 25,
         },
@@ -477,8 +471,6 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       externalSearchRequest = {
         query,
         kind: externalSearchKind.value || undefined,
-        domain: externalSearchDomain.value.trim() || undefined,
-        curatedOnly: externalSearchCurated.checked,
         pageSize: 25,
       };
       externalSearchPage = 0;
@@ -1665,7 +1657,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
     }
 
     function renderExternalState(state) {
-      externalBrowseRequest = { mode: "curated", pageSize: state.browse.pageSize };
+      externalBrowseRequest = { mode: "modules", pageSize: state.browse.pageSize };
       externalBrowsePage = state.browse.page;
       externalStatus.textContent = "FIBO " + state.manifest.release + " · " + state.manifest.elementCount +
         " catalog element(s) · " + state.manifest.moduleCount + " module(s) · read-only";
@@ -1673,7 +1665,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         " · availability: " + state.manifest.availability + " · commit: " + state.manifest.commitSha;
       externalResults.replaceChildren();
       const heading = document.createElement("h3");
-      heading.textContent = "Curated Foundations · showing " + state.browse.items.length + " of " + state.browse.totalCount;
+      heading.textContent = "Full FIBO modules · showing " + state.browse.items.length + " of " + state.browse.totalCount;
       externalResults.append(heading);
       const list = document.createElement("ul");
       state.browse.items.forEach((module) => {
@@ -1702,9 +1694,9 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       externalResults.replaceChildren();
       const back = document.createElement("button");
       back.type = "button";
-      back.textContent = "Back to curated modules";
+      back.textContent = "Back to all modules";
       back.addEventListener("click", () => {
-        externalBrowseRequest = { mode: "curated", pageSize: 25 };
+        externalBrowseRequest = { mode: "modules", pageSize: 25 };
         requestExternalBrowse(0);
       });
       externalResults.append(back);
@@ -1750,7 +1742,7 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
         const label = document.createElement("strong");
         label.textContent = externalElementLabel(element) + " · " + externalElementKind(element);
         const score = document.createElement("span");
-        score.textContent = " · score " + candidate.score + " · " + candidate.confidence;
+        score.textContent = " · " + candidate.confidence;
         const inspect = document.createElement("button");
         inspect.type = "button";
         inspect.textContent = "Inspect details";
@@ -1985,6 +1977,14 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       if (message.type === "external-state") {
         renderExternalState(message.payload);
       }
+      if (message.type === "domain-profile-state") {
+        externalStatus.textContent = "No domain ontology selected for this project.";
+        externalManifest.textContent = "FIBO is available but inactive. Activate it in the Entio web workbench to browse and reuse it here.";
+        externalResults.textContent = "Domain ontology browsing is disabled until a project profile is active.";
+        externalDetails.textContent = "No domain ontology selected.";
+        externalDependencies.textContent = "No domain ontology selected.";
+        externalProposal.textContent = "No domain ontology selected.";
+      }
       if (message.type === "external-error") {
         externalStatus.textContent = message.message;
       }
@@ -2008,6 +2008,13 @@ export function renderWorkbench(webview: Webview, nonce: string): string {
       }
       if (message.type === "external-describe-error") {
         externalDetails.textContent = message.message;
+      }
+      if (message.type === "domain-source-project") {
+        const status = document.createElement("p");
+        status.textContent = "Source/project status: " + message.payload.classification + " · " +
+          message.payload.sourceStatementCount + " source statement(s) · " +
+          message.payload.projectStatementCount + " project statement(s)";
+        externalDetails.append(status);
       }
       if (message.type === "external-dependencies") {
         renderExternalDependencies(message.payload);

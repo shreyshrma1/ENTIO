@@ -10,7 +10,9 @@ import {
   createExternalDescriptorModel,
   createExternalManifestModel,
   createExternalProposalModel,
-  createExternalSearchModel,
+  createDomainProfileStatusModel,
+  createDomainRecommendationSearchModel,
+  createDomainSourceProjectModel,
 } from "./externalWorkbench";
 import { detectEntioProject } from "./projectDetector";
 import { renderWorkbench } from "./webview";
@@ -131,14 +133,21 @@ export function activate(context: vscode.ExtensionContext): void {
       };
       const refreshExternal = async (): Promise<void> => {
         try {
+          const profileResponse = await engine.run(["domain-profile-status", project.rootPath], project.rootPath);
+          const profile = createDomainProfileStatusModel(profileResponse);
+          if (!profile) throw new Error("Entio CLI returned an invalid domain profile status.");
+          if (!profile.selected) {
+            await panel.webview.postMessage({ type: "domain-profile-state", payload: profile });
+            return;
+          }
           const [manifestResponse, browseResponse] = await Promise.all([
             engine.run(["external-manifest", project.rootPath], project.rootPath),
-            engine.run(["external-browse", project.rootPath, "--mode", "curated", "--page-size", "25"], project.rootPath),
+            engine.run(["external-browse", project.rootPath, "--mode", "modules", "--page-size", "25"], project.rootPath),
           ]);
           const manifest = createExternalManifestModel(manifestResponse);
           const browse = createExternalBrowseModel(browseResponse);
           if (!manifest || !browse) throw new Error("Entio CLI returned an invalid external ontology catalog response.");
-          await panel.webview.postMessage({ type: "external-state", payload: { manifest, browse } });
+          await panel.webview.postMessage({ type: "external-state", payload: { profile, manifest, browse } });
         } catch (error) {
           await panel.webview.postMessage({
             type: "external-error",
@@ -173,7 +182,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
         if (message.type === "external-browse") {
           const payload = message as { payload?: { mode?: unknown; moduleIri?: unknown; page?: unknown; pageSize?: unknown } };
-          const mode = typeof payload.payload?.mode === "string" ? payload.payload.mode : "curated";
+          const mode = typeof payload.payload?.mode === "string" ? payload.payload.mode : "modules";
           const page = typeof payload.payload?.page === "number" ? payload.payload.page : 0;
           const pageSize = typeof payload.payload?.pageSize === "number" ? payload.payload.pageSize : 25;
           try {
@@ -197,15 +206,10 @@ export function activate(context: vscode.ExtensionContext): void {
             return;
           }
           try {
-            const page = typeof payload.payload?.page === "number" ? payload.payload.page : 0;
-            const pageSize = typeof payload.payload?.pageSize === "number" ? payload.payload.pageSize : 25;
-            const args = ["external-search", project.rootPath, query, "--page", String(page), "--page-size", String(pageSize)];
+            const args = ["domain-recommendations", project.rootPath, query, "--broad-search"];
             if (typeof payload.payload?.kind === "string" && payload.payload.kind) args.push("--kind", payload.payload.kind);
-            if (typeof payload.payload?.moduleIri === "string" && payload.payload.moduleIri) args.push("--module-iri", payload.payload.moduleIri);
-            if (typeof payload.payload?.domain === "string" && payload.payload.domain) args.push("--domain", payload.payload.domain);
-            if (payload.payload?.curatedOnly === true) args.push("--curated-only");
             const response = await engine.run(args, project.rootPath);
-            const search = createExternalSearchModel(response);
+            const search = createDomainRecommendationSearchModel(response);
             if (!search) throw new Error("Entio CLI returned an invalid external search result.");
             await panel.webview.postMessage({ type: "external-search", payload: search });
           } catch (error) {
@@ -224,10 +228,15 @@ export function activate(context: vscode.ExtensionContext): void {
           try {
             const args = ["external-describe", project.rootPath, iri];
             if (typeof payload.payload?.kind === "string" && payload.payload.kind) args.push("--kind", payload.payload.kind);
-            const response = await engine.run(args, project.rootPath);
+            const [response, domainResponse] = await Promise.all([
+              engine.run(args, project.rootPath),
+              engine.run(["domain-describe", project.rootPath, iri], project.rootPath),
+            ]);
             const descriptor = createExternalDescriptorModel(response);
+            const sourceProject = createDomainSourceProjectModel(domainResponse);
             if (!descriptor) throw new Error("Entio CLI returned an invalid external descriptor.");
             await panel.webview.postMessage({ type: "external-describe", payload: descriptor });
+            if (sourceProject) await panel.webview.postMessage({ type: "domain-source-project", payload: sourceProject });
           } catch (error) {
             await panel.webview.postMessage({ type: "external-describe-error", message: error instanceof Error ? error.message : "Entio external descriptor lookup failed." });
           }

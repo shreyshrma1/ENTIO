@@ -55,6 +55,20 @@ export interface ExternalProposalModel {
   readonly dependencyStatus: string;
 }
 
+export interface DomainProfileStatusModel {
+  readonly availability: string;
+  readonly selected: boolean;
+  readonly sourceId?: string;
+  readonly release?: string;
+}
+
+export interface DomainSourceProjectModel {
+  readonly iri: string;
+  readonly sourceStatementCount: number;
+  readonly projectStatementCount: number;
+  readonly classification: string;
+}
+
 type RecordValue = Record<string, unknown>;
 
 function record(value: unknown): RecordValue | undefined {
@@ -130,6 +144,66 @@ export function createExternalSearchModel(response: EngineResponse): ExternalSea
     pageSize: response.pageSize,
     hasNext: response.hasNext,
     candidates: candidates as RecordValue[],
+  };
+}
+
+export function createDomainProfileStatusModel(response: EngineResponse): DomainProfileStatusModel | undefined {
+  const profile = record(response.profile);
+  if (!response.ok || typeof response.availability !== "string" || typeof response.selected !== "boolean") return undefined;
+  return {
+    availability: response.availability,
+    selected: response.selected,
+    sourceId: stringValue(profile?.sourceId),
+    release: stringValue(profile?.release),
+  };
+}
+
+export function createDomainRecommendationSearchModel(response: EngineResponse): ExternalSearchModel | undefined {
+  if (!response.ok || typeof response.query !== "string" || !Array.isArray(response.recommendations)) return undefined;
+  const recommendations = response.recommendations.map(record);
+  if (recommendations.some((recommendation) => !recommendation)) return undefined;
+  const candidates = (recommendations as RecordValue[]).map((recommendation) => ({
+    recommendationId: recommendation.recommendationId,
+    confidence: recommendation.confidence,
+    reasons: recommendation.reasons,
+    warnings: recommendation.warnings,
+    permittedActions: recommendation.permittedActions,
+    element: {
+      kind: recommendation.kind,
+      descriptor: {
+        semantic: {
+          iri: recommendation.iri,
+          preferredLabel: { value: recommendation.preferredLabel },
+        },
+        sourceId: "fibo",
+        release: undefined,
+        moduleIri: recommendation.sourceModuleIri,
+        domain: recommendation.sourceFamily,
+        maturity: recommendation.maturity,
+        locality: "External",
+        catalogStatus: "FullCorpus",
+      },
+    },
+  }));
+  return {
+    query: response.query,
+    totalResultCount: candidates.length,
+    page: 0,
+    pageSize: candidates.length,
+    hasNext: false,
+    candidates,
+  };
+}
+
+export function createDomainSourceProjectModel(response: EngineResponse): DomainSourceProjectModel | undefined {
+  if (!response.ok || typeof response.iri !== "string" ||
+      typeof response.sourceStatementCount !== "number" || typeof response.projectStatementCount !== "number" ||
+      typeof response.classification !== "string") return undefined;
+  return {
+    iri: response.iri,
+    sourceStatementCount: response.sourceStatementCount,
+    projectStatementCount: response.projectStatementCount,
+    classification: response.classification,
   };
 }
 
