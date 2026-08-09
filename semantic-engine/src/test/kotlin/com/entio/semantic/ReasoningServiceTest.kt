@@ -243,6 +243,32 @@ class ReasoningServiceTest {
         assertTrue(reasoning.warnings.contains("Missing local import."))
     }
 
+    @Test
+    fun reasonsOverTheResolvedGraphWithoutFetchingItsImportDeclarations(): Unit {
+        val graph = parse(
+            """
+            @prefix ex: <https://example.com/> .
+            @prefix owl: <http://www.w3.org/2002/07/owl#> .
+            @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+            ex:ontology a owl:Ontology ;
+                owl:imports <http://127.0.0.1:9/not-a-runtime-import> .
+            ex:Parent a owl:Class .
+            ex:Child a owl:Class ; rdfs:subClassOf ex:Parent .
+            ex:item a ex:Child .
+            """.trimIndent(),
+        ).graph
+
+        val result = assertIs<EntioResult.Success<*>>(service.reason(graph))
+        val reasoning = assertIs<com.entio.core.ReasoningResult>(result.value)
+
+        assertEquals(ConsistencyStatus.Consistent, reasoning.consistency)
+        assertTrue(reasoning.individualTypes.any {
+            it.individual == Iri("https://example.com/item") &&
+                it.type == Iri("https://example.com/Parent") &&
+                it.origin == FactOrigin.Inferred
+        })
+    }
+
     private fun parse(content: String): com.entio.core.LoadedOntology {
         val path = Files.createTempFile("entio-reasoning", ".ttl")
         path.writeText(content)

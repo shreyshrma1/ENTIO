@@ -7,6 +7,9 @@ import {
   createExternalManifestModel,
   createExternalProposalModel,
   createExternalSearchModel,
+  createDomainProfileStatusModel,
+  createDomainRecommendationSearchModel,
+  createDomainSourceProjectModel,
   externalCandidateIri,
   externalCandidateLabel,
   externalDependencyKey,
@@ -136,4 +139,61 @@ test("rejects malformed or failed external responses", () => {
   assert.equal(createExternalSearchModel({ ok: true, candidates: [] }), undefined);
   assert.equal(createExternalDependenciesModel({ ok: true, requiresExplicitApproval: true }), undefined);
   assert.equal(createExternalProposalModel({ ok: false }), undefined);
+});
+
+test("normalizes inactive and active domain profile status without silently selecting FIBO", () => {
+  assert.deepEqual(createDomainProfileStatusModel({ ok: true, availability: "inactive", selected: false }), {
+    availability: "inactive",
+    selected: false,
+    sourceId: undefined,
+    release: undefined,
+  });
+  assert.deepEqual(createDomainProfileStatusModel({
+    ok: true,
+    availability: "active",
+    selected: true,
+    profile: { sourceId: "fibo", release: "master_2026Q2" },
+  }), {
+    availability: "active",
+    selected: true,
+    sourceId: "fibo",
+    release: "master_2026Q2",
+  });
+});
+
+test("adapts Kotlin-ranked full-corpus recommendations and source-project status for display", () => {
+  const search = createDomainRecommendationSearchModel({
+    ok: true,
+    query: "agreement",
+    recommendations: [{
+      recommendationId: "dr_1",
+      iri: "https://example.com/fibo/Agreement",
+      preferredLabel: "agreement",
+      kind: "Class",
+      sourceFamily: "FIBO",
+      sourceModuleIri: "https://example.com/fibo/module",
+      maturity: "Release",
+      confidence: "Strong",
+      permittedActions: ["Reuse"],
+      reasons: [{ type: "PreferredLabelMatch" }],
+      warnings: [],
+    }],
+  });
+  const status = createDomainSourceProjectModel({
+    ok: true,
+    iri: "https://example.com/fibo/Agreement",
+    sourceStatementCount: 4,
+    projectStatementCount: 2,
+    classification: "AnnotationOnly",
+  });
+
+  assert.equal(search?.totalResultCount, 1);
+  assert.equal(externalCandidateIri(search!.candidates[0]), "https://example.com/fibo/Agreement");
+  assert.equal(search?.candidates[0].recommendationId, "dr_1");
+  assert.deepEqual(status, {
+    iri: "https://example.com/fibo/Agreement",
+    sourceStatementCount: 4,
+    projectStatementCount: 2,
+    classification: "AnnotationOnly",
+  });
 });

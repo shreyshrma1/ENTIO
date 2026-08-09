@@ -763,6 +763,7 @@ public fun Application.module(
         }
 
         post("/api/v1/projects/{projectId}/external/fibo/proposals") {
+            call.markLegacyFiboRoute()
             call.respondWorkflow {
                 val user = call.requireUser(dependencies)
                 val projectId = call.requiredProjectId()
@@ -1154,7 +1155,26 @@ private suspend fun ApplicationCall.respondOntologyGraph(block: () -> Any): Unit
 }
 
 private suspend fun ApplicationCall.respondExternal(block: () -> Any): Unit = try {
+    markLegacyFiboRoute()
     respond(block())
+} catch (failure: com.entio.web.contract.ProjectRegistryException) {
+    respond(
+        HttpStatusCode.NotFound,
+        WebErrorResponse(
+            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
+            code = failure.code,
+            message = failure.message ?: "The external ontology project is unavailable.",
+        ),
+    )
+} catch (failure: ProjectReadFailure) {
+    respond(
+        HttpStatusCode.BadRequest,
+        WebErrorResponse(
+            requestId = request.headers["X-Request-Id"] ?: "web-${System.nanoTime()}",
+            code = failure.code,
+            message = failure.message ?: "The external ontology request is invalid.",
+        ),
+    )
 } catch (failure: WebWorkflowFailure) {
     val status = when (failure.code) {
         "unknown-project", "external-element-not-found" -> HttpStatusCode.NotFound
@@ -1168,6 +1188,11 @@ private suspend fun ApplicationCall.respondExternal(block: () -> Any): Unit = tr
             message = failure.message ?: "The external ontology request could not be completed.",
         ),
     )
+}
+
+private fun ApplicationCall.markLegacyFiboRoute(): Unit {
+    response.headers.append("Deprecation", "true")
+    response.headers.append("Warning", "299 Entio \"Legacy FIBO compatibility route; retained throughout Phase 13\"")
 }
 
 private suspend fun ApplicationCall.respondAi(block: suspend () -> Any): Unit = try {

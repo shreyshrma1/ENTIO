@@ -299,6 +299,8 @@ class ApplicationTest {
         val modules = client.get("/api/v1/projects/simple/external/fibo/modules?curated=true&limit=2")
         val moduleBody = modules.bodyAsText()
         assertEquals(HttpStatusCode.OK, modules.status)
+        assertEquals("true", modules.headers["Deprecation"])
+        assertContains(modules.headers["Warning"].orEmpty(), "retained throughout Phase 13")
         assertContains(moduleBody, "sourceId")
         assertContains(moduleBody, "ontologyIri")
         assertContains(moduleBody, "nextOffset")
@@ -350,6 +352,14 @@ class ApplicationTest {
             Path.of("..", "external-ontologies/fibo/indexes/catalog-v1.jsonl"),
         ).firstOrNull(Files::isRegularFile)
         assertTrue(asset != null)
+
+        val missing = client.get("/api/v1/projects/missing/external/fibo/modules?limit=2")
+        assertEquals(HttpStatusCode.NotFound, missing.status)
+        assertEquals("true", missing.headers["Deprecation"])
+
+        val unbounded = client.get("/api/v1/projects/simple/external/fibo/modules?limit=1001")
+        assertEquals(HttpStatusCode.BadRequest, unbounded.status)
+        assertEquals("true", unbounded.headers["Deprecation"])
     }
 
     @Test

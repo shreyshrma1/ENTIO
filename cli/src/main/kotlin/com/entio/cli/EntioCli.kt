@@ -73,6 +73,15 @@ public class EntioCli(
             .addSubcommand("external-search", ExternalSearchCommand())
             .addSubcommand("external-dependencies", ExternalDependenciesCommand())
             .addSubcommand("external-proposal", ExternalProposalCommand())
+            .addSubcommand("domain-sources", DomainSourcesCommand())
+            .addSubcommand("domain-profile-status", DomainProfileStatusCommand())
+            .addSubcommand("domain-activation-preview", DomainActivationPreviewCommand())
+            .addSubcommand("domain-foundation", DomainFoundationCommand())
+            .addSubcommand("domain-foundation-plan", DomainFoundationPlanCommand())
+            .addSubcommand("domain-recommendations", DomainRecommendationsCommand())
+            .addSubcommand("domain-describe", DomainDescribeCommand())
+            .addSubcommand("domain-dependencies", DomainDependenciesCommand())
+            .addSubcommand("domain-proposal", DomainProposalCommand())
 
         return commandLine
             .setOut(out)
