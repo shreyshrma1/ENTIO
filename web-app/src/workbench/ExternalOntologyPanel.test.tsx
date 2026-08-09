@@ -14,6 +14,7 @@ describe("optional domain ontology workspace", () => {
       const path = String(input);
       if (path === "/api/v1/domain-ontologies") return json(catalog());
       if (path.endsWith("/domain-ontology")) return json(status("Inactive"));
+      if (path.endsWith("/domain-migration")) return json(migration());
       throw new Error(`Unexpected request: ${path}`);
     }));
 
@@ -31,6 +32,7 @@ describe("optional domain ontology workspace", () => {
       const path = String(input);
       if (path === "/api/v1/domain-ontologies") return json(catalog("LexicalStructural"));
       if (path.endsWith("/domain-ontology")) return json(status("Inactive"));
+      if (path.endsWith("/domain-migration")) return json(migration());
       throw new Error(`Unexpected request: ${path}`);
     }));
 
@@ -42,6 +44,7 @@ describe("optional domain ontology workspace", () => {
       const path = String(input);
       if (path === "/api/v1/domain-ontologies") return json(catalog("Unavailable", false));
       if (path.endsWith("/domain-ontology")) return json(status("Inactive"));
+      if (path.endsWith("/domain-migration")) return json(migration());
       throw new Error(`Unexpected request: ${path}`);
     }));
     renderPanel();
@@ -54,6 +57,7 @@ describe("optional domain ontology workspace", () => {
       const path = String(input);
       if (path === "/api/v1/domain-ontologies") return json(catalog());
       if (path.endsWith("/domain-ontology")) return json(status("Inactive"));
+      if (path.endsWith("/domain-migration")) return json(migration());
       if (path.endsWith("/activation-preview")) return json({ apiVersion: "v1", projectId: "simple", activationToken: "token", preview: { profile: profile(), profilePath: ".entio/domain-profile.yaml", managedSourcePath: "ontology/fibo-reuse.ttl", serializedProfile: "schema: entio-domain-profile-v1\nsourceId: fibo\n", serializedEmptyManagedSource: "# Entio managed FIBO reuse source\n", changesProjectOntology: false } });
       if (path.endsWith("/activate")) return json({ apiVersion: "v1", code: "domain-activation-failed", message: "restored" }, 409);
       throw new Error(`Unexpected request: ${path}`);
@@ -75,6 +79,27 @@ describe("optional domain ontology workspace", () => {
     fireEvent.click(activate);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("prior project state was restored");
+  });
+
+  it("shows recognized legacy reuse and requires a read-only migration preview before activation", async () => {
+    const recognized = { ...migration(), status: "ExistingReuseRecognized", recognizedIriCount: 2, detectedIris: ["https://spec.example/Agreement", "https://spec.example/Party"], recognizedIris: ["https://spec.example/Agreement", "https://spec.example/Party"], localExtensionCount: 1, verifiedCurrentRelease: "master_2026Q2", issues: ["Existing open-work baselines are retained."] };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/v1/domain-ontologies") return json(catalog());
+      if (path.endsWith("/domain-ontology")) return json(status("Inactive"));
+      if (path.endsWith("/domain-migration")) return json(recognized);
+      if (path.endsWith("/domain-migration/preview")) return json({ ...recognized, activationPreview: { profile: profile(), profilePath: ".entio/domain-profile.yaml", managedSourcePath: "ontology/fibo-reuse.ttl", serializedProfile: "schema: entio-domain-profile-v1\n", serializedEmptyManagedSource: "# empty\n", changesProjectOntology: false } });
+      if (path.endsWith("/activation-preview")) return json({ apiVersion: "v1", projectId: "simple", activationToken: "token", preview: { profile: profile(), profilePath: ".entio/domain-profile.yaml", managedSourcePath: "ontology/fibo-reuse.ttl", serializedProfile: "schema: entio-domain-profile-v1\n", serializedEmptyManagedSource: "# empty\n", changesProjectOntology: false } });
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    renderPanel();
+    expect(await screen.findByRole("heading", { name: "Existing FIBO use detected" })).toBeInTheDocument();
+    expect(screen.getByText("Not inferred")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Review migration preview" }));
+    expect(await screen.findByText(/moves no statements and creates no historical provenance/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Continue to activation confirmation" }));
+    expect(await screen.findByRole("heading", { name: "Confirm FIBO activation" })).toBeInTheDocument();
   });
 
   it("plans selected foundations and renders server-ranked full-corpus source and project meaning", async () => {
@@ -156,6 +181,10 @@ function catalog(retrievalAvailability: "Full" | "LexicalStructural" | "Unavaila
 
 function status(availability: "Inactive" | "Active") {
   return { apiVersion: "v1", projectId: "simple", status: { availability, profile: availability === "Active" ? profile() : null, migrationStatus: "NoExistingReuse", issues: [] } };
+}
+
+function migration() {
+  return { apiVersion: "v1", projectId: "simple", status: "NoExistingReuse", recognizedIriCount: 0, detectedIris: [], recognizedIris: [], unsupportedIris: [], localExtensionCount: 0, verifiedCurrentRelease: null, historicalRelease: null, provenanceSeedCandidates: [], provenanceSeedingEligible: false, openWorkStates: [], openWorkBaselineRetained: true, issues: [], activationPreview: null, requiresNormalProposalForStatementMovement: true, mutatesProject: false };
 }
 
 function recommendation(recommendationId: string, sourceFamily: "FIBO" | "OMG_COMMONS", preferredLabel: string, reused = false, customized = false) {

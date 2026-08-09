@@ -40,6 +40,9 @@ describe("application workbench journey", () => {
       if (path.endsWith("/domain-ontology")) {
         return json({ apiVersion: "v1", projectId: "simple", status: { availability: "Inactive", profile: null, migrationStatus: "NoExistingReuse", issues: [] } });
       }
+      if (path.endsWith("/domain-migration")) {
+        return json({ apiVersion: "v1", projectId: "simple", status: "NoExistingReuse", recognizedIriCount: 0, detectedIris: [], recognizedIris: [], unsupportedIris: [], localExtensionCount: 0, verifiedCurrentRelease: null, historicalRelease: null, provenanceSeedCandidates: [], provenanceSeedingEligible: false, openWorkStates: [], openWorkBaselineRetained: true, issues: [], activationPreview: null, requiresNormalProposalForStatementMovement: true, mutatesProject: false });
+      }
       if (path.includes("/external/fibo/modules")) {
         return json({ sourceId: "fibo", release: "test", page: { items: [{ ontologyIri: "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/", label: "Agreements", domain: "FND", sourcePath: "source/FND/Agreements/Agreements.rdf", maturity: "Release", curated: true, elementCount: 1 }], offset: 0, limit: 15, total: 1, nextOffset: null } });
       }

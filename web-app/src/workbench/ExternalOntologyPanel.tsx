@@ -60,6 +60,9 @@ export default function ExternalOntologyPanel({ projectId }: { projectId: string
 
   const preview = domain.previewActivation.data;
   const deactivation = domain.previewDeactivation.data;
+  const migration = domain.migration.data;
+  const migrationPreview = domain.previewMigration.data;
+  const migrationRequired = !active && Boolean(migration && migration.status !== "NoExistingReuse");
   const retrieval = descriptor?.retrievalAvailability ?? "Unavailable";
 
   return <section className="external-ontology-panel domain-ontology-panel" aria-labelledby="domain-heading">
@@ -68,13 +71,13 @@ export default function ExternalOntologyPanel({ projectId }: { projectId: string
       <SourceBadge family="FIBO" />
     </div>
 
-    {domain.catalog.isPending || domain.status.isPending ? <p role="status">Loading domain settings...</p> : null}
-    {domain.catalog.isError || domain.status.isError ? <p role="alert">Domain settings are unavailable. Retry from this page.</p> : null}
+    {domain.catalog.isPending || domain.status.isPending || domain.migration.isPending ? <p role="status">Loading domain settings...</p> : null}
+    {domain.catalog.isError || domain.status.isError || domain.migration.isError ? <p role="alert">Domain settings are unavailable. Retry from this page.</p> : null}
 
     {descriptor && domain.status.data ? <>
       <div className="domain-setting-card">
         <label htmlFor="domain-selection">Domain ontology</label>
-        <select id="domain-selection" value={active ? descriptor.sourceId : "none"} disabled={active || domain.activate.isPending || !descriptor.selectable} onChange={(event) => { if (event.target.value === descriptor.sourceId) domain.previewActivation.mutate(); }}>
+        <select id="domain-selection" value={active ? descriptor.sourceId : "none"} disabled={active || migrationRequired || domain.activate.isPending || !descriptor.selectable} onChange={(event) => { if (event.target.value === descriptor.sourceId) domain.previewActivation.mutate(); }}>
           <option value="none">None</option>
           <option value={descriptor.sourceId}>FIBO</option>
         </select>
@@ -83,9 +86,26 @@ export default function ExternalOntologyPanel({ projectId }: { projectId: string
           <div><dt>Retrieval</dt><dd><RetrievalStatus availability={retrieval} /></dd></div>
           <div><dt>Project status</dt><dd>{domain.status.data.status.availability}</dd></div>
         </dl>
-        {!active && !preview ? <button className="button primary" type="button" onClick={() => domain.previewActivation.mutate()} disabled={!descriptor.selectable || domain.previewActivation.isPending}>Select FIBO</button> : null}
+        {!active && !preview && !migrationRequired ? <button className="button primary" type="button" onClick={() => domain.previewActivation.mutate()} disabled={!descriptor.selectable || domain.previewActivation.isPending}>Select FIBO</button> : null}
         {domain.previewActivation.isError ? <p role="alert">Activation preview failed. No project file was changed.</p> : null}
       </div>
+
+      {!active && migrationRequired && migration ? <section className="domain-confirmation" aria-labelledby="domain-migration-heading">
+        <h3 id="domain-migration-heading">Existing FIBO use detected</h3>
+        <p>{migration.recognizedIriCount} current-package identities and {migration.unsupportedIris.length} unsupported identities were found. Existing RDF and historical work remain unchanged.</p>
+        <dl>
+          <div><dt>Migration status</dt><dd>{humanize(migration.status)}</dd></div>
+          <div><dt>Local extensions</dt><dd>{migration.localExtensionCount}</dd></div>
+          <div><dt>Verified current release</dt><dd>{migration.verifiedCurrentRelease ?? "Not established"}</dd></div>
+          <div><dt>Historical release</dt><dd>{migration.historicalRelease ?? "Not inferred"}</dd></div>
+          <div><dt>Open-work baselines</dt><dd>{migration.openWorkBaselineRetained ? "Retained" : "Review required"}</dd></div>
+        </dl>
+        {migration.issues.length ? <ul>{migration.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul> : null}
+        {migration.unsupportedIris.length ? <details><summary>Unsupported identities</summary><ul>{migration.unsupportedIris.map((iri) => <li key={iri}><code>{iri}</code></li>)}</ul></details> : null}
+        {migration.status === "ExistingReuseRecognized" && !migrationPreview ? <button className="button primary" type="button" disabled={domain.previewMigration.isPending} onClick={() => domain.previewMigration.mutate()}>Review migration preview</button> : null}
+        {domain.previewMigration.isError ? <p role="alert">Migration cannot be previewed until every detected identity is recognized. Nothing changed.</p> : null}
+        {migrationPreview ? <><p>The preview creates only the profile and empty managed source. It moves no statements and creates no historical provenance.</p><dl><div><dt>Profile file</dt><dd><code>{migrationPreview.activationPreview?.profilePath}</code></dd></div><div><dt>Managed source</dt><dd><code>{migrationPreview.activationPreview?.managedSourcePath}</code></dd></div><div><dt>Ontology statements changed</dt><dd>{migrationPreview.mutatesProject ? "Yes" : "No"}</dd></div></dl><button className="button primary" type="button" onClick={() => domain.previewActivation.mutate()}>Continue to activation confirmation</button></> : null}
+      </section> : null}
 
       {!active && preview ? <section className="domain-confirmation" aria-labelledby="domain-activation-heading">
         <h3 id="domain-activation-heading">Confirm FIBO activation</h3>

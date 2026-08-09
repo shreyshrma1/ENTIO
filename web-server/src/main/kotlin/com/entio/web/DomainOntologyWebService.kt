@@ -1,8 +1,6 @@
 package com.entio.web
 
 import com.entio.core.DomainModelingIntent
-import com.entio.core.DomainOntologyMigrationStatus
-import com.entio.core.DomainOntologyProfile
 import com.entio.core.DomainOntologyProfileIdentity
 import com.entio.core.DomainOperationKind
 import com.entio.core.DomainProfileDeactivationContext
@@ -11,6 +9,9 @@ import com.entio.core.EntioResult
 import com.entio.core.ExternalEntityKind
 import com.entio.core.Iri
 import com.entio.semantic.DomainFileTransactionManager
+import com.entio.semantic.DomainMigrationOpenWork
+import com.entio.semantic.DomainMigrationService
+import com.entio.semantic.DomainMigrationWorkState
 import com.entio.semantic.DomainProfileRepository
 import com.entio.semantic.DomainProfileService
 import com.entio.semantic.DomainRecommendationFingerprints
@@ -85,6 +86,8 @@ public class DomainOntologyWebService(
     private val recommendations: DomainRecommendationService get() = recommendationDelegate.value
     private val reuseDelegate = lazy(reuseFactory)
     private val reuse: DomainReuseService get() = reuseDelegate.value
+    private val migrationDelegate = lazy { DomainMigrationService.open(assets.searchRoot, profiles) }
+    private val migrations: DomainMigrationService get() = migrationDelegate.value
     private val recommendationPermits = Semaphore(MAX_CONCURRENT_RECOMMENDATIONS)
     private val tokens = linkedMapOf<String, ConfirmationToken>()
     private val idempotentResponses = linkedMapOf<String, IdempotentResponse>()
@@ -104,7 +107,16 @@ public class DomainOntologyWebService(
 
     public fun status(projectId: String): WebDomainOntologyStatusResponse {
         val root = root(projectId)
-        return WebDomainOntologyStatusResponse(projectId = projectId, status = profiles.status(root))
+        val status = profiles.status(root)
+        val migrationStatus = if (status.availability == com.entio.core.DomainOntologyAvailability.Inactive) {
+            detectMigration(load(projectId), migrationOpenWork(projectId)).status
+        } else {
+            status.migrationStatus
+        }
+        return WebDomainOntologyStatusResponse(
+            projectId = projectId,
+            status = status.copy(migrationStatus = migrationStatus),
+        )
     }
 
     @Synchronized
@@ -378,17 +390,47 @@ public class DomainOntologyWebService(
     }
 
     public fun migration(projectId: String, preview: Boolean = false): WebDomainMigrationResponse {
+        val root = root(projectId)
         val project = load(projectId)
-        val recognized = project.externalIris().size
-        val migration = when {
-            project.activeDomainOntology != null || recognized == 0 -> DomainOntologyMigrationStatus.NoExistingReuse
-            else -> DomainOntologyMigrationStatus.ExistingReuseRecognized
+        val openWork = migrationOpenWork(projectId)
+        val report = detectMigration(project, openWork)
+        val migrationPreview = if (preview) {
+            val result = try {
+                migrations.preview(root, project, openWork)
+            } catch (_: Exception) {
+                throw DomainOntologyWebFailure(
+                    "domain-assets-unavailable",
+                    "The approved domain package failed migration verification.",
+                )
+            }
+            when (result) {
+                is EntioResult.Failure -> throw DomainOntologyWebFailure(
+                    result.issues.firstOrNull()?.code ?: "domain-migration-preview-failed",
+                    result.message,
+                )
+                is EntioResult.Success -> result.value
+            }
+        } else {
+            null
         }
         return WebDomainMigrationResponse(
             projectId = projectId,
-            status = migration,
-            recognizedIriCount = recognized,
-            proposedProfile = DomainOntologyProfile().takeIf { preview && migration == DomainOntologyMigrationStatus.ExistingReuseRecognized },
+            status = report.status,
+            recognizedIriCount = report.recognizedIris.size,
+            detectedIris = report.detectedIris.map(Iri::value),
+            recognizedIris = report.recognizedIris.map(Iri::value),
+            unsupportedIris = report.unsupportedIris.map(Iri::value),
+            localExtensionCount = report.localExtensionCount,
+            verifiedCurrentRelease = report.verifiedCurrentRelease,
+            historicalRelease = report.historicalRelease,
+            provenanceSeedCandidates = report.provenanceSeedCandidates.map(Iri::value),
+            provenanceSeedingEligible = report.provenanceSeedingEligible,
+            openWorkStates = report.openWork.map { it.state.name },
+            openWorkBaselineRetained = report.openWorkBaselineRetained,
+            issues = report.issues,
+            proposedProfile = migrationPreview?.activation?.profile,
+            activationPreview = migrationPreview?.activation,
+            requiresNormalProposalForStatementMovement = migrationPreview?.requiresNormalProposalForStatementMovement ?: true,
         )
     }
 
@@ -562,6 +604,36 @@ public class DomainOntologyWebService(
     private fun EntioProject.externalIris(): Set<Iri> = graph.triples.flatMap { triple ->
         listOfNotNull(triple.subjectResource as? Iri, triple.objectTerm as? Iri)
     }.filter { iri -> iri.value.startsWith(FIBO_PREFIX) || iri.value.startsWith(COMMONS_PREFIX) }.toSet()
+
+    private fun migrationOpenWork(projectId: String): List<DomainMigrationOpenWork> {
+        val snapshot = staging.snapshot(projectId)
+        val iris = snapshot.entries.flatMap { entry ->
+            entry.normalizedValues.values.filter(::isDomainIri).map(::Iri)
+        }.toSet()
+        if (iris.isEmpty()) return emptyList()
+        val state = when (snapshot.proposal?.status?.lowercase()) {
+            null -> DomainMigrationWorkState.Staged
+            "rejected" -> DomainMigrationWorkState.Rejected
+            "rolledback", "rolled-back" -> DomainMigrationWorkState.RolledBack
+            else -> DomainMigrationWorkState.Proposed
+        }
+        return listOf(DomainMigrationOpenWork(state, iris))
+    }
+
+    private fun detectMigration(
+        project: EntioProject,
+        openWork: List<DomainMigrationOpenWork>,
+    ): com.entio.semantic.DomainMigrationReport = try {
+        migrations.detect(project, openWork)
+    } catch (_: Exception) {
+        throw DomainOntologyWebFailure(
+            "domain-assets-unavailable",
+            "The approved domain package failed migration verification.",
+        )
+    }
+
+    private fun isDomainIri(value: String): Boolean =
+        value.startsWith(FIBO_PREFIX) || value.startsWith(COMMONS_PREFIX)
 
     private fun configurationFingerprint(root: Path): String = sha256(Files.readAllBytes(root.resolve("entio.yaml")))
 

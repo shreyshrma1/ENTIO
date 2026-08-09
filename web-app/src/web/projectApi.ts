@@ -1070,6 +1070,27 @@ export interface WebDomainDeactivationPreviewResponse {
   preview: { active: boolean; eligible: boolean; blockers: string[]; profilePath: string; removeEmptyManagedSource: boolean; changesProjectOntology: boolean };
 }
 
+export interface WebDomainMigrationResponse {
+  apiVersion: "v1";
+  projectId: string;
+  status: "NoExistingReuse" | "ExistingReuseRecognized" | "ExistingReuseAmbiguous" | "ExistingReuseUnsupported";
+  recognizedIriCount: number;
+  detectedIris: string[];
+  recognizedIris: string[];
+  unsupportedIris: string[];
+  localExtensionCount: number;
+  verifiedCurrentRelease: string | null;
+  historicalRelease: string | null;
+  provenanceSeedCandidates: string[];
+  provenanceSeedingEligible: boolean;
+  openWorkStates: string[];
+  openWorkBaselineRetained: boolean;
+  issues: string[];
+  activationPreview: WebDomainActivationPreviewResponse["preview"] | null;
+  requiresNormalProposalForStatementMovement: boolean;
+  mutatesProject: boolean;
+}
+
 export interface WebDomainFoundationMember {
   elementId: string;
   iri: string;
@@ -1152,6 +1173,14 @@ export async function loadDomainOntologies(fetcher: WebFetcher = defaultFetcher)
 
 export async function loadDomainOntologyStatus(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebDomainOntologyStatusResponse> {
   return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-ontology`, fetcher);
+}
+
+export async function loadDomainMigration(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebDomainMigrationResponse> {
+  return getJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-migration`, fetcher);
+}
+
+export async function previewDomainMigration(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebDomainMigrationResponse> {
+  return sendJson(`/api/v1/projects/${encodeURIComponent(projectId)}/domain-migration/preview`, "POST", undefined, fetcher);
 }
 
 export async function previewDomainActivation(projectId: string, fetcher: WebFetcher = defaultFetcher): Promise<WebDomainActivationPreviewResponse> {
