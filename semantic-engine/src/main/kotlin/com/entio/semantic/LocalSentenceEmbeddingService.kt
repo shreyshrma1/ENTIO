@@ -8,6 +8,7 @@ import ai.onnxruntime.OrtSession
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.sqrt
 
@@ -110,6 +111,12 @@ public class LocalSentenceEmbeddingService private constructor(
         public const val CONFIG_SHA256: String = "953f9c0d463486b10a6871cc2fd59f223b2c70184f49815e7efbcab5d8908b41"
 
         public fun open(modelRoot: Path): LocalSentenceEmbeddingService {
+            val runtimeInitializer = Executors.newSingleThreadExecutor { runnable ->
+                Thread(runnable, "entio-domain-onnx-init").apply { isDaemon = true }
+            }
+            val environmentFuture = runtimeInitializer.submit<OrtEnvironment> {
+                OrtEnvironment.getEnvironment("entio-domain-embedding")
+            }
             val files = mapOf(
                 "model.onnx" to MODEL_SHA256,
                 "tokenizer.json" to TOKENIZER_SHA256,
@@ -117,34 +124,46 @@ public class LocalSentenceEmbeddingService private constructor(
                 "special_tokens_map.json" to SPECIAL_TOKENS_SHA256,
                 "config.json" to CONFIG_SHA256,
             )
-            files.forEach { (relative, expected) ->
-                val path = modelRoot.resolve(relative)
-                require(Files.isRegularFile(path)) { "Missing local embedding asset: $relative" }
-                require(sha256(path) == expected) { "Local embedding asset checksum mismatch: $relative" }
-            }
-            val tokenizer = HuggingFaceTokenizer.builder()
-                .optTokenizerPath(modelRoot.resolve("tokenizer.json"))
-                .optTokenizerConfigPath(modelRoot.resolve("tokenizer_config.json").toString())
-                .optAddSpecialTokens(true)
-                .optTruncation(true)
-                .optWithOverflowingTokens(true)
-                .optMaxLength(MAX_TOKENS)
-                .optPadding(false)
-                .build()
             try {
-                val environment = OrtEnvironment.getEnvironment("entio-domain-embedding")
-                val session = OrtSession.SessionOptions().use { options ->
-                    options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-                    options.setSessionLogVerbosityLevel(0)
-                    environment.createSession(modelRoot.resolve("model.onnx").toString(), options)
+                files.forEach { (relative, expected) ->
+                    val path = modelRoot.resolve(relative)
+                    require(Files.isRegularFile(path)) { "Missing local embedding asset: $relative" }
+                    require(sha256(path) == expected) { "Local embedding asset checksum mismatch: $relative" }
                 }
-                require(session.inputNames.containsAll(setOf("input_ids", "attention_mask"))) {
-                    "The embedding model input contract is unsupported."
+                val tokenizer = HuggingFaceTokenizer.builder()
+                    .optTokenizerPath(modelRoot.resolve("tokenizer.json"))
+                    .optTokenizerConfigPath(modelRoot.resolve("tokenizer_config.json").toString())
+                    .optAddSpecialTokens(true)
+                    .optTruncation(true)
+                    .optWithOverflowingTokens(true)
+                    .optMaxLength(MAX_TOKENS)
+                    .optPadding(false)
+                    .build()
+                try {
+                    val environment = environmentFuture.get()
+                    val session = OrtSession.SessionOptions().use { options ->
+                        // The model is already exported for inference. Basic
+                        // rewrites preserve its approved output contract
+                        // without extended per-process optimization.
+                        options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
+                        // Four intra-op workers retain bounded transformer
+                        // parallelism without machine-sized session pools.
+                        options.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
+                        options.setInterOpNumThreads(1)
+                        options.setIntraOpNumThreads(4)
+                        options.setSessionLogVerbosityLevel(0)
+                        environment.createSession(modelRoot.resolve("model.onnx").toString(), options)
+                    }
+                    require(session.inputNames.containsAll(setOf("input_ids", "attention_mask"))) {
+                        "The embedding model input contract is unsupported."
+                    }
+                    return LocalSentenceEmbeddingService(tokenizer, environment, session)
+                } catch (exception: Exception) {
+                    tokenizer.close()
+                    throw exception
                 }
-                return LocalSentenceEmbeddingService(tokenizer, environment, session)
-            } catch (exception: Exception) {
-                tokenizer.close()
-                throw exception
+            } finally {
+                runtimeInitializer.shutdownNow()
             }
         }
 

@@ -29,6 +29,6 @@ similarity: cosine-exact-scan
 byteOrder: little-endian
 vectorBytes: 7033344
 iriSha256: 6950734f1d69ac3bb61f7d64af9a986c48dea54bc317df34d843d82ec774ae71
-vectorSha256: 48798ec77ddbc8da214b2ac905f91d7495b77bfbe71ed4b554a7ba76fa9ba8cd
+vectorSha256: 040a6e53c8d202dfad705dbde14fc441cdcb60d54803f20e08ab10175a0ccdea
 graphContextContract: domain-graph-context-v1
 rankingContract: phase-13-hybrid-ranking-v1

@@ -1,10 +1,10 @@
 # Agent Guidance For Entio
 
-This repository contains the implemented Entio foundation through Phase 12. Phase 11 was implemented and verified on 2026-07-24. Phase 11.5 was implemented and verified on 2026-07-27. Phase 11.5+ was implemented and verified on 2026-07-30. Phase 12 was implemented and verified on 2026-07-31. Phase 13 is the active phase with approved planning documents and has not been implemented. Phases 1 through 8 are retained as historical delivery records, and the repository is no longer documentation-only.
+This repository contains the implemented Entio foundation through Phase 13. Phase 11 was implemented and verified on 2026-07-24. Phase 11.5 was implemented and verified on 2026-07-27. Phase 11.5+ was implemented and verified on 2026-07-30. Phase 12 was implemented and verified on 2026-07-31. Phase 13 was implemented and verified on 2026-08-11. Phases 1 through 8 are retained as historical delivery records, and the repository is no longer documentation-only.
 
 Phase 1 is intentionally small: it supports local Entio project configuration, small Turtle/RDF ontology parsing, basic symbol extraction, deterministic validation reports, semantic graph diffs, and a thin CLI. Later product surfaces and enterprise features are still out of scope unless explicitly requested.
 
-Phases 1 through 8 are preserved as historical delivery records. Phase 9 is complete and adds bounded, read-only interactive ontology graph visualization. Phase 10's inferred-materialization delivery remains historical; the current Reasoning workspace exposes bounded read-only asserted and inferred fact browsers. Phase 10.5 is complete and adds optional, read-only applied and proposal inferred-fact overlays to Explore and the ontology map. The current product also includes a native OpenAI-backed ontology assistant with project-scoped conversations, ontology-aware answers, review-only edit proposals, deterministic validation, and staging into the existing human-review workflow. Phase 11 extends that active AI foundation with bounded document ingestion, evidence-grounded analysis, cross-workflow provenance, and human-reviewed typed drafts. Phase 11.5 and Phase 11.5+ remain the historical multi-stage modeling and deterministic-compilation foundations. Phase 12 makes new document-analysis tasks ontology-grounded: Kotlin extracts stable local candidates, searches authorized ontology scopes, gives the selected model bounded evidence and server-issued choices, verifies the model's dispositions, and reuses the existing compiler and human-review workflow. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
+Phases 1 through 8 are preserved as historical delivery records. Phase 9 is complete and adds bounded, read-only interactive ontology graph visualization. Phase 10's inferred-materialization delivery remains historical; the current Reasoning workspace exposes bounded read-only asserted and inferred fact browsers. Phase 10.5 is complete and adds optional, read-only applied and proposal inferred-fact overlays to Explore and the ontology map. The current product also includes a native OpenAI-backed ontology assistant with project-scoped conversations, ontology-aware answers, review-only edit proposals, deterministic validation, and staging into the existing human-review workflow. Phase 11 extends that active AI foundation with bounded document ingestion, evidence-grounded analysis, cross-workflow provenance, and human-reviewed typed drafts. Phase 11.5 and Phase 11.5+ remain the historical multi-stage modeling and deterministic-compilation foundations. Phase 12 makes new document-analysis tasks ontology-grounded. Phase 13 adds explicit project-scoped FIBO activation, canonical-IRI reuse, editable project-owned annotations, and verified full-corpus hybrid recommendations across applicable human-driven modeling. The Kotlin semantic engine remains the source of truth for RDF and ontology behavior, while the CLI, VS Code extension, Ktor server, and React web application delegate semantic work to it.
 
 ## Product Context
 
@@ -20,15 +20,9 @@ When asked to implement code, keep changes limited to the module or files named 
 
 If a task seems to require later-phase infrastructure, stop and explain why before implementing it.
 
-Phase 13 is the active phase. Its scope, spec, and ExecPlan were approved on
-2026-08-08, but they do not describe implemented behavior. ExecPlan Slice 0
-audit and ADR work is authorized. Do not implement Phase 13 Slice 1 or later
-until Slice 0 decisions have been incorporated into approved revisions of the
-spec and ExecPlan.
-
 ## Current Scope
 
-The implemented Entio foundation is complete through Phase 12. The current codebase supports:
+The implemented Entio foundation is complete through Phase 13. The current codebase supports:
 
 - Loading an Entio project.
 - Parsing small Turtle/RDF ontology files with existing libraries.
@@ -46,6 +40,11 @@ The implemented Entio foundation is complete through Phase 12. The current codeb
 - Performing deterministic semantic search with stable match reasons and ranked results.
 - Translating supported semantic edits through the existing proposal, validation, diff, approval, apply, reload, and rollback workflow.
 - Browsing and searching a pinned, read-only FIBO catalog with deterministic ranking, explicit dependency review, and controlled external reuse proposals.
+- Explicitly activating one verified project-scoped FIBO domain profile without silently enabling it for existing projects.
+- Searching the verified full FIBO corpus through a local hybrid lexical, structural, and vector index with deterministic degradation and no network fallback.
+- Recommending FIBO classes and properties across applicable human-driven search, creation, editing, mapping, SHACL, reasoning, and review workflows.
+- Reusing selected FIBO identities in a project-owned managed source while preserving canonical IRIs, editable supported labels and definitions, dependency closure, and separate immutable provenance.
+- Detecting existing FIBO use and offering non-mutating migration previews without inventing historical provenance or moving RDF outside the normal proposal workflow.
 - Serving approved projects through a Ktor HTTP and WebSocket boundary without moving semantic logic out of the Kotlin engine.
 - Using a React web workbench for project navigation, entity inspection, label-first typed editing, shared staging, proposal review, reasoning, SHACL, FIBO, collaboration, provider settings, and the native ontology assistant.
 - Coordinating shared staged state, collaboration presence/activity, asynchronous semantic jobs, and in-memory development sessions through explicit server-owned contracts.
@@ -224,18 +223,20 @@ authorized ontology scopes before grounded model interpretation. It adds no
 embeddings, vector database, second ontology index, automatic approval, or
 another ontology write path.
 
-Phase 13 is the active phase. Its approved planning documents are:
+Phase 13 is complete and summarized in
+`docs/phase-summaries/phase-13-summary.md`. Its approved and implemented
+planning documents are:
 
 - `docs/architecture/phase-13-scope.md`
 - `docs/specs/0024-phase-13-domain-ontology-first-modeling-full-corpus-retrieval.md`
 - `docs/execplans/0024-phase-13-domain-ontology-first-modeling-full-corpus-retrieval.md`
 
-Phase 13 plans optional project-scoped FIBO activation, selective project-owned
+Phase 13 adds optional project-scoped FIBO activation, selective project-owned
 reuse that preserves canonical FIBO IRIs, editable supported project meaning,
 separate source provenance, and full-corpus hybrid recommendations throughout
 applicable human-driven modeling. It leaves document ingestion and the native
-assistant on their existing retrieval contracts. No Phase 13 implementation or
-implementation summary exists yet.
+assistant on their Phase 12 retrieval contracts and adds no network retrieval,
+automatic approval, or second ontology write path.
 
 ## Software Architecture Rules
 

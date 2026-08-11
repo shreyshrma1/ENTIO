@@ -60,3 +60,11 @@ tasks.register<JavaExec>("verifyDomainSearchIndex") {
         rootProject.projectDir.resolve("external-ontologies/domain-search/models/all-MiniLM-L6-v2").absolutePath,
     )
 }
+
+tasks.register<JavaExec>("phase13PerformanceBenchmark") {
+    group = "verification"
+    description = "Run the isolated Phase 13 local retrieval performance gates."
+    dependsOn(tasks.named("testClasses"))
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.entio.semantic.Phase13PerformanceBenchmark")
+}

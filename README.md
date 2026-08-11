@@ -18,7 +18,7 @@ Entio should eventually help teams:
 
 ## Current Repository Status
 
-This repository contains the implemented Entio foundation through Phase 12. Phase 11, AI-Powered Document Ingestion and Ontology Evolution, was implemented and verified on 2026-07-24. Phase 11.5, Multi-Stage AI Modeling and Connected Ontology Change Sets, was implemented and verified on 2026-07-27. Phase 11.5+, Deterministic Compilation of Connected Document Models, was implemented and verified on 2026-07-30. Phase 12, Ontology-Grounded Document Analysis, was implemented and verified on 2026-07-31. Phase 13, Domain-Ontology-First Modeling and Full-Corpus Retrieval, is the active phase with approved planning documents and has not been implemented.
+This repository contains the implemented Entio foundation through Phase 13. Phase 11, AI-Powered Document Ingestion and Ontology Evolution, was implemented and verified on 2026-07-24. Phase 11.5, Multi-Stage AI Modeling and Connected Ontology Change Sets, was implemented and verified on 2026-07-27. Phase 11.5+, Deterministic Compilation of Connected Document Models, was implemented and verified on 2026-07-30. Phase 12, Ontology-Grounded Document Analysis, was implemented and verified on 2026-07-31. Phase 13, Domain-Ontology-First Modeling and Full-Corpus Retrieval, was implemented and verified on 2026-08-11.
 
 Phase 11.5+ moves exact final-operation formatting out of the model. The model produces a connected semantic plan, and Kotlin verifies completeness and deterministically compiles supported meaning into existing typed operations.
 
@@ -27,6 +27,8 @@ The current product includes a native OpenAI-backed ontology assistant. Users ca
 Phase 11.5 replaces only the document-ingestion analysis contract with bounded discovery, connected modeling, ontology-aware planning, deterministic verification, and human review responsibilities. Phase 11 remains the upload, extraction, evidence, authorization, review, proposal, apply, rollback, and applied-provenance foundation.
 
 Phase 12 changes the default analysis order. Entio now extracts stable local candidates with pinned Apache OpenNLP resources, retrieves bounded matches from authorized ontology scopes, and gives the selected model compact evidence plus server-issued choices. Kotlin verifies every grounded disposition and reuses the existing deterministic compiler and human-controlled proposal workflow. No embeddings, vector database, external retrieval service, or additional ontology write path was added.
+
+Phase 13 makes domain reuse optional and project-scoped. Users may explicitly activate the pinned FIBO release, inspect and selectively reuse its foundational or full-corpus entities, edit supported project-owned labels and definitions while preserving canonical FIBO IRIs, and receive local hybrid lexical, structural, and vector recommendations throughout applicable human-driven modeling workflows. Kotlin verifies recommendation identity, freshness, dependencies, provenance, and writes through the existing proposal workflow. Document ingestion and the native ontology assistant retain their Phase 12 retrieval contracts.
 
 Phase 1 is the first backend foundation for Entio. It uses Kotlin/JVM because the core work is ontology loading, RDF/Turtle parsing, deterministic validation, semantic diffing, and CLI behavior.
 
@@ -315,19 +317,20 @@ The existing private-draft, proposal, validation, human approval, atomic apply,
 reload, rollback, and applied-provenance workflow remains the only ontology
 write path. Phase 12 analysis and review do not write ontology or SHACL sources.
 
-## Active Planning Phase
+## Current Phase
 
-Phase 13 is the active phase. It plans optional project-scoped FIBO activation,
-selective project-owned reuse with canonical FIBO IRIs, editable supported
-project statements, separate source provenance, and full-corpus hybrid
-recommendations across applicable human-driven modeling workflows. Document
-ingestion and the native ontology assistant remain on their Phase 12-era
-retrieval contracts.
+Phase 13 is complete. Projects do not silently enable FIBO: activation is an
+explicit, transactional choice. Once active, the web workbench can browse the
+verified package, preview selected reuse, and request full-corpus domain
+recommendations in applicable human-driven workflows. Reused entities keep
+their canonical FIBO IRIs while supported project-owned labels and definitions
+remain editable. Every mutation still uses deterministic validation and the
+existing human-reviewed proposal, approval, atomic apply, reload, and rollback
+path.
 
-The Phase 13 planning documents were approved on 2026-08-08. Production
-implementation has not started; ExecPlan Slice 0 audit and ADR work is now
-authorized. Later slices remain blocked until those decisions are incorporated
-into an approved spec and ExecPlan revision.
+The approved scope, spec, ExecPlan, slice completion records, and measured
+verification results are retained in the repository. See the Phase 13
+implementation summary below.
 
 ## Technical Principle
 
@@ -407,3 +410,4 @@ The project should use existing libraries for RDF parsing, graph representation,
 - [Phase 12 Implementation Summary](docs/phase-summaries/phase-12-summary.md)
 - [Phase 13 Spec](docs/specs/0024-phase-13-domain-ontology-first-modeling-full-corpus-retrieval.md)
 - [Phase 13 ExecPlan](docs/execplans/0024-phase-13-domain-ontology-first-modeling-full-corpus-retrieval.md)
+- [Phase 13 Implementation Summary](docs/phase-summaries/phase-13-summary.md)
